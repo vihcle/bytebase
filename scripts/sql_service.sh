@@ -3,6 +3,7 @@
 # For now, we use this script to start our SQL service on render
 # by changing the ENTRYPOINT and CMD at the dockerfile to this.
 
+# 
 # example usages:
 # ./sql_service.sh
 # ./sql_service.sh --host https://example.com

@@ -29,6 +29,12 @@ type DataSourceMessage struct {
 	AuthenticationDatabase string
 	SID                    string
 	ServiceName            string
+	// SSH related.
+	SSHHost                 string
+	SSHPort                 string
+	SSHUser                 string
+	SSHObfuscatedPassword   string
+	SSHObfuscatedPrivateKey string
 	// (deprecated) Output only.
 	UID        int
 	DatabaseID int
@@ -36,10 +42,9 @@ type DataSourceMessage struct {
 
 // UpdateDataSourceMessage is the message for the data source.
 type UpdateDataSourceMessage struct {
-	UpdaterID     int
-	InstanceUID   int
-	EnvironmentID string
-	InstanceID    string
+	UpdaterID   int
+	InstanceUID int
+	InstanceID  string
 
 	Type api.DataSourceType
 
@@ -56,6 +61,12 @@ type UpdateDataSourceMessage struct {
 	AuthenticationDatabase *string
 	SID                    *string
 	ServiceName            *string
+	// SSH related.
+	SSHHost                 *string
+	SSHPort                 *string
+	SSHUser                 *string
+	SSHObfuscatedPassword   *string
+	SSHObfuscatedPrivateKey *string
 }
 
 func (*Store) listDataSourceV2(ctx context.Context, tx *Tx, instanceID string) ([]*DataSourceMessage, error) {
@@ -113,6 +124,11 @@ func (*Store) listDataSourceV2(ctx context.Context, tx *Tx, instanceID string) (
 		dataSourceMessage.AuthenticationDatabase = dataSourceOptions.AuthenticationDatabase
 		dataSourceMessage.SID = dataSourceOptions.Sid
 		dataSourceMessage.ServiceName = dataSourceOptions.ServiceName
+		dataSourceMessage.SSHHost = dataSourceOptions.SshHost
+		dataSourceMessage.SSHPort = dataSourceOptions.SshPort
+		dataSourceMessage.SSHUser = dataSourceOptions.SshUser
+		dataSourceMessage.SSHObfuscatedPassword = dataSourceOptions.SshObfuscatedPassword
+		dataSourceMessage.SSHObfuscatedPrivateKey = dataSourceOptions.SshObfuscatedPrivateKey
 
 		dataSourceMessages = append(dataSourceMessages, &dataSourceMessage)
 	}
@@ -124,7 +140,7 @@ func (*Store) listDataSourceV2(ctx context.Context, tx *Tx, instanceID string) (
 }
 
 // AddDataSourceToInstanceV2 adds a RO data source to an instance and return the instance where the data source is added.
-func (s *Store) AddDataSourceToInstanceV2(ctx context.Context, instanceUID, creatorID int, environmentID, instanceID string, dataSource *DataSourceMessage) error {
+func (s *Store) AddDataSourceToInstanceV2(ctx context.Context, instanceUID, creatorID int, instanceID string, dataSource *DataSourceMessage) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return errors.New("Failed to begin transaction")
@@ -149,13 +165,13 @@ func (s *Store) AddDataSourceToInstanceV2(ctx context.Context, instanceUID, crea
 		return errors.New("Failed to commit transaction")
 	}
 
-	s.instanceCache.Delete(getInstanceCacheKey(environmentID, instanceID))
+	s.instanceCache.Delete(getInstanceCacheKey(instanceID))
 	s.instanceIDCache.Delete(instanceUID)
 	return nil
 }
 
 // RemoveDataSourceV2 removes a RO data source from an instance.
-func (s *Store) RemoveDataSourceV2(ctx context.Context, instanceUID int, environmentID, instanceID string, dataSourceTp api.DataSourceType) error {
+func (s *Store) RemoveDataSourceV2(ctx context.Context, instanceUID int, instanceID string, dataSourceTp api.DataSourceType) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return errors.New("Failed to begin transaction")
@@ -181,7 +197,7 @@ func (s *Store) RemoveDataSourceV2(ctx context.Context, instanceUID int, environ
 		return errors.Wrap(err, "failed to commit transaction")
 	}
 
-	s.instanceCache.Delete(getInstanceCacheKey(environmentID, instanceID))
+	s.instanceCache.Delete(getInstanceCacheKey(instanceID))
 	s.instanceIDCache.Delete(instanceUID)
 	return nil
 }
@@ -230,6 +246,21 @@ func (s *Store) UpdateDataSourceV2(ctx context.Context, patch *UpdateDataSourceM
 	if v := patch.ServiceName; v != nil {
 		optionSet, args = append(optionSet, fmt.Sprintf("jsonb_build_object('serviceName', to_jsonb($%d::TEXT))", len(args)+1)), append(args, *v)
 	}
+	if v := patch.SSHHost; v != nil {
+		optionSet, args = append(optionSet, fmt.Sprintf("jsonb_build_object('sshHost', to_jsonb($%d::TEXT))", len(args)+1)), append(args, *v)
+	}
+	if v := patch.SSHPort; v != nil {
+		optionSet, args = append(optionSet, fmt.Sprintf("jsonb_build_object('sshPort', to_jsonb($%d::TEXT))", len(args)+1)), append(args, *v)
+	}
+	if v := patch.SSHUser; v != nil {
+		optionSet, args = append(optionSet, fmt.Sprintf("jsonb_build_object('sshUser', to_jsonb($%d::TEXT))", len(args)+1)), append(args, *v)
+	}
+	if v := patch.SSHObfuscatedPassword; v != nil {
+		optionSet, args = append(optionSet, fmt.Sprintf("jsonb_build_object('sshObfuscatedPassword', to_jsonb($%d::TEXT))", len(args)+1)), append(args, *v)
+	}
+	if v := patch.SSHObfuscatedPrivateKey; v != nil {
+		optionSet, args = append(optionSet, fmt.Sprintf("jsonb_build_object('sshObfuscatedPrivateKey', to_jsonb($%d::TEXT))", len(args)+1)), append(args, *v)
+	}
 	if len(optionSet) != 0 {
 		set = append(set, fmt.Sprintf(`options = options || %s`, strings.Join(optionSet, "||")))
 	}
@@ -261,7 +292,7 @@ func (s *Store) UpdateDataSourceV2(ctx context.Context, patch *UpdateDataSourceM
 		return errors.Wrap(err, "failed to commit transaction")
 	}
 
-	s.instanceCache.Delete(getInstanceCacheKey(patch.EnvironmentID, patch.InstanceID))
+	s.instanceCache.Delete(getInstanceCacheKey(patch.InstanceID))
 	s.instanceIDCache.Delete(patch.InstanceUID)
 	return nil
 }
@@ -269,10 +300,15 @@ func (s *Store) UpdateDataSourceV2(ctx context.Context, patch *UpdateDataSourceM
 func (*Store) addDataSourceToInstanceImplV2(ctx context.Context, tx *Tx, instanceUID, databaseUID, creatorID int, dataSource *DataSourceMessage) error {
 	// We flatten the data source fields in DataSourceMessage, so we need to compose them in store layer before INSERT.
 	dataSourceOptions := storepb.DataSourceOptions{
-		Srv:                    dataSource.SRV,
-		AuthenticationDatabase: dataSource.AuthenticationDatabase,
-		Sid:                    dataSource.SID,
-		ServiceName:            dataSource.ServiceName,
+		Srv:                     dataSource.SRV,
+		AuthenticationDatabase:  dataSource.AuthenticationDatabase,
+		Sid:                     dataSource.SID,
+		ServiceName:             dataSource.ServiceName,
+		SshHost:                 dataSource.SSHHost,
+		SshPort:                 dataSource.SSHPort,
+		SshUser:                 dataSource.SSHUser,
+		SshObfuscatedPassword:   dataSource.SSHObfuscatedPassword,
+		SshObfuscatedPrivateKey: dataSource.SSHObfuscatedPrivateKey,
 	}
 	protoBytes, err := protojson.Marshal(&dataSourceOptions)
 	if err != nil {

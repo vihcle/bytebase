@@ -2,6 +2,7 @@
 import type { CallContext, CallOptions } from "nice-grpc-common";
 import * as _m0 from "protobufjs/minimal";
 import { Timestamp } from "../google/protobuf/timestamp";
+import { BackupPlanSchedule, backupPlanScheduleFromJSON, backupPlanScheduleToJSON } from "./org_policy_service";
 
 export const protobufPackage = "bytebase.v1";
 
@@ -11,7 +12,7 @@ export interface SearchAnomaliesRequest {
    * follow the [ebnf](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form) syntax.
    * Only support filter by resource and type for now.
    * For example:
-   * Search the anomalies of a specific resource: 'resource="environments/{environemnt}/instances/{instance}".'
+   * Search the anomalies of a specific resource: 'resource="instances/{instance}".'
    * Search the specified types of anomalies: 'type="DATABASE_BACKUP_POLICY_VIOLATION" | "MIGRATION_SCHEMA".'
    */
   filter: string;
@@ -46,8 +47,8 @@ export interface Anomaly {
   /**
    * The resource that is the target of the operation.
    * Format:
-   * - Instance: environments/{environment}/instnaces/{instance}
-   * - Database: environments/{environment}/instnaces/{instance}/databases/{database}
+   * - Instance: instnaces/{instance}
+   * - Database: instnaces/{instance}/databases/{database}
    */
   resource: string;
   /** type is the type of the anomaly. */
@@ -59,6 +60,8 @@ export interface Anomaly {
   databaseBackupPolicyViolationDetail?: Anomaly_DatabaseBackupPolicyViolationDetail | undefined;
   databaseBackupMissingDetail?: Anomaly_DatabaseBackupMissingDetail | undefined;
   databaseSchemaDriftDetail?: Anomaly_DatabaseSchemaDriftDetail | undefined;
+  createTime?: Date;
+  updateTime?: Date;
 }
 
 /** AnomalyType is the type of the anomaly. */
@@ -194,56 +197,6 @@ export function anomaly_AnomalySeverityToJSON(object: Anomaly_AnomalySeverity): 
   }
 }
 
-/** BackupPlanSchedule is the backup plan schedule. */
-export enum Anomaly_BackupPlanSchedule {
-  /** BACKUP_PLAN_SCHEDULE_UNSPECIFIED - Unspecified backup plan schedule. */
-  BACKUP_PLAN_SCHEDULE_UNSPECIFIED = 0,
-  /** UNSET - UNSET is the unset backup plan schedule. */
-  UNSET = 1,
-  /** DAILY - DAILY is the daily backup plan schedule. */
-  DAILY = 2,
-  /** WEEKLY - WEEKLY is the weekly backup plan schedule. */
-  WEEKLY = 3,
-  UNRECOGNIZED = -1,
-}
-
-export function anomaly_BackupPlanScheduleFromJSON(object: any): Anomaly_BackupPlanSchedule {
-  switch (object) {
-    case 0:
-    case "BACKUP_PLAN_SCHEDULE_UNSPECIFIED":
-      return Anomaly_BackupPlanSchedule.BACKUP_PLAN_SCHEDULE_UNSPECIFIED;
-    case 1:
-    case "UNSET":
-      return Anomaly_BackupPlanSchedule.UNSET;
-    case 2:
-    case "DAILY":
-      return Anomaly_BackupPlanSchedule.DAILY;
-    case 3:
-    case "WEEKLY":
-      return Anomaly_BackupPlanSchedule.WEEKLY;
-    case -1:
-    case "UNRECOGNIZED":
-    default:
-      return Anomaly_BackupPlanSchedule.UNRECOGNIZED;
-  }
-}
-
-export function anomaly_BackupPlanScheduleToJSON(object: Anomaly_BackupPlanSchedule): string {
-  switch (object) {
-    case Anomaly_BackupPlanSchedule.BACKUP_PLAN_SCHEDULE_UNSPECIFIED:
-      return "BACKUP_PLAN_SCHEDULE_UNSPECIFIED";
-    case Anomaly_BackupPlanSchedule.UNSET:
-      return "UNSET";
-    case Anomaly_BackupPlanSchedule.DAILY:
-      return "DAILY";
-    case Anomaly_BackupPlanSchedule.WEEKLY:
-      return "WEEKLY";
-    case Anomaly_BackupPlanSchedule.UNRECOGNIZED:
-    default:
-      return "UNRECOGNIZED";
-  }
-}
-
 /**
  * Instance level anomaly detail.
  *
@@ -272,15 +225,15 @@ export interface Anomaly_DatabaseBackupPolicyViolationDetail {
    */
   parent: string;
   /** expected_schedule is the expected backup plan schedule in the parent. */
-  expectedSchedule: Anomaly_BackupPlanSchedule;
+  expectedSchedule: BackupPlanSchedule;
   /** actual_schedule is the actual backup plan schedule in the database. */
-  actualSchedule: Anomaly_BackupPlanSchedule;
+  actualSchedule: BackupPlanSchedule;
 }
 
 /** DatabaseBackupMissingDetail is the detail for database backup missing anomaly. */
 export interface Anomaly_DatabaseBackupMissingDetail {
   /** expected_schedule is the expected backup plan schedule in the database. */
-  expectedSchedule: Anomaly_BackupPlanSchedule;
+  expectedSchedule: BackupPlanSchedule;
   /** latest_backup_time is the latest backup time in the database. */
   latestBackupTime?: Date;
 }
@@ -321,28 +274,28 @@ export const SearchAnomaliesRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.filter = reader.string();
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.pageSize = reader.int32();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.pageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -402,21 +355,21 @@ export const SearchAnomaliesResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.anomalies.push(Anomaly.decode(reader, reader.uint32()));
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.nextPageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -464,6 +417,8 @@ function createBaseAnomaly(): Anomaly {
     databaseBackupPolicyViolationDetail: undefined,
     databaseBackupMissingDetail: undefined,
     databaseSchemaDriftDetail: undefined,
+    createTime: undefined,
+    updateTime: undefined,
   };
 }
 
@@ -497,6 +452,12 @@ export const Anomaly = {
     if (message.databaseSchemaDriftDetail !== undefined) {
       Anomaly_DatabaseSchemaDriftDetail.encode(message.databaseSchemaDriftDetail, writer.uint32(66).fork()).ldelim();
     }
+    if (message.createTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.createTime), writer.uint32(74).fork()).ldelim();
+    }
+    if (message.updateTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.updateTime), writer.uint32(82).fork()).ldelim();
+    }
     return writer;
   },
 
@@ -508,42 +469,42 @@ export const Anomaly = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.resource = reader.string();
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.type = reader.int32() as any;
           continue;
         case 3:
-          if (tag != 24) {
+          if (tag !== 24) {
             break;
           }
 
           message.severity = reader.int32() as any;
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.instanceConnectionDetail = Anomaly_InstanceConnectionDetail.decode(reader, reader.uint32());
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.databaseConnectionDetail = Anomaly_DatabaseConnectionDetail.decode(reader, reader.uint32());
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
@@ -553,21 +514,35 @@ export const Anomaly = {
           );
           continue;
         case 7:
-          if (tag != 58) {
+          if (tag !== 58) {
             break;
           }
 
           message.databaseBackupMissingDetail = Anomaly_DatabaseBackupMissingDetail.decode(reader, reader.uint32());
           continue;
         case 8:
-          if (tag != 66) {
+          if (tag !== 66) {
             break;
           }
 
           message.databaseSchemaDriftDetail = Anomaly_DatabaseSchemaDriftDetail.decode(reader, reader.uint32());
           continue;
+        case 9:
+          if (tag !== 74) {
+            break;
+          }
+
+          message.createTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        case 10:
+          if (tag !== 82) {
+            break;
+          }
+
+          message.updateTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -595,6 +570,8 @@ export const Anomaly = {
       databaseSchemaDriftDetail: isSet(object.databaseSchemaDriftDetail)
         ? Anomaly_DatabaseSchemaDriftDetail.fromJSON(object.databaseSchemaDriftDetail)
         : undefined,
+      createTime: isSet(object.createTime) ? fromJsonTimestamp(object.createTime) : undefined,
+      updateTime: isSet(object.updateTime) ? fromJsonTimestamp(object.updateTime) : undefined,
     };
   },
 
@@ -621,6 +598,8 @@ export const Anomaly = {
       (obj.databaseSchemaDriftDetail = message.databaseSchemaDriftDetail
         ? Anomaly_DatabaseSchemaDriftDetail.toJSON(message.databaseSchemaDriftDetail)
         : undefined);
+    message.createTime !== undefined && (obj.createTime = message.createTime.toISOString());
+    message.updateTime !== undefined && (obj.updateTime = message.updateTime.toISOString());
     return obj;
   },
 
@@ -653,6 +632,8 @@ export const Anomaly = {
       (object.databaseSchemaDriftDetail !== undefined && object.databaseSchemaDriftDetail !== null)
         ? Anomaly_DatabaseSchemaDriftDetail.fromPartial(object.databaseSchemaDriftDetail)
         : undefined;
+    message.createTime = object.createTime ?? undefined;
+    message.updateTime = object.updateTime ?? undefined;
     return message;
   },
 };
@@ -677,14 +658,14 @@ export const Anomaly_InstanceConnectionDetail = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.detail = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -733,14 +714,14 @@ export const Anomaly_DatabaseConnectionDetail = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.detail = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -795,28 +776,28 @@ export const Anomaly_DatabaseBackupPolicyViolationDetail = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.parent = reader.string();
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.expectedSchedule = reader.int32() as any;
           continue;
         case 3:
-          if (tag != 24) {
+          if (tag !== 24) {
             break;
           }
 
           message.actualSchedule = reader.int32() as any;
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -827,10 +808,8 @@ export const Anomaly_DatabaseBackupPolicyViolationDetail = {
   fromJSON(object: any): Anomaly_DatabaseBackupPolicyViolationDetail {
     return {
       parent: isSet(object.parent) ? String(object.parent) : "",
-      expectedSchedule: isSet(object.expectedSchedule)
-        ? anomaly_BackupPlanScheduleFromJSON(object.expectedSchedule)
-        : 0,
-      actualSchedule: isSet(object.actualSchedule) ? anomaly_BackupPlanScheduleFromJSON(object.actualSchedule) : 0,
+      expectedSchedule: isSet(object.expectedSchedule) ? backupPlanScheduleFromJSON(object.expectedSchedule) : 0,
+      actualSchedule: isSet(object.actualSchedule) ? backupPlanScheduleFromJSON(object.actualSchedule) : 0,
     };
   },
 
@@ -838,9 +817,8 @@ export const Anomaly_DatabaseBackupPolicyViolationDetail = {
     const obj: any = {};
     message.parent !== undefined && (obj.parent = message.parent);
     message.expectedSchedule !== undefined &&
-      (obj.expectedSchedule = anomaly_BackupPlanScheduleToJSON(message.expectedSchedule));
-    message.actualSchedule !== undefined &&
-      (obj.actualSchedule = anomaly_BackupPlanScheduleToJSON(message.actualSchedule));
+      (obj.expectedSchedule = backupPlanScheduleToJSON(message.expectedSchedule));
+    message.actualSchedule !== undefined && (obj.actualSchedule = backupPlanScheduleToJSON(message.actualSchedule));
     return obj;
   },
 
@@ -882,21 +860,21 @@ export const Anomaly_DatabaseBackupMissingDetail = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 8) {
+          if (tag !== 8) {
             break;
           }
 
           message.expectedSchedule = reader.int32() as any;
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.latestBackupTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -906,9 +884,7 @@ export const Anomaly_DatabaseBackupMissingDetail = {
 
   fromJSON(object: any): Anomaly_DatabaseBackupMissingDetail {
     return {
-      expectedSchedule: isSet(object.expectedSchedule)
-        ? anomaly_BackupPlanScheduleFromJSON(object.expectedSchedule)
-        : 0,
+      expectedSchedule: isSet(object.expectedSchedule) ? backupPlanScheduleFromJSON(object.expectedSchedule) : 0,
       latestBackupTime: isSet(object.latestBackupTime) ? fromJsonTimestamp(object.latestBackupTime) : undefined,
     };
   },
@@ -916,7 +892,7 @@ export const Anomaly_DatabaseBackupMissingDetail = {
   toJSON(message: Anomaly_DatabaseBackupMissingDetail): unknown {
     const obj: any = {};
     message.expectedSchedule !== undefined &&
-      (obj.expectedSchedule = anomaly_BackupPlanScheduleToJSON(message.expectedSchedule));
+      (obj.expectedSchedule = backupPlanScheduleToJSON(message.expectedSchedule));
     message.latestBackupTime !== undefined && (obj.latestBackupTime = message.latestBackupTime.toISOString());
     return obj;
   },
@@ -959,28 +935,28 @@ export const Anomaly_DatabaseSchemaDriftDetail = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.recordVersion = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.expectedSchema = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.actualSchema = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1091,8 +1067,8 @@ function toTimestamp(date: Date): Timestamp {
 }
 
 function fromTimestamp(t: Timestamp): Date {
-  let millis = t.seconds * 1_000;
-  millis += t.nanos / 1_000_000;
+  let millis = (t.seconds || 0) * 1_000;
+  millis += (t.nanos || 0) / 1_000_000;
   return new Date(millis);
 }
 

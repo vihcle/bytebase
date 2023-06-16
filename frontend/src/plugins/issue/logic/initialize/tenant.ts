@@ -5,11 +5,13 @@ import {
   MigrationType,
   MigrationContext,
 } from "@/types";
+import { TenantMode } from "@/types/proto/v1/project_service";
 import {
   findProject,
   BuildNewIssueContext,
   VALIDATE_ONLY_SQL,
   findDatabaseListByQuery,
+  findDatabaseGroupNameByQuery,
 } from "../common";
 import { IssueCreateHelper } from "./helper";
 
@@ -26,7 +28,7 @@ export const maybeBuildTenantDeployIssue = async (
   const isMigrate =
     issueType === "bb.issue.database.schema.update" ||
     issueType === "bb.issue.database.data.update";
-  if (project.tenantMode === "TENANT" && isMigrate) {
+  if (project.tenantMode === TenantMode.TENANT_MODE_ENABLED && isMigrate) {
     // Only to build tenant issue when:
     // 1. Project is tenant mode.
     // 2. Is schema update or data update (no to establish baseline).
@@ -49,14 +51,27 @@ const buildNewTenantSchemaUpdateIssue = async (
     migrationType = "DATA";
   }
 
+  const databaseGroupName = findDatabaseGroupNameByQuery(context);
   const databaseList = findDatabaseListByQuery(context);
-  if (databaseList.length > 0) {
+  if (databaseGroupName) {
+    const sql = route.query.sql as string;
+    helper.issueCreate!.createContext = {
+      detailList: [
+        {
+          migrationType: migrationType,
+          databaseGroupName: databaseGroupName,
+          statement: sql || VALIDATE_ONLY_SQL,
+          earliestAllowedTs: 0,
+        },
+      ],
+    };
+  } else if (databaseList.length > 0) {
     // For multi-selection pipeline, pass databaseId accordingly.
     helper.issueCreate!.createContext = {
       detailList: databaseList.map((db) => {
         return {
           migrationType: migrationType,
-          databaseId: db.id,
+          databaseId: Number(db.uid),
           statement: VALIDATE_ONLY_SQL,
           earliestAllowedTs: 0,
         };

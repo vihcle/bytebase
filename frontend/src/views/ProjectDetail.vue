@@ -1,30 +1,24 @@
 <template>
   <template v-if="hash === 'overview'">
-    <ProjectOverviewPanel
-      id="overview"
-      :project="project"
-      :database-list="databaseList"
-    />
+    <ProjectOverviewPanel id="overview" :project="project" />
   </template>
   <template v-if="hash === 'databases'">
     <ProjectDeploymentConfigPanel
       v-if="isTenantProject"
       id="deployment-config"
       :project="project"
-      :database-list="databaseList"
+      :database-list="databaseV1List"
       :allow-edit="allowEdit"
     />
-    <ProjectDatabasesPanel
-      v-else
-      :project="project"
-      :database-list="databaseList"
-    />
+    <ProjectDatabasesPanel v-else :database-list="databaseV1List" />
+  </template>
+  <template v-if="hash === 'database-groups'">
+    <ProjectDatabaseGroupPanel :project="project" />
   </template>
   <template v-if="hash === 'change-history'">
-    <ProjectMigrationHistoryPanel
+    <ProjectChangeHistoryPanel
       id="change-history"
-      :project="project"
-      :database-list="databaseList"
+      :database-list="databaseV1List"
     />
   </template>
   <template v-if="hash === 'slow-query'">
@@ -33,21 +27,28 @@
   <template v-if="hash === 'activity'">
     <ProjectActivityPanel id="activity" :project="project" />
   </template>
-  <template v-if="hash === 'gitops'">
+  <template v-if="!isDefaultProject && hash === 'gitops'">
     <ProjectVersionControlPanel
       id="gitops"
       :project="project"
       :allow-edit="allowEdit"
     />
   </template>
-  <template v-if="hash === 'webhook'">
+  <template v-if="!isDefaultProject && hash === 'webhook'">
     <ProjectWebhookPanel
       id="webhook"
       :project="project"
       :allow-edit="allowEdit"
     />
   </template>
-  <template v-if="hash === 'setting'">
+  <template v-if="!isDefaultProject && hash === 'members'">
+    <ProjectMemberPanel
+      id="setting"
+      :project="project"
+      :allow-edit="allowEdit"
+    />
+  </template>
+  <template v-if="!isDefaultProject && hash === 'setting'">
     <ProjectSettingPanel
       id="setting"
       :project="project"
@@ -56,87 +57,71 @@
   </template>
 </template>
 
-<script lang="ts">
-import { computed, defineComponent, watchEffect } from "vue";
-import { idFromSlug, sortDatabaseList } from "../utils";
+<script lang="ts" setup>
+import { computed } from "vue";
+import { useRoute } from "vue-router";
+
+import { DEFAULT_PROJECT_V1_NAME } from "@/types";
+import { idFromSlug, sortDatabaseV1List } from "../utils";
 import ProjectActivityPanel from "../components/ProjectActivityPanel.vue";
-import ProjectMigrationHistoryPanel from "../components/ProjectMigrationHistoryPanel.vue";
+import ProjectChangeHistoryPanel from "../components/ProjectChangeHistoryPanel.vue";
 import ProjectSlowQueryPanel from "../components/ProjectSlowQueryPanel.vue";
 import ProjectOverviewPanel from "../components/ProjectOverviewPanel.vue";
 import ProjectDatabasesPanel from "../components/ProjectDatabasesPanel.vue";
 import ProjectVersionControlPanel from "../components/ProjectVersionControlPanel.vue";
 import ProjectWebhookPanel from "../components/ProjectWebhookPanel.vue";
+import ProjectMemberPanel from "../components/ProjectMember/ProjectMemberPanel.vue";
 import ProjectSettingPanel from "../components/ProjectSettingPanel.vue";
 import ProjectDeploymentConfigPanel from "../components/ProjectDeploymentConfigPanel.vue";
-import { cloneDeep } from "lodash-es";
-import { useRoute } from "vue-router";
-import { useDatabaseStore, useEnvironmentList, useProjectStore } from "@/store";
+import {
+  useSearchDatabaseV1List,
+  useDatabaseV1Store,
+  useProjectV1Store,
+} from "@/store";
+import { TenantMode } from "@/types/proto/v1/project_service";
+import ProjectDatabaseGroupPanel from "@/components/DatabaseGroup/ProjectDatabaseGroupPanel.vue";
 
-export default defineComponent({
-  name: "ProjectDetail",
-  components: {
-    ProjectActivityPanel,
-    ProjectMigrationHistoryPanel,
-    ProjectSlowQueryPanel,
-    ProjectOverviewPanel,
-    ProjectVersionControlPanel,
-    ProjectWebhookPanel,
-    ProjectSettingPanel,
-    ProjectDeploymentConfigPanel,
-    ProjectDatabasesPanel,
+const props = defineProps({
+  projectWebhookSlug: {
+    default: undefined,
+    type: String,
   },
-  props: {
-    projectWebhookSlug: {
-      default: undefined,
-      type: String,
-    },
-    projectSlug: {
-      required: true,
-      type: String,
-    },
-    allowEdit: {
-      required: true,
-      type: Boolean,
-    },
+  projectSlug: {
+    required: true,
+    type: String,
   },
-  setup(props) {
-    const route = useRoute();
-    const databaseStore = useDatabaseStore();
-    const projectStore = useProjectStore();
-
-    const hash = computed(() => route.hash.replace(/^#?/, ""));
-
-    const project = computed(() => {
-      return projectStore.getProjectById(idFromSlug(props.projectSlug));
-    });
-
-    const environmentList = useEnvironmentList(["NORMAL"]);
-
-    const prepareDatabaseList = () => {
-      databaseStore.fetchDatabaseListByProjectId(project.value.id);
-    };
-
-    watchEffect(prepareDatabaseList);
-
-    const databaseList = computed(() => {
-      const list = cloneDeep(
-        databaseStore
-          .getDatabaseListByProjectId(project.value.id)
-          .filter((db) => db.syncStatus === "OK")
-      );
-      return sortDatabaseList(list, environmentList.value);
-    });
-
-    const isTenantProject = computed(() => {
-      return project.value.tenantMode === "TENANT";
-    });
-
-    return {
-      hash,
-      project,
-      databaseList,
-      isTenantProject,
-    };
+  allowEdit: {
+    required: true,
+    type: Boolean,
   },
+});
+
+const route = useRoute();
+const projectV1Store = useProjectV1Store();
+
+const hash = computed(() => route.hash.replace(/^#?/, ""));
+
+const project = computed(() => {
+  return projectV1Store.getProjectByUID(String(idFromSlug(props.projectSlug)));
+});
+
+const isDefaultProject = computed((): boolean => {
+  return project.value.name === DEFAULT_PROJECT_V1_NAME;
+});
+
+useSearchDatabaseV1List(
+  computed(() => ({
+    parent: "instances/-",
+    filter: `project == "${project.value.name}"`,
+  }))
+);
+
+const databaseV1List = computed(() => {
+  const list = useDatabaseV1Store().databaseListByProject(project.value.name);
+  return sortDatabaseV1List(list);
+});
+
+const isTenantProject = computed(() => {
+  return project.value.tenantMode === TenantMode.TENANT_MODE_ENABLED;
 });
 </script>

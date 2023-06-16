@@ -2,17 +2,18 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { uniq, uniqBy } from "lodash-es";
 
-import { Issue } from "@/types";
+import { Issue, PresetRoleType } from "@/types";
 import {
   Review,
   ApprovalStep,
   ApprovalNode_Type,
   ApprovalNode_GroupValue,
 } from "@/types/proto/v1/review_service";
-import { extractUserEmail, useUserStore } from "./user";
-import { useMemberStore } from "./member";
+import { useUserStore } from "./user";
 import { reviewServiceClient } from "@/grpcweb";
-import { User } from "@/types/proto/v1/auth_service";
+import { User, UserRole, UserType } from "@/types/proto/v1/auth_service";
+import { extractUserResourceName, memberListInProjectV1 } from "@/utils";
+import { useProjectV1Store } from "./v1";
 
 const reviewName = (issue: Issue) => {
   return `projects/${issue.project.id}/reviews/${issue.id}`;
@@ -37,12 +38,13 @@ export const useReviewStore = defineStore("review", () => {
     reviewsByName.value.set(reviewName(issue), review);
   };
 
-  const fetchReviewByIssue = async (issue: Issue, ignoreCache = false) => {
+  const fetchReviewByIssue = async (issue: Issue, force = false) => {
     const name = reviewName(issue);
 
     try {
       const review = await reviewServiceClient.getReview({
         name,
+        force,
       });
       await setReviewByIssue(issue, review);
       return review;
@@ -51,9 +53,26 @@ export const useReviewStore = defineStore("review", () => {
     }
   };
 
-  const approveReview = async (issue: Issue) => {
+  const approveReview = async (issue: Issue, comment?: string) => {
     const review = await reviewServiceClient.approveReview({
       name: reviewName(issue),
+      comment,
+    });
+    await setReviewByIssue(issue, review);
+  };
+
+  const rejectReview = async (issue: Issue, comment?: string) => {
+    const review = await reviewServiceClient.rejectReview({
+      name: reviewName(issue),
+      comment,
+    });
+    await setReviewByIssue(issue, review);
+  };
+
+  const requestReview = async (issue: Issue, comment?: string) => {
+    const review = await reviewServiceClient.requestReview({
+      name: reviewName(issue),
+      comment,
     });
     await setReviewByIssue(issue, review);
   };
@@ -73,6 +92,8 @@ export const useReviewStore = defineStore("review", () => {
     getReviewByIssue,
     fetchReviewByIssue,
     approveReview,
+    rejectReview,
+    requestReview,
     regenerateReview,
   };
 });
@@ -83,7 +104,9 @@ const fetchReviewApproversAndCandidates = async (
 ) => {
   const userStore = useUserStore();
   const approvers = review.approvers.map((approver) => {
-    return userStore.getUserByEmail(extractUserEmail(approver.principal));
+    return userStore.getUserByEmail(
+      extractUserResourceName(approver.principal)
+    );
   });
   const candidates = review.approvalTemplates
     .flatMap((template) => {
@@ -98,35 +121,69 @@ const fetchReviewApproversAndCandidates = async (
 };
 
 export const candidatesOfApprovalStep = (issue: Issue, step: ApprovalStep) => {
-  const memberStore = useMemberStore();
+  const workspaceMemberList = useUserStore().activeUserList.filter(
+    (user) => user.userType === UserType.USER
+  );
+  const project = useProjectV1Store().getProjectByUID(String(issue.project.id));
+  const projectMemberList = memberListInProjectV1(project, project.iamPolicy)
+    .filter((member) => member.user.userType === UserType.USER)
+    .map((member) => ({
+      ...member,
+      user: member.user,
+    }));
 
   const candidates = step.nodes.flatMap((node) => {
-    const { type, groupValue } = node;
+    const {
+      type,
+      groupValue = ApprovalNode_GroupValue.UNRECOGNIZED,
+      role,
+    } = node;
     if (type !== ApprovalNode_Type.ANY_IN_GROUP) return [];
-    if (groupValue === ApprovalNode_GroupValue.PROJECT_MEMBER) {
-      return issue.project.memberList
-        .filter((member) => member.role === "DEVELOPER")
-        .map((member) => member.principal);
+
+    const candidatesForSystemRoles = (groupValue: ApprovalNode_GroupValue) => {
+      if (groupValue === ApprovalNode_GroupValue.PROJECT_MEMBER) {
+        return projectMemberList
+          .filter((member) =>
+            member.roleList.includes(PresetRoleType.DEVELOPER)
+          )
+          .map((member) => member.user);
+      }
+      if (groupValue === ApprovalNode_GroupValue.PROJECT_OWNER) {
+        return projectMemberList
+          .filter((member) => member.roleList.includes(PresetRoleType.OWNER))
+          .map((member) => member.user);
+      }
+      if (groupValue === ApprovalNode_GroupValue.WORKSPACE_DBA) {
+        return workspaceMemberList.filter(
+          (member) => member.userRole === UserRole.DBA
+        );
+      }
+      if (groupValue === ApprovalNode_GroupValue.WORKSPACE_OWNER) {
+        return workspaceMemberList.filter(
+          (member) => member.userRole === UserRole.OWNER
+        );
+      }
+      return [];
+    };
+    const candidatesForCustomRoles = (role: string) => {
+      const project = useProjectV1Store().getProjectByUID(
+        String(issue.project.id)
+      );
+      const memberList = memberListInProjectV1(project, project.iamPolicy);
+      return memberList
+        .filter((member) => member.user.userType === UserType.USER)
+        .filter((member) => member.roleList.includes(role))
+        .map((member) => member.user);
+    };
+
+    if (groupValue !== ApprovalNode_GroupValue.UNRECOGNIZED) {
+      return candidatesForSystemRoles(groupValue);
     }
-    if (groupValue === ApprovalNode_GroupValue.PROJECT_OWNER) {
-      return issue.project.memberList
-        .filter((member) => member.role === "OWNER")
-        .map((member) => member.principal);
-    }
-    if (groupValue === ApprovalNode_GroupValue.WORKSPACE_DBA) {
-      return memberStore.memberList
-        .filter((member) => member.role === "DBA")
-        .map((member) => member.principal)
-        .filter((user) => user.type === "END_USER");
-    }
-    if (groupValue === ApprovalNode_GroupValue.WORKSPACE_OWNER) {
-      return memberStore.memberList
-        .filter((member) => member.role === "OWNER")
-        .map((member) => member.principal)
-        .filter((user) => user.type === "END_USER");
+    if (role) {
+      return candidatesForCustomRoles(role);
     }
     return [];
   });
 
-  return uniq(candidates.map((principal) => `users/${principal.id}`));
+  return uniq(candidates.map((user) => user.name));
 };

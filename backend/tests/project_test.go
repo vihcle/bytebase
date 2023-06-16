@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -11,8 +12,8 @@ import (
 
 	"github.com/bytebase/bytebase/backend/common/log"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
-	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/tests/fake"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 func TestArchiveProject(t *testing.T) {
@@ -21,7 +22,7 @@ func TestArchiveProject(t *testing.T) {
 	ctx := context.Background()
 	ctl := &controller{}
 	dataDir := t.TempDir()
-	err := ctl.StartServerWithExternalPg(ctx, &config{
+	ctx, err := ctl.StartServerWithExternalPg(ctx, &config{
 		dataDir:            dataDir,
 		vcsProviderCreator: fake.NewGitLab,
 	})
@@ -33,53 +34,48 @@ func TestArchiveProject(t *testing.T) {
 	instanceDir, err := ctl.provisionSQLiteInstance(instanceRootDir, instanceName)
 	a.NoError(err)
 
-	environments, err := ctl.getEnvironments()
-	a.NoError(err)
-	prodEnvironment, err := findEnvironment(environments, "Prod")
+	prodEnvironment, err := ctl.getEnvironment(ctx, "prod")
 	a.NoError(err)
 
-	instance, err := ctl.addInstance(api.InstanceCreate{
-		ResourceID:    generateRandomString("instance", 10),
-		EnvironmentID: prodEnvironment.ID,
-		Name:          "test",
-		Engine:        db.SQLite,
-		Host:          instanceDir,
+	// Add an instance.
+	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
+		InstanceId: generateRandomString("instance", 10),
+		Instance: &v1pb.Instance{
+			Title:       "test",
+			Engine:      v1pb.Engine_SQLITE,
+			Environment: prodEnvironment.Name,
+			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: instanceDir}},
+		},
 	})
+	a.NoError(err)
+	instanceUID, err := strconv.Atoi(instance.Uid)
 	a.NoError(err)
 
 	t.Run("ArchiveProjectWithDatbase", func(t *testing.T) {
-		project, err := ctl.createProject(api.ProjectCreate{
-			ResourceID: generateRandomString("project", 10),
-			Name:       "ProjectWithDatabase",
-			Key:        "PWD",
-			TenantMode: api.TenantModeDisabled,
-		})
+		project, err := ctl.createProject(ctx)
+		a.NoError(err)
+		projectUID, err := strconv.Atoi(project.Uid)
 		a.NoError(err)
 
 		databaseName := "db1"
-		err = ctl.createDatabase(project, instance, databaseName, "", nil)
+		err = ctl.createDatabase(ctx, projectUID, instance, databaseName, "", nil)
 		a.NoError(err)
 
-		status := string(api.Archived)
-		err = ctl.patchProject(api.ProjectPatch{
-			ID:        project.ID,
-			RowStatus: &status,
+		_, err = ctl.projectServiceClient.DeleteProject(ctx, &v1pb.DeleteProjectRequest{
+			Name: project.Name,
 		})
 		a.Error(err)
 	})
 
 	t.Run("ArchiveProjectWithOpenIssue", func(t *testing.T) {
-		project, err := ctl.createProject(api.ProjectCreate{
-			ResourceID: generateRandomString("project", 10),
-			Name:       "ProjectWithOpenIssue",
-			Key:        "PWO",
-			TenantMode: api.TenantModeDisabled,
-		})
+		project, err := ctl.createProject(ctx)
+		a.NoError(err)
+		projectUID, err := strconv.Atoi(project.Uid)
 		a.NoError(err)
 
 		databaseName := "fakedb"
 		createDatabaseCtx := &api.CreateDatabaseContext{
-			InstanceID:   instance.ID,
+			InstanceID:   instanceUID,
 			DatabaseName: databaseName,
 			Labels:       "",
 			CharacterSet: "utf8mb4",
@@ -90,20 +86,18 @@ func TestArchiveProject(t *testing.T) {
 		a.NoError(err)
 
 		_, err = ctl.createIssue(api.IssueCreate{
-			ProjectID:     project.ID,
+			ProjectID:     projectUID,
 			Name:          fmt.Sprintf("create database %q", databaseName),
 			Type:          api.IssueDatabaseCreate,
 			Description:   fmt.Sprintf("This creates a database %q.", databaseName),
-			AssigneeID:    ownerID,
+			AssigneeID:    api.SystemBotID,
 			CreateContext: string(c),
 		})
 		a.NoError(err)
 
-		status := string(api.Archived)
-		err = ctl.patchProject(api.ProjectPatch{
-			ID:        project.ID,
-			RowStatus: &status,
+		_, err = ctl.projectServiceClient.DeleteProject(ctx, &v1pb.DeleteProjectRequest{
+			Name: project.Name,
 		})
-		a.Error(err)
+		a.ErrorContains(err, "resolve all open issues before deleting the project")
 	})
 }

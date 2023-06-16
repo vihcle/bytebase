@@ -5,7 +5,6 @@ package bytebase.v1;
 import "google/api/annotations.proto";
 import "google/api/client.proto";
 import "google/api/field_behavior.proto";
-import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "generated-go/v1";
@@ -13,6 +12,10 @@ option go_package = "generated-go/v1";
 service SubscriptionService {
   rpc GetSubscription(GetSubscriptionRequest) returns (Subscription) {
     option (google.api.http) = {get: "/v1/subscription"};
+    option (google.api.method_signature) = "";
+  }
+  rpc GetFeatureMatrix(GetFeatureMatrixRequest) returns (FeatureMatrix) {
+    option (google.api.http) = {get: "/v1/feature"};
     option (google.api.method_signature) = "";
   }
   rpc UpdateSubscription(UpdateSubscriptionRequest) returns (Subscription) {
@@ -32,6 +35,8 @@ service SubscriptionService {
 }
 
 message GetSubscriptionRequest {}
+
+message GetFeatureMatrixRequest {}
 
 message UpdateSubscriptionRequest {
   PatchSubscription patch = 1;
@@ -77,4 +82,16 @@ message Subscription {
   string org_id = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
 
   string org_name = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message FeatureMatrix {
+  repeated Feature features = 1;
+}
+
+message Feature {
+  // Name is the feature name.
+  string name = 1;
+
+  // Matrix is the feature matrix for different plan. The key is the plan enum in string value.
+  map<string, bool> matrix = 2;
 }

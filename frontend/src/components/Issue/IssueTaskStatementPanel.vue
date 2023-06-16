@@ -13,25 +13,21 @@
         <template v-else>
           {{ $t("common.statement") }}
         </template>
-        <span v-if="create" class="text-red-600">*</span>
+        <span v-if="create" class="text-red-600 ml-1">*</span>
         <button
           v-if="!create && !hasFeature('bb.feature.sql-review')"
           type="button"
           class="ml-1 btn-small py-0.5 inline-flex items-center text-accent"
-          @click.prevent="
-            () => {
-              state.showFeatureModal = true;
-            }
-          "
+          @click.prevent="state.showFeatureModal = true"
         >
           🎈{{ $t("sql-review.unlock-full-feature") }}
         </button>
-        <span v-if="sqlHint" class="ml-1 text-accent">{{
+        <span v-if="sqlHint && !readonly" class="ml-1 text-accent">{{
           `(${sqlHint})`
         }}</span>
       </div>
       <button
-        v-if="allowApplyTaskStateToOthers"
+        v-if="create && allowApplyTaskStateToOthers"
         :disabled="isEmpty(state.editStatement)"
         type="button"
         class="btn-small py-1 px-3 my-auto"
@@ -42,8 +38,7 @@
     </div>
 
     <div class="space-x-2 flex items-center">
-      <template v-if="create || state.editing">
-        <!-- mt-0.5 is to prevent jiggling between switching edit/none-edit -->
+      <template v-if="(create || state.editing) && !readonly">
         <label
           v-if="allowFormatOnSave"
           class="mt-0.5 mr-2 inline-flex items-center gap-1"
@@ -64,11 +59,12 @@
       <button
         v-if="shouldShowStatementEditButtonForUI"
         type="button"
-        class="btn-icon"
+        class="px-4 py-2 cursor-pointer border border-control-border rounded text-control hover:bg-control-bg-hover text-sm font-normal focus:ring-control focus:outline-none focus-visible:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed"
         @click.prevent="beginEdit"
       >
-        <heroicons-solid:pencil class="h-5 w-5" />
+        {{ $t("common.edit") }}
       </button>
+
       <template v-else-if="!create">
         <button
           v-if="state.editing"
@@ -92,7 +88,7 @@
   </div>
   <label class="sr-only">{{ $t("common.sql-statement") }}</label>
   <BBAttention
-    v-if="isTaskHasSheetId"
+    v-if="isTaskSheetOversize"
     :class="'my-2'"
     :style="`WARN`"
     :title="$t('issue.statement-from-sheet-warning')"
@@ -103,7 +99,7 @@
   >
     <MonacoEditor
       ref="editorRef"
-      class="w-full h-auto max-h-[360px]"
+      class="w-full h-auto max-h-[360px] min-h-[120px]"
       data-label="bb-issue-sql-editor"
       :value="state.editStatement"
       :readonly="readonly"
@@ -127,32 +123,42 @@
 import { useDialog } from "naive-ui";
 import { onMounted, reactive, watch, computed, ref, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
-import { isNumber, isUndefined } from "lodash-es";
-
 import {
   hasFeature,
   pushNotification,
-  useDBSchemaStore,
-  useSheetStore,
+  useDBSchemaV1Store,
   useUIStateStore,
+  useSheetV1Store,
+  useDatabaseV1Store,
 } from "@/store";
-import { useIssueLogic, TaskTypeWithSheetId } from "./logic";
+import { isGroupingChangeIssue, useIssueLogic } from "./logic";
 import {
-  Database,
-  dialectOfEngine,
+  ComposedDatabase,
+  dialectOfEngineV1,
+  Issue,
   SQLDialect,
   Task,
   TaskCreate,
   TaskId,
+  UNKNOWN_ID,
 } from "@/types";
-import { UNKNOWN_ID } from "@/types";
+import {
+  getBacktracePayloadWithIssue,
+  sheetNameOfTask,
+  useInstanceV1EditorLanguage,
+} from "@/utils";
 import { TableMetadata } from "@/types/proto/store/database";
 import MonacoEditor from "../MonacoEditor/MonacoEditor.vue";
-import { sheetIdOfTask, useInstanceEditorLanguage } from "@/utils";
 import { useSQLAdviceMarkers } from "./logic/useSQLAdviceMarkers";
 import UploadProgressButton from "../misc/UploadProgressButton.vue";
+import {
+  Sheet_Visibility,
+  Sheet_Source,
+  Sheet_Type,
+} from "@/types/proto/v1/sheet_service";
 
 interface LocalState {
+  taskSheetName?: string;
   editing: boolean;
   editStatement: string;
   isUploadingFile: boolean;
@@ -161,10 +167,7 @@ interface LocalState {
 
 type LocalEditState = Pick<LocalState, "editing" | "editStatement">;
 
-const EDITOR_MIN_HEIGHT = {
-  READONLY: 0, // not limited to keep the UI compact
-  EDITABLE: 120, // ~= 6 lines, a reasonable size to start writing SQL
-};
+const EDITOR_MIN_HEIGHT = 120; // ~= 6 lines, a reasonable size to start writing SQL
 
 defineProps({
   sqlHint: {
@@ -175,8 +178,8 @@ defineProps({
 });
 
 const {
-  issue,
   create,
+  issue,
   allowEditStatement,
   selectedDatabase,
   selectedStatement: statement,
@@ -190,8 +193,8 @@ const {
 const { t } = useI18n();
 const overrideSQLDialog = useDialog();
 const uiStateStore = useUIStateStore();
-const dbSchemaStore = useDBSchemaStore();
-const sheetStore = useSheetStore();
+const dbSchemaStore = useDBSchemaV1Store();
+const sheetV1Store = useSheetV1Store();
 const editorRef = ref<InstanceType<typeof MonacoEditor>>();
 
 const state = reactive<LocalState>({
@@ -287,23 +290,57 @@ const useTempEditState = (state: LocalState) => {
     },
     { immediate: true }
   );
+
+  const reset = () => {
+    stopWatching && stopWatching();
+
+    if (!create.value) {
+      stopWatching = startWatching();
+    }
+  };
+
+  return reset;
 };
 
-useTempEditState(state);
+const resetTempEditState = useTempEditState(state);
 
+const getOrFetchSheetStatementByName = async (
+  sheetName: string | undefined
+) => {
+  if (!sheetName) {
+    return "";
+  }
+  const sheet = await sheetV1Store.getOrFetchSheetByName(sheetName);
+  if (!sheet) {
+    return "";
+  }
+  return new TextDecoder().decode(sheet.content);
+};
+
+/**
+ * to set the MonacoEditor as readonly
+ * This happens when
+ * - Not in edit mode
+ * - Disallowed to edit statement
+ */
 const readonly = computed(() => {
-  return !state.editing || !allowEditStatement.value || isTaskHasSheetId.value;
+  return (
+    !state.editing ||
+    !allowEditStatement.value ||
+    isTaskSheetOversize.value ||
+    isGroupingChangeIssue(issue.value as Issue)
+  );
 });
 
 const { markers } = useSQLAdviceMarkers();
 
-const language = useInstanceEditorLanguage(
-  computed(() => selectedDatabase.value?.instance)
+const language = useInstanceV1EditorLanguage(
+  computed(() => selectedDatabase.value?.instanceEntity)
 );
 
 const dialect = computed((): SQLDialect => {
   const db = selectedDatabase.value;
-  return dialectOfEngine(db?.instance.engine);
+  return dialectOfEngineV1(db?.instanceEntity.engine);
 });
 
 const formatOnSave = computed({
@@ -313,49 +350,61 @@ const formatOnSave = computed({
 
 const allowFormatOnSave = computed(() => language.value === "sql");
 
-const allowUploadSheetForTask = computed(() => {
-  if (!create.value) {
+const isValidSheetName = computed(() => {
+  if (!state.taskSheetName) {
     return false;
   }
-
-  // Only allow DML.
-  if (issue.value.type !== "bb.issue.database.data.update") {
-    return false;
-  }
-
-  const task = selectedTask.value;
-  return TaskTypeWithSheetId.includes(task.type);
+  return sheetV1Store.getSheetUid(state.taskSheetName) !== UNKNOWN_ID;
 });
 
-const isTaskHasSheetId = computed(() => {
-  const task = selectedTask.value;
-  if (create.value) {
-    return !isUndefined((task as TaskCreate).sheetId);
+const isTaskSheetOversize = computed(() => {
+  if (!isValidSheetName.value) {
+    return false;
   }
-  return !isUndefined(sheetIdOfTask(task as Task));
+
+  const taskSheet = sheetV1Store.getSheetByName(state.taskSheetName!);
+  if (!taskSheet) {
+    return false;
+  }
+  return (
+    new TextDecoder().decode(taskSheet.content).length < taskSheet.contentSize
+  );
 });
 
 const shouldShowStatementEditButtonForUI = computed(() => {
+  // Need not to show "Edit" while the issue is still pending create.
   if (create.value) {
     return false;
   }
-  // For those task with sheet, it's readonly.
-  if (isTaskHasSheetId.value) {
+  // For those task sheet oversized, it's readonly.
+  if (isTaskSheetOversize.value) {
     return false;
   }
+  // Will show another button group as [Upload][Cancel][Save]
+  // while editing
   if (state.editing) {
     return false;
   }
+  // If the task or issue's statement is not allowed to be change.
   if (!allowEditStatement.value) {
+    return false;
+  }
+  // Not allowed to change statement while grouping.
+  if (isGroupingChangeIssue(issue.value as Issue)) {
     return false;
   }
 
   return true;
 });
 
-onMounted(() => {
+onMounted(async () => {
   if (create.value) {
     state.editing = true;
+  } else {
+    const sheetName = sheetNameOfTask(selectedTask.value as Task);
+    if (sheetName) {
+      state.taskSheetName = sheetName;
+    }
   }
 });
 
@@ -375,23 +424,28 @@ watch(statement, (cur) => {
 });
 
 watch(
-  [selectedTask],
+  selectedTask,
   async () => {
-    if (isTaskHasSheetId.value) {
-      const task = selectedTask.value;
-      const sheetId = create.value
-        ? (task as TaskCreate).sheetId
-        : sheetIdOfTask(task as Task);
-      if (sheetId) {
-        const statement = (await sheetStore.getOrFetchSheetById(sheetId))
-          .statement;
-        // Update statement in the editor.
-        state.editStatement = statement;
-        // Only update statement when creating issue.
-        if (create.value) {
-          updateStatement(statement);
-        }
+    const task = selectedTask.value;
+
+    // TODO: remove legacy logic.
+    let sheetName;
+    if (create.value) {
+      const taskCreate = task as TaskCreate;
+      if (taskCreate.databaseId) {
+        const db = await useDatabaseV1Store().getOrFetchDatabaseByUID(
+          String(taskCreate.databaseId)
+        );
+        sheetName = `${db.project}/sheets/${taskCreate.sheetId}`;
       }
+    } else {
+      sheetName = sheetNameOfTask(task as Task);
+    }
+
+    if (sheetName) {
+      state.taskSheetName = sheetName;
+    } else {
+      state.taskSheetName = undefined;
     }
   },
   {
@@ -400,22 +454,40 @@ watch(
   }
 );
 
+watch(
+  () => state.taskSheetName,
+  async () => {
+    if (isValidSheetName.value) {
+      state.editStatement = await getOrFetchSheetStatementByName(
+        state.taskSheetName
+      );
+    }
+  },
+  {
+    immediate: true,
+  }
+);
+
 const beginEdit = () => {
-  state.editStatement = statement.value;
   state.editing = true;
 };
 
-const saveEdit = () => {
+const saveEdit = async () => {
+  if (!selectedDatabase.value) {
+    return;
+  }
+  resetTempEditState();
   if (allowFormatOnSave.value && formatOnSave.value) {
     editorRef.value?.formatEditorContent();
   }
-  updateStatement(state.editStatement, () => {
-    state.editing = false;
-  });
+  await updateStatement(state.editStatement);
+  state.editing = false;
 };
 
-const cancelEdit = () => {
-  state.editStatement = statement.value;
+const cancelEdit = async () => {
+  state.editStatement = await getOrFetchSheetStatementByName(
+    state.taskSheetName
+  );
   state.editing = false;
 };
 
@@ -434,55 +506,65 @@ const allowSaveSQL = computed((): boolean => {
 });
 
 const handleUploadFile = async (event: Event, tick: (p: number) => void) => {
-  if (!allowUploadSheetForTask.value || !selectedDatabase.value) {
+  if (!selectedDatabase.value) {
+    return;
+  }
+  if (state.isUploadingFile) {
     return;
   }
 
   state.isUploadingFile = true;
-  const projectId = selectedDatabase.value.projectId;
+  const projectName = selectedDatabase.value.project;
   const { filename, content: statement } = await handleUploadFileEvent(
     event,
     100
   );
 
   const uploadStatementAsSheet = async (statement: string) => {
-    const sheet = await sheetStore.createSheet(
-      {
-        projectId: projectId,
-        name: filename,
-        statement,
-        visibility: "PRIVATE",
-        payload: {},
-      },
-      {
-        timeout: 0, // 10 * 60 * 1000, // 10 minutes
-        onUploadProgress: (event) => {
-          console.debug("upload progress", event);
-          const progress = event.progress;
-          if (isNumber(progress)) {
-            tick(progress * 100);
-          } else {
-            tick(-1); // -1 to show a simple spinner instead of progress
-          }
-        },
-      }
-    );
-
-    updateSheetId(sheet.id);
+    let payload = {};
+    if (!create.value) {
+      payload = getBacktracePayloadWithIssue(issue.value as Issue);
+    }
+    // TODO: upload process
+    const sheet = await sheetV1Store.createSheet(projectName, {
+      title: filename,
+      content: new TextEncoder().encode(statement),
+      visibility: Sheet_Visibility.VISIBILITY_PROJECT,
+      source: Sheet_Source.SOURCE_BYTEBASE_ARTIFACT,
+      type: Sheet_Type.TYPE_SQL,
+      payload: JSON.stringify(payload),
+    });
     state.isUploadingFile = false;
-    if (selectedTask.value) updateEditorHeight();
+
+    resetTempEditState();
+    updateSheetId(sheetV1Store.getSheetUid(sheet.name));
+    await updateStatement(statement);
+    state.editing = false;
+    if (selectedTask.value) {
+      updateEditorHeight();
+    }
+
+    pushNotification({
+      module: "bytebase",
+      style: "INFO",
+      title: "File upload success",
+    });
   };
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     if (state.editStatement) {
-      // Show a confirm dialog before replacing if the editing statement
-      // is not empty
+      // Show a confirm dialog before replacing if the editing statement is not empty.
       overrideSQLDialog.create({
         positiveText: t("common.confirm"),
         negativeText: t("common.cancel"),
         title: t("issue.override-current-statement"),
+        autoFocus: false,
+        closable: false,
+        maskClosable: false,
+        closeOnEsc: false,
         onNegativeClick: () => {
-          // nothing to do
+          state.isUploadingFile = false;
+          reject();
         },
         onPositiveClick: () => {
           resolve(uploadStatementAsSheet(statement));
@@ -565,14 +647,11 @@ const onStatementChange = (value: string) => {
     // time the user types.
     updateStatement(state.editStatement);
   }
-
-  if (selectedTask.value) updateEditorHeight();
 };
 
 // Handle and update monaco editor auto completion context.
 const useDatabaseAndTableList = () => {
   const { selectedDatabase } = useIssueLogic();
-  const dbSchemaStore = useDBSchemaStore();
 
   const databaseList = computed(() => {
     if (selectedDatabase.value) return [selectedDatabase.value];
@@ -582,14 +661,18 @@ const useDatabaseAndTableList = () => {
   watch(
     databaseList,
     (list) => {
-      list.forEach((db) => dbSchemaStore.getOrFetchDatabaseMetadataById(db.id));
+      list.forEach((db) => {
+        if (db.uid !== String(UNKNOWN_ID)) {
+          dbSchemaStore.getOrFetchDatabaseMetadata(db.name);
+        }
+      });
     },
     { immediate: true }
   );
 
   const tableList = computed(() => {
     return databaseList.value
-      .map((item) => dbSchemaStore.getTableListByDatabaseId(item.id))
+      .map((item) => dbSchemaStore.getTableList(item.name))
       .flat();
   });
 
@@ -599,24 +682,24 @@ const useDatabaseAndTableList = () => {
 const { databaseList, tableList } = useDatabaseAndTableList();
 
 const handleUpdateEditorAutoCompletionContext = async () => {
-  const databaseMap: Map<Database, TableMetadata[]> = new Map();
+  const databaseMap: Map<ComposedDatabase, TableMetadata[]> = new Map();
   for (const database of databaseList.value) {
-    const tableList = await dbSchemaStore.getOrFetchTableListByDatabaseId(
-      database.id
-    );
+    const tableList = await dbSchemaStore.getOrFetchTableList(database.name);
     databaseMap.set(database, tableList);
   }
-  editorRef.value?.setEditorAutoCompletionContext(databaseMap);
+  editorRef.value?.setEditorAutoCompletionContextV1(databaseMap);
 };
 
 const updateEditorHeight = () => {
-  const contentHeight =
-    editorRef.value?.editorInstance?.getContentHeight() as number;
-  let actualHeight = contentHeight;
-  if (state.editing && actualHeight < EDITOR_MIN_HEIGHT.EDITABLE) {
-    actualHeight = EDITOR_MIN_HEIGHT.EDITABLE;
-  }
-  editorRef.value?.setEditorContentHeight(actualHeight);
+  requestAnimationFrame(() => {
+    const contentHeight =
+      editorRef.value?.editorInstance?.getContentHeight() as number;
+    let actualHeight = contentHeight;
+    if (actualHeight < EDITOR_MIN_HEIGHT) {
+      actualHeight = EDITOR_MIN_HEIGHT;
+    }
+    editorRef.value?.setEditorContentHeight(actualHeight);
+  });
 };
 
 const handleMonacoEditorReady = () => {
@@ -627,4 +710,7 @@ const handleMonacoEditorReady = () => {
 watch([databaseList, tableList], () => {
   handleUpdateEditorAutoCompletionContext();
 });
+
+watch(() => state.editing, updateEditorHeight);
+watch(() => state.editStatement, updateEditorHeight);
 </script>

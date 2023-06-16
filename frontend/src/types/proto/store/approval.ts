@@ -29,6 +29,7 @@ export enum IssuePayloadApproval_Approver_Status {
   STATUS_UNSPECIFIED = 0,
   PENDING = 1,
   APPROVED = 2,
+  REJECTED = 3,
   UNRECOGNIZED = -1,
 }
 
@@ -43,6 +44,9 @@ export function issuePayloadApproval_Approver_StatusFromJSON(object: any): Issue
     case 2:
     case "APPROVED":
       return IssuePayloadApproval_Approver_Status.APPROVED;
+    case 3:
+    case "REJECTED":
+      return IssuePayloadApproval_Approver_Status.REJECTED;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -58,6 +62,8 @@ export function issuePayloadApproval_Approver_StatusToJSON(object: IssuePayloadA
       return "PENDING";
     case IssuePayloadApproval_Approver_Status.APPROVED:
       return "APPROVED";
+    case IssuePayloadApproval_Approver_Status.REJECTED:
+      return "REJECTED";
     case IssuePayloadApproval_Approver_Status.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -126,7 +132,12 @@ export function approvalStep_TypeToJSON(object: ApprovalStep_Type): string {
 
 export interface ApprovalNode {
   type: ApprovalNode_Type;
-  groupValue?: ApprovalNode_GroupValue | undefined;
+  groupValue?:
+    | ApprovalNode_GroupValue
+    | undefined;
+  /** Format: roles/{role} */
+  role?: string | undefined;
+  externalNodeId?: string | undefined;
 }
 
 /**
@@ -169,7 +180,6 @@ export function approvalNode_TypeToJSON(object: ApprovalNode_Type): string {
 }
 
 /**
- * GroupValue is used if ApprovalNode Type is ANY_IN_GROUP
  * The predefined user groups are:
  * - WORKSPACE_OWNER
  * - WORKSPACE_DBA
@@ -256,35 +266,35 @@ export const IssuePayloadApproval = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.approvalTemplates.push(ApprovalTemplate.decode(reader, reader.uint32()));
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.approvers.push(IssuePayloadApproval_Approver.decode(reader, reader.uint32()));
           continue;
         case 3:
-          if (tag != 24) {
+          if (tag !== 24) {
             break;
           }
 
           message.approvalFindingDone = reader.bool();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.approvalFindingError = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -359,21 +369,21 @@ export const IssuePayloadApproval_Approver = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 8) {
+          if (tag !== 8) {
             break;
           }
 
           message.status = reader.int32() as any;
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.principalId = reader.int32();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -436,35 +446,35 @@ export const ApprovalTemplate = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.flow = ApprovalFlow.decode(reader, reader.uint32());
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.title = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.description = reader.string();
           continue;
         case 4:
-          if (tag != 32) {
+          if (tag !== 32) {
             break;
           }
 
           message.creatorId = reader.int32();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -526,14 +536,14 @@ export const ApprovalFlow = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.steps.push(ApprovalStep.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -589,21 +599,21 @@ export const ApprovalStep = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 8) {
+          if (tag !== 8) {
             break;
           }
 
           message.type = reader.int32() as any;
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.nodes.push(ApprovalNode.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -642,7 +652,7 @@ export const ApprovalStep = {
 };
 
 function createBaseApprovalNode(): ApprovalNode {
-  return { type: 0, groupValue: undefined };
+  return { type: 0, groupValue: undefined, role: undefined, externalNodeId: undefined };
 }
 
 export const ApprovalNode = {
@@ -652,6 +662,12 @@ export const ApprovalNode = {
     }
     if (message.groupValue !== undefined) {
       writer.uint32(16).int32(message.groupValue);
+    }
+    if (message.role !== undefined) {
+      writer.uint32(26).string(message.role);
+    }
+    if (message.externalNodeId !== undefined) {
+      writer.uint32(34).string(message.externalNodeId);
     }
     return writer;
   },
@@ -664,21 +680,35 @@ export const ApprovalNode = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 8) {
+          if (tag !== 8) {
             break;
           }
 
           message.type = reader.int32() as any;
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.groupValue = reader.int32() as any;
           continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.role = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.externalNodeId = reader.string();
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -690,6 +720,8 @@ export const ApprovalNode = {
     return {
       type: isSet(object.type) ? approvalNode_TypeFromJSON(object.type) : 0,
       groupValue: isSet(object.groupValue) ? approvalNode_GroupValueFromJSON(object.groupValue) : undefined,
+      role: isSet(object.role) ? String(object.role) : undefined,
+      externalNodeId: isSet(object.externalNodeId) ? String(object.externalNodeId) : undefined,
     };
   },
 
@@ -700,6 +732,8 @@ export const ApprovalNode = {
       (obj.groupValue = message.groupValue !== undefined
         ? approvalNode_GroupValueToJSON(message.groupValue)
         : undefined);
+    message.role !== undefined && (obj.role = message.role);
+    message.externalNodeId !== undefined && (obj.externalNodeId = message.externalNodeId);
     return obj;
   },
 
@@ -711,6 +745,8 @@ export const ApprovalNode = {
     const message = createBaseApprovalNode();
     message.type = object.type ?? 0;
     message.groupValue = object.groupValue ?? undefined;
+    message.role = object.role ?? undefined;
+    message.externalNodeId = object.externalNodeId ?? undefined;
     return message;
   },
 };

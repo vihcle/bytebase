@@ -54,6 +54,8 @@ const (
 	FeatureSSO FeatureType = "bb.feature.sso"
 	// Feature2FA allows user to manage 2FA provider and authenticate (login) with 2FA.
 	Feature2FA FeatureType = "bb.feature.2fa"
+	// FeatureDisallowSignup allows user to change the disallow signup flag.
+	FeatureDisallowSignup FeatureType = "bb.feature.disallow-signup"
 	// FeatureRBAC enables RBAC.
 	//
 	// - Workspace level RBAC
@@ -66,6 +68,9 @@ const (
 	// FeatureAuditLog enables viewing audit logs.
 	FeatureAuditLog FeatureType = "bb.feature.audit-log"
 
+	// FeatureCustomRole enables customizing roles.
+	FeatureCustomRole FeatureType = "bb.feature.custom-role"
+
 	// Branding.
 
 	// FeatureBranding enables customized branding.
@@ -75,17 +80,6 @@ const (
 
 	// Change Workflow.
 
-	// FeatureDataSource exposes the data source concept.
-	//
-	// Currently, we DO NOT expose this feature.
-	//
-	// Internally Bytebase stores instance username/password in a separate data source model.
-	// This allows a single instance to have multiple data sources (e.g. one RW and one RO).
-	// And from the user's perspective, the username/password
-	// look like the property of the instance, which are not. They are the property of data source which
-	// in turns belongs to the instance.
-	// - Support defining extra data source for a database and exposing the related data source UI.
-	FeatureDataSource FeatureType = "bb.feature.data-source"
 	// FeatureDBAWorkflow enforces the DBA workflow.
 	//
 	// - Developers can't create and view instances since they are exclusively by DBA, they can
@@ -111,8 +105,14 @@ const (
 	//
 	// e.g. One can configure rules for database schema or SQL query.
 	FeatureSQLReview FeatureType = "bb.feature.sql-review"
+	// FeatureMybatisSQLReview allows review mybatis sql.
+	FeatureMybatisSQLReview FeatureType = "bb.feature.mybatis-sql-review"
 	// FeatureTaskScheduleTime allows user to run task at a scheduled time.
 	FeatureTaskScheduleTime FeatureType = "bb.feature.task-schedule-time"
+	// FeatureEncryptedSecrets is a feature that allows user to setting the encrypted secrets for the database.
+	FeatureEncryptedSecrets FeatureType = "bb.feature.encrypted-secrets"
+	// FeatureDatabaseGrouping allows user to create database/schema groups.
+	FeatureDatabaseGrouping FeatureType = "bb.feature.database-grouping"
 
 	// VCS Integration.
 
@@ -130,8 +130,12 @@ const (
 	// FeatureReadReplicaConnection allows user to set a read replica connection
 	// including host and port to data source.
 	FeatureReadReplicaConnection FeatureType = "bb.feature.read-replica-connection"
+	// FeatureInstanceSSHConnection provides SSH connection for instances.
+	FeatureInstanceSSHConnection FeatureType = "bb.feature.instance-ssh-connection"
 	// FeatureSyncSchemaAllVersions allows user to sync the base database schema all versions into target database.
 	FeatureSyncSchemaAllVersions FeatureType = "bb.feature.sync-schema-all-versions"
+	// FeatureIndexAdvisor provides the index advisor for databases.
+	FeatureIndexAdvisor FeatureType = "bb.feature.index-advisor"
 
 	// Policy Control.
 
@@ -176,18 +180,20 @@ func (e FeatureType) Name() string {
 		return "SSO"
 	case Feature2FA:
 		return "2FA"
+	case FeatureDisallowSignup:
+		return "Disallow singup"
 	case FeatureRBAC:
 		return "RBAC"
 	case FeatureWatermark:
 		return "Watermark"
 	case FeatureAuditLog:
 		return "Audit log"
+	case FeatureCustomRole:
+		return "Custom role"
 	// Branding
 	case FeatureBranding:
 		return "Branding"
 	// Change Workflow
-	case FeatureDataSource:
-		return "Data source"
 	case FeatureDBAWorkflow:
 		return "DBA workflow"
 	case FeatureIMApproval:
@@ -198,10 +204,16 @@ func (e FeatureType) Name() string {
 		return "Online schema migration"
 	case FeatureSchemaDrift:
 		return "Schema drift"
+	case FeatureMybatisSQLReview:
+		return "Mybatis SQL review"
 	case FeatureSQLReview:
 		return "SQL review"
 	case FeatureTaskScheduleTime:
 		return "Task schedule time"
+	case FeatureEncryptedSecrets:
+		return "Encrypted secrets"
+	case FeatureDatabaseGrouping:
+		return "Database grouping"
 	// VCS Integration
 	case FeatureVCSSchemaWriteBack:
 		return "Schema write-back"
@@ -214,8 +226,12 @@ func (e FeatureType) Name() string {
 		return "Point-in-time Recovery"
 	case FeatureReadReplicaConnection:
 		return "Read replica connection"
+	case FeatureInstanceSSHConnection:
+		return "Instance SSH connection"
 	case FeatureSyncSchemaAllVersions:
 		return "Synchronize schema all versions"
+	case FeatureIndexAdvisor:
+		return "Index advisor"
 	// Policy Control
 	case FeatureApprovalPolicy:
 		return "Approval policy"
@@ -260,22 +276,26 @@ func (e FeatureType) minimumSupportedPlan() PlanType {
 // plan in [FREE, TEAM, Enterprise].
 var FeatureMatrix = map[FeatureType][3]bool{
 	// Admin & Security
-	FeatureSSO:       {false, false, true},
-	Feature2FA:       {false, false, true},
-	FeatureRBAC:      {true, true, true},
-	FeatureWatermark: {false, false, true},
-	FeatureAuditLog:  {false, false, true},
+	FeatureSSO:            {false, false, true},
+	Feature2FA:            {false, false, true},
+	FeatureDisallowSignup: {false, false, true},
+	FeatureRBAC:           {true, true, true},
+	FeatureWatermark:      {false, false, true},
+	FeatureAuditLog:       {false, false, true},
+	FeatureCustomRole:     {false, false, true},
 	// Branding
 	FeatureBranding: {false, false, true},
 	// Change Workflow
-	FeatureDataSource:       {false, false, false},
 	FeatureDBAWorkflow:      {false, false, true},
 	FeatureIMApproval:       {false, false, true},
 	FeatureMultiTenancy:     {false, false, true},
 	FeatureOnlineMigration:  {false, true, true},
 	FeatureSchemaDrift:      {false, false, true},
+	FeatureMybatisSQLReview: {false, false, true},
 	FeatureSQLReview:        {true, true, true},
 	FeatureTaskScheduleTime: {false, true, true},
+	FeatureEncryptedSecrets: {false, true, true},
+	FeatureDatabaseGrouping: {false, false, true},
 	// VCS Integration
 	FeatureVCSSchemaWriteBack:   {false, true, true},
 	FeatureVCSSheetSync:         {false, true, true},
@@ -283,7 +303,9 @@ var FeatureMatrix = map[FeatureType][3]bool{
 	// Database management
 	FeaturePITR:                  {false, true, true},
 	FeatureReadReplicaConnection: {false, false, true},
+	FeatureInstanceSSHConnection: {false, false, true},
 	FeatureSyncSchemaAllVersions: {false, true, true},
+	FeatureIndexAdvisor:          {false, false, true},
 	// Policy Control
 	FeatureApprovalPolicy:        {false, true, true},
 	FeatureBackupPolicy:          {false, true, true},

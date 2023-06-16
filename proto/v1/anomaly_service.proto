@@ -3,12 +3,9 @@ syntax = "proto3";
 package bytebase.v1;
 
 import "google/api/annotations.proto";
-import "google/api/client.proto";
 import "google/api/field_behavior.proto";
-import "google/api/http.proto";
-import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
-import "v1/common.proto";
+import "v1/org_policy_service.proto";
 
 option go_package = "generated-go/v1";
 
@@ -23,7 +20,7 @@ message SearchAnomaliesRequest {
   // follow the [ebnf](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form) syntax.
   // Only support filter by resource and type for now.
   // For example:
-  // Search the anomalies of a specific resource: 'resource="environments/{environemnt}/instances/{instance}".'
+  // Search the anomalies of a specific resource: 'resource="instances/{instance}".'
   // Search the specified types of anomalies: 'type="DATABASE_BACKUP_POLICY_VIOLATION" | "MIGRATION_SCHEMA".'
   string filter = 1;
 
@@ -90,8 +87,8 @@ message Anomaly {
 
   // The resource that is the target of the operation.
   // Format:
-  // - Instance: environments/{environment}/instnaces/{instance}
-  // - Database: environments/{environment}/instnaces/{instance}/databases/{database}
+  // - Instance: instnaces/{instance}
+  // - Database: instnaces/{instance}/databases/{database}
   string resource = 1 [(google.api.field_behavior) = REQUIRED];
 
   // type is the type of the anomaly.
@@ -114,18 +111,6 @@ message Anomaly {
   message DatabaseConnectionDetail {
     // detail is the detail of the database connection failure.
     string detail = 1;
-  }
-
-  // BackupPlanSchedule is the backup plan schedule.
-  enum BackupPlanSchedule {
-    // Unspecified backup plan schedule.
-    BACKUP_PLAN_SCHEDULE_UNSPECIFIED = 0;
-    // UNSET is the unset backup plan schedule.
-    UNSET = 1;
-    // DAILY is the daily backup plan schedule.
-    DAILY = 2;
-    // WEEKLY is the weekly backup plan schedule.
-    WEEKLY = 3;
   }
 
   // DatabaseBackupPolicyViolationDetail is the detail for database backup policy violation anomaly.
@@ -170,4 +155,8 @@ message Anomaly {
     DatabaseBackupMissingDetail database_backup_missing_detail = 7;
     DatabaseSchemaDriftDetail database_schema_drift_detail = 8;
   }
+
+  google.protobuf.Timestamp create_time = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  google.protobuf.Timestamp update_time = 10 [(google.api.field_behavior) = OUTPUT_ONLY];
 }

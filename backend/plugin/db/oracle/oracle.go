@@ -4,6 +4,7 @@ package oracle
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -15,7 +16,8 @@ import (
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	"github.com/bytebase/bytebase/backend/plugin/parser"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 var (
@@ -135,4 +137,53 @@ func (driver *Driver) executeWithBeforeCommitTxFunc(ctx context.Context, stateme
 // QueryConn querys a SQL statement in a given connection.
 func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]any, error) {
 	return util.Query(ctx, db.Oracle, conn, statement, queryContext)
+}
+
+// QueryConn2 queries a SQL statement in a given connection.
+func (driver *Driver) QueryConn2(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]*v1pb.QueryResult, error) {
+	singleSQLs, err := parser.SplitMultiSQL(parser.Oracle, statement)
+	if err != nil {
+		return nil, err
+	}
+	if len(singleSQLs) == 0 {
+		return nil, nil
+	}
+
+	var results []*v1pb.QueryResult
+	for _, singleSQL := range singleSQLs {
+		result, err := driver.querySingleSQL(ctx, conn, singleSQL, queryContext)
+		if err != nil {
+			results = append(results, &v1pb.QueryResult{
+				Error: err.Error(),
+			})
+		} else {
+			results = append(results, result)
+		}
+	}
+
+	return results, nil
+}
+
+func getOracleStatementWithResultLimit(stmt string, limit int) string {
+	return fmt.Sprintf("SELECT * FROM (%s) WHERE ROWNUM <= %d", stmt, limit)
+}
+
+func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL parser.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
+	statement := singleSQL.Text
+	statement = strings.TrimRight(statement, " \n\t;")
+	if !strings.HasPrefix(strings.ToUpper(statement), "EXPLAIN") && queryContext.Limit > 0 {
+		statement = getOracleStatementWithResultLimit(statement, queryContext.Limit)
+	}
+
+	if queryContext.ReadOnly {
+		// Oracle does not support transaction isolation level for read-only queries.
+		queryContext.ReadOnly = false
+	}
+
+	return util.Query2(ctx, db.Oracle, conn, statement, queryContext)
+}
+
+// RunStatement runs a SQL statement in a given connection.
+func (*Driver) RunStatement(ctx context.Context, conn *sql.Conn, statement string) ([]*v1pb.QueryResult, error) {
+	return util.RunStatement(ctx, parser.Oracle, conn, statement)
 }

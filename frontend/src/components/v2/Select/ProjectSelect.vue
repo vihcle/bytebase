@@ -15,69 +15,67 @@ import { computed, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { NSelect, SelectOption } from "naive-ui";
 
-import { useCurrentUser, useProjectStore } from "@/store";
+import { useCurrentUserV1, useProjectV1Store } from "@/store";
+import { DEFAULT_PROJECT_ID, UNKNOWN_ID, unknownProject } from "@/types";
 import {
-  DEFAULT_PROJECT_ID,
   Project,
-  ProjectId,
-  ProjectRoleType,
-  ProjectTenantMode,
-  ProjectWorkflowType,
-  UNKNOWN_ID,
-  unknown,
-} from "@/types";
-import { memberInProject } from "@/utils";
+  TenantMode,
+  Workflow,
+} from "@/types/proto/v1/project_service";
+import { State } from "@/types/proto/v1/common";
+import { roleListInProjectV1 } from "@/utils";
+import { intersection } from "lodash-es";
 
 interface ProjectSelectOption extends SelectOption {
-  value: ProjectId;
+  value: string;
   project: Project;
 }
 
 const props = withDefaults(
   defineProps<{
-    project: ProjectId | undefined; // UNKNOWN_ID(-1) to "ALL"
-    allowedProjectRoleList?: ProjectRoleType[];
-    allowedProjectTenantModeList?: ProjectTenantMode[];
-    allowedProjectWorkflowTypeList?: ProjectWorkflowType[];
+    project: string | undefined; // UNKNOWN_ID(-1) to "ALL"
+    allowedProjectRoleList?: string[]; // Empty array([]) to "ALL"
+    allowedProjectTenantModeList?: TenantMode[];
+    allowedProjectWorkflowTypeList?: Workflow[];
     includeAll?: boolean;
     includeDefaultProject?: boolean;
     includeArchived?: boolean;
+    filter?: (project: Project, index: number) => boolean;
   }>(),
   {
-    allowedProjectRoleList: () => ["OWNER", "DEVELOPER"],
-    allowedProjectTenantModeList: () => ["DISABLED", "TENANT"],
-    allowedProjectWorkflowTypeList: () => ["UI", "VCS"],
+    allowedProjectRoleList: () => [],
+    allowedProjectTenantModeList: () => [
+      TenantMode.TENANT_MODE_DISABLED,
+      TenantMode.TENANT_MODE_ENABLED,
+    ],
+    allowedProjectWorkflowTypeList: () => [Workflow.UI, Workflow.VCS],
     includeAll: false,
     includeDefaultProject: false,
     includeArchived: false,
+    filter: () => true,
   }
 );
 
 defineEmits<{
-  (event: "update:project", id: ProjectId | undefined): void;
+  (event: "update:project", id: string | undefined): void;
 }>();
 
 const { t } = useI18n();
-const currentUser = useCurrentUser();
-const projectStore = useProjectStore();
+const currentUserV1 = useCurrentUserV1();
+const projectV1Store = useProjectV1Store();
 
 const prepare = () => {
-  projectStore.fetchProjectListByUser({
-    userId: currentUser.value.id,
-    rowStatusList: ["NORMAL", "ARCHIVED"],
-  });
+  projectV1Store.fetchProjectList(true /* showDeleted */);
 };
 
 const rawProjectList = computed(() => {
-  let list = projectStore.getProjectListByUser(currentUser.value.id, [
-    "NORMAL",
-    "ARCHIVED",
-  ]);
-  // Filter by role
+  let list = projectV1Store.getProjectListByUser(
+    currentUserV1.value,
+    true /* showDeleted */
+  );
+  // Filter the default project
   list = list.filter((project) => {
-    const member = memberInProject(project, currentUser.value);
-    if (!member) return false;
-    return props.allowedProjectRoleList.includes(member.role);
+    return project.uid !== String(DEFAULT_PROJECT_ID);
   });
   // Filter by project tenant mode
   list = list.filter((project) => {
@@ -85,7 +83,7 @@ const rawProjectList = computed(() => {
   });
   // Filter by project workflow type
   list = list.filter((project) => {
-    return props.allowedProjectWorkflowTypeList.includes(project.workflowType);
+    return props.allowedProjectWorkflowTypeList.includes(project.workflow);
   });
 
   return list;
@@ -94,40 +92,57 @@ const rawProjectList = computed(() => {
 const isOrphanValue = computed(() => {
   if (props.project === undefined) return false;
 
-  return !rawProjectList.value.find((proj) => proj.id === props.project);
+  return !rawProjectList.value.find((proj) => proj.uid === props.project);
 });
 
 const combinedProjectList = computed(() => {
-  const list = rawProjectList.value.filter((project) => {
+  let list = rawProjectList.value.filter((project) => {
     if (props.includeArchived) return true;
-    if (project.rowStatus === "NORMAL") return true;
+    if (project.state === State.ACTIVE) return true;
     // ARCHIVED
-    if (project.id === props.project) return true;
+    if (project.uid === props.project) return true;
     return false;
   });
 
-  if (props.includeDefaultProject) {
-    list.unshift(projectStore.getProjectById(DEFAULT_PROJECT_ID));
+  if (props.allowedProjectRoleList.length > 0) {
+    list = list.filter((project) => {
+      const roles = roleListInProjectV1(project.iamPolicy, currentUserV1.value);
+      return intersection(props.allowedProjectRoleList, roles).length > 0;
+    });
   }
+
+  if (props.includeDefaultProject) {
+    list.unshift(projectV1Store.getProjectByUID(String(DEFAULT_PROJECT_ID)));
+  }
+
+  if (props.filter) {
+    list = list.filter(props.filter);
+  }
+
   if (
     props.project &&
-    props.project !== DEFAULT_PROJECT_ID &&
-    props.project !== UNKNOWN_ID &&
+    props.project !== String(DEFAULT_PROJECT_ID) &&
+    props.project !== String(UNKNOWN_ID) &&
     isOrphanValue.value
   ) {
     // It may happen the selected id might not be in the project list.
     // e.g. the selected project is deleted after the selection and we
     // are unable to cleanup properly. In such case, the selected project id
     // is orphaned and we just display the id
-    const dummyProject = unknown("PROJECT");
-    dummyProject.id = props.project;
-    dummyProject.name = props.project.toString();
+    const dummyProject = {
+      ...unknownProject(),
+      name: `projects/${props.project}`,
+      uid: props.project,
+      title: props.project,
+    };
     list.unshift(dummyProject);
   }
 
-  if (props.project === UNKNOWN_ID || props.includeAll) {
-    const dummyAll = unknown("PROJECT");
-    dummyAll.name = t("project.all");
+  if (props.project === String(UNKNOWN_ID) || props.includeAll) {
+    const dummyAll = {
+      ...unknownProject(),
+      title: t("project.all"),
+    };
     list.unshift(dummyAll);
   }
 
@@ -138,13 +153,13 @@ const options = computed(() => {
   return combinedProjectList.value.map<ProjectSelectOption>((project) => {
     return {
       project,
-      value: project.id,
+      value: project.uid,
       label:
-        project.id === DEFAULT_PROJECT_ID
+        project.uid === String(DEFAULT_PROJECT_ID)
           ? t("common.unassigned")
-          : project.id === UNKNOWN_ID
+          : project.uid === String(UNKNOWN_ID)
           ? t("project.all")
-          : project.name,
+          : project.title,
     };
   });
 });

@@ -1,5 +1,3 @@
-<!-- eslint-disable vue/no-mutating-props -->
-
 <template>
   <div
     class="bb-risk-expr-editor-group w-full overflow-hidden space-y-2 py-0.5"
@@ -129,7 +127,6 @@ import {
   type ConditionExpr,
   type ConditionGroupExpr,
   type LogicalOperator,
-  StringFactorList,
   StringOperatorList,
   LogicalOperatorList,
   isConditionGroupExpr,
@@ -137,6 +134,7 @@ import {
 } from "@/plugins/cel";
 import Condition from "./Condition.vue";
 import { useExprEditorContext } from "./context";
+import { StringFactorList } from "./factor";
 
 const props = defineProps<{
   expr: ConditionGroupExpr;

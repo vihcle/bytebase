@@ -1,5 +1,11 @@
 <template>
   <div class="w-full mt-4 space-y-4 text-sm">
+    <FeatureAttention
+      v-if="!hasCustomApprovalFeature"
+      feature="bb.feature.custom-approval"
+      :description="$t('subscription.features.bb-feature-custom-approval.desc')"
+    />
+
     <CustomApproval v-if="state.ready" />
     <div v-else class="w-full py-[4rem] flex justify-center items-center">
       <BBSpin />
@@ -7,6 +13,7 @@
   </div>
 
   <ApprovalRuleDialog />
+  <ExternalApprovalNodeDrawer />
 
   <FeatureModal
     v-if="state.showFeatureModal"
@@ -21,13 +28,14 @@ import { computed, onMounted, reactive, ref, toRef } from "vue";
 import {
   featureToRef,
   useWorkspaceApprovalSettingStore,
-  useCurrentUser,
+  useCurrentUserV1,
   useRiskStore,
 } from "@/store";
-import { hasWorkspacePermission } from "@/utils";
+import { hasWorkspacePermissionV1 } from "@/utils";
 import {
   CustomApproval,
   ApprovalRuleDialog,
+  ExternalApprovalNodeDrawer,
   provideCustomApprovalContext,
   TabValueList,
 } from "@/components/CustomApproval/Settings/components/CustomApproval/";
@@ -45,11 +53,11 @@ const state = reactive<LocalState>({
 const tab = useRouteHash("rules", TabValueList, "replace");
 const hasCustomApprovalFeature = featureToRef("bb.feature.custom-approval");
 
-const currentUser = useCurrentUser();
+const currentUserV1 = useCurrentUserV1();
 const allowAdmin = computed(() => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-custom-approval",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
@@ -60,6 +68,7 @@ provideCustomApprovalContext({
   ready: toRef(state, "ready"),
   tab,
   dialog: ref(),
+  externalApprovalNodeContext: ref(),
 });
 
 onMounted(async () => {

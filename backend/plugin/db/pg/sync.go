@@ -10,15 +10,19 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	"github.com/bytebase/bytebase/backend/plugin/parser"
-	"github.com/bytebase/bytebase/backend/plugin/parser/ast"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
+
+const systemSchemas = "'information_schema', 'pg_catalog', 'pg_toast', '_timescaledb_cache', '_timescaledb_catalog', '_timescaledb_internal', '_timescaledb_config', 'timescaledb_information', 'timescaledb_experimental'"
 
 // SyncInstance syncs the instance.
 func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, error) {
@@ -41,7 +45,7 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 	var filteredDatabases []*storepb.DatabaseMetadata
 	for _, database := range databases {
 		// Skip all system databases
-		if _, ok := excludedDatabaseList[database.Name]; ok {
+		if _, ok := ExcludedDatabaseList[database.Name]; ok {
 			continue
 		}
 		filteredDatabases = append(filteredDatabases, database)
@@ -91,6 +95,11 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get views from database %q", driver.databaseName)
 	}
+	functionMap, err := getFunctions(txn)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get functions from database %q", driver.databaseName)
+	}
+
 	extensions, err := getExtensions(txn)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get extensions from database %q", driver.databaseName)
@@ -118,6 +127,7 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 	for _, schemaName := range schemaNames {
 		var tables []*storepb.TableMetadata
 		var views []*storepb.ViewMetadata
+		var functions []*storepb.FunctionMetadata
 		var exists bool
 		if tables, exists = tableMap[schemaName]; !exists {
 			tables = []*storepb.TableMetadata{}
@@ -125,10 +135,14 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 		if views, exists = viewMap[schemaName]; !exists {
 			views = []*storepb.ViewMetadata{}
 		}
+		if functions, exists = functionMap[schemaName]; !exists {
+			functions = []*storepb.FunctionMetadata{}
+		}
 		databaseMetadata.Schemas = append(databaseMetadata.Schemas, &storepb.SchemaMetadata{
-			Name:   schemaName,
-			Tables: tables,
-			Views:  views,
+			Name:      schemaName,
+			Tables:    tables,
+			Views:     views,
+			Functions: functions,
 		})
 	}
 	databaseMetadata.Extensions = extensions
@@ -136,28 +150,28 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 	return databaseMetadata, err
 }
 
+var listForeignKeyQuery = `
+SELECT
+	n.nspname AS fk_schema,
+	conrelid::regclass AS fk_table,
+	conname AS fk_name,
+	(SELECT nspname FROM pg_namespace JOIN pg_class ON pg_namespace.oid = pg_class.relnamespace WHERE c.confrelid = pg_class.oid) AS fk_ref_schema,
+	confrelid::regclass AS fk_ref_table,
+	confdeltype AS delete_option,
+	confupdtype AS update_option,
+	confmatchtype AS match_option,
+	pg_get_constraintdef(c.oid) AS fk_def
+FROM
+	pg_constraint c
+	JOIN pg_namespace n ON n.oid = c.connamespace` + fmt.Sprintf(`
+WHERE
+	n.nspname NOT IN(%s)
+	AND c.contype = 'f'
+ORDER BY fk_schema, fk_table, fk_name;`, systemSchemas)
+
 func getForeignKeys(txn *sql.Tx) (map[db.TableKey][]*storepb.ForeignKeyMetadata, error) {
-	query := `
-	SELECT
-		n.nspname AS fk_schema,
-		conrelid::regclass AS fk_table,
-		conname AS fk_name,
-		(SELECT nspname FROM pg_namespace JOIN pg_class ON pg_namespace.oid = pg_class.relnamespace WHERE c.confrelid = pg_class.oid) AS fk_ref_schema,
-		confrelid::regclass AS fk_ref_table,
-		confdeltype AS delete_option,
-		confupdtype AS update_option,
-		confmatchtype AS match_option,
-		pg_get_constraintdef(c.oid) AS fk_def
-	FROM
-		pg_constraint c
-		JOIN pg_namespace n ON n.oid = c.connamespace
-	WHERE
-		n.nspname NOT IN('pg_catalog', 'information_schema')
-		AND c.contype = 'f'
-	ORDER BY fk_schema, fk_table, fk_name;
-	`
 	foreignKeysMap := make(map[db.TableKey][]*storepb.ForeignKeyMetadata)
-	rows, err := txn.Query(query)
+	rows, err := txn.Query(listForeignKeyQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -267,13 +281,14 @@ func formatTableNameFromRegclass(name string) string {
 	return strings.Trim(name, `"`)
 }
 
+var listSchemaQuery = fmt.Sprintf(`
+SELECT nspname
+FROM pg_catalog.pg_namespace
+WHERE nspname NOT IN (%s);
+`, systemSchemas)
+
 func getSchemas(txn *sql.Tx) ([]string, error) {
-	query := `
-		SELECT nspname
-		FROM pg_catalog.pg_namespace
-		WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast');
-	`
-	rows, err := txn.Query(query)
+	rows, err := txn.Query(listSchemaQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -294,6 +309,17 @@ func getSchemas(txn *sql.Tx) ([]string, error) {
 	return result, nil
 }
 
+var listTableQuery = `
+SELECT tbl.schemaname, tbl.tablename,
+	pg_table_size(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass),
+	pg_indexes_size(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass),
+	GREATEST(pc.reltuples::bigint, 0::BIGINT) AS estimate,
+	obj_description(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass) AS comment
+FROM pg_catalog.pg_tables tbl
+LEFT JOIN pg_class as pc ON pc.oid = format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass` + fmt.Sprintf(`
+WHERE tbl.schemaname NOT IN (%s)
+ORDER BY tbl.schemaname, tbl.tablename;`, systemSchemas)
+
 // getTables gets all tables of a database.
 func getTables(txn *sql.Tx) (map[string][]*storepb.TableMetadata, error) {
 	columnMap, err := getTableColumns(txn)
@@ -310,17 +336,7 @@ func getTables(txn *sql.Tx) (map[string][]*storepb.TableMetadata, error) {
 	}
 
 	tableMap := make(map[string][]*storepb.TableMetadata)
-	query := `
-		SELECT tbl.schemaname, tbl.tablename,
-			pg_table_size(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass),
-			pg_indexes_size(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass),
-			GREATEST(pc.reltuples::bigint, 0::BIGINT) AS estimate,
-			obj_description(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass) AS comment
-		FROM pg_catalog.pg_tables tbl
-		LEFT JOIN pg_class as pc ON pc.oid = format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass
-		WHERE tbl.schemaname NOT IN ('pg_catalog', 'information_schema')
-		ORDER BY tbl.schemaname, tbl.tablename;`
-	rows, err := txn.Query(query)
+	rows, err := txn.Query(listTableQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -351,27 +367,27 @@ func getTables(txn *sql.Tx) (map[string][]*storepb.TableMetadata, error) {
 	return tableMap, nil
 }
 
+var listColumnQuery = `
+SELECT
+	cols.table_schema,
+	cols.table_name,
+	cols.column_name,
+	cols.data_type,
+	cols.ordinal_position,
+	cols.column_default,
+	cols.is_nullable,
+	cols.collation_name,
+	cols.udt_schema,
+	cols.udt_name,
+	pg_catalog.col_description(format('%s.%s', quote_ident(table_schema), quote_ident(table_name))::regclass, cols.ordinal_position::int) as column_comment
+FROM INFORMATION_SCHEMA.COLUMNS AS cols` + fmt.Sprintf(`
+WHERE cols.table_schema NOT IN (%s)
+ORDER BY cols.table_schema, cols.table_name, cols.ordinal_position;`, systemSchemas)
+
 // getTableColumns gets the columns of a table.
 func getTableColumns(txn *sql.Tx) (map[db.TableKey][]*storepb.ColumnMetadata, error) {
 	columnsMap := make(map[db.TableKey][]*storepb.ColumnMetadata)
-
-	query := `
-		SELECT
-			cols.table_schema,
-			cols.table_name,
-			cols.column_name,
-			cols.data_type,
-			cols.ordinal_position,
-			cols.column_default,
-			cols.is_nullable,
-			cols.collation_name,
-			cols.udt_schema,
-			cols.udt_name,
-			pg_catalog.col_description(format('%s.%s', quote_ident(table_schema), quote_ident(table_name))::regclass, cols.ordinal_position::int) as column_comment
-		FROM INFORMATION_SCHEMA.COLUMNS AS cols
-		WHERE cols.table_schema NOT IN ('pg_catalog', 'information_schema')
-		ORDER BY cols.table_schema, cols.table_name, cols.ordinal_position;`
-	rows, err := txn.Query(query)
+	rows, err := txn.Query(listColumnQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -410,14 +426,15 @@ func getTableColumns(txn *sql.Tx) (map[db.TableKey][]*storepb.ColumnMetadata, er
 	return columnsMap, nil
 }
 
+var listViewQuery = `
+SELECT schemaname, viewname, definition, obj_description(format('%s.%s', quote_ident(schemaname), quote_ident(viewname))::regclass) FROM pg_catalog.pg_views` + fmt.Sprintf(`
+WHERE schemaname NOT IN (%s);`, systemSchemas)
+
 // getViews gets all views of a database.
 func getViews(txn *sql.Tx) (map[string][]*storepb.ViewMetadata, error) {
 	viewMap := make(map[string][]*storepb.ViewMetadata)
 
-	query := `
-		SELECT schemaname, viewname, definition, obj_description(format('%s.%s', quote_ident(schemaname), quote_ident(viewname))::regclass) FROM pg_catalog.pg_views
-		WHERE schemaname NOT IN ('pg_catalog', 'information_schema');`
-	rows, err := txn.Query(query)
+	rows, err := txn.Query(listViewQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -529,22 +546,23 @@ func getExtensions(txn *sql.Tx) ([]*storepb.ExtensionMetadata, error) {
 	return extensions, nil
 }
 
+var listIndexQuery = `
+SELECT idx.schemaname, idx.tablename, idx.indexname, idx.indexdef, (SELECT 1
+	FROM information_schema.table_constraints
+	WHERE constraint_schema = idx.schemaname
+	AND constraint_name = idx.indexname
+	AND table_schema = idx.schemaname
+	AND table_name = idx.tablename
+	AND constraint_type = 'PRIMARY KEY') AS primary,
+	obj_description(format('%s.%s', quote_ident(idx.schemaname), quote_ident(idx.indexname))::regclass) AS comment` + fmt.Sprintf(`
+FROM pg_indexes AS idx WHERE idx.schemaname NOT IN (%s)
+ORDER BY idx.schemaname, idx.tablename, idx.indexname;`, systemSchemas)
+
 // getIndexes gets all indices of a database.
 func getIndexes(txn *sql.Tx) (map[db.TableKey][]*storepb.IndexMetadata, error) {
 	indexMap := make(map[db.TableKey][]*storepb.IndexMetadata)
 
-	query := `
-		SELECT idx.schemaname, idx.tablename, idx.indexname, idx.indexdef, (SELECT 1
-			FROM information_schema.table_constraints
-			WHERE constraint_schema = idx.schemaname
-			AND constraint_name = idx.indexname
-			AND table_schema = idx.schemaname
-			AND table_name = idx.tablename
-			AND constraint_type = 'PRIMARY KEY') AS primary,
-			obj_description(format('%s.%s', quote_ident(idx.schemaname), quote_ident(idx.indexname))::regclass) AS comment
-		FROM pg_indexes AS idx WHERE idx.schemaname NOT IN ('pg_catalog', 'information_schema')
-		ORDER BY idx.schemaname, idx.tablename, idx.indexname;`
-	rows, err := txn.Query(query)
+	rows, err := txn.Query(listIndexQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -602,12 +620,184 @@ func getIndexMethodType(stmt string) string {
 	return matches[1]
 }
 
+var listFunctionQuery = `
+select n.nspname as function_schema,
+	p.proname as function_name,
+	case when l.lanname = 'internal' then p.prosrc
+			else pg_get_functiondef(p.oid)
+			end as definition
+from pg_proc p
+left join pg_namespace n on p.pronamespace = n.oid
+left join pg_language l on p.prolang = l.oid
+left join pg_type t on t.oid = p.prorettype ` + fmt.Sprintf(`
+where n.nspname not in (%s)
+order by function_schema, function_name;`, systemSchemas)
+
+// getFunctions gets all functions of a database.
+func getFunctions(txn *sql.Tx) (map[string][]*storepb.FunctionMetadata, error) {
+	functionMap := make(map[string][]*storepb.FunctionMetadata)
+
+	rows, err := txn.Query(listFunctionQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		function := &storepb.FunctionMetadata{}
+		var schemaName string
+		if err := rows.Scan(&schemaName, &function.Name, &function.Definition); err != nil {
+			return nil, err
+		}
+		// Skip internal functions.
+		if strings.Contains(function.Definition, "$libdir/timescaledb") {
+			continue
+		}
+
+		functionMap[schemaName] = append(functionMap[schemaName], function)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return functionMap, nil
+}
+
 // SyncSlowQuery syncs the slow query.
-func (*Driver) SyncSlowQuery(_ context.Context, _ time.Time) (map[string]*storepb.SlowQueryStatistics, error) {
-	return nil, errors.Errorf("not implemented")
+func (driver *Driver) SyncSlowQuery(ctx context.Context, _ time.Time) (map[string]*storepb.SlowQueryStatistics, error) {
+	var now time.Time
+	getNow := `SELECT NOW();`
+	nowRows, err := driver.db.QueryContext(ctx, getNow)
+	if err != nil {
+		return nil, util.FormatErrorWithQuery(err, getNow)
+	}
+	defer nowRows.Close()
+	for nowRows.Next() {
+		if err := nowRows.Scan(&now); err != nil {
+			return nil, util.FormatErrorWithQuery(err, getNow)
+		}
+	}
+	if err := nowRows.Err(); err != nil {
+		return nil, util.FormatErrorWithQuery(err, getNow)
+	}
+
+	result := make(map[string]*storepb.SlowQueryStatistics)
+	version, err := driver.getVersion(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var query string
+	// Postgres 13 changed the column names of pg_stat_statements.
+	if version >= "130000" {
+		query = `
+		SELECT
+			pg_database.datname,
+			query,
+			calls,
+			total_exec_time,
+			max_exec_time,
+			rows
+		FROM
+			pg_stat_statements
+			JOIN pg_database ON pg_database.oid = pg_stat_statements.dbid
+		WHERE max_exec_time >= 1000;
+	`
+	} else {
+		query = `
+		SELECT
+			pg_database.datname,
+			query,
+			calls,
+			total_time,
+			max_time,
+			rows
+		FROM
+			pg_stat_statements
+			JOIN pg_database ON pg_database.oid = pg_stat_statements.dbid
+		WHERE max_time >= 1000;
+		`
+	}
+
+	slowQueryStatisticsRows, err := driver.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, util.FormatErrorWithQuery(err, query)
+	}
+	defer slowQueryStatisticsRows.Close()
+	for slowQueryStatisticsRows.Next() {
+		var database string
+		var fingerprint string
+		var calls int64
+		var totalExecTime float64
+		var maxExecTime float64
+		var rows int64
+		if err := slowQueryStatisticsRows.Scan(&database, &fingerprint, &calls, &totalExecTime, &maxExecTime, &rows); err != nil {
+			return nil, err
+		}
+		if len(fingerprint) > db.SlowQueryMaxLen {
+			fingerprint = fingerprint[:db.SlowQueryMaxLen]
+		}
+		item := storepb.SlowQueryStatisticsItem{
+			SqlFingerprint:   fingerprint,
+			Count:            calls,
+			LatestLogTime:    timestamppb.New(now.UTC()),
+			TotalQueryTime:   durationpb.New(time.Duration(totalExecTime * float64(time.Millisecond))),
+			MaximumQueryTime: durationpb.New(time.Duration(maxExecTime * float64(time.Millisecond))),
+			TotalRowsSent:    rows,
+		}
+		if statistics, exists := result[database]; exists {
+			statistics.Items = append(statistics.Items, &item)
+		} else {
+			result[database] = &storepb.SlowQueryStatistics{
+				Items: []*storepb.SlowQueryStatisticsItem{&item},
+			}
+		}
+	}
+	if err := slowQueryStatisticsRows.Err(); err != nil {
+		return nil, err
+	}
+
+	reset := `SELECT pg_stat_statements_reset();`
+	if _, err := driver.db.ExecContext(ctx, reset); err != nil {
+		return nil, util.FormatErrorWithQuery(err, reset)
+	}
+	return result, nil
 }
 
 // CheckSlowQueryLogEnabled checks if slow query log is enabled.
-func (*Driver) CheckSlowQueryLogEnabled(_ context.Context) error {
-	return errors.Errorf("not implemented")
+func (driver *Driver) CheckSlowQueryLogEnabled(ctx context.Context) error {
+	showSharedPreloadLibraries := `SELECT setting FROM pg_settings WHERE name = 'shared_preload_libraries';`
+
+	sharedPreloadLibrariesRows, err := driver.db.QueryContext(ctx, showSharedPreloadLibraries)
+	if err != nil {
+		return util.FormatErrorWithQuery(err, showSharedPreloadLibraries)
+	}
+	defer sharedPreloadLibrariesRows.Close()
+	for sharedPreloadLibrariesRows.Next() {
+		var sharedPreloadLibraries string
+		if err := sharedPreloadLibrariesRows.Scan(&sharedPreloadLibraries); err != nil {
+			return err
+		}
+		if !strings.Contains(sharedPreloadLibraries, "pg_stat_statements") {
+			return errors.New("pg_stat_statements is not loaded")
+		}
+	}
+	if err := sharedPreloadLibrariesRows.Err(); err != nil {
+		return util.FormatErrorWithQuery(err, showSharedPreloadLibraries)
+	}
+
+	checkPGStatStatements := `SELECT count(*) FROM pg_stat_statements limit 10;`
+
+	pgStatStatementsInfoRows, err := driver.db.QueryContext(ctx, checkPGStatStatements)
+	if err != nil {
+		return util.FormatErrorWithQuery(err, checkPGStatStatements)
+	}
+	defer pgStatStatementsInfoRows.Close()
+	// no need to scan rows, just check if there is any row
+	if !pgStatStatementsInfoRows.Next() {
+		return errors.New("pg_stat_statements is empty")
+	}
+	if err := pgStatStatementsInfoRows.Err(); err != nil {
+		return util.FormatErrorWithQuery(err, checkPGStatStatements)
+	}
+
+	return nil
 }

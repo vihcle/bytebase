@@ -2,7 +2,7 @@ import { computed, nextTick } from "vue";
 import { cloneDeep, isEqual } from "lodash-es";
 
 import {
-  useCurrentUser,
+  useCurrentUserV1,
   useIssueStore,
   useIssueSubscriberStore,
   useTaskStore,
@@ -23,7 +23,7 @@ import type {
 } from "@/types";
 import type { InputField, OutputField } from "@/plugins";
 import { useIssueLogic } from "./index";
-import { hasWorkspacePermission } from "@/utils";
+import { extractUserUID, hasWorkspacePermissionV1 } from "@/utils";
 
 export const useExtraIssueLogic = () => {
   const {
@@ -41,7 +41,10 @@ export const useExtraIssueLogic = () => {
   const issueStore = useIssueStore();
   const issueSubscriberStore = useIssueSubscriberStore();
   const taskStore = useTaskStore();
-  const currentUser = useCurrentUser();
+  const currentUserV1 = useCurrentUserV1();
+  const currentUserUID = computed(() =>
+    extractUserUID(currentUserV1.value.name)
+  );
 
   const allowEditOutput = computed(() => {
     if (create.value) {
@@ -50,8 +53,8 @@ export const useExtraIssueLogic = () => {
 
     const issueEntity = issue.value as Issue;
     return (
-      issueEntity.status == "OPEN" &&
-      issueEntity.assignee?.id == currentUser.value.id
+      issueEntity.status === "OPEN" &&
+      String(issueEntity.assignee?.id) === currentUserUID.value
     );
   });
 
@@ -63,17 +66,17 @@ export const useExtraIssueLogic = () => {
     const issueEntity = issue.value as Issue;
     if (issueEntity.status === "OPEN") {
       if (
-        issueEntity.assignee.id === currentUser.value.id ||
-        issueEntity.creator.id === currentUser.value.id
+        String(issueEntity.assignee.id) === currentUserUID.value ||
+        String(issueEntity.creator.id) === currentUserUID.value
       ) {
         // Allowed if current user is the assignee or creator.
         return true;
       }
 
       if (
-        hasWorkspacePermission(
+        hasWorkspacePermissionV1(
           "bb.permission.workspace.manage-issue",
-          currentUser.value.role
+          currentUserV1.value.userRole
         )
       ) {
         // Allowed if RBAC is enabled and current is DBA or workspace owner.
@@ -116,12 +119,12 @@ export const useExtraIssueLogic = () => {
     }
   };
 
-  const updateAssigneeId = (newAssigneeId: PrincipalId) => {
+  const updateAssigneeId = (newAssigneeId: string) => {
     if (create.value) {
-      (issue.value as IssueCreate).assigneeId = newAssigneeId;
+      (issue.value as IssueCreate).assigneeId = parseInt(newAssigneeId, 10);
     } else {
       patchIssue({
-        assigneeId: newAssigneeId,
+        assigneeId: parseInt(newAssigneeId, 10),
       });
     }
   };
@@ -165,11 +168,12 @@ export const useExtraIssueLogic = () => {
   };
 
   const updateCustomField = (field: InputField | OutputField, value: any) => {
-    if (!isEqual(issue.value.payload[field.id], value)) {
+    const payload = issue.value.payload as Record<string, any>;
+    if (!isEqual(payload[field.id], value)) {
       if (create.value) {
-        issue.value.payload[field.id] = value;
+        payload[field.id] = value;
       } else {
-        const newPayload = cloneDeep(issue.value.payload);
+        const newPayload = cloneDeep(payload);
         newPayload[field.id] = value;
         patchIssue({
           payload: newPayload,
@@ -196,7 +200,7 @@ export const useExtraIssueLogic = () => {
   ) => {
     // Switch to the last task in this stage
     const lastTask = stage.taskList[stage.taskList.length - 1];
-    selectStageOrTask(stage.id);
+    selectStageOrTask(Number(stage.id));
     nextTick(() => {
       selectTask(lastTask);
     });
@@ -206,7 +210,7 @@ export const useExtraIssueLogic = () => {
       id: stage.id,
       status: newStatus,
       comment,
-      updatedTs: stage.updatedTs,
+      updatedTs: Math.floor(Date.now() / 1000),
     };
     taskStore
       .updateStageAllTaskStatus({
@@ -225,7 +229,7 @@ export const useExtraIssueLogic = () => {
     comment: string
   ) => {
     // Switch to the stage view containing this task
-    selectStageOrTask(task.stage.id);
+    selectStageOrTask(Number(task.stage.id));
     nextTick().then(() => {
       selectTask(task);
     });
@@ -238,7 +242,7 @@ export const useExtraIssueLogic = () => {
     taskStore
       .updateStatus({
         issueId: (issue.value as Issue).id,
-        pipelineId: (issue.value as Issue).pipeline.id,
+        pipelineId: (issue.value as Issue).pipeline!.id,
         taskId: task.id,
         taskStatusPatch,
       })
@@ -251,7 +255,7 @@ export const useExtraIssueLogic = () => {
     taskStore
       .runChecks({
         issueId: (issue.value as Issue).id,
-        pipelineId: (issue.value as Issue).pipeline.id,
+        pipelineId: (issue.value as Issue).pipeline!.id,
         taskId: task.id,
       })
       .then(() => {

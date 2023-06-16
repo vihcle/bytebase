@@ -42,35 +42,86 @@ func (in *ACLInterceptor) ACLInterceptor(ctx context.Context, request any, serve
 	if err != nil {
 		return nil, status.Errorf(codes.PermissionDenied, err.Error())
 	}
+	if user != nil {
+		// Store workspace role into context.
+		ctx = context.WithValue(ctx, common.RoleContextKey, user.Role)
+	}
+
 	if auth.IsAuthenticationAllowed(serverInfo.FullMethod) {
 		return handler(ctx, request)
 	}
 	if user == nil {
 		return nil, status.Errorf(codes.Unauthenticated, "unauthenticated for method %q", serverInfo.FullMethod)
 	}
-	// Store workspace role into context.
-	childCtx := context.WithValue(ctx, common.RoleContextKey, user.Role)
 	if isOwnerOrDBA(user.Role) {
-		return handler(childCtx, request)
+		return handler(ctx, request)
 	}
 
-	methodName := getShortMethodName(serverInfo.FullMethod)
+	if err := in.aclInterceptorDo(ctx, serverInfo.FullMethod, request, user); err != nil {
+		return nil, err
+	}
+
+	return handler(ctx, request)
+}
+
+// ACLStreamInterceptor is the unary interceptor for gRPC API.
+func (in *ACLInterceptor) ACLStreamInterceptor(request any, ss grpc.ServerStream, serverInfo *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	ctx := ss.Context()
+
+	user, err := in.getUser(ctx)
+	if err != nil {
+		return status.Errorf(codes.PermissionDenied, err.Error())
+	}
+	if user != nil {
+		// Store workspace role into context.
+		ctx = context.WithValue(ctx, common.RoleContextKey, user.Role)
+		ss = overrideStream{ServerStream: ss, childCtx: ctx}
+	}
+
+	if auth.IsAuthenticationAllowed(serverInfo.FullMethod) {
+		return handler(request, ss)
+	}
+	if user == nil {
+		return status.Errorf(codes.Unauthenticated, "unauthenticated for method %q", serverInfo.FullMethod)
+	}
+	if isOwnerOrDBA(user.Role) {
+		return handler(request, ss)
+	}
+
+	if err := in.aclInterceptorDo(ctx, serverInfo.FullMethod, request, user); err != nil {
+		return err
+	}
+
+	return handler(request, ss)
+}
+
+type overrideStream struct {
+	childCtx context.Context
+	grpc.ServerStream
+}
+
+func (s overrideStream) Context() context.Context {
+	return s.childCtx
+}
+
+func (in *ACLInterceptor) aclInterceptorDo(ctx context.Context, fullMethod string, request any, user *store.UserMessage) error {
+	methodName := getShortMethodName(fullMethod)
 	if isOwnerAndDBAMethod(methodName) {
-		return nil, status.Errorf(codes.PermissionDenied, "only workspace owner and DBA can access method %q", methodName)
+		return status.Errorf(codes.PermissionDenied, "only workspace owner and DBA can access method %q", methodName)
 	}
 
 	if isProjectOwnerMethod(methodName) {
 		projectIDs, err := getProjectIDs(request)
 		if err != nil {
-			return nil, status.Errorf(codes.PermissionDenied, err.Error())
+			return status.Errorf(codes.PermissionDenied, err.Error())
 		}
 		for _, projectID := range projectIDs {
-			projectRole, err := in.getProjectMember(ctx, user, projectID)
+			projectRoles, err := in.getProjectRoles(ctx, user, projectID)
 			if err != nil {
-				return nil, status.Errorf(codes.PermissionDenied, err.Error())
+				return status.Errorf(codes.PermissionDenied, err.Error())
 			}
-			if projectRole != api.Owner {
-				return nil, status.Errorf(codes.PermissionDenied, "only the owner of project %q can access method %q", projectID, methodName)
+			if !projectRoles[api.Owner] {
+				return status.Errorf(codes.PermissionDenied, "only the owner of project %q can access method %q", projectID, methodName)
 			}
 		}
 	}
@@ -78,20 +129,19 @@ func (in *ACLInterceptor) ACLInterceptor(ctx context.Context, request any, serve
 	if isTransferDatabaseMethods(methodName) {
 		projectIDs, err := in.getTransferDatabaseToProjects(ctx, request)
 		if err != nil {
-			return nil, status.Errorf(codes.PermissionDenied, err.Error())
+			return status.Errorf(codes.PermissionDenied, err.Error())
 		}
 		for _, projectID := range projectIDs {
-			projectRole, err := in.getProjectMember(ctx, user, projectID)
+			projectRoles, err := in.getProjectRoles(ctx, user, projectID)
 			if err != nil {
-				return nil, status.Errorf(codes.PermissionDenied, err.Error())
+				return status.Errorf(codes.PermissionDenied, err.Error())
 			}
-			if projectRole != api.Owner {
-				return nil, status.Errorf(codes.PermissionDenied, "only project owner can transfer database to project %q", projectID)
+			if !projectRoles[api.Owner] {
+				return status.Errorf(codes.PermissionDenied, "only project owner can transfer database to project %q", projectID)
 			}
 		}
 	}
-
-	return handler(childCtx, request)
+	return nil
 }
 
 func (in *ACLInterceptor) getUser(ctx context.Context) (*store.UserMessage, error) {
@@ -118,23 +168,26 @@ func (in *ACLInterceptor) getUser(ctx context.Context) (*store.UserMessage, erro
 	return user, nil
 }
 
-func (in *ACLInterceptor) getProjectMember(ctx context.Context, user *store.UserMessage, projectID string) (api.Role, error) {
+func (in *ACLInterceptor) getProjectRoles(ctx context.Context, user *store.UserMessage, projectID string) (map[api.Role]bool, error) {
 	projectPolicy, err := in.store.GetProjectPolicy(ctx, &store.GetProjectPolicyMessage{ProjectID: &projectID})
 	if err != nil {
-		return api.UnknownRole, err
+		return nil, err
 	}
+	roles := map[api.Role]bool{}
 	for _, binding := range projectPolicy.Bindings {
 		for _, member := range binding.Members {
 			if member.ID == user.ID {
-				return binding.Role, nil
+				roles[binding.Role] = true
+				break
 			}
 		}
 	}
-	return api.UnknownRole, nil
+	return roles, nil
 }
 
 func getProjectIDs(req any) ([]string, error) {
-	if request, ok := req.(*v1pb.UpdateProjectRequest); ok {
+	switch request := req.(type) {
+	case *v1pb.UpdateProjectRequest:
 		if request.Project == nil {
 			return nil, errors.Errorf("project not found")
 		}
@@ -143,16 +196,20 @@ func getProjectIDs(req any) ([]string, error) {
 			return nil, err
 		}
 		return []string{projectID}, nil
-	}
-	if request, ok := req.(*v1pb.DeleteProjectRequest); ok {
+	case *v1pb.DeleteProjectRequest:
 		projectID, err := getProjectID(request.Name)
 		if err != nil {
 			return nil, err
 		}
 		return []string{projectID}, nil
-	}
-	if request, ok := req.(*v1pb.UndeleteProjectRequest); ok {
+	case *v1pb.UndeleteProjectRequest:
 		projectID, err := getProjectID(request.Name)
+		if err != nil {
+			return nil, err
+		}
+		return []string{projectID}, nil
+	case *v1pb.SetIamPolicyRequest:
+		projectID, err := getProjectID(request.Project)
 		if err != nil {
 			return nil, err
 		}
@@ -176,11 +233,11 @@ func (in *ACLInterceptor) getTransferDatabaseToProjects(ctx context.Context, req
 		if !hasPath(request.UpdateMask, "project") || request.Database == nil {
 			continue
 		}
-		environmentID, instanceID, databaseName, err := getEnvironmentInstanceDatabaseID(request.Database.Name)
+		instanceID, databaseName, err := getInstanceDatabaseID(request.Database.Name)
 		if err != nil {
 			return nil, err
 		}
-		database, err := in.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{EnvironmentID: &environmentID, InstanceID: &instanceID, DatabaseName: &databaseName})
+		database, err := in.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{InstanceID: &instanceID, DatabaseName: &databaseName})
 		if err != nil {
 			return nil, err
 		}

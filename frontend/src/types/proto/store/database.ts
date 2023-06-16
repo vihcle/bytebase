@@ -16,6 +16,8 @@ export interface DatabaseMetadata {
   collation: string;
   /** The extensions is the list of extensions in a database. */
   extensions: ExtensionMetadata[];
+  /** The database belongs to a datashare. */
+  datashare: boolean;
 }
 
 /**
@@ -32,6 +34,8 @@ export interface SchemaMetadata {
   tables: TableMetadata[];
   /** The views is the list of views in a schema. */
   views: ViewMetadata[];
+  /** The functions is the list of functions in a schema. */
+  functions: FunctionMetadata[];
 }
 
 /** TableMetadata is the metadata for tables. */
@@ -104,6 +108,14 @@ export interface DependentColumn {
   column: string;
 }
 
+/** FunctionMetadata is the metadata for functions. */
+export interface FunctionMetadata {
+  /** The name is the name of a view. */
+  name: string;
+  /** The definition is the definition of a view. */
+  definition: string;
+}
+
 /** IndexMetadata is the metadata for indexes. */
 export interface IndexMetadata {
   /** The name is the name of an index. */
@@ -172,8 +184,22 @@ export interface InstanceRoleMetadata {
   grant: string;
 }
 
+export interface Secrets {
+  /** The list of secrets. */
+  items: SecretItem[];
+}
+
+export interface SecretItem {
+  /** The name is the name of the secret. */
+  name: string;
+  /** The value is the value of the secret. */
+  value: string;
+  /** The description is the description of the secret. */
+  description: string;
+}
+
 function createBaseDatabaseMetadata(): DatabaseMetadata {
-  return { name: "", schemas: [], characterSet: "", collation: "", extensions: [] };
+  return { name: "", schemas: [], characterSet: "", collation: "", extensions: [], datashare: false };
 }
 
 export const DatabaseMetadata = {
@@ -193,6 +219,9 @@ export const DatabaseMetadata = {
     for (const v of message.extensions) {
       ExtensionMetadata.encode(v!, writer.uint32(42).fork()).ldelim();
     }
+    if (message.datashare === true) {
+      writer.uint32(48).bool(message.datashare);
+    }
     return writer;
   },
 
@@ -204,42 +233,49 @@ export const DatabaseMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.schemas.push(SchemaMetadata.decode(reader, reader.uint32()));
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.characterSet = reader.string();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.collation = reader.string();
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.extensions.push(ExtensionMetadata.decode(reader, reader.uint32()));
           continue;
+        case 6:
+          if (tag !== 48) {
+            break;
+          }
+
+          message.datashare = reader.bool();
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -256,6 +292,7 @@ export const DatabaseMetadata = {
       extensions: Array.isArray(object?.extensions)
         ? object.extensions.map((e: any) => ExtensionMetadata.fromJSON(e))
         : [],
+      datashare: isSet(object.datashare) ? Boolean(object.datashare) : false,
     };
   },
 
@@ -274,6 +311,7 @@ export const DatabaseMetadata = {
     } else {
       obj.extensions = [];
     }
+    message.datashare !== undefined && (obj.datashare = message.datashare);
     return obj;
   },
 
@@ -288,12 +326,13 @@ export const DatabaseMetadata = {
     message.characterSet = object.characterSet ?? "";
     message.collation = object.collation ?? "";
     message.extensions = object.extensions?.map((e) => ExtensionMetadata.fromPartial(e)) || [];
+    message.datashare = object.datashare ?? false;
     return message;
   },
 };
 
 function createBaseSchemaMetadata(): SchemaMetadata {
-  return { name: "", tables: [], views: [] };
+  return { name: "", tables: [], views: [], functions: [] };
 }
 
 export const SchemaMetadata = {
@@ -307,6 +346,9 @@ export const SchemaMetadata = {
     for (const v of message.views) {
       ViewMetadata.encode(v!, writer.uint32(26).fork()).ldelim();
     }
+    for (const v of message.functions) {
+      FunctionMetadata.encode(v!, writer.uint32(34).fork()).ldelim();
+    }
     return writer;
   },
 
@@ -318,28 +360,35 @@ export const SchemaMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.tables.push(TableMetadata.decode(reader, reader.uint32()));
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.views.push(ViewMetadata.decode(reader, reader.uint32()));
           continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.functions.push(FunctionMetadata.decode(reader, reader.uint32()));
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -352,6 +401,7 @@ export const SchemaMetadata = {
       name: isSet(object.name) ? String(object.name) : "",
       tables: Array.isArray(object?.tables) ? object.tables.map((e: any) => TableMetadata.fromJSON(e)) : [],
       views: Array.isArray(object?.views) ? object.views.map((e: any) => ViewMetadata.fromJSON(e)) : [],
+      functions: Array.isArray(object?.functions) ? object.functions.map((e: any) => FunctionMetadata.fromJSON(e)) : [],
     };
   },
 
@@ -368,6 +418,11 @@ export const SchemaMetadata = {
     } else {
       obj.views = [];
     }
+    if (message.functions) {
+      obj.functions = message.functions.map((e) => e ? FunctionMetadata.toJSON(e) : undefined);
+    } else {
+      obj.functions = [];
+    }
     return obj;
   },
 
@@ -380,6 +435,7 @@ export const SchemaMetadata = {
     message.name = object.name ?? "";
     message.tables = object.tables?.map((e) => TableMetadata.fromPartial(e)) || [];
     message.views = object.views?.map((e) => ViewMetadata.fromPartial(e)) || [];
+    message.functions = object.functions?.map((e) => FunctionMetadata.fromPartial(e)) || [];
     return message;
   },
 };
@@ -450,91 +506,91 @@ export const TableMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.columns.push(ColumnMetadata.decode(reader, reader.uint32()));
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.indexes.push(IndexMetadata.decode(reader, reader.uint32()));
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.engine = reader.string();
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.collation = reader.string();
           continue;
         case 6:
-          if (tag != 48) {
+          if (tag !== 48) {
             break;
           }
 
           message.rowCount = longToNumber(reader.int64() as Long);
           continue;
         case 7:
-          if (tag != 56) {
+          if (tag !== 56) {
             break;
           }
 
           message.dataSize = longToNumber(reader.int64() as Long);
           continue;
         case 8:
-          if (tag != 64) {
+          if (tag !== 64) {
             break;
           }
 
           message.indexSize = longToNumber(reader.int64() as Long);
           continue;
         case 9:
-          if (tag != 72) {
+          if (tag !== 72) {
             break;
           }
 
           message.dataFree = longToNumber(reader.int64() as Long);
           continue;
         case 10:
-          if (tag != 82) {
+          if (tag !== 82) {
             break;
           }
 
           message.createOptions = reader.string();
           continue;
         case 11:
-          if (tag != 90) {
+          if (tag !== 90) {
             break;
           }
 
           message.comment = reader.string();
           continue;
         case 12:
-          if (tag != 98) {
+          if (tag !== 98) {
             break;
           }
 
           message.foreignKeys.push(ForeignKeyMetadata.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -662,63 +718,63 @@ export const ColumnMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.position = reader.int32();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.default = StringValue.decode(reader, reader.uint32()).value;
           continue;
         case 4:
-          if (tag != 32) {
+          if (tag !== 32) {
             break;
           }
 
           message.nullable = reader.bool();
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.type = reader.string();
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
           message.characterSet = reader.string();
           continue;
         case 7:
-          if (tag != 58) {
+          if (tag !== 58) {
             break;
           }
 
           message.collation = reader.string();
           continue;
         case 8:
-          if (tag != 66) {
+          if (tag !== 66) {
             break;
           }
 
           message.comment = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -799,35 +855,35 @@ export const ViewMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.definition = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.comment = reader.string();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.dependentColumns.push(DependentColumn.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -899,28 +955,28 @@ export const DependentColumn = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.schema = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.table = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.column = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -953,6 +1009,77 @@ export const DependentColumn = {
     message.schema = object.schema ?? "";
     message.table = object.table ?? "";
     message.column = object.column ?? "";
+    return message;
+  },
+};
+
+function createBaseFunctionMetadata(): FunctionMetadata {
+  return { name: "", definition: "" };
+}
+
+export const FunctionMetadata = {
+  encode(message: FunctionMetadata, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.definition !== "") {
+      writer.uint32(18).string(message.definition);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): FunctionMetadata {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFunctionMetadata();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.definition = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): FunctionMetadata {
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      definition: isSet(object.definition) ? String(object.definition) : "",
+    };
+  },
+
+  toJSON(message: FunctionMetadata): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    message.definition !== undefined && (obj.definition = message.definition);
+    return obj;
+  },
+
+  create(base?: DeepPartial<FunctionMetadata>): FunctionMetadata {
+    return FunctionMetadata.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<FunctionMetadata>): FunctionMetadata {
+    const message = createBaseFunctionMetadata();
+    message.name = object.name ?? "";
+    message.definition = object.definition ?? "";
     return message;
   },
 };
@@ -995,56 +1122,56 @@ export const IndexMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.expressions.push(reader.string());
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.type = reader.string();
           continue;
         case 4:
-          if (tag != 32) {
+          if (tag !== 32) {
             break;
           }
 
           message.unique = reader.bool();
           continue;
         case 5:
-          if (tag != 40) {
+          if (tag !== 40) {
             break;
           }
 
           message.primary = reader.bool();
           continue;
         case 6:
-          if (tag != 48) {
+          if (tag !== 48) {
             break;
           }
 
           message.visible = reader.bool();
           continue;
         case 7:
-          if (tag != 58) {
+          if (tag !== 58) {
             break;
           }
 
           message.comment = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1126,35 +1253,35 @@ export const ExtensionMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.schema = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.version = reader.string();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.description = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1244,63 +1371,63 @@ export const ForeignKeyMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.columns.push(reader.string());
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.referencedSchema = reader.string();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.referencedTable = reader.string();
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.referencedColumns.push(reader.string());
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
           message.onDelete = reader.string();
           continue;
         case 7:
-          if (tag != 58) {
+          if (tag !== 58) {
             break;
           }
 
           message.onUpdate = reader.string();
           continue;
         case 8:
-          if (tag != 66) {
+          if (tag !== 66) {
             break;
           }
 
           message.matchType = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1385,21 +1512,21 @@ export const InstanceRoleMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 7:
-          if (tag != 58) {
+          if (tag !== 58) {
             break;
           }
 
           message.grant = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1429,6 +1556,150 @@ export const InstanceRoleMetadata = {
     const message = createBaseInstanceRoleMetadata();
     message.name = object.name ?? "";
     message.grant = object.grant ?? "";
+    return message;
+  },
+};
+
+function createBaseSecrets(): Secrets {
+  return { items: [] };
+}
+
+export const Secrets = {
+  encode(message: Secrets, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.items) {
+      SecretItem.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): Secrets {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSecrets();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.items.push(SecretItem.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): Secrets {
+    return { items: Array.isArray(object?.items) ? object.items.map((e: any) => SecretItem.fromJSON(e)) : [] };
+  },
+
+  toJSON(message: Secrets): unknown {
+    const obj: any = {};
+    if (message.items) {
+      obj.items = message.items.map((e) => e ? SecretItem.toJSON(e) : undefined);
+    } else {
+      obj.items = [];
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<Secrets>): Secrets {
+    return Secrets.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<Secrets>): Secrets {
+    const message = createBaseSecrets();
+    message.items = object.items?.map((e) => SecretItem.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseSecretItem(): SecretItem {
+  return { name: "", value: "", description: "" };
+}
+
+export const SecretItem = {
+  encode(message: SecretItem, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.value !== "") {
+      writer.uint32(18).string(message.value);
+    }
+    if (message.description !== "") {
+      writer.uint32(26).string(message.description);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SecretItem {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSecretItem();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.description = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SecretItem {
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      value: isSet(object.value) ? String(object.value) : "",
+      description: isSet(object.description) ? String(object.description) : "",
+    };
+  },
+
+  toJSON(message: SecretItem): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    message.value !== undefined && (obj.value = message.value);
+    message.description !== undefined && (obj.description = message.description);
+    return obj;
+  },
+
+  create(base?: DeepPartial<SecretItem>): SecretItem {
+    return SecretItem.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<SecretItem>): SecretItem {
+    const message = createBaseSecretItem();
+    message.name = object.name ?? "";
+    message.value = object.value ?? "";
+    message.description = object.description ?? "";
     return message;
   },
 };

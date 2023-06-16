@@ -22,18 +22,14 @@
         <BBBadge
           v-if="reviewPolicy.environment"
           :can-remove="false"
-          :link="`/environment/${reviewPolicy.environment.id}`"
+          :link="`/environment/${reviewPolicy.environment.uid}`"
         >
-          {{ reviewPolicy.environment.name }}
-          <ProductionEnvironmentIcon
+          <EnvironmentV1Name
             :environment="reviewPolicy.environment"
-            class="!text-current ml-1"
+            :link="false"
           />
         </BBBadge>
-        <div
-          v-if="reviewPolicy.rowStatus == 'ARCHIVED'"
-          class="whitespace-nowrap"
-        >
+        <div v-if="!reviewPolicy.enforce" class="whitespace-nowrap">
           <BBBadge
             :text="$t('sql-review.disabled')"
             :can-remove="false"
@@ -53,7 +49,7 @@
       </div>
       <div v-if="hasPermission" class="flex space-x-2">
         <button
-          v-if="reviewPolicy.rowStatus === 'NORMAL'"
+          v-if="reviewPolicy.enforce"
           type="button"
           class="btn-normal py-2 px-4"
           @click.prevent="state.showDisableModal = true"
@@ -74,9 +70,7 @@
       </div>
     </div>
     <BBAttention
-      v-if="
-        !reviewPolicy.environment || reviewPolicy.environment.id === UNKNOWN_ID
-      "
+      v-if="!reviewPolicy.environment"
       class="my-5"
       :style="`WARN`"
       :title="$t('sql-review.create.basic-info.no-linked-environments')"
@@ -96,7 +90,7 @@
       @comment-change="onCommentChange"
     />
     <BBButtonConfirm
-      class="mt-2"
+      class="my-5"
       :disabled="!hasPermission"
       :style="'DELETE'"
       :button-text="$t('sql-review.delete')"
@@ -153,7 +147,9 @@
 import { computed, reactive, toRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
-import { idFromSlug, hasWorkspacePermission } from "@/utils";
+import { cloneDeep } from "lodash-es";
+
+import { idFromSlug, hasWorkspacePermissionV1 } from "@/utils";
 import {
   unknown,
   RuleLevel,
@@ -163,17 +159,16 @@ import {
   RuleType,
   TEMPLATE_LIST,
   convertPolicyRuleToRuleTemplate,
-  UNKNOWN_ID,
   ruleIsAvailableInSubscription,
   convertRuleTemplateToPolicyRule,
 } from "@/types";
 import { BBTextField } from "@/bbkit";
 import {
   featureToRef,
-  useCurrentUser,
   pushNotification,
+  useCurrentUserV1,
   useSQLReviewStore,
-  useSubscriptionStore,
+  useSubscriptionV1Store,
 } from "@/store";
 import {
   payloadValueListToComponentList,
@@ -181,9 +176,8 @@ import {
   useSQLRuleFilter,
   SQLRuleTable,
 } from "../components/SQLReview/components";
-import ProductionEnvironmentIcon from "@/components/Environment/ProductionEnvironmentIcon.vue";
+import { EnvironmentV1Name } from "@/components/v2";
 import { PayloadValueType } from "@/components/SQLReview/components/RuleConfigComponents";
-import { cloneDeep } from "lodash-es";
 
 const props = defineProps({
   sqlReviewPolicySlug: {
@@ -207,9 +201,9 @@ interface LocalState {
 const { t } = useI18n();
 const store = useSQLReviewStore();
 const router = useRouter();
-const currentUser = useCurrentUser();
+const currentUserV1 = useCurrentUserV1();
 const ROUTE_NAME = "setting.workspace.sql-review";
-const subscriptionStore = useSubscriptionStore();
+const subscriptionStore = useSubscriptionV1Store();
 
 const state = reactive<LocalState>({
   showDisableModal: false,
@@ -225,16 +219,16 @@ const state = reactive<LocalState>({
 const hasSQLReviewPolicyFeature = featureToRef("bb.feature.sql-review");
 
 const hasPermission = computed(() => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-sql-review-policy",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
 const reviewPolicy = computed((): SQLReviewPolicy => {
   return (
-    store.getReviewPolicyByEnvironmentId(
-      idFromSlug(props.sqlReviewPolicySlug)
+    store.getReviewPolicyByEnvironmentUID(
+      String(idFromSlug(props.sqlReviewPolicySlug))
     ) || (unknown("SQL_REVIEW") as SQLReviewPolicy)
   );
 });
@@ -385,14 +379,14 @@ const onEdit = () => {
 const onArchive = () => {
   store.updateReviewPolicy({
     id: reviewPolicy.value.id,
-    rowStatus: "ARCHIVED",
+    enforce: false,
   });
 };
 
 const onRestore = () => {
   store.updateReviewPolicy({
     id: reviewPolicy.value.id,
-    rowStatus: "NORMAL",
+    enforce: true,
   });
 };
 

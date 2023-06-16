@@ -57,6 +57,17 @@ export interface GetReviewRequest {
    * Format: projects/{project}/reviews/{review}
    */
   name: string;
+  force: boolean;
+}
+
+export interface CreateReviewRequest {
+  /**
+   * The parent, which owns this collection of reviews.
+   * Format: projects/{project}
+   */
+  parent: string;
+  /** The review to create. */
+  review?: Review;
 }
 
 export interface ListReviewsRequest {
@@ -131,6 +142,25 @@ export interface ApproveReviewRequest {
    * Format: projects/{project}/reviews/{review}
    */
   name: string;
+  comment: string;
+}
+
+export interface RejectReviewRequest {
+  /**
+   * The name of the review to add an rejecting reviewer.
+   * Format: projects/{project}/reviews/{review}
+   */
+  name: string;
+  comment: string;
+}
+
+export interface RequestReviewRequest {
+  /**
+   * The name of the review to request a review.
+   * Format: projects/{project}/reviews/{review}
+   */
+  name: string;
+  comment: string;
 }
 
 export interface Review {
@@ -143,9 +173,21 @@ export interface Review {
   /** The system-assigned, unique identifier for a resource. */
   uid: string;
   title: string;
+  /**
+   * The plan associated with the review.
+   * Can be empty.
+   * Format: projects/{project}/plans/{plan}
+   */
+  plan: string;
+  /**
+   * The rollout associated with the review.
+   * Can be empty.
+   * Format: projects/{project}/rollouts/{rollout}
+   */
+  rollout: string;
   description: string;
   status: ReviewStatus;
-  /** Format: user:hello@world.com */
+  /** Format: users/hello@world.com */
   assignee: string;
   assigneeAttention: boolean;
   approvalTemplates: ApprovalTemplate[];
@@ -158,10 +200,10 @@ export interface Review {
   approvalFindingError: string;
   /**
    * The subscribers.
-   * Format: user:hello@world.com
+   * Format: users/hello@world.com
    */
   subscribers: string[];
-  /** Format: user:hello@world.com */
+  /** Format: users/hello@world.com */
   creator: string;
   createTime?: Date;
   updateTime?: Date;
@@ -170,7 +212,7 @@ export interface Review {
 export interface Review_Approver {
   /** The new status. */
   status: Review_Approver_Status;
-  /** Format: user:hello@world.com */
+  /** Format: users/hello@world.com */
   principal: string;
 }
 
@@ -178,6 +220,7 @@ export enum Review_Approver_Status {
   STATUS_UNSPECIFIED = 0,
   PENDING = 1,
   APPROVED = 2,
+  REJECTED = 3,
   UNRECOGNIZED = -1,
 }
 
@@ -192,6 +235,9 @@ export function review_Approver_StatusFromJSON(object: any): Review_Approver_Sta
     case 2:
     case "APPROVED":
       return Review_Approver_Status.APPROVED;
+    case 3:
+    case "REJECTED":
+      return Review_Approver_Status.REJECTED;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -207,6 +253,8 @@ export function review_Approver_StatusToJSON(object: Review_Approver_Status): st
       return "PENDING";
     case Review_Approver_Status.APPROVED:
       return "APPROVED";
+    case Review_Approver_Status.REJECTED:
+      return "REJECTED";
     case Review_Approver_Status.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -217,6 +265,11 @@ export interface ApprovalTemplate {
   flow?: ApprovalFlow;
   title: string;
   description: string;
+  /**
+   * The name of the creator in users/{email} format.
+   * TODO: we should mark it as OUTPUT_ONLY, but currently the frontend will post the approval setting with creator.
+   */
+  creator: string;
 }
 
 export interface ApprovalFlow {
@@ -274,7 +327,12 @@ export function approvalStep_TypeToJSON(object: ApprovalStep_Type): string {
 
 export interface ApprovalNode {
   type: ApprovalNode_Type;
-  groupValue?: ApprovalNode_GroupValue | undefined;
+  groupValue?:
+    | ApprovalNode_GroupValue
+    | undefined;
+  /** Format: roles/{role} */
+  role?: string | undefined;
+  externalNodeId?: string | undefined;
 }
 
 /**
@@ -317,7 +375,6 @@ export function approvalNode_TypeToJSON(object: ApprovalNode_Type): string {
 }
 
 /**
- * GroupValue is used if ApprovalNode Type is ANY_IN_GROUP
  * The predefined user groups are:
  * - WORKSPACE_OWNER
  * - WORKSPACE_DBA
@@ -375,14 +432,46 @@ export function approvalNode_GroupValueToJSON(object: ApprovalNode_GroupValue): 
   }
 }
 
+export interface CreateReviewCommentRequest {
+  /**
+   * The review name
+   * Format: projects/{project}/reviews/{review}
+   */
+  parent: string;
+  reviewComment?: ReviewComment;
+}
+
+export interface UpdateReviewCommentRequest {
+  /**
+   * The review name
+   * Format: projects/{project}/reviews/{review}
+   */
+  parent: string;
+  reviewComment?: ReviewComment;
+  /** The list of fields to update. */
+  updateMask?: string[];
+}
+
+export interface ReviewComment {
+  uid: string;
+  comment: string;
+  /** TODO: use struct message instead. */
+  payload: string;
+  createTime?: Date;
+  updateTime?: Date;
+}
+
 function createBaseGetReviewRequest(): GetReviewRequest {
-  return { name: "" };
+  return { name: "", force: false };
 }
 
 export const GetReviewRequest = {
   encode(message: GetReviewRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.name !== "") {
       writer.uint32(10).string(message.name);
+    }
+    if (message.force === true) {
+      writer.uint32(16).bool(message.force);
     }
     return writer;
   },
@@ -395,14 +484,21 @@ export const GetReviewRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.force = reader.bool();
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -411,12 +507,16 @@ export const GetReviewRequest = {
   },
 
   fromJSON(object: any): GetReviewRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      force: isSet(object.force) ? Boolean(object.force) : false,
+    };
   },
 
   toJSON(message: GetReviewRequest): unknown {
     const obj: any = {};
     message.name !== undefined && (obj.name = message.name);
+    message.force !== undefined && (obj.force = message.force);
     return obj;
   },
 
@@ -427,6 +527,80 @@ export const GetReviewRequest = {
   fromPartial(object: DeepPartial<GetReviewRequest>): GetReviewRequest {
     const message = createBaseGetReviewRequest();
     message.name = object.name ?? "";
+    message.force = object.force ?? false;
+    return message;
+  },
+};
+
+function createBaseCreateReviewRequest(): CreateReviewRequest {
+  return { parent: "", review: undefined };
+}
+
+export const CreateReviewRequest = {
+  encode(message: CreateReviewRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    if (message.review !== undefined) {
+      Review.encode(message.review, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CreateReviewRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCreateReviewRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.review = Review.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CreateReviewRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      review: isSet(object.review) ? Review.fromJSON(object.review) : undefined,
+    };
+  },
+
+  toJSON(message: CreateReviewRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    message.review !== undefined && (obj.review = message.review ? Review.toJSON(message.review) : undefined);
+    return obj;
+  },
+
+  create(base?: DeepPartial<CreateReviewRequest>): CreateReviewRequest {
+    return CreateReviewRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<CreateReviewRequest>): CreateReviewRequest {
+    const message = createBaseCreateReviewRequest();
+    message.parent = object.parent ?? "";
+    message.review = (object.review !== undefined && object.review !== null)
+      ? Review.fromPartial(object.review)
+      : undefined;
     return message;
   },
 };
@@ -457,28 +631,28 @@ export const ListReviewsRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.parent = reader.string();
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.pageSize = reader.int32();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.pageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -538,21 +712,21 @@ export const ListReviewsResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.reviews.push(Review.decode(reader, reader.uint32()));
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.nextPageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -613,21 +787,21 @@ export const UpdateReviewRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.review = Review.decode(reader, reader.uint32());
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.updateMask = FieldMask.unwrap(FieldMask.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -686,21 +860,21 @@ export const BatchUpdateReviewsRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.parent = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.requests.push(UpdateReviewRequest.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -758,14 +932,14 @@ export const BatchUpdateReviewsResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.reviews.push(Review.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -799,13 +973,16 @@ export const BatchUpdateReviewsResponse = {
 };
 
 function createBaseApproveReviewRequest(): ApproveReviewRequest {
-  return { name: "" };
+  return { name: "", comment: "" };
 }
 
 export const ApproveReviewRequest = {
   encode(message: ApproveReviewRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.name !== "") {
       writer.uint32(10).string(message.name);
+    }
+    if (message.comment !== "") {
+      writer.uint32(18).string(message.comment);
     }
     return writer;
   },
@@ -818,14 +995,21 @@ export const ApproveReviewRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.comment = reader.string();
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -834,12 +1018,16 @@ export const ApproveReviewRequest = {
   },
 
   fromJSON(object: any): ApproveReviewRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      comment: isSet(object.comment) ? String(object.comment) : "",
+    };
   },
 
   toJSON(message: ApproveReviewRequest): unknown {
     const obj: any = {};
     message.name !== undefined && (obj.name = message.name);
+    message.comment !== undefined && (obj.comment = message.comment);
     return obj;
   },
 
@@ -850,6 +1038,149 @@ export const ApproveReviewRequest = {
   fromPartial(object: DeepPartial<ApproveReviewRequest>): ApproveReviewRequest {
     const message = createBaseApproveReviewRequest();
     message.name = object.name ?? "";
+    message.comment = object.comment ?? "";
+    return message;
+  },
+};
+
+function createBaseRejectReviewRequest(): RejectReviewRequest {
+  return { name: "", comment: "" };
+}
+
+export const RejectReviewRequest = {
+  encode(message: RejectReviewRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.comment !== "") {
+      writer.uint32(18).string(message.comment);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RejectReviewRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRejectReviewRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.comment = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RejectReviewRequest {
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      comment: isSet(object.comment) ? String(object.comment) : "",
+    };
+  },
+
+  toJSON(message: RejectReviewRequest): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    message.comment !== undefined && (obj.comment = message.comment);
+    return obj;
+  },
+
+  create(base?: DeepPartial<RejectReviewRequest>): RejectReviewRequest {
+    return RejectReviewRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<RejectReviewRequest>): RejectReviewRequest {
+    const message = createBaseRejectReviewRequest();
+    message.name = object.name ?? "";
+    message.comment = object.comment ?? "";
+    return message;
+  },
+};
+
+function createBaseRequestReviewRequest(): RequestReviewRequest {
+  return { name: "", comment: "" };
+}
+
+export const RequestReviewRequest = {
+  encode(message: RequestReviewRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.comment !== "") {
+      writer.uint32(18).string(message.comment);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RequestReviewRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRequestReviewRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.comment = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RequestReviewRequest {
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      comment: isSet(object.comment) ? String(object.comment) : "",
+    };
+  },
+
+  toJSON(message: RequestReviewRequest): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    message.comment !== undefined && (obj.comment = message.comment);
+    return obj;
+  },
+
+  create(base?: DeepPartial<RequestReviewRequest>): RequestReviewRequest {
+    return RequestReviewRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<RequestReviewRequest>): RequestReviewRequest {
+    const message = createBaseRequestReviewRequest();
+    message.name = object.name ?? "";
+    message.comment = object.comment ?? "";
     return message;
   },
 };
@@ -859,6 +1190,8 @@ function createBaseReview(): Review {
     name: "",
     uid: "",
     title: "",
+    plan: "",
+    rollout: "",
     description: "",
     status: 0,
     assignee: "",
@@ -884,6 +1217,12 @@ export const Review = {
     }
     if (message.title !== "") {
       writer.uint32(26).string(message.title);
+    }
+    if (message.plan !== "") {
+      writer.uint32(130).string(message.plan);
+    }
+    if (message.rollout !== "") {
+      writer.uint32(138).string(message.rollout);
     }
     if (message.description !== "") {
       writer.uint32(34).string(message.description);
@@ -932,112 +1271,126 @@ export const Review = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.uid = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.title = reader.string();
           continue;
+        case 16:
+          if (tag !== 130) {
+            break;
+          }
+
+          message.plan = reader.string();
+          continue;
+        case 17:
+          if (tag !== 138) {
+            break;
+          }
+
+          message.rollout = reader.string();
+          continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.description = reader.string();
           continue;
         case 5:
-          if (tag != 40) {
+          if (tag !== 40) {
             break;
           }
 
           message.status = reader.int32() as any;
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
           message.assignee = reader.string();
           continue;
         case 7:
-          if (tag != 56) {
+          if (tag !== 56) {
             break;
           }
 
           message.assigneeAttention = reader.bool();
           continue;
         case 8:
-          if (tag != 66) {
+          if (tag !== 66) {
             break;
           }
 
           message.approvalTemplates.push(ApprovalTemplate.decode(reader, reader.uint32()));
           continue;
         case 9:
-          if (tag != 74) {
+          if (tag !== 74) {
             break;
           }
 
           message.approvers.push(Review_Approver.decode(reader, reader.uint32()));
           continue;
         case 10:
-          if (tag != 80) {
+          if (tag !== 80) {
             break;
           }
 
           message.approvalFindingDone = reader.bool();
           continue;
         case 11:
-          if (tag != 90) {
+          if (tag !== 90) {
             break;
           }
 
           message.approvalFindingError = reader.string();
           continue;
         case 12:
-          if (tag != 98) {
+          if (tag !== 98) {
             break;
           }
 
           message.subscribers.push(reader.string());
           continue;
         case 13:
-          if (tag != 106) {
+          if (tag !== 106) {
             break;
           }
 
           message.creator = reader.string();
           continue;
         case 14:
-          if (tag != 114) {
+          if (tag !== 114) {
             break;
           }
 
           message.createTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
         case 15:
-          if (tag != 122) {
+          if (tag !== 122) {
             break;
           }
 
           message.updateTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1050,6 +1403,8 @@ export const Review = {
       name: isSet(object.name) ? String(object.name) : "",
       uid: isSet(object.uid) ? String(object.uid) : "",
       title: isSet(object.title) ? String(object.title) : "",
+      plan: isSet(object.plan) ? String(object.plan) : "",
+      rollout: isSet(object.rollout) ? String(object.rollout) : "",
       description: isSet(object.description) ? String(object.description) : "",
       status: isSet(object.status) ? reviewStatusFromJSON(object.status) : 0,
       assignee: isSet(object.assignee) ? String(object.assignee) : "",
@@ -1072,6 +1427,8 @@ export const Review = {
     message.name !== undefined && (obj.name = message.name);
     message.uid !== undefined && (obj.uid = message.uid);
     message.title !== undefined && (obj.title = message.title);
+    message.plan !== undefined && (obj.plan = message.plan);
+    message.rollout !== undefined && (obj.rollout = message.rollout);
     message.description !== undefined && (obj.description = message.description);
     message.status !== undefined && (obj.status = reviewStatusToJSON(message.status));
     message.assignee !== undefined && (obj.assignee = message.assignee);
@@ -1108,6 +1465,8 @@ export const Review = {
     message.name = object.name ?? "";
     message.uid = object.uid ?? "";
     message.title = object.title ?? "";
+    message.plan = object.plan ?? "";
+    message.rollout = object.rollout ?? "";
     message.description = object.description ?? "";
     message.status = object.status ?? 0;
     message.assignee = object.assignee ?? "";
@@ -1147,21 +1506,21 @@ export const Review_Approver = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 8) {
+          if (tag !== 8) {
             break;
           }
 
           message.status = reader.int32() as any;
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.principal = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1196,7 +1555,7 @@ export const Review_Approver = {
 };
 
 function createBaseApprovalTemplate(): ApprovalTemplate {
-  return { flow: undefined, title: "", description: "" };
+  return { flow: undefined, title: "", description: "", creator: "" };
 }
 
 export const ApprovalTemplate = {
@@ -1210,6 +1569,9 @@ export const ApprovalTemplate = {
     if (message.description !== "") {
       writer.uint32(26).string(message.description);
     }
+    if (message.creator !== "") {
+      writer.uint32(34).string(message.creator);
+    }
     return writer;
   },
 
@@ -1221,28 +1583,35 @@ export const ApprovalTemplate = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.flow = ApprovalFlow.decode(reader, reader.uint32());
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.title = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.description = reader.string();
           continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.creator = reader.string();
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1255,6 +1624,7 @@ export const ApprovalTemplate = {
       flow: isSet(object.flow) ? ApprovalFlow.fromJSON(object.flow) : undefined,
       title: isSet(object.title) ? String(object.title) : "",
       description: isSet(object.description) ? String(object.description) : "",
+      creator: isSet(object.creator) ? String(object.creator) : "",
     };
   },
 
@@ -1263,6 +1633,7 @@ export const ApprovalTemplate = {
     message.flow !== undefined && (obj.flow = message.flow ? ApprovalFlow.toJSON(message.flow) : undefined);
     message.title !== undefined && (obj.title = message.title);
     message.description !== undefined && (obj.description = message.description);
+    message.creator !== undefined && (obj.creator = message.creator);
     return obj;
   },
 
@@ -1277,6 +1648,7 @@ export const ApprovalTemplate = {
       : undefined;
     message.title = object.title ?? "";
     message.description = object.description ?? "";
+    message.creator = object.creator ?? "";
     return message;
   },
 };
@@ -1301,14 +1673,14 @@ export const ApprovalFlow = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.steps.push(ApprovalStep.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1364,21 +1736,21 @@ export const ApprovalStep = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 8) {
+          if (tag !== 8) {
             break;
           }
 
           message.type = reader.int32() as any;
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.nodes.push(ApprovalNode.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1417,7 +1789,7 @@ export const ApprovalStep = {
 };
 
 function createBaseApprovalNode(): ApprovalNode {
-  return { type: 0, groupValue: undefined };
+  return { type: 0, groupValue: undefined, role: undefined, externalNodeId: undefined };
 }
 
 export const ApprovalNode = {
@@ -1427,6 +1799,12 @@ export const ApprovalNode = {
     }
     if (message.groupValue !== undefined) {
       writer.uint32(16).int32(message.groupValue);
+    }
+    if (message.role !== undefined) {
+      writer.uint32(26).string(message.role);
+    }
+    if (message.externalNodeId !== undefined) {
+      writer.uint32(34).string(message.externalNodeId);
     }
     return writer;
   },
@@ -1439,21 +1817,35 @@ export const ApprovalNode = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 8) {
+          if (tag !== 8) {
             break;
           }
 
           message.type = reader.int32() as any;
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.groupValue = reader.int32() as any;
           continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.role = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.externalNodeId = reader.string();
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1465,6 +1857,8 @@ export const ApprovalNode = {
     return {
       type: isSet(object.type) ? approvalNode_TypeFromJSON(object.type) : 0,
       groupValue: isSet(object.groupValue) ? approvalNode_GroupValueFromJSON(object.groupValue) : undefined,
+      role: isSet(object.role) ? String(object.role) : undefined,
+      externalNodeId: isSet(object.externalNodeId) ? String(object.externalNodeId) : undefined,
     };
   },
 
@@ -1475,6 +1869,8 @@ export const ApprovalNode = {
       (obj.groupValue = message.groupValue !== undefined
         ? approvalNode_GroupValueToJSON(message.groupValue)
         : undefined);
+    message.role !== undefined && (obj.role = message.role);
+    message.externalNodeId !== undefined && (obj.externalNodeId = message.externalNodeId);
     return obj;
   },
 
@@ -1486,6 +1882,279 @@ export const ApprovalNode = {
     const message = createBaseApprovalNode();
     message.type = object.type ?? 0;
     message.groupValue = object.groupValue ?? undefined;
+    message.role = object.role ?? undefined;
+    message.externalNodeId = object.externalNodeId ?? undefined;
+    return message;
+  },
+};
+
+function createBaseCreateReviewCommentRequest(): CreateReviewCommentRequest {
+  return { parent: "", reviewComment: undefined };
+}
+
+export const CreateReviewCommentRequest = {
+  encode(message: CreateReviewCommentRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    if (message.reviewComment !== undefined) {
+      ReviewComment.encode(message.reviewComment, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CreateReviewCommentRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCreateReviewCommentRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.reviewComment = ReviewComment.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CreateReviewCommentRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      reviewComment: isSet(object.reviewComment) ? ReviewComment.fromJSON(object.reviewComment) : undefined,
+    };
+  },
+
+  toJSON(message: CreateReviewCommentRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    message.reviewComment !== undefined &&
+      (obj.reviewComment = message.reviewComment ? ReviewComment.toJSON(message.reviewComment) : undefined);
+    return obj;
+  },
+
+  create(base?: DeepPartial<CreateReviewCommentRequest>): CreateReviewCommentRequest {
+    return CreateReviewCommentRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<CreateReviewCommentRequest>): CreateReviewCommentRequest {
+    const message = createBaseCreateReviewCommentRequest();
+    message.parent = object.parent ?? "";
+    message.reviewComment = (object.reviewComment !== undefined && object.reviewComment !== null)
+      ? ReviewComment.fromPartial(object.reviewComment)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseUpdateReviewCommentRequest(): UpdateReviewCommentRequest {
+  return { parent: "", reviewComment: undefined, updateMask: undefined };
+}
+
+export const UpdateReviewCommentRequest = {
+  encode(message: UpdateReviewCommentRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    if (message.reviewComment !== undefined) {
+      ReviewComment.encode(message.reviewComment, writer.uint32(18).fork()).ldelim();
+    }
+    if (message.updateMask !== undefined) {
+      FieldMask.encode(FieldMask.wrap(message.updateMask), writer.uint32(26).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): UpdateReviewCommentRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseUpdateReviewCommentRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.reviewComment = ReviewComment.decode(reader, reader.uint32());
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.updateMask = FieldMask.unwrap(FieldMask.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): UpdateReviewCommentRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      reviewComment: isSet(object.reviewComment) ? ReviewComment.fromJSON(object.reviewComment) : undefined,
+      updateMask: isSet(object.updateMask) ? FieldMask.unwrap(FieldMask.fromJSON(object.updateMask)) : undefined,
+    };
+  },
+
+  toJSON(message: UpdateReviewCommentRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    message.reviewComment !== undefined &&
+      (obj.reviewComment = message.reviewComment ? ReviewComment.toJSON(message.reviewComment) : undefined);
+    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
+    return obj;
+  },
+
+  create(base?: DeepPartial<UpdateReviewCommentRequest>): UpdateReviewCommentRequest {
+    return UpdateReviewCommentRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<UpdateReviewCommentRequest>): UpdateReviewCommentRequest {
+    const message = createBaseUpdateReviewCommentRequest();
+    message.parent = object.parent ?? "";
+    message.reviewComment = (object.reviewComment !== undefined && object.reviewComment !== null)
+      ? ReviewComment.fromPartial(object.reviewComment)
+      : undefined;
+    message.updateMask = object.updateMask ?? undefined;
+    return message;
+  },
+};
+
+function createBaseReviewComment(): ReviewComment {
+  return { uid: "", comment: "", payload: "", createTime: undefined, updateTime: undefined };
+}
+
+export const ReviewComment = {
+  encode(message: ReviewComment, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.uid !== "") {
+      writer.uint32(10).string(message.uid);
+    }
+    if (message.comment !== "") {
+      writer.uint32(18).string(message.comment);
+    }
+    if (message.payload !== "") {
+      writer.uint32(26).string(message.payload);
+    }
+    if (message.createTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.createTime), writer.uint32(34).fork()).ldelim();
+    }
+    if (message.updateTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.updateTime), writer.uint32(42).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ReviewComment {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseReviewComment();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.uid = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.comment = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.payload = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.createTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.updateTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ReviewComment {
+    return {
+      uid: isSet(object.uid) ? String(object.uid) : "",
+      comment: isSet(object.comment) ? String(object.comment) : "",
+      payload: isSet(object.payload) ? String(object.payload) : "",
+      createTime: isSet(object.createTime) ? fromJsonTimestamp(object.createTime) : undefined,
+      updateTime: isSet(object.updateTime) ? fromJsonTimestamp(object.updateTime) : undefined,
+    };
+  },
+
+  toJSON(message: ReviewComment): unknown {
+    const obj: any = {};
+    message.uid !== undefined && (obj.uid = message.uid);
+    message.comment !== undefined && (obj.comment = message.comment);
+    message.payload !== undefined && (obj.payload = message.payload);
+    message.createTime !== undefined && (obj.createTime = message.createTime.toISOString());
+    message.updateTime !== undefined && (obj.updateTime = message.updateTime.toISOString());
+    return obj;
+  },
+
+  create(base?: DeepPartial<ReviewComment>): ReviewComment {
+    return ReviewComment.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<ReviewComment>): ReviewComment {
+    const message = createBaseReviewComment();
+    message.uid = object.uid ?? "";
+    message.comment = object.comment ?? "";
+    message.payload = object.payload ?? "";
+    message.createTime = object.createTime ?? undefined;
+    message.updateTime = object.updateTime ?? undefined;
     return message;
   },
 };
@@ -1540,6 +2209,64 @@ export const ReviewServiceDefinition = {
               47,
               42,
               125,
+            ]),
+          ],
+        },
+      },
+    },
+    createReview: {
+      name: "CreateReview",
+      requestType: CreateReviewRequest,
+      requestStream: false,
+      responseType: Review,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([13, 112, 97, 114, 101, 110, 116, 44, 114, 101, 118, 105, 101, 119])],
+          578365826: [
+            new Uint8Array([
+              41,
+              58,
+              6,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+              34,
+              31,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              125,
+              47,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+              115,
             ]),
           ],
         },
@@ -1657,6 +2384,220 @@ export const ReviewServiceDefinition = {
               47,
               42,
               125,
+            ]),
+          ],
+        },
+      },
+    },
+    createReviewComment: {
+      name: "CreateReviewComment",
+      requestType: CreateReviewCommentRequest,
+      requestStream: false,
+      responseType: ReviewComment,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [
+            new Uint8Array([
+              21,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              44,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+              95,
+              99,
+              111,
+              109,
+              109,
+              101,
+              110,
+              116,
+            ]),
+          ],
+          578365826: [
+            new Uint8Array([
+              59,
+              58,
+              14,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+              95,
+              99,
+              111,
+              109,
+              109,
+              101,
+              110,
+              116,
+              34,
+              41,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+              115,
+              47,
+              42,
+              125,
+              58,
+              99,
+              111,
+              109,
+              109,
+              101,
+              110,
+              116,
+            ]),
+          ],
+        },
+      },
+    },
+    updateReviewComment: {
+      name: "UpdateReviewComment",
+      requestType: UpdateReviewCommentRequest,
+      requestStream: false,
+      responseType: ReviewComment,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [
+            new Uint8Array([
+              33,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              44,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+              95,
+              99,
+              111,
+              109,
+              109,
+              101,
+              110,
+              116,
+              44,
+              117,
+              112,
+              100,
+              97,
+              116,
+              101,
+              95,
+              109,
+              97,
+              115,
+              107,
+            ]),
+          ],
+          578365826: [
+            new Uint8Array([
+              59,
+              58,
+              14,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+              95,
+              99,
+              111,
+              109,
+              109,
+              101,
+              110,
+              116,
+              50,
+              41,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+              115,
+              47,
+              42,
+              125,
+              58,
+              99,
+              111,
+              109,
+              109,
+              101,
+              110,
+              116,
             ]),
           ],
         },
@@ -1786,35 +2727,176 @@ export const ReviewServiceDefinition = {
         },
       },
     },
+    rejectReview: {
+      name: "RejectReview",
+      requestType: RejectReviewRequest,
+      requestStream: false,
+      responseType: Review,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              43,
+              58,
+              1,
+              42,
+              34,
+              38,
+              47,
+              118,
+              49,
+              47,
+              123,
+              110,
+              97,
+              109,
+              101,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+              115,
+              47,
+              42,
+              125,
+              58,
+              114,
+              101,
+              106,
+              101,
+              99,
+              116,
+            ]),
+          ],
+        },
+      },
+    },
+    requestReview: {
+      name: "RequestReview",
+      requestType: RequestReviewRequest,
+      requestStream: false,
+      responseType: Review,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              44,
+              58,
+              1,
+              42,
+              34,
+              39,
+              47,
+              118,
+              49,
+              47,
+              123,
+              110,
+              97,
+              109,
+              101,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+              115,
+              47,
+              42,
+              125,
+              58,
+              114,
+              101,
+              113,
+              117,
+              101,
+              115,
+              116,
+            ]),
+          ],
+        },
+      },
+    },
   },
 } as const;
 
 export interface ReviewServiceImplementation<CallContextExt = {}> {
   getReview(request: GetReviewRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Review>>;
+  createReview(request: CreateReviewRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Review>>;
   listReviews(
     request: ListReviewsRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<ListReviewsResponse>>;
   updateReview(request: UpdateReviewRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Review>>;
+  createReviewComment(
+    request: CreateReviewCommentRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<ReviewComment>>;
+  updateReviewComment(
+    request: UpdateReviewCommentRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<ReviewComment>>;
   batchUpdateReviews(
     request: BatchUpdateReviewsRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<BatchUpdateReviewsResponse>>;
   approveReview(request: ApproveReviewRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Review>>;
+  rejectReview(request: RejectReviewRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Review>>;
+  requestReview(request: RequestReviewRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Review>>;
 }
 
 export interface ReviewServiceClient<CallOptionsExt = {}> {
   getReview(request: DeepPartial<GetReviewRequest>, options?: CallOptions & CallOptionsExt): Promise<Review>;
+  createReview(request: DeepPartial<CreateReviewRequest>, options?: CallOptions & CallOptionsExt): Promise<Review>;
   listReviews(
     request: DeepPartial<ListReviewsRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<ListReviewsResponse>;
   updateReview(request: DeepPartial<UpdateReviewRequest>, options?: CallOptions & CallOptionsExt): Promise<Review>;
+  createReviewComment(
+    request: DeepPartial<CreateReviewCommentRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<ReviewComment>;
+  updateReviewComment(
+    request: DeepPartial<UpdateReviewCommentRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<ReviewComment>;
   batchUpdateReviews(
     request: DeepPartial<BatchUpdateReviewsRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<BatchUpdateReviewsResponse>;
   approveReview(request: DeepPartial<ApproveReviewRequest>, options?: CallOptions & CallOptionsExt): Promise<Review>;
+  rejectReview(request: DeepPartial<RejectReviewRequest>, options?: CallOptions & CallOptionsExt): Promise<Review>;
+  requestReview(request: DeepPartial<RequestReviewRequest>, options?: CallOptions & CallOptionsExt): Promise<Review>;
 }
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
@@ -1831,8 +2913,8 @@ function toTimestamp(date: Date): Timestamp {
 }
 
 function fromTimestamp(t: Timestamp): Date {
-  let millis = t.seconds * 1_000;
-  millis += t.nanos / 1_000_000;
+  let millis = (t.seconds || 0) * 1_000;
+  millis += (t.nanos || 0) / 1_000_000;
   return new Date(millis);
 }
 

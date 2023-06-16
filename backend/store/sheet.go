@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -12,141 +13,6 @@ import (
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/metric"
 )
-
-// sheetRaw is the store model for an Sheet.
-// Fields have exactly the same meanings as Sheet.
-type sheetRaw struct {
-	ID int
-
-	// Standard fields
-	RowStatus api.RowStatus
-	CreatorID int
-	CreatedTs int64
-	UpdaterID int
-	UpdatedTs int64
-
-	// Related fields
-	ProjectID int
-	// The DatabaseID is optional.
-	// If not NULL, the sheet ProjectID should always be equal to the id of the database related project.
-	// A project must remove all linked sheets for a particular database before that database can be transferred to a different project.
-	DatabaseID *int
-
-	// Domain specific fields
-	Name       string
-	Statement  string
-	Visibility api.SheetVisibility
-	Source     api.SheetSource
-	Type       api.SheetType
-	Payload    string
-	Size       int64
-}
-
-// toSheet creates an instance of Sheet based on the sheetRaw.
-// This is intended to be called when we need to compose an Sheet relationship.
-func (raw *sheetRaw) toSheet() *api.Sheet {
-	return &api.Sheet{
-		ID: raw.ID,
-
-		// Standard fields
-		RowStatus: raw.RowStatus,
-		CreatorID: raw.CreatorID,
-		CreatedTs: raw.CreatedTs,
-		UpdaterID: raw.UpdaterID,
-		UpdatedTs: raw.UpdatedTs,
-
-		// Related fields
-		ProjectID: raw.ProjectID,
-		// The DatabaseID is optional.
-		// If not NULL, the sheet ProjectID should always be equal to the id of the database related project.
-		// A project must remove all linked sheets for a particular database before that database can be transferred to a different project.
-		DatabaseID: raw.DatabaseID,
-
-		// Domain specific fields
-		Name:       raw.Name,
-		Statement:  raw.Statement,
-		Visibility: raw.Visibility,
-		Source:     raw.Source,
-		Type:       raw.Type,
-		Payload:    raw.Payload,
-		Size:       raw.Size,
-	}
-}
-
-// CreateSheet creates an instance of Sheet.
-func (s *Store) CreateSheet(ctx context.Context, create *api.SheetCreate) (*api.Sheet, error) {
-	sheetRaw, err := s.createSheetRaw(ctx, create)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create Sheet with SheetCreate[%+v]", create)
-	}
-	sheet, err := s.composeSheet(ctx, sheetRaw, create.CreatorID)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to compose Sheet with sheetRaw[%+v]", sheetRaw)
-	}
-	return sheet, nil
-}
-
-// GetSheet gets an instance of Sheet.
-func (s *Store) GetSheet(ctx context.Context, find *api.SheetFind, currentPrincipalID int) (*api.Sheet, error) {
-	sheetRaw, err := s.getSheetRaw(ctx, find)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get Sheet with SheetFind[%+v]", find)
-	}
-	if sheetRaw == nil {
-		return nil, nil
-	}
-	sheet, err := s.composeSheet(ctx, sheetRaw, currentPrincipalID)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to compose Sheet with sheetRaw[%+v]", sheetRaw)
-	}
-	return sheet, nil
-}
-
-// FindSheet finds a list of Sheet instances.
-func (s *Store) FindSheet(ctx context.Context, find *api.SheetFind, currentPrincipalID int) ([]*api.Sheet, error) {
-	sheetRawList, err := s.findSheetRaw(ctx, find)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to find Sheet list")
-	}
-	var sheetList []*api.Sheet
-	for _, raw := range sheetRawList {
-		sheet, err := s.composeSheet(ctx, raw, currentPrincipalID)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compose Sheet with sheetRaw[%+v]", raw)
-		}
-		sheetList = append(sheetList, sheet)
-	}
-	return sheetList, nil
-}
-
-// PatchSheet patches an instance of Sheet.
-func (s *Store) PatchSheet(ctx context.Context, patch *api.SheetPatch) (*api.Sheet, error) {
-	sheetRaw, err := s.patchSheetRaw(ctx, patch)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to patch Sheet with SheetPatch[%+v]", patch)
-	}
-	sheet, err := s.composeSheet(ctx, sheetRaw, patch.UpdaterID)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to compose Sheet with sheetRaw[%+v]", sheetRaw)
-	}
-	return sheet, nil
-}
-
-// DeleteSheet deletes an existing sheet by ID.
-// Returns ENOTFOUND if sheet does not exist.
-func (s *Store) DeleteSheet(ctx context.Context, delete *api.SheetDelete) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if err := deleteSheet(ctx, tx, delete); err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
 
 // CountSheetGroupByRowstatusVisibilitySourceAndType counts the number of sheets group by row_status, visibility, source and type.
 func (s *Store) CountSheetGroupByRowstatusVisibilitySourceAndType(ctx context.Context) ([]*metric.SheetCountMetric, error) {
@@ -185,135 +51,247 @@ func (s *Store) CountSheetGroupByRowstatusVisibilitySourceAndType(ctx context.Co
 	return res, nil
 }
 
-//
-// private functions
-//
+// SheetMessage is the message for a sheet.
+type SheetMessage struct {
+	ProjectUID int
+	// The DatabaseUID is optional.
+	// If not NULL, the sheet ProjectID should always be equal to the id of the database related project.
+	// A project must remove all linked sheets for a particular database before that database can be transferred to a different project.
+	DatabaseUID *int
 
-// composeSheet composes sheet relationships.
-func (s *Store) composeSheet(ctx context.Context, raw *sheetRaw, currentPrincipalID int) (*api.Sheet, error) {
-	sheet := raw.toSheet()
+	CreatorID int
+	UpdaterID int
 
-	creator, err := s.GetPrincipalByID(ctx, sheet.CreatorID)
+	Name       string
+	Statement  string
+	Visibility api.SheetVisibility
+	Source     api.SheetSource
+	Type       api.SheetType
+	Payload    string
+
+	// Output only fields
+	UID         int
+	Size        int64
+	CreatedTime time.Time
+	UpdatedTime time.Time
+	Starred     bool
+	Pinned      bool
+
+	// Internal fields
+	rowStatus api.RowStatus
+	createdTs int64
+	updatedTs int64
+}
+
+// FindSheetMessage is the API message for finding sheets.
+type FindSheetMessage struct {
+	UID *int
+
+	// Standard fields
+	RowStatus *api.RowStatus
+
+	// Used to find the creator's sheet list.
+	// When finding shared PROJECT/PUBLIC sheets, this value should be empty.
+	// It does not make sense to set both `CreatorID` and `ExcludedCreatorID`.
+	CreatorID *int
+	// Used to find the sheets that are not created by the creator.
+	ExcludedCreatorID *int
+
+	// LoadFull is used if we want to load the full sheet.
+	LoadFull bool
+
+	// Related fields
+	ProjectUID  *int
+	DatabaseUID *int
+
+	// Domain fields
+	Name         *string
+	Visibilities []api.SheetVisibility
+	Source       *api.SheetSource
+	Type         *api.SheetType
+	Payload      *string
+	// Used to find (un)starred/pinned sheet list, could be PRIVATE/PROJECT/PUBLIC sheet.
+	// For now, we only need the starred sheets.
+	OrganizerPrincipalIDStarred    *int
+	OrganizerPrincipalIDNotStarred *int
+	// Used to find a sheet list from projects containing PrincipalID as an active member.
+	// When finding a shared PROJECT/PUBLIC sheets, this value should be present.
+	PrincipalID *int
+}
+
+// GetSheetStatementByID gets the statement of a sheet by ID.
+func (s *Store) GetSheetStatementByID(ctx context.Context, id int) (string, error) {
+	if statement, ok := s.sheetStatementCache.Get(id); ok {
+		return statement, nil
+	}
+
+	sheets, err := s.ListSheetsV2(ctx, &FindSheetMessage{UID: &id, LoadFull: true}, api.SystemBotID)
+	if err != nil {
+		return "", err
+	}
+	if len(sheets) == 0 {
+		return "", errors.Errorf("sheet not found with id %d", id)
+	}
+	if len(sheets) > 1 {
+		return "", errors.Errorf("expected 1 sheet, got %d", len(sheets))
+	}
+	statement := sheets[0].Statement
+	s.sheetStatementCache.Set(id, statement, 10*time.Minute)
+	return statement, nil
+}
+
+// GetSheetV2 gets a sheet.
+func (s *Store) GetSheetV2(ctx context.Context, find *FindSheetMessage, currentPrincipalID int) (*SheetMessage, error) {
+	sheets, err := s.ListSheetsV2(ctx, find, currentPrincipalID)
 	if err != nil {
 		return nil, err
 	}
-	sheet.Creator = creator
+	if len(sheets) == 0 {
+		return nil, nil
+	}
+	if len(sheets) > 1 {
+		return nil, errors.Errorf("expected 1 sheet, got %d", len(sheets))
+	}
+	sheet := sheets[0]
 
-	updater, err := s.GetPrincipalByID(ctx, sheet.UpdaterID)
+	return sheet, nil
+}
+
+// ListSheetsV2 returns a list of sheets.
+func (s *Store) ListSheetsV2(ctx context.Context, find *FindSheetMessage, currentPrincipalID int) ([]*SheetMessage, error) {
+	where, args := []string{"TRUE"}, []any{}
+
+	if v := find.UID; v != nil {
+		where, args = append(where, fmt.Sprintf("sheet.id = $%d", len(args)+1)), append(args, *v)
+	}
+
+	// Standard fields
+	if v := find.RowStatus; v != nil {
+		where, args = append(where, fmt.Sprintf("sheet.row_status = $%d", len(args)+1)), append(args, *v)
+	}
+	if v := find.CreatorID; v != nil {
+		where, args = append(where, fmt.Sprintf("sheet.creator_id = $%d", len(args)+1)), append(args, *v)
+	}
+	if v := find.ExcludedCreatorID; v != nil {
+		where, args = append(where, fmt.Sprintf("sheet.creator_id != $%d", len(args)+1)), append(args, *v)
+	}
+
+	// Related fields
+	if v := find.ProjectUID; v != nil {
+		where, args = append(where, fmt.Sprintf("sheet.project_id = $%d", len(args)+1)), append(args, *v)
+	}
+	if v := find.DatabaseUID; v != nil {
+		where, args = append(where, fmt.Sprintf("sheet.database_id = $%d", len(args)+1)), append(args, *v)
+	}
+
+	// Domain fields
+	visibilitiesWhere := []string{}
+	for _, v := range find.Visibilities {
+		visibilitiesWhere, args = append(visibilitiesWhere, fmt.Sprintf("visibility = $%d", len(args)+1)), append(args, v)
+	}
+	if len(visibilitiesWhere) > 0 {
+		where = append(where, fmt.Sprintf("(%s)", strings.Join(visibilitiesWhere, " OR ")))
+	}
+	if v := find.PrincipalID; v != nil {
+		where, args = append(where, fmt.Sprintf("sheet.project_id IN (SELECT project_id FROM project_member WHERE principal_id = $%d)", len(args)+1)), append(args, *v)
+	}
+	if v := find.OrganizerPrincipalIDStarred; v != nil {
+		where, args = append(where, fmt.Sprintf("sheet.id IN (SELECT sheet_id FROM sheet_organizer WHERE principal_id = $%d AND starred = true)", len(args)+1)), append(args, *v)
+	}
+	if v := find.OrganizerPrincipalIDNotStarred; v != nil {
+		where, args = append(where, fmt.Sprintf("sheet.id IN (SELECT sheet_id FROM sheet_organizer WHERE principal_id = $%d AND starred = false)", len(args)+1)), append(args, *v)
+	}
+
+	if v := find.Source; v != nil {
+		where, args = append(where, fmt.Sprintf("sheet.source = $%d", len(args)+1)), append(args, *v)
+	}
+	if v := find.Type; v != nil {
+		where, args = append(where, fmt.Sprintf("sheet.type = $%d", len(args)+1)), append(args, *v)
+	}
+	statementField := fmt.Sprintf("LEFT(sheet.statement, %d)", common.MaxSheetSize)
+	if find.LoadFull {
+		statementField = "sheet.statement"
+	}
+
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
-	sheet.Updater = updater
+	defer tx.Rollback()
 
-	project, err := s.GetProjectByID(ctx, sheet.ProjectID)
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`
+		SELECT
+			sheet.id,
+			sheet.row_status,
+			sheet.creator_id,
+			sheet.created_ts,
+			sheet.updater_id,
+			sheet.updated_ts,
+			sheet.project_id,
+			sheet.database_id,
+			sheet.name,
+			%s,
+			sheet.visibility,
+			sheet.source,
+			sheet.type,
+			sheet.payload,
+			LENGTH(sheet.statement),
+			COALESCE(sheet_organizer.starred, FALSE),
+			COALESCE(sheet_organizer.pinned, FALSE)
+		FROM sheet
+		LEFT JOIN sheet_organizer ON sheet_organizer.sheet_id = sheet.id AND sheet_organizer.principal_id = %d
+		WHERE %s`, statementField, currentPrincipalID, strings.Join(where, " AND ")),
+		args...,
+	)
 	if err != nil {
 		return nil, err
 	}
-	sheet.Project = project
+	defer rows.Close()
 
-	if sheet.DatabaseID != nil {
-		database, err := s.GetDatabase(ctx, &api.DatabaseFind{ID: sheet.DatabaseID})
-		if err != nil {
+	var sheets []*SheetMessage
+	for rows.Next() {
+		var sheet SheetMessage
+		if err := rows.Scan(
+			&sheet.UID,
+			&sheet.rowStatus,
+			&sheet.CreatorID,
+			&sheet.createdTs,
+			&sheet.UpdaterID,
+			&sheet.updatedTs,
+			&sheet.ProjectUID,
+			&sheet.DatabaseUID,
+			&sheet.Name,
+			&sheet.Statement,
+			&sheet.Visibility,
+			&sheet.Source,
+			&sheet.Type,
+			&sheet.Payload,
+			&sheet.Size,
+			&sheet.Starred,
+			&sheet.Pinned,
+		); err != nil {
 			return nil, err
 		}
-		sheet.Database = database
-	}
 
-	sheetOrganizer, err := s.FindSheetOrganizer(ctx, &api.SheetOrganizerFind{
-		SheetID:     sheet.ID,
-		PrincipalID: currentPrincipalID,
-	})
-	if err != nil {
+		sheets = append(sheets, &sheet)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if sheetOrganizer != nil {
-		sheet.Starred = sheetOrganizer.Starred
-		sheet.Pinned = sheetOrganizer.Pinned
-	}
-
-	return sheet, nil
-}
-
-// createSheetRaw creates a new sheet.
-func (s *Store) createSheetRaw(ctx context.Context, create *api.SheetCreate) (*sheetRaw, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	sheet, err := createSheetImpl(ctx, tx, create)
-	if err != nil {
-		return nil, err
-	}
-
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
-	return sheet, nil
+	for _, sheet := range sheets {
+		sheet.CreatedTime = time.Unix(sheet.createdTs, 0)
+		sheet.UpdatedTime = time.Unix(sheet.updatedTs, 0)
+	}
+
+	return sheets, nil
 }
 
-// patchSheetRaw updates an existing sheet by ID.
-func (s *Store) patchSheetRaw(ctx context.Context, patch *api.SheetPatch) (*sheetRaw, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	sheet, err := patchSheetImpl(ctx, tx, patch)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-
-	return sheet, nil
-}
-
-// findSheetRaw retrieves a list of sheet based on find.
-func (s *Store) findSheetRaw(ctx context.Context, find *api.SheetFind) ([]*sheetRaw, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	list, err := findSheetImpl(ctx, tx, find)
-	if err != nil {
-		return nil, err
-	}
-
-	return list, nil
-}
-
-// getSheetRaw retrieves a single sheet based on find.
-// Returns ECONFLICT if finding more than 1 matching records.
-func (s *Store) getSheetRaw(ctx context.Context, find *api.SheetFind) (*sheetRaw, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	list, err := findSheetImpl(ctx, tx, find)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(list) == 0 {
-		return nil, nil
-	} else if len(list) > 1 {
-		return nil, &common.Error{Code: common.Conflict, Err: errors.Errorf("found %d sheet with filter %+v, expect 1. ", len(list), find)}
-	}
-	return list[0], nil
-}
-
-// createSheetImpl creates a new sheet.
-func createSheetImpl(ctx context.Context, tx *Tx, create *api.SheetCreate) (*sheetRaw, error) {
+// CreateSheetV2 creates a new sheet.
+func (s *Store) CreateSheetV2(ctx context.Context, create *SheetMessage) (*SheetMessage, error) {
 	if create.Payload == "" {
 		create.Payload = "{}"
 	}
@@ -332,15 +310,22 @@ func createSheetImpl(ctx context.Context, tx *Tx, create *api.SheetCreate) (*she
 			payload
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING id, row_status, creator_id, created_ts, updater_id, updated_ts, project_id, database_id, name, LEFT(statement, %d), visibility, source, type, payload, octet_length(statement)
+		RETURNING id, row_status, creator_id, created_ts, updater_id, updated_ts, project_id, database_id, name, LEFT(statement, %d), visibility, source, type, LENGTH(statement), payload
 	`, common.MaxSheetSize)
-	var sheetRaw sheetRaw
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
 	databaseID := sql.NullInt32{}
+	var sheet SheetMessage
+
 	if err := tx.QueryRowContext(ctx, query,
 		create.CreatorID,
 		create.CreatorID,
-		create.ProjectID,
-		create.DatabaseID,
+		create.ProjectUID,
+		create.DatabaseUID,
 		create.Name,
 		create.Statement,
 		create.Visibility,
@@ -348,46 +333,98 @@ func createSheetImpl(ctx context.Context, tx *Tx, create *api.SheetCreate) (*she
 		create.Type,
 		create.Payload,
 	).Scan(
-		&sheetRaw.ID,
-		&sheetRaw.RowStatus,
-		&sheetRaw.CreatorID,
-		&sheetRaw.CreatedTs,
-		&sheetRaw.UpdaterID,
-		&sheetRaw.UpdatedTs,
-		&sheetRaw.ProjectID,
+		&sheet.UID,
+		&sheet.rowStatus,
+		&sheet.CreatorID,
+		&sheet.createdTs,
+		&sheet.UpdaterID,
+		&sheet.updatedTs,
+		&sheet.ProjectUID,
 		&databaseID,
-		&sheetRaw.Name,
-		&sheetRaw.Statement,
-		&sheetRaw.Visibility,
-		&sheetRaw.Source,
-		&sheetRaw.Type,
-		&sheetRaw.Payload,
-		&sheetRaw.Size,
+		&sheet.Name,
+		&sheet.Statement,
+		&sheet.Visibility,
+		&sheet.Source,
+		&sheet.Type,
+		&sheet.Size,
+		&sheet.Payload,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, common.FormatDBErrorEmptyRowWithQuery(query)
 		}
 		return nil, err
 	}
+	if err := tx.Commit(); err != nil {
+		return nil, errors.Wrapf(err, "failed to commit transaction")
+	}
+
 	if databaseID.Valid {
 		value := int(databaseID.Int32)
-		sheetRaw.DatabaseID = &value
+		sheet.DatabaseUID = &value
 	}
-	return &sheetRaw, nil
+	sheet.CreatedTime = time.Unix(sheet.createdTs, 0)
+	sheet.UpdatedTime = time.Unix(sheet.updatedTs, 0)
+
+	return &sheet, nil
 }
 
-// patchSheetImpl updates a sheet's name/statement/visibility.
-func patchSheetImpl(ctx context.Context, tx *Tx, patch *api.SheetPatch) (*sheetRaw, error) {
+// PatchSheetMessage is the message to patch a sheet.
+type PatchSheetMessage struct {
+	UID         int
+	UpdaterID   int
+	Name        *string
+	Statement   *string
+	Visibility  *string
+	ProjectUID  *int
+	DatabaseUID *int
+	// TODO(zp): update the payload.
+	Payload *string
+}
+
+// PatchSheetV2 updates a sheet.
+func (s *Store) PatchSheetV2(ctx context.Context, patch *PatchSheetMessage) (*SheetMessage, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to begin transaction")
+	}
+
+	sheet, err := patchSheetImplV2(ctx, tx, patch)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, errors.Wrapf(err, "failed to commit transaction")
+	}
+	s.sheetStatementCache.Invalidate(patch.UID)
+
+	return sheet, nil
+}
+
+// DeleteSheetV2 deletes an existing sheet by ID.
+func (s *Store) DeleteSheetV2(ctx context.Context, sheetUID int) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sheet WHERE id = $1`, sheetUID); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	s.sheetStatementCache.Invalidate(sheetUID)
+
+	return nil
+}
+
+// patchSheetImplV2 updates a sheet's name/statement/visibility.
+func patchSheetImplV2(ctx context.Context, tx *Tx, patch *PatchSheetMessage) (*SheetMessage, error) {
 	set, args := []string{"updater_id = $1"}, []any{patch.UpdaterID}
-	if v := patch.RowStatus; v != nil {
-		set, args = append(set, fmt.Sprintf("row_status = $%d", len(args)+1)), append(args, api.RowStatus(*v))
-	}
-	if v := patch.ProjectID; v != nil {
-		set, args = append(set, fmt.Sprintf("project_id = $%d", len(args)+1)), append(args, *v)
-	}
-	if v := patch.DatabaseID; v != nil {
-		set, args = append(set, fmt.Sprintf("database_id = $%d", len(args)+1)), append(args, *v)
-	}
 	if v := patch.Name; v != nil {
 		set, args = append(set, fmt.Sprintf("name = $%d", len(args)+1)), append(args, *v)
 	}
@@ -400,160 +437,54 @@ func patchSheetImpl(ctx context.Context, tx *Tx, patch *api.SheetPatch) (*sheetR
 	if v := patch.Payload; v != nil {
 		set, args = append(set, fmt.Sprintf("payload = $%d", len(args)+1)), append(args, *v)
 	}
+	if v := patch.DatabaseUID; v != nil {
+		set, args = append(set, fmt.Sprintf("database_id = $%d", len(args)+1)), append(args, *v)
+	}
+	if v := patch.ProjectUID; v != nil {
+		set, args = append(set, fmt.Sprintf("project_id = $%d", len(args)+1)), append(args, *v)
+	}
 
-	args = append(args, patch.ID)
+	args = append(args, patch.UID)
 
-	var sheetRaw sheetRaw
+	var sheet SheetMessage
 	databaseID := sql.NullInt32{}
+
 	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
 		UPDATE sheet
 		SET `+strings.Join(set, ", ")+`
 		WHERE id = $%d
-		RETURNING id, row_status, creator_id, created_ts, updater_id, updated_ts, project_id, database_id, name, LEFT(statement, %d), visibility, source, type, payload, octet_length(statement)
+		RETURNING id, row_status, creator_id, created_ts, updater_id, updated_ts, project_id, database_id, name, LEFT(statement, %d), visibility, source, type, payload, LENGTH(statement)
 	`, len(args), common.MaxSheetSize),
 		args...,
 	).Scan(
-		&sheetRaw.ID,
-		&sheetRaw.RowStatus,
-		&sheetRaw.CreatorID,
-		&sheetRaw.CreatedTs,
-		&sheetRaw.UpdaterID,
-		&sheetRaw.UpdatedTs,
-		&sheetRaw.ProjectID,
+		&sheet.UID,
+		&sheet.rowStatus,
+		&sheet.CreatorID,
+		&sheet.createdTs,
+		&sheet.UpdaterID,
+		&sheet.updatedTs,
+		&sheet.ProjectUID,
 		&databaseID,
-		&sheetRaw.Name,
-		&sheetRaw.Statement,
-		&sheetRaw.Visibility,
-		&sheetRaw.Source,
-		&sheetRaw.Type,
-		&sheetRaw.Payload,
-		&sheetRaw.Size,
+		&sheet.Name,
+		&sheet.Statement,
+		&sheet.Visibility,
+		&sheet.Source,
+		&sheet.Type,
+		&sheet.Payload,
+		&sheet.Size,
 	); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, &common.Error{Code: common.NotFound, Err: errors.Errorf("sheet ID not found: %d", patch.ID)}
+			return nil, &common.Error{Code: common.NotFound, Err: errors.Errorf("sheet ID not found: %d", patch.UID)}
 		}
 		return nil, err
 	}
+
 	if databaseID.Valid {
 		value := int(databaseID.Int32)
-		sheetRaw.DatabaseID = &value
+		sheet.DatabaseUID = &value
 	}
-	return &sheetRaw, nil
-}
+	sheet.CreatedTime = time.Unix(sheet.createdTs, 0)
+	sheet.UpdatedTime = time.Unix(sheet.updatedTs, 0)
 
-func findSheetImpl(ctx context.Context, tx *Tx, find *api.SheetFind) ([]*sheetRaw, error) {
-	where, args := []string{"TRUE"}, []any{}
-
-	if v := find.ID; v != nil {
-		where, args = append(where, fmt.Sprintf("id = $%d", len(args)+1)), append(args, *v)
-	}
-
-	// Standard fields
-	if v := find.RowStatus; v != nil {
-		where, args = append(where, fmt.Sprintf("row_status = $%d", len(args)+1)), append(args, *v)
-	}
-	if v := find.CreatorID; v != nil {
-		where, args = append(where, fmt.Sprintf("creator_id = $%d", len(args)+1)), append(args, *v)
-	}
-
-	// Related fields
-	if v := find.ProjectID; v != nil {
-		where, args = append(where, fmt.Sprintf("project_id = $%d", len(args)+1)), append(args, *v)
-	}
-	if v := find.DatabaseID; v != nil {
-		where, args = append(where, fmt.Sprintf("database_id = $%d", len(args)+1)), append(args, *v)
-	}
-
-	// Domain fields
-	if v := find.Visibility; v != nil {
-		where, args = append(where, fmt.Sprintf("visibility = $%d", len(args)+1)), append(args, *v)
-	}
-	if v := find.PrincipalID; v != nil {
-		where, args = append(where, fmt.Sprintf("project_id IN (SELECT project_id FROM project_member WHERE principal_id = $%d)", len(args)+1)), append(args, *v)
-	}
-	if v := find.OrganizerPrincipalID; v != nil {
-		// For now, we only need the starred sheets.
-		where, args = append(where, fmt.Sprintf("id IN (SELECT sheet_id FROM sheet_organizer WHERE principal_id = $%d AND starred = true)", len(args)+1)), append(args, *v)
-	}
-	if v := find.Source; v != nil {
-		where, args = append(where, fmt.Sprintf("source = $%d", len(args)+1)), append(args, *v)
-	}
-	if v := find.Type; v != nil {
-		where, args = append(where, fmt.Sprintf("type = $%d", len(args)+1)), append(args, *v)
-	}
-	statementField := fmt.Sprintf("LEFT(statement, %d)", common.MaxSheetSize)
-	if find.LoadFull {
-		statementField = "statement"
-	}
-
-	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`
-		SELECT
-			id,
-			row_status,
-			creator_id,
-			created_ts,
-			updater_id,
-			updated_ts,
-			project_id,
-			database_id,
-			name,
-			%s,
-			visibility,
-			source,
-			type,
-			payload,
-			octet_length(statement)
-		FROM sheet
-		WHERE %s`, statementField, strings.Join(where, " AND ")),
-		args...,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var sheetRawList []*sheetRaw
-	for rows.Next() {
-		var sheetRaw sheetRaw
-		databaseID := sql.NullInt32{}
-		if err := rows.Scan(
-			&sheetRaw.ID,
-			&sheetRaw.RowStatus,
-			&sheetRaw.CreatorID,
-			&sheetRaw.CreatedTs,
-			&sheetRaw.UpdaterID,
-			&sheetRaw.UpdatedTs,
-			&sheetRaw.ProjectID,
-			&databaseID,
-			&sheetRaw.Name,
-			&sheetRaw.Statement,
-			&sheetRaw.Visibility,
-			&sheetRaw.Source,
-			&sheetRaw.Type,
-			&sheetRaw.Payload,
-			&sheetRaw.Size,
-		); err != nil {
-			return nil, err
-		}
-
-		if databaseID.Valid {
-			value := int(databaseID.Int32)
-			sheetRaw.DatabaseID = &value
-		}
-
-		sheetRawList = append(sheetRawList, &sheetRaw)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return sheetRawList, nil
-}
-
-// deleteSheet permanently deletes a sheet by ID.
-func deleteSheet(ctx context.Context, tx *Tx, delete *api.SheetDelete) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sheet WHERE id = $1`, delete.ID); err != nil {
-		return err
-	}
-	return nil
+	return &sheet, nil
 }

@@ -49,6 +49,24 @@ func (s *SubscriptionService) GetSubscription(ctx context.Context, _ *v1pb.GetSu
 	return s.loadSubscription(ctx)
 }
 
+// GetFeatureMatrix gets the feature metric.
+func (*SubscriptionService) GetFeatureMatrix(_ context.Context, _ *v1pb.GetFeatureMatrixRequest) (*v1pb.FeatureMatrix, error) {
+	resp := &v1pb.FeatureMatrix{}
+	for key, val := range api.FeatureMatrix {
+		matrix := map[string]bool{}
+		for i, enabled := range val {
+			plan := covertToV1PlanType(api.PlanType(i))
+			matrix[plan.String()] = enabled
+		}
+		resp.Features = append(resp.Features, &v1pb.Feature{
+			Name:   string(key),
+			Matrix: matrix,
+		})
+	}
+
+	return resp, nil
+}
+
 // UpdateSubscription updates the subscription license.
 func (s *SubscriptionService) UpdateSubscription(ctx context.Context, request *v1pb.UpdateSubscriptionRequest) (*v1pb.Subscription, error) {
 	// clear the trialing setting for dev test
@@ -116,46 +134,23 @@ func (s *SubscriptionService) TrialSubscription(ctx context.Context, request *v1
 	}
 
 	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
-	settingName := api.SettingEnterpriseTrial
-	settings, err := s.store.FindSetting(ctx, &api.SettingFind{
-		Name: &settingName,
-	})
+	_, created, err := s.store.CreateSettingIfNotExistV2(ctx, &store.SettingMessage{
+		Name:  api.SettingEnterpriseTrial,
+		Value: string(value),
+	}, principalID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list settings: %v", err.Error())
+		return nil, status.Errorf(codes.Internal, "failed to create license: %v", err.Error())
+	}
+	if !created {
+		return nil, status.Errorf(codes.InvalidArgument, "your trial already exists")
 	}
 
-	if len(settings) == 0 {
-		// We will create a new setting named SettingEnterpriseTrial to store the free trial license.
-		_, created, err := s.store.CreateSettingIfNotExistV2(ctx, &store.SettingMessage{
-			Name:        api.SettingEnterpriseTrial,
-			Value:       string(value),
-			Description: "The trialing license.",
-		}, principalID)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to create license: %v", err.Error())
-		}
-
-		if created && subscription.Trialing {
-			// For trial upgrade
-			// Case 1: Users just have the SettingEnterpriseTrial, don't upload their license in SettingEnterpriseLicense.
-			// Case 2: Users have the SettingEnterpriseLicense with team plan and trialing status.
-			// In both cases, we can override the SettingEnterpriseLicense with an empty value to get the valid free trial.
-			if err := s.licenseService.StoreLicense(ctx, &enterpriseAPI.SubscriptionPatch{
-				UpdaterID: principalID,
-				License:   "",
-			}); err != nil {
-				return nil, status.Errorf(codes.Internal, "failed to remove license: %v", err.Error())
-			}
-		}
-	} else {
-		// Update the existed free trial.
-		if _, err := s.store.PatchSetting(ctx, &api.SettingPatch{
-			UpdaterID: principalID,
-			Name:      api.SettingEnterpriseTrial,
-			Value:     string(value),
-		}); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to patch license: %v", err.Error())
-		}
+	// we need to override the SettingEnterpriseLicense with an empty value to get the valid free trial.
+	if err := s.licenseService.StoreLicense(ctx, &enterpriseAPI.SubscriptionPatch{
+		UpdaterID: principalID,
+		License:   "",
+	}); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to remove license: %v", err.Error())
 	}
 
 	s.licenseService.RefreshCache(ctx)
@@ -177,19 +172,9 @@ func (s *SubscriptionService) TrialSubscription(ctx context.Context, request *v1
 func (s *SubscriptionService) loadSubscription(ctx context.Context) (*v1pb.Subscription, error) {
 	sub := s.licenseService.LoadSubscription(ctx)
 
-	plan := v1pb.PlanType_PLAN_TYPE_UNSPECIFIED
-	switch sub.Plan {
-	case api.FREE:
-		plan = v1pb.PlanType_FREE
-	case api.TEAM:
-		plan = v1pb.PlanType_TEAM
-	case api.ENTERPRISE:
-		plan = v1pb.PlanType_ENTERPRISE
-	}
-
 	subscription := &v1pb.Subscription{
 		InstanceCount: int32(sub.InstanceCount),
-		Plan:          plan,
+		Plan:          covertToV1PlanType(sub.Plan),
 		Trialing:      sub.Trialing,
 		OrgId:         sub.OrgID,
 		OrgName:       sub.OrgName,
@@ -200,4 +185,17 @@ func (s *SubscriptionService) loadSubscription(ctx context.Context) (*v1pb.Subsc
 	}
 
 	return subscription, nil
+}
+
+func covertToV1PlanType(planType api.PlanType) v1pb.PlanType {
+	switch planType {
+	case api.FREE:
+		return v1pb.PlanType_FREE
+	case api.TEAM:
+		return v1pb.PlanType_TEAM
+	case api.ENTERPRISE:
+		return v1pb.PlanType_ENTERPRISE
+	default:
+		return v1pb.PlanType_PLAN_TYPE_UNSPECIFIED
+	}
 }

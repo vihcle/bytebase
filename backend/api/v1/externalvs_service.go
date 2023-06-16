@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/pkg/errors"
 
@@ -30,20 +32,12 @@ func NewExternalVersionControlService(store *store.Store) *ExternalVersionContro
 
 // GetExternalVersionControl get a single external version control.
 func (s *ExternalVersionControlService) GetExternalVersionControl(ctx context.Context, request *v1pb.GetExternalVersionControlRequest) (*v1pb.ExternalVersionControl, error) {
-	externalVersionControlUID, err := getExternalVersionControlID(request.Name)
+	vcs, err := s.getVCS(ctx, request.Name)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
 
-	externalVersionControl, err := s.store.GetExternalVersionControlV2(ctx, externalVersionControlUID)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Failed to retrieve external version control: %v", err)
-	}
-	if externalVersionControl == nil {
-		return nil, status.Errorf(codes.NotFound, "External version control not found: %v", err)
-	}
-
-	return convertToExternalVersionControl(externalVersionControl), nil
+	return convertToExternalVersionControl(vcs), nil
 }
 
 // ListExternalVersionControls lists external version controls.
@@ -70,6 +64,9 @@ func (s *ExternalVersionControlService) CreateExternalVersionControl(ctx context
 
 // UpdateExternalVersionControl updates an existing external version control.
 func (s *ExternalVersionControlService) UpdateExternalVersionControl(ctx context.Context, request *v1pb.UpdateExternalVersionControlRequest) (*v1pb.ExternalVersionControl, error) {
+	if request.UpdateMask == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "update_mask must be set")
+	}
 	externalVersionControlUID, err := getExternalVersionControlID(request.ExternalVersionControl.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
@@ -178,8 +175,122 @@ func (s *ExternalVersionControlService) SearchExternalVersionControlProjects(ctx
 }
 
 // ListProjectGitOpsInfo lists GitOps info of a project.
-func (*ExternalVersionControlService) ListProjectGitOpsInfo(context.Context, *v1pb.ListProjectGitOpsInfoRequest) (*v1pb.ListProjectGitOpsInfoResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListProjectGitOpsInfo not implemented")
+func (s *ExternalVersionControlService) ListProjectGitOpsInfo(ctx context.Context, request *v1pb.ListProjectGitOpsInfoRequest) (*v1pb.ListProjectGitOpsInfoResponse, error) {
+	externalVersionControlUID, err := getExternalVersionControlID(request.Name)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+
+	repoList, err := s.store.ListRepositoryV2(ctx, &store.FindRepositoryMessage{
+		VCSUID: &externalVersionControlUID,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to fetch external repository list: %v", err)
+	}
+
+	resp := &v1pb.ListProjectGitOpsInfoResponse{}
+	for _, repo := range repoList {
+		resp.ProjectGitopsInfo = append(resp.ProjectGitopsInfo, convertToProjectGitOpsInfo(repo))
+	}
+
+	return resp, nil
+}
+
+// ExchangeToken exchanges the OAuth token for VCS.
+func (s *ExternalVersionControlService) ExchangeToken(ctx context.Context, request *v1pb.ExchangeTokenRequest) (*v1pb.OAuthToken, error) {
+	var vcsType vcs.Type
+	var instanceURL string
+	var oauthExchange *common.OAuthExchange
+
+	if request.ExchangeToken.Name == fmt.Sprintf("%s-", externalVersionControlPrefix) {
+		tp, err := convertExternalVersionControlTypeToVCSType(request.ExchangeToken.Type)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+		vcsType = tp
+		if vcsType != vcs.GitLab && vcsType != vcs.GitHub && vcsType != vcs.Bitbucket {
+			return nil, status.Errorf(codes.InvalidArgument, "unsupport vcs type %v", request.ExchangeToken.Type)
+		}
+
+		instanceURL = request.ExchangeToken.InstanceUrl
+		oauthExchange = &common.OAuthExchange{
+			ClientID:     request.ExchangeToken.ClientId,
+			ClientSecret: request.ExchangeToken.ClientSecret,
+			Code:         request.ExchangeToken.Code,
+		}
+
+		if instanceURL == "" {
+			return nil, status.Errorf(codes.InvalidArgument, "instance url is required")
+		}
+		if oauthExchange.ClientID == "" || oauthExchange.ClientSecret == "" || oauthExchange.Code == "" {
+			return nil, status.Errorf(codes.InvalidArgument, "client_id, client_secret and code is required")
+		}
+	} else {
+		externalVersionControl, err := s.getVCS(ctx, request.ExchangeToken.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		vcsType = externalVersionControl.Type
+		instanceURL = externalVersionControl.InstanceURL
+		clientID := request.ExchangeToken.ClientId
+		clientSecret := request.ExchangeToken.ClientSecret
+		// Since we may not pass in ClientID and ClientSecret in the request, we will use the client ID and secret from VCS store even if it's stale.
+		// If it's stale, we should return better error messages and ask users to update the VCS secrets.
+		// https://sourcegraph.com/github.com/bytebase/bytebase/-/blob/frontend/src/components/RepositorySelectionPanel.vue?L77:8&subtree=true
+		// https://github.com/bytebase/bytebase/issues/1372
+		if clientID == "" || clientSecret == "" {
+			clientID = externalVersionControl.ApplicationID
+			clientSecret = externalVersionControl.Secret
+		}
+		oauthExchange = &common.OAuthExchange{
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			Code:         request.ExchangeToken.Code,
+		}
+	}
+
+	setting, err := s.store.GetWorkspaceGeneralSetting(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to find workspace setting with error: %v", err.Error())
+	}
+	if setting.ExternalUrl == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "external url is required")
+	}
+
+	oauthExchange.RedirectURL = fmt.Sprintf("%s/oauth/callback", setting.ExternalUrl)
+	oauthToken, err := vcs.Get(vcsType, vcs.ProviderConfig{}).
+		ExchangeOAuthToken(
+			ctx,
+			instanceURL,
+			oauthExchange,
+		)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to exchange OAuth token with error: %v. Make sure %q matches your browser host. Note that if you are not using port 80 or 443, you should also specify the port such as --external-url=http://host:port", err.Error(), setting.ExternalUrl)
+	}
+
+	return &v1pb.OAuthToken{
+		AccessToken:  oauthToken.AccessToken,
+		RefreshToken: oauthToken.RefreshToken,
+		ExpiresTime:  timestamppb.New(time.Unix(oauthToken.ExpiresTs, 0)),
+	}, nil
+}
+
+func (s *ExternalVersionControlService) getVCS(ctx context.Context, name string) (*store.ExternalVersionControlMessage, error) {
+	externalVersionControlUID, err := getExternalVersionControlID(name)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+
+	externalVersionControl, err := s.store.GetExternalVersionControlV2(ctx, externalVersionControlUID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to retrieve external version control: %v", err)
+	}
+	if externalVersionControl == nil {
+		return nil, status.Errorf(codes.NotFound, "External version control not found: %v", err)
+	}
+
+	return externalVersionControl, nil
 }
 
 func convertToExternalVersionControls(externalVersionControls []*store.ExternalVersionControlMessage) []*v1pb.ExternalVersionControl {
@@ -194,15 +305,15 @@ func convertToExternalVersionControl(externalVersionControl *store.ExternalVersi
 	tp := v1pb.ExternalVersionControl_TYPE_UNSPECIFIED
 	switch externalVersionControl.Type {
 	case vcs.GitHub:
-		tp = v1pb.ExternalVersionControl_TYPE_GITHUB
+		tp = v1pb.ExternalVersionControl_GITHUB
 	case vcs.GitLab:
-		tp = v1pb.ExternalVersionControl_TYPE_GITLAB
+		tp = v1pb.ExternalVersionControl_GITLAB
 	case vcs.Bitbucket:
-		tp = v1pb.ExternalVersionControl_TYPE_BITBUCKET
+		tp = v1pb.ExternalVersionControl_BITBUCKET
 	}
 
 	return &v1pb.ExternalVersionControl{
-		Name:          fmt.Sprintf("%s/%d", externalVersionControlPrefix, externalVersionControl.ID),
+		Name:          fmt.Sprintf("%s%d", externalVersionControlPrefix, externalVersionControl.ID),
 		Title:         externalVersionControl.Name,
 		Type:          tp,
 		Url:           externalVersionControl.InstanceURL,
@@ -246,11 +357,11 @@ func checkAndConvertToStoreVersionControl(externalVersionControl *v1pb.ExternalV
 
 func convertExternalVersionControlTypeToVCSType(tp v1pb.ExternalVersionControl_Type) (vcs.Type, error) {
 	switch tp {
-	case v1pb.ExternalVersionControl_TYPE_GITHUB:
+	case v1pb.ExternalVersionControl_GITHUB:
 		return vcs.GitHub, nil
-	case v1pb.ExternalVersionControl_TYPE_GITLAB:
+	case v1pb.ExternalVersionControl_GITLAB:
 		return vcs.GitLab, nil
-	case v1pb.ExternalVersionControl_TYPE_BITBUCKET:
+	case v1pb.ExternalVersionControl_BITBUCKET:
 		return vcs.Bitbucket, nil
 	}
 	return "", errors.Errorf("unknown external version control type: %v", tp)

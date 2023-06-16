@@ -1,5 +1,5 @@
 import { computed, Ref } from "vue";
-import { useCurrentUser } from "@/store";
+import { useCurrentUserV1, useProjectV1Store } from "@/store";
 import {
   Issue,
   IssueStatusTransitionType,
@@ -15,23 +15,57 @@ import {
   StageStatusTransition,
   TaskStatusTransition,
   TASK_STATUS_TRANSITION_LIST,
+  isDatabaseRelatedIssueType,
+  extractUserUID,
+  hasWorkspacePermissionV1,
+  isOwnerOfProjectV1,
 } from "@/utils";
+import {
+  allowUserToBeAssignee,
+  useCurrentRollOutPolicyForActiveEnvironment,
+} from "./";
 import { useIssueLogic } from ".";
+import { User } from "@/types/proto/v1/auth_service";
+import { Review } from "@/types/proto/v1/review_service";
+import { extractIssueReviewContext } from "@/plugins/issue/logic";
 
 export const useIssueTransitionLogic = (issue: Ref<Issue>) => {
   const { create, activeTaskOfPipeline, allowApplyTaskStatusTransition } =
     useIssueLogic();
 
-  const currentUser = useCurrentUser();
+  const currentUserV1 = useCurrentUserV1();
+  const rollOutPolicy = useCurrentRollOutPolicyForActiveEnvironment();
 
   const isAllowedToApplyTaskTransition = computed(() => {
     if (create.value) {
       return false;
     }
+    if (!isDatabaseRelatedIssueType(issue.value.type)) {
+      return false;
+    }
 
-    // Only the assignee can apply task status transitions
+    const project = useProjectV1Store().getProjectByUID(
+      String(issue.value.project.id)
+    );
+
+    if (
+      allowUserToBeAssignee(
+        currentUserV1.value,
+        project,
+        project.iamPolicy,
+        rollOutPolicy.value.policy,
+        rollOutPolicy.value.assigneeGroup
+      )
+    ) {
+      return true;
+    }
+
+    // Otherwise, only the assignee can apply task status transitions
     // including roll out, cancel, retry, etc.
-    return issue.value.assignee.id === currentUser.value.id;
+    return (
+      String(issue.value.assignee.id) ===
+      extractUserUID(currentUserV1.value.name)
+    );
   });
 
   const getApplicableIssueStatusTransitionList = (
@@ -128,19 +162,11 @@ export const useIssueTransitionLogic = (issue: Ref<Issue>) => {
 export const calcApplicableIssueStatusTransitionList = (
   issue: Issue
 ): IssueStatusTransition[] => {
-  const currentUser = useCurrentUser();
-  const currentTask = activeTask(issue.pipeline);
-  const flattenTaskList = allTaskList(issue.pipeline);
-
   const issueEntity = issue as Issue;
   const transitionTypeList: IssueStatusTransitionType[] = [];
+  const currentUserV1 = useCurrentUserV1();
 
-  // The creator and the assignee can apply issue status transition
-  // including resolve, cancel, reopen
-  if (
-    currentUser.value.id === issueEntity.creator?.id ||
-    currentUser.value.id === issueEntity.assignee?.id
-  ) {
+  if (allowUserToApplyIssueStatusTransition(issueEntity, currentUserV1.value)) {
     const actions = APPLICABLE_ISSUE_ACTION_LIST.get(issueEntity.status);
     if (actions) {
       transitionTypeList.push(...actions);
@@ -152,21 +178,33 @@ export const calcApplicableIssueStatusTransitionList = (
     const transition = ISSUE_STATUS_TRANSITION_LIST.get(type);
     if (!transition) return;
 
-    if (flattenTaskList.some((task) => task.status === "RUNNING")) {
-      // Disallow any issue status transition if some of the tasks are in RUNNING state.
-      return;
-    }
     if (type === "RESOLVE") {
-      if (transition.type === "RESOLVE" && flattenTaskList.length > 0) {
-        const lastTask = flattenTaskList[flattenTaskList.length - 1];
-        // Don't display the RESOLVE action if the pipeline doesn't reach the
-        // last task
-        if (lastTask.id !== currentTask.id) {
-          return;
-        }
-        // Don't display the RESOLVE action if the last task is not DONE.
-        if (currentTask.status !== "DONE") {
-          return;
+      // If an issue is not "Approved" in review stage
+      // it cannot be Resolved.
+      if (!isIssueReviewDone(issue)) {
+        return;
+      }
+    }
+
+    if (isDatabaseRelatedIssueType(issue.type)) {
+      const currentTask = activeTask(issue.pipeline);
+      const flattenTaskList = allTaskList(issue.pipeline);
+      if (flattenTaskList.some((task) => task.status === "RUNNING")) {
+        // Disallow any issue status transition if some of the tasks are in RUNNING state.
+        return;
+      }
+      if (type === "RESOLVE") {
+        if (transition.type === "RESOLVE" && flattenTaskList.length > 0) {
+          const lastTask = flattenTaskList[flattenTaskList.length - 1];
+          // Don't display the RESOLVE action if the pipeline doesn't reach the
+          // last task
+          if (lastTask.id !== currentTask.id) {
+            return;
+          }
+          // Don't display the RESOLVE action if the last task is not DONE.
+          if (currentTask.status !== "DONE") {
+            return;
+          }
         }
       }
     }
@@ -183,4 +221,52 @@ export function isApplicableTransition<
       return applicable.to === target.to && applicable.type === target.type;
     }) >= 0
   );
+}
+
+const allowUserToApplyIssueStatusTransition = (issue: Issue, user: User) => {
+  // Workspace level high-privileged user (DBA/OWNER) are always allowed.
+  if (
+    hasWorkspacePermissionV1(
+      "bb.permission.workspace.manage-issue",
+      user.userRole
+    )
+  ) {
+    return true;
+  }
+
+  // Project owners are also allowed
+  const projectV1 = useProjectV1Store().getProjectByUID(
+    String(issue.project.id)
+  );
+  if (isOwnerOfProjectV1(projectV1.iamPolicy, user)) {
+    return true;
+  }
+
+  // The creator and the assignee can apply issue status transition
+
+  const currentUserUID = extractUserUID(user.name);
+
+  if (currentUserUID === String(issue.creator?.id)) {
+    return true;
+  }
+  if (currentUserUID === String(issue.assignee?.id)) {
+    return true;
+  }
+
+  return false;
+};
+
+function isIssueReviewDone(issue: Issue) {
+  const review = computed(() => {
+    try {
+      return Review.fromJSON(issue.payload.approval);
+    } catch {
+      return Review.fromJSON({});
+    }
+  });
+  const context = extractIssueReviewContext(
+    computed(() => issue),
+    review
+  );
+  return context.done.value;
 }

@@ -1,23 +1,25 @@
 import { defineStore } from "pinia";
 import { reactive, ref, watch } from "vue";
+import { useLocalStorage } from "@vueuse/core";
+
 import {
-  DatabaseId,
-  InstanceId,
   Connection,
-  Policy,
   ConnectionAtom,
   ConnectionTreeMode,
   ConnectionAtomType,
-  Project,
-  Instance,
-  Database,
+  ComposedInstance,
+  ComposedDatabase,
 } from "@/types";
 import { ConnectionTreeState, UNKNOWN_ID } from "@/types";
-import { useDatabaseStore } from "./database";
-import { useInstanceStore } from "./instance";
 import { emptyConnection } from "@/utils";
-import { useDBSchemaStore } from "./dbSchema";
-import { useLocalStorage } from "@vueuse/core";
+import { Policy } from "@/types/proto/v1/org_policy_service";
+import { Project } from "@/types/proto/v1/project_service";
+import { Engine } from "@/types/proto/v1/common";
+import {
+  useDatabaseV1Store,
+  useInstanceV1Store,
+  useDBSchemaV1Store,
+} from "./v1";
 
 // Normalize value, fallback to ConnectionTreeMode.PROJECT
 const normalizeConnectionTreeMode = (raw: string) => {
@@ -42,7 +44,7 @@ export const useConnectionTreeStore = defineStore("connectionTree", () => {
   // states
   const accessControlPolicyList = ref<Policy[]>([]);
   const tree = reactive({
-    databaseList: [] as Database[],
+    databaseList: [] as ComposedDatabase[],
     data: [] as ConnectionAtom[],
     mode: treeModeInLocalStorage.value,
     state: ConnectionTreeState.UNSET,
@@ -52,15 +54,15 @@ export const useConnectionTreeStore = defineStore("connectionTree", () => {
 
   // actions
   const fetchConnectionByInstanceIdAndDatabaseId = async (
-    instanceId: InstanceId,
-    databaseId: DatabaseId
+    instanceId: string,
+    databaseId: string
   ): Promise<Connection> => {
     try {
-      await Promise.all([
-        useDatabaseStore().getOrFetchDatabaseById(databaseId),
-        useInstanceStore().getOrFetchInstanceById(instanceId),
-        useDBSchemaStore().getOrFetchTableListByDatabaseId(databaseId),
+      const [db, _] = await Promise.all([
+        useDatabaseV1Store().getOrFetchDatabaseByUID(databaseId),
+        useInstanceV1Store().getOrFetchInstanceByUID(instanceId),
       ]);
+      await useDBSchemaV1Store().getOrFetchTableList(db.name);
 
       return {
         instanceId,
@@ -68,46 +70,51 @@ export const useConnectionTreeStore = defineStore("connectionTree", () => {
       };
     } catch {
       // Fallback to disconnected if error occurs such as 404.
-      return { instanceId: UNKNOWN_ID, databaseId: UNKNOWN_ID };
+      return { instanceId: String(UNKNOWN_ID), databaseId: String(UNKNOWN_ID) };
     }
   };
   const fetchConnectionByInstanceId = async (
-    instanceId: InstanceId
+    instanceId: string
   ): Promise<Connection> => {
     try {
-      const [databaseList] = await Promise.all([
-        useDatabaseStore().getDatabaseListByInstanceId(instanceId),
-        useInstanceStore().getOrFetchInstanceById(instanceId),
-      ]);
-      const dbSchemaStore = useDBSchemaStore();
+      await useInstanceV1Store().getOrFetchInstanceByUID(instanceId);
+      const databaseList = useDatabaseV1Store().databaseList.filter(
+        (db) => db.instanceEntity.uid === instanceId
+      );
+      const dbSchemaStore = useDBSchemaV1Store();
       await Promise.all(
-        databaseList.map((db) =>
-          dbSchemaStore.getOrFetchTableListByDatabaseId(db.id)
-        )
+        databaseList.map((db) => dbSchemaStore.getOrFetchTableList(db.name))
       );
 
       return {
         instanceId,
-        databaseId: UNKNOWN_ID,
+        databaseId: String(UNKNOWN_ID),
       };
     } catch {
       // Fallback to disconnected if error occurs such as 404.
-      return { instanceId: UNKNOWN_ID, databaseId: UNKNOWN_ID };
+      return { instanceId: String(UNKNOWN_ID), databaseId: String(UNKNOWN_ID) };
     }
   };
   // utilities
   const mapAtom = (
-    item: Project | Instance | Database,
+    item: Project | ComposedInstance | ComposedDatabase,
     type: ConnectionAtomType,
-    parentId: number
+    parentId: string
   ) => {
-    const id = item.id;
+    const id = item.uid;
     const key = `${type}-${id}`;
     const connectionAtom: ConnectionAtom = {
       parentId,
       id,
       key,
-      label: item.name,
+      label:
+        type === "project"
+          ? (item as Project).title
+          : type === "instance"
+          ? (item as ComposedInstance).title
+          : type === "database"
+          ? (item as ComposedDatabase).databaseName
+          : "",
       type,
       isLeaf: type === "database",
     };
@@ -134,18 +141,18 @@ export const useConnectionTreeStore = defineStore("connectionTree", () => {
 });
 
 export const searchConnectionByName = (
-  instanceId: InstanceId,
-  databaseId: DatabaseId,
+  instanceId: string,
+  databaseId: string,
   instanceName: string,
   databaseName: string
 ): Connection => {
   const connection = emptyConnection();
   const store = useConnectionTreeStore();
 
-  if (instanceId !== UNKNOWN_ID) {
+  if (instanceId !== String(UNKNOWN_ID)) {
     // If we found instanceId and/or databaseId, use the IDs first.
     connection.instanceId = instanceId;
-    if (databaseId !== UNKNOWN_ID) {
+    if (databaseId !== String(UNKNOWN_ID)) {
       connection.databaseId = databaseId;
     }
 
@@ -194,9 +201,9 @@ export const isConnectableAtom = (atom: ConnectionAtom): boolean => {
     return true;
   }
   if (atom.type === "instance") {
-    const instance = useInstanceStore().getInstanceById(atom.id);
+    const instance = useInstanceV1Store().getInstanceByUID(atom.id);
     const { engine } = instance;
-    return engine === "MYSQL" || engine === "TIDB";
+    return engine === Engine.MYSQL || engine === Engine.TIDB;
   }
   return false;
 };

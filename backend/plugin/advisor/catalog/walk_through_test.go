@@ -18,7 +18,7 @@ import (
 	_ "github.com/pingcap/tidb/types/parser_driver"
 
 	// Register postgresql parser driver.
-	_ "github.com/bytebase/bytebase/backend/plugin/parser/engine/pg"
+	_ "github.com/bytebase/bytebase/backend/plugin/parser/sql/engine/pg"
 )
 
 type testData struct {
@@ -197,7 +197,8 @@ func (d *DatabaseState) convertToSchemaMetadataList() []*storepb.SchemaMetadata 
 			Name:   schema.name,
 			Tables: schema.convertToTableMetadataList(),
 			// TODO(rebelice): convert views if needed.
-			Views: []*storepb.ViewMetadata{},
+			Views:     []*storepb.ViewMetadata{},
+			Functions: []*storepb.FunctionMetadata{},
 		}
 
 		result = append(result, schemaMeta)

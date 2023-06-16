@@ -25,10 +25,9 @@
           </span>
           <p class="text-sm">
             <span class="mr-2">{{ $t("common.environment") }}:</span>
-            <span>{{ environmentName(template.review.environment) }}</span>
-            <ProductionEnvironmentIcon
+            <EnvironmentV1Name
               :environment="template.review.environment"
-              class="ml-1 !text-current"
+              :link="false"
             />
           </p>
           <p class="text-sm">
@@ -96,9 +95,8 @@ import { computed, watch } from "vue";
 import { SQLReviewPolicyTemplate } from "@/types";
 import { TEMPLATE_LIST as builtInTemplateList, RuleLevel } from "@/types";
 import { useSQLReviewPolicyList } from "@/store";
-import { environmentName } from "@/utils";
-import ProductionEnvironmentIcon from "@/components/Environment/ProductionEnvironmentIcon.vue";
 import { rulesToTemplate } from "./utils";
+import { EnvironmentV1Name } from "@/components/v2";
 
 const props = withDefaults(
   defineProps<{

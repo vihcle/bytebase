@@ -1,40 +1,39 @@
 <template>
-  <teleport to="#bb-modal-stack">
-    <div class="fixed inset-0 bg-transparent" :style="style" />
-    <div
-      v-bind="$attrs"
-      class="bb-modal"
-      :style="style"
-      :data-bb-modal-id="id"
-      :data-bb-modal-index="index"
-      :data-bb-modal-active="active"
-    >
-      <div class="modal-header" :class="headerClass">
+  <NModal
+    :show="true"
+    :auto-focus="false"
+    :close-on-esc="escClosable"
+    :mask-closeable="maskClosable"
+    @esc="escClosable && tryClose()"
+    @mask-click="maskClosable && tryClose()"
+  >
+    <div v-bind="$attrs" class="bb-modal">
+      <div class="modal-header">
         <div class="text-xl text-main mr-2 flex-1 overflow-hidden">
           <slot name="title"><component :is="renderTitle" /></slot>
-          <component :is="renderSubtitle" />
+          <slot name="subtitle"><component :is="renderSubtitle" /></slot>
         </div>
         <button
           v-if="showClose"
           class="text-control-light"
           aria-label="close"
-          @click.prevent="close"
+          @click.prevent="tryClose"
         >
           <span class="sr-only">Close</span>
           <!-- Heroicons name: x -->
           <heroicons-solid:x class="w-6 h-6" />
         </button>
       </div>
+
       <div class="modal-container" :class="containerClass">
         <slot />
       </div>
     </div>
-  </teleport>
+  </NModal>
 </template>
 
 <script lang="ts">
 import {
-  computed,
   defineComponent,
   h,
   inject,
@@ -47,8 +46,9 @@ import {
   Ref,
   RenderFunction,
 } from "vue";
+import { NModal } from "naive-ui";
+
 import type { VueClass } from "@/utils";
-import { useModalStack } from "./BBModalStack.vue";
 
 type Overrides = {
   title: string | RenderFunction | undefined;
@@ -60,7 +60,11 @@ type BBModalContext = {
 const BB_MODAL_CONTEXT = "bb.modal.context";
 
 export default defineComponent({
-  name: "BBModal",
+  name: "BBModalV2",
+  components: {
+    NModal,
+  },
+  inheritAttrs: false,
   props: {
     title: {
       default: "",
@@ -86,6 +90,11 @@ export default defineComponent({
       type: Boolean,
       default: true,
     },
+    maskClosable: {
+      type: Boolean,
+      // Default to `false` to make it behaves consistent with legacy BBModal
+      default: false,
+    },
     beforeClose: {
       type: Function as PropType<() => Promise<boolean>>,
       default: undefined,
@@ -93,18 +102,12 @@ export default defineComponent({
   },
   emits: ["close"],
   setup(props, { emit }) {
-    const { stack, id, index, active } = useModalStack();
-
-    const style = computed(() => ({
-      "z-index": 40 + index.value, // "40 + " because the container in BBModalStack is z-40
-    }));
-
     const overrides = ref<Overrides>({
       title: undefined,
       subtitle: undefined,
     });
 
-    const close = async () => {
+    const tryClose = async () => {
       const { beforeClose } = props;
       if (beforeClose) {
         const pass = await beforeClose();
@@ -112,30 +115,6 @@ export default defineComponent({
       }
       emit("close");
     };
-
-    const escHandler = (e: KeyboardEvent) => {
-      if (e.code == "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-
-        if (!props.escClosable) {
-          return;
-        }
-        if (!active.value) {
-          // only to close the topmost modal when pressing ESC
-          return;
-        }
-        close();
-      }
-    };
-
-    onMounted(() => {
-      document.addEventListener("keydown", escHandler);
-    });
-
-    onUnmounted(() => {
-      document.removeEventListener("keydown", escHandler);
-    });
 
     provide<BBModalContext>(BB_MODAL_CONTEXT, {
       overrides,
@@ -171,13 +150,7 @@ export default defineComponent({
     };
 
     return {
-      style,
-      close,
-      stack,
-      id,
-      index,
-      active,
-      overrides,
+      tryClose,
       renderTitle,
       renderSubtitle,
     };
@@ -223,16 +196,16 @@ export const useOverrideSubtitle = (
 };
 </script>
 
-<style scoped>
+<style scoped lang="postcss">
 .bb-modal {
-  @apply absolute m-auto w-full max-w-max bg-white shadow-lg rounded-lg pt-4 pb-4 flex pointer-events-auto;
+  @apply max-w-max bg-white shadow-lg rounded-lg pt-4 pb-4 flex pointer-events-auto;
   @apply flex-col;
 
   max-height: calc(100vh - 80px);
 }
 
 .modal-header {
-  @apply relative mx-8 pb-2 flex items-center justify-between border-b border-block-border;
+  @apply relative mx-8 pb-2 flex items-start justify-between border-b border-block-border;
 }
 
 .modal-container {

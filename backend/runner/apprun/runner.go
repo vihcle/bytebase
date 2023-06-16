@@ -54,7 +54,7 @@ func (r *Runner) Run(ctx context.Context, wg *sync.WaitGroup) {
 		case <-ticker.C:
 			func() {
 				settingName := api.SettingAppIM
-				setting, err := r.store.GetSetting(ctx, &api.SettingFind{Name: &settingName})
+				setting, err := r.store.GetSettingV2(ctx, &store.FindSettingMessage{Name: &settingName})
 				if err != nil {
 					if !errors.Is(err, context.Canceled) {
 						log.Error("failed to get IM setting", zap.String("settingName", string(settingName)), zap.Error(err))
@@ -90,17 +90,23 @@ func (r *Runner) Run(ctx context.Context, wg *sync.WaitGroup) {
 					return
 				}
 				for _, issue := range issues {
+					if issue.PipelineUID == nil {
+						continue
+					}
 					issueByID[issue.UID] = issue
-					stages, err := r.store.ListStageV2(ctx, issue.PipelineUID)
+					stages, err := r.store.ListStageV2(ctx, *issue.PipelineUID)
 					if err != nil {
-						log.Error("failed to list stages", zap.Int("pipeline", issue.PipelineUID), zap.Error(err))
+						log.Error("failed to list stages", zap.Int("pipeline", *issue.PipelineUID), zap.Error(err))
 						return
 					}
-					stagesByPipelineID[issue.PipelineUID] = stages
+					stagesByPipelineID[*issue.PipelineUID] = stages
 					r.scheduleApproval(ctx, issue, stages, &value)
 				}
 
-				externalApprovalList, err := r.store.FindExternalApprovalV2(ctx)
+				externalApprovalType := api.ExternalApprovalTypeFeishu
+				externalApprovalList, err := r.store.ListExternalApprovalV2(ctx, &store.ListExternalApprovalMessage{
+					Type: &externalApprovalType,
+				})
 				if err != nil {
 					log.Error("failed to find external approval list", zap.Error(err))
 					return
@@ -126,9 +132,9 @@ func (r *Runner) Run(ctx context.Context, wg *sync.WaitGroup) {
 							// it will be handled next round anyway.
 							continue
 						}
-						stages, ok := stagesByPipelineID[issue.PipelineUID]
+						stages, ok := stagesByPipelineID[*issue.PipelineUID]
 						if !ok {
-							log.Debug("expect to have found pipeline in application runner", zap.Int("pipeline_id", issue.PipelineUID))
+							log.Debug("expect to have found pipeline in application runner", zap.Int("pipeline_id", *issue.PipelineUID))
 							continue
 						}
 						activeStage := utils.GetActiveStage(stages)
@@ -236,13 +242,13 @@ func (r *Runner) Run(ctx context.Context, wg *sync.WaitGroup) {
 									return errors.Wrap(err, "failed to marshal ActivityIssueExternalApprovalRejectPayload")
 								}
 
-								activityCreate := &api.ActivityCreate{
-									CreatorID:   payload.AssigneeID,
-									ContainerID: issue.UID,
-									Type:        api.ActivityIssueCommentCreate,
-									Level:       api.ActivityInfo,
-									Comment:     "",
-									Payload:     string(activityPayload),
+								activityCreate := &store.ActivityMessage{
+									CreatorUID:   payload.AssigneeID,
+									ContainerUID: issue.UID,
+									Type:         api.ActivityIssueCommentCreate,
+									Level:        api.ActivityInfo,
+									Comment:      "",
+									Payload:      string(activityPayload),
 								}
 
 								if _, err = r.activityManager.CreateActivity(ctx, activityCreate, &activity.Metadata{}); err != nil {
@@ -354,7 +360,7 @@ func (r *Runner) cancelOldExternalApprovalIfNeeded(ctx context.Context, issue *s
 // CancelExternalApproval cancels the active external approval of an issue.
 func (r *Runner) CancelExternalApproval(ctx context.Context, issueID int, reason string) error {
 	settingName := api.SettingAppIM
-	setting, err := r.store.GetSetting(ctx, &api.SettingFind{Name: &settingName})
+	setting, err := r.store.GetSettingV2(ctx, &store.FindSettingMessage{Name: &settingName})
 	if err != nil {
 		return errors.Wrapf(err, "failed to get IM setting by settingName %s", string(settingName))
 	}
@@ -616,7 +622,7 @@ func (r *Runner) scheduleApproval(ctx context.Context, issue *store.IssueMessage
 // The approval definition may have changed so we make idempotent POST request to patch the definition.
 func (r *Runner) tryUpdateApprovalDefinition(ctx context.Context) error {
 	settingName := api.SettingAppIM
-	setting, err := r.store.GetSetting(ctx, &api.SettingFind{Name: &settingName})
+	setting, err := r.store.GetSettingV2(ctx, &store.FindSettingMessage{Name: &settingName})
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			return errors.Wrapf(err, "failed to get IM setting")

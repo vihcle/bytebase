@@ -21,76 +21,14 @@ func (s *Store) GetProjectByID(ctx context.Context, id int) (*api.Project, error
 	if project == nil {
 		return nil, nil
 	}
-	composedProject, err := s.composeProject(ctx, project)
+	composedProject, err := s.composeProject(project)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to compose Project with projectRaw[%+v]", project)
 	}
 	return composedProject, nil
 }
 
-// FindProject finds a list of Project instances.
-func (s *Store) FindProject(ctx context.Context, find *api.ProjectFind) ([]*api.Project, error) {
-	v2Find := &FindProjectMessage{ShowDeleted: true}
-	projects, err := s.ListProjectV2(ctx, v2Find)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to find Project list with ProjectFind[%+v]", v2Find)
-	}
-	var composedProjects []*api.Project
-	for _, project := range projects {
-		composedProject, err := s.composeProject(ctx, project)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compose Project with projectRaw[%+v]", project)
-		}
-		if find.RowStatus != nil && composedProject.RowStatus != *find.RowStatus {
-			continue
-		}
-		composedProjects = append(composedProjects, composedProject)
-	}
-	return composedProjects, nil
-}
-
-// PatchProject patches an instance of Project.
-func (s *Store) PatchProject(ctx context.Context, patch *api.ProjectPatch) (*api.Project, error) {
-	project, err := s.GetProjectV2(ctx, &FindProjectMessage{UID: &patch.ID})
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get project %d", patch.ID)
-	}
-	v2Update := &UpdateProjectMessage{
-		UpdaterID:      patch.UpdaterID,
-		ResourceID:     project.ResourceID,
-		Title:          patch.Name,
-		Key:            patch.Key,
-		DBNameTemplate: patch.DBNameTemplate,
-	}
-	if patch.TenantMode != nil {
-		m := api.ProjectTenantMode(*patch.TenantMode)
-		v2Update.TenantMode = &m
-	}
-
-	if patch.WorkflowType != nil {
-		v := api.ProjectWorkflowType(*patch.WorkflowType)
-		v2Update.Workflow = &v
-	}
-	if patch.SchemaChangeType != nil {
-		v := api.ProjectSchemaChangeType(*patch.SchemaChangeType)
-		v2Update.SchemaChangeType = &v
-	}
-	if patch.RowStatus != nil {
-		deleted := *patch.RowStatus == string(api.Archived)
-		v2Update.Delete = &deleted
-	}
-	project, err = s.UpdateProjectV2(ctx, v2Update)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to patch Project with ProjectPatch %#v", patch)
-	}
-	composedProject, err := s.composeProject(ctx, project)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to compose Project with projectRaw[%+v]", project)
-	}
-	return composedProject, nil
-}
-
-func (s *Store) composeProject(ctx context.Context, project *ProjectMessage) (*api.Project, error) {
+func (*Store) composeProject(project *ProjectMessage) (*api.Project, error) {
 	composedProject := &api.Project{
 		ID:               project.UID,
 		ResourceID:       project.ResourceID,
@@ -106,33 +44,10 @@ func (s *Store) composeProject(ctx context.Context, project *ProjectMessage) (*a
 	if project.Deleted {
 		composedProject.RowStatus = api.Archived
 	}
-
-	policy, err := s.GetProjectPolicy(ctx, &GetProjectPolicyMessage{ProjectID: &project.ResourceID})
-	if err != nil {
-		return nil, err
-	}
-	for _, binding := range policy.Bindings {
-		for _, member := range binding.Members {
-			principal, err := s.GetPrincipalByID(ctx, member.ID)
-			if err != nil {
-				return nil, err
-			}
-			projectMember, err := s.GetProjectMemberByProjectIDAndPrincipalID(ctx, project.UID, principal.ID)
-			if err != nil {
-				return nil, err
-			}
-			composedProject.ProjectMemberList = append(composedProject.ProjectMemberList, &api.ProjectMember{
-				ID:        projectMember.ID,
-				ProjectID: project.UID,
-				Role:      string(binding.Role),
-				Principal: principal,
-			})
-		}
-	}
 	return composedProject, nil
 }
 
-// ProjectMessage is the mssage for project.
+// ProjectMessage is the message for project.
 type ProjectMessage struct {
 	ResourceID       string
 	Title            string
@@ -209,8 +124,7 @@ func (s *Store) GetProjectV2(ctx context.Context, find *FindProjectMessage) (*Pr
 		return nil, err
 	}
 
-	s.projectCache.Store(project.ResourceID, project)
-	s.projectIDCache.Store(project.UID, project)
+	s.storeProjectCache(project)
 	return projects[0], nil
 }
 
@@ -232,8 +146,7 @@ func (s *Store) ListProjectV2(ctx context.Context, find *FindProjectMessage) ([]
 	}
 
 	for _, project := range projects {
-		s.projectCache.Store(project.ResourceID, project)
-		s.projectIDCache.Store(project.UID, project)
+		s.storeProjectCache(project)
 	}
 	return projects, nil
 }
@@ -324,8 +237,7 @@ func (s *Store) CreateProjectV2(ctx context.Context, create *ProjectMessage, cre
 		return nil, err
 	}
 
-	s.projectCache.Store(project.ResourceID, project)
-	s.projectIDCache.Store(project.UID, project)
+	s.storeProjectCache(project)
 	return project, nil
 }
 
@@ -346,8 +258,7 @@ func (s *Store) UpdateProjectV2(ctx context.Context, patch *UpdateProjectMessage
 		return nil, err
 	}
 
-	s.projectCache.Store(project.ResourceID, project)
-	s.projectIDCache.Store(project.UID, project)
+	s.storeProjectCache(project)
 	return project, nil
 }
 
@@ -493,4 +404,16 @@ func (s *Store) listProjectImplV2(ctx context.Context, tx *Tx, find *FindProject
 	}
 
 	return projectMessages, nil
+}
+
+func (s *Store) storeProjectCache(project *ProjectMessage) {
+	s.projectCache.Store(project.ResourceID, project)
+	s.projectIDCache.Store(project.UID, project)
+}
+
+func (s *Store) removeProjectCache(resourceID string) {
+	if project, ok := s.projectCache.Load(resourceID); ok {
+		s.projectIDCache.Delete(project.(*ProjectMessage).UID)
+	}
+	s.projectCache.Delete(resourceID)
 }

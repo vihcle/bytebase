@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 
+	cache "github.com/go-pkgz/expirable-cache/v2"
+
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 )
 
@@ -33,12 +35,19 @@ type Store struct {
 	idpCache                       sync.Map // map[string]*IdentityProvider
 	projectIDDeploymentConfigCache sync.Map // map[int]*DeploymentConfigMessage
 	risksCache                     sync.Map // []*RiskMessage, use 0 as the key
+	databaseGroupCache             sync.Map // map[string]*DatabaseGroupMessage
+	databaseGroupIDCache           sync.Map // map[int]*DatabaseGroupMessage
+	schemaGroupCache               sync.Map // map[string]*SchemaGroupMessage
+	// sheetStatementCache caches the statement of a sheet.
+	sheetStatementCache cache.Cache[int, string]
+	vcsIDCache          sync.Map // map[int]*ExternalVersionControlMessage
 }
 
 // New creates a new instance of Store.
 func New(db *DB) *Store {
 	return &Store{
-		db: db,
+		db:                  db,
+		sheetStatementCache: cache.NewCache[int, string](),
 	}
 }
 
@@ -47,14 +56,22 @@ func (s *Store) Close(ctx context.Context) error {
 	return s.db.Close(ctx)
 }
 
-func getInstanceCacheKey(environmentID, instanceID string) string {
-	return fmt.Sprintf("%s/%s", environmentID, instanceID)
+func getInstanceCacheKey(instanceID string) string {
+	return instanceID
 }
 
 func getPolicyCacheKey(resourceType api.PolicyResourceType, resourceUID int, policyType api.PolicyType) string {
 	return fmt.Sprintf("policies/%s/%d/%s", resourceType, resourceUID, policyType)
 }
 
-func getDatabaseCacheKey(environmentID, instanceID, databaseName string) string {
-	return fmt.Sprintf("%s/%s/%s", environmentID, instanceID, databaseName)
+func getDatabaseCacheKey(instanceID, databaseName string) string {
+	return fmt.Sprintf("%s/%s", instanceID, databaseName)
+}
+
+func getDatabaseGroupCacheKey(projectUID int, databaseGroupResourceID string) string {
+	return fmt.Sprintf("%d/%s", projectUID, databaseGroupResourceID)
+}
+
+func getSchemaGroupCacheKey(databaseGroupUID int64, schemaGroupResourceID string) string {
+	return fmt.Sprintf("%d/%s", databaseGroupUID, schemaGroupResourceID)
 }

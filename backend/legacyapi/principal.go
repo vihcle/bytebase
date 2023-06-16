@@ -7,6 +7,9 @@ import (
 // SystemBotID is the ID of the system robot.
 const SystemBotID = 1
 
+// SystemBotEmail is the email of the system robot.
+const SystemBotEmail = "support@bytebase.com"
+
 // PrincipalType is the type of a principal.
 type PrincipalType string
 
@@ -76,26 +79,4 @@ func (p *Principal) MarshalJSON() ([]byte, error) {
 		Role:       p.Role,
 		ServiceKey: p.ServiceKey,
 	})
-}
-
-// PrincipalCreate is the API message for creating a principal.
-type PrincipalCreate struct {
-	// Domain specific fields
-	Type         PrincipalType `jsonapi:"attr,type"`
-	Name         string        `jsonapi:"attr,name"`
-	Email        string        `jsonapi:"attr,email"`
-	Password     string        `jsonapi:"attr,password"`
-	PasswordHash string
-}
-
-// PrincipalPatch is the API message for patching a principal.
-type PrincipalPatch struct {
-	// Domain specific fields
-	Type         PrincipalType `jsonapi:"attr,type"`
-	Name         *string       `jsonapi:"attr,name"`
-	Email        *string       `jsonapi:"attr,email"`
-	Password     *string       `jsonapi:"attr,password"`
-	PasswordHash *string
-	// RefreshKey is used by SERVICE_ACCOUNT to refresh its password
-	RefreshKey bool `jsonapi:"attr,refreshKey"`
 }

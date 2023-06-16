@@ -31,7 +31,6 @@ p, OWNER, /environment, GET
 p, OWNER, /environment/{environmentID}, GET
 p, OWNER, /environment/{environmentID}, PATCH
 p, OWNER, /environment/{environmentID}, DELETE
-p, OWNER, /environment/{environmentID}/backup-setting, PATCH
 p, OWNER, /policy, GET
 p, OWNER, /policy/{resourceType}/{resourceID}, GET
 p, OWNER, /policy/{resourceType}/{resourceID}, PATCH
@@ -53,7 +52,6 @@ p, OWNER, /instance/{instanceID}/role/{roleName}, GET
 p, OWNER, /instance/{instanceID}/role/{roleName}, PATCH
 p, OWNER, /instance/{instanceID}/role/{roleName}, DELETE
 p, OWNER, /instances/{instanceName}/databases/{database}, PATCH
-p, OWNER, /instance/sample-pg, GET
 p, OWNER, /database, GET
 p, OWNER, /database/{databaseID}, GET
 p, OWNER, /database/{databaseID}, PATCH
@@ -65,8 +63,6 @@ p, OWNER, /database/{databaseID}/schema, GET
 p, OWNER, /database/{databaseID}/edit, POST
 p, OWNER, /database/{databaseID}/backup, GET
 p, OWNER, /database/{databaseID}/backup, POST
-p, OWNER, /database/{databaseID}/backup-setting, GET
-p, OWNER, /database/{databaseID}/backup-setting, PATCH
 p, OWNER, /database/{databaseID}/data-source, POST
 p, OWNER, /database/{databaseID}/data-source/{dataSourceID}, GET
 p, OWNER, /database/{databaseID}/data-source/{dataSourceID}, PATCH
@@ -81,14 +77,7 @@ p, OWNER, /issue/{issueID}/subscriber, GET
 p, OWNER, /issue/{issueID}/subscriber, POST
 p, OWNER, /issue/{issueID}/subscriber/{subscriberID}, DELETE
 p, OWNER, /activity, POST
-p, OWNER, /activity, GET
 p, OWNER, /activity/{activityID}, PATCH_SELF
-p, OWNER, /inbox/user/{userID}, GET_SELF
-p, OWNER, /inbox/user/{userID}/summary, GET_SELF
-p, OWNER, /inbox/{inboxID}, PATCH_SELF
-p, OWNER, /bookmark, POST
-p, OWNER, /bookmark/user/{userID}, GET_SELF
-p, OWNER, /bookmark/{bookmarkID}, DELETE_SELF
 p, OWNER, /pipeline/{pipelineID}/stage/{stageID}/status, PATCH
 p, OWNER, /pipeline/{pipelineID}/task/all, PATCH
 p, OWNER, /pipeline/{pipelineID}/task/{taskID}, PATCH
@@ -110,15 +99,3 @@ p, OWNER, /setting/{name}, PATCH
 p, OWNER, /label, GET
 p, OWNER, /label/{labelID}, PATCH
 p, OWNER, /feature, GET
-p, OWNER, /sheet, POST
-p, OWNER, /sheet/my, GET
-p, OWNER, /sheet/shared, GET
-p, OWNER, /sheet/starred, GET
-p, OWNER, /sheet/{sheetID}, GET
-p, OWNER, /sheet/{sheetID}, PATCH
-p, OWNER, /sheet/{sheetID}, DELETE
-p, OWNER, /sheet/{sheetID}/organizer, PATCH
-p, OWNER, /debug, GET
-p, OWNER, /debug, PATCH
-p, OWNER, /debug/log, GET
-p, OWNER, /anomaly, GET

@@ -8,7 +8,7 @@ import (
 
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
-	"github.com/bytebase/bytebase/backend/plugin/parser/ast"
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
 )
 
 var (
@@ -36,7 +36,7 @@ func (*TableDropNamingConventionAdvisor) Check(ctx advisor.Context, statement st
 		return nil, err
 	}
 
-	format, _, err := advisor.UnamrshalNamingRulePayloadAsRegexp(ctx.Rule.Payload)
+	format, _, err := advisor.UnmarshalNamingRulePayloadAsRegexp(ctx.Rule.Payload)
 	if err != nil {
 		return nil, err
 	}

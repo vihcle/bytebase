@@ -39,6 +39,7 @@ export type TaskStatus =
 
 export type TaskGeneralPayload = {
   statement: string;
+  sheetId: SheetId;
 };
 
 export type TaskEarliestAllowedTimePayload = {
@@ -60,6 +61,7 @@ export type TaskDatabaseSchemaBaselinePayload = {
   skipped: boolean;
   skippedReason: string;
   statement: string;
+  sheetId: SheetId;
   schemaVersion: string;
   pushEvent?: VCSPushEvent;
 };
@@ -69,13 +71,13 @@ export type TaskDatabaseSchemaUpdatePayload = {
   skippedReason: string;
   statement: string;
   sheetId: SheetId;
+  schemaGroupName?: string;
   pushEvent?: VCSPushEvent;
 };
 
 export type TaskDatabaseSchemaUpdateSDLPayload = {
   skipped: boolean;
   skippedReason: string;
-  statement: string;
   sheetId: SheetId;
   pushEvent?: VCSPushEvent;
 };
@@ -119,10 +121,11 @@ export type TaskDatabaseDataUpdatePayload = {
   skippedReason: string;
   statement: string;
   sheetId: SheetId;
+  schemaGroupName?: string;
   pushEvent?: VCSPushEvent;
   rollbackEnabled: boolean;
   rollbackSqlStatus?: RollbackSQLStatus;
-  rollbackStatement?: string;
+  rollbackSheetId?: SheetId;
   rollbackError?: string;
   rollbackFromIssueId?: IssueId;
   rollbackFromTaskId?: TaskId;
@@ -183,6 +186,8 @@ export type Task = {
   // Tasks such as creating database may not have database.
   database?: Database;
   payload?: TaskPayload;
+  // Using by grouping batch change.
+  statement?: string;
 
   // Task DAG
   blockedBy: Task[];
@@ -198,9 +203,9 @@ export type TaskCreate = {
   type: TaskType;
   instanceId: InstanceId;
   databaseId?: DatabaseId;
+  sheetId: SheetId;
+  // statement is only using in UI to show the SQL statement when creating issue.
   statement: string;
-  // statement and sheet ID should be mutually exclusive.
-  sheetId?: SheetId;
   databaseName?: string;
   characterSet?: string;
   collation?: string;
@@ -210,12 +215,12 @@ export type TaskCreate = {
 };
 
 export type TaskPatch = {
-  statement?: string;
+  sheetId?: SheetId;
   earliestAllowedTs?: number;
   rollbackEnabled?: boolean;
-
   updatedTs?: number;
 };
+
 export type TaskStatusPatch = {
   // Domain specific fields
   status: TaskStatus;
@@ -261,33 +266,11 @@ export type TaskCheckType =
   | "bb.task-check.database.statement.advise"
   | "bb.task-check.database.statement.type"
   | "bb.task-check.database.connect"
-  | "bb.task-check.instance.migration-schema"
   | "bb.task-check.database.ghost.sync"
   | "bb.task-check.issue.lgtm"
   | "bb.task-check.pitr.mysql"
   | "bb.task-check.database.statement.type.report"
   | "bb.task-check.database.statement.affected-rows.report";
-
-export type TaskCheckDatabaseStatementAdvisePayload = {
-  statement: string;
-};
-
-export type TaskCheckDatabaseSchemaUpdateGhostPayload = {
-  statement: string;
-  instanceId: InstanceId;
-  databaseName: string;
-  tableName: string;
-};
-
-export type TaskCheckDatabaseSchemaUpdateGhostCutoverPayload = {
-  // empty by now
-  // more to come
-};
-
-export type TaskCheckDatabaseStatementTypePayload = {
-  statement: string;
-  dbType: string;
-};
 
 export type TaskCheckStatus = "SUCCESS" | "WARN" | "ERROR";
 

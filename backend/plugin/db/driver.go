@@ -11,11 +11,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/plugin/vcs"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 // Type is the type of a database.
@@ -27,6 +29,8 @@ const (
 	ClickHouse Type = "CLICKHOUSE"
 	// MySQL is the database type for MYSQL.
 	MySQL Type = "MYSQL"
+	// OceanBase is the database type for OCEANBASE.
+	OceanBase Type = "OCEANBASE"
 	// Postgres is the database type for POSTGRES.
 	Postgres Type = "POSTGRES"
 	// Snowflake is the database type for SNOWFLAKE.
@@ -139,6 +143,21 @@ const (
 	Data MigrationType = "DATA"
 )
 
+// GetVersionTypeSuffix returns the suffix used for schema version string from GitOps.
+func (t MigrationType) GetVersionTypeSuffix() string {
+	switch t {
+	case Migrate:
+		return "ddl"
+	case Data:
+		return "dml"
+	case MigrateSDL:
+		return "sdl"
+	case Baseline:
+		return "baseline"
+	}
+	return ""
+}
+
 // MigrationStatus is the status of migration.
 type MigrationStatus string
 
@@ -177,7 +196,7 @@ type MigrationInfo struct {
 	Creator        string
 	IssueID        string
 	// Payload contains JSON-encoded string of VCS push event if the migration is triggered by a VCS push event.
-	Payload string
+	Payload *storepb.InstanceChangeHistoryPayload
 	// UseSemanticVersion is whether version is a semantic version.
 	// When UseSemanticVersion is set, version should be set to the format specified in Semantic Versioning 2.0.0 (https://semver.org/).
 	// For example, for setting non-semantic version "hello", the values should be Version = "hello", UseSemanticVersion = false, SemanticVersionSuffix = "".
@@ -291,7 +310,9 @@ func ParseMigrationInfo(filePath, filePathTemplate string, allowOmitDatabaseName
 		// Replace _ with space
 		mi.Description = strings.ReplaceAll(mi.Description, "_", " ")
 		// Capitalize first letter
-		mi.Description = strings.ToUpper(mi.Description[:1]) + mi.Description[1:]
+		description := []rune(mi.Description)
+		description[0] = unicode.ToUpper(description[0])
+		mi.Description = string(description)
 	}
 
 	return mi, nil
@@ -403,6 +424,16 @@ type ConnectionConfig struct {
 	// SID and ServiceName are Oracle only.
 	SID         string
 	ServiceName string
+	SSHConfig   SSHConfig
+}
+
+// SSHConfig is the configuration for connection over SSH.
+type SSHConfig struct {
+	Host       string
+	Port       string
+	User       string
+	Password   string
+	PrivateKey string
 }
 
 // ConnectionContext is the context for connection.
@@ -465,6 +496,11 @@ type Driver interface {
 	Execute(ctx context.Context, statement string, createDatabase bool) (int64, error)
 	// Used for execute readonly SELECT statement
 	QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *QueryContext) ([]any, error)
+	// Used for execute readonly SELECT statement
+	// TODO(rebelice): remove QueryConn and rename QueryConn2 to QueryConn when legacy code is removed.
+	QueryConn2(ctx context.Context, conn *sql.Conn, statement string, queryContext *QueryContext) ([]*v1pb.QueryResult, error)
+	// RunStatement will execute the statement and return the result, for both SELECT and non-SELECT statements.
+	RunStatement(ctx context.Context, conn *sql.Conn, statement string) ([]*v1pb.QueryResult, error)
 
 	// Sync schema
 	// SyncInstance syncs the instance metadata.
@@ -474,7 +510,7 @@ type Driver interface {
 
 	// Sync slow query logs
 	// SyncSlowQuery syncs the slow query logs.
-	// The returned map is keyed by database name, and the value is a map keyed by query fingerprint.
+	// The returned map is keyed by database name, and the value is list of slow query statistics grouped by query fingerprint.
 	SyncSlowQuery(ctx context.Context, logDateTs time.Time) (map[string]*storepb.SlowQueryStatistics, error)
 	// CheckSlowQueryLogEnabled checks if the slow query log is enabled.
 	CheckSlowQueryLogEnabled(ctx context.Context) error

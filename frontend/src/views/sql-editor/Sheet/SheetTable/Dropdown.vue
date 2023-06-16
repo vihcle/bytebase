@@ -16,10 +16,15 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { type DropdownOption, NDropdown, useDialog } from "naive-ui";
 
-import type { Sheet, SheetCreate, SheetOrganizerUpsert } from "@/types";
+import { Sheet } from "@/types/proto/v1/sheet_service";
 import type { SheetViewMode } from "../types";
-import { getDefaultSheetPayloadWithSource, isSheetWritable } from "@/utils";
-import { useCurrentUser, useSheetStore } from "@/store";
+import { isSheetWritableV1 } from "@/utils";
+import { useSheetV1Store, pushNotification } from "@/store";
+import {
+  Sheet_Visibility,
+  Sheet_Source,
+  Sheet_Type,
+} from "@/types/proto/v1/sheet_service";
 
 const props = defineProps<{
   view: SheetViewMode;
@@ -31,8 +36,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const currentUser = useCurrentUser();
-const sheetStore = useSheetStore();
+const sheetV1Store = useSheetV1Store();
 const dialog = useDialog();
 
 const options = computed(() => {
@@ -51,22 +55,14 @@ const options = computed(() => {
     });
   }
 
-  const canDeleteSheet = isSheetWritable(sheet, currentUser.value);
-  if (view === "my") {
-    if (canDeleteSheet) {
-      options.push({
-        key: "delete",
-        label: t("common.delete"),
-      });
-    }
-  } else if (view === "shared") {
-    if (canDeleteSheet) {
-      options.push({
-        key: "delete",
-        label: t("common.delete"),
-      });
-    }
-
+  const canWriteSheet = isSheetWritableV1(sheet);
+  if (canWriteSheet) {
+    options.push({
+      key: "delete",
+      label: t("common.delete"),
+    });
+  }
+  if (view === "shared") {
     options.push({
       key: "duplicate",
       label: t("common.duplicate"),
@@ -82,8 +78,13 @@ const handleAction = async (key: string) => {
     const dialogInstance = dialog.create({
       title: t("sheet.hint-tips.confirm-to-delete-this-sheet"),
       type: "info",
+      autoFocus: false,
+      closable: false,
+      maskClosable: false,
+      closeOnEsc: false,
       async onPositiveClick() {
-        await sheetStore.deleteSheetById(sheet.id);
+        await sheetV1Store.deleteSheetByName(sheet.name);
+        emit("refresh");
         dialogInstance.destroy();
       },
       onNegativeClick() {
@@ -94,34 +95,37 @@ const handleAction = async (key: string) => {
       showIcon: true,
     });
   } else if (key === "star" || key === "unstar") {
-    const sheetOrganizerUpsert: SheetOrganizerUpsert = {
-      sheeId: sheet.id,
-    };
-
-    if (key === "star") {
-      sheetOrganizerUpsert.starred = true;
-    } else if (key === "unstar") {
-      sheetOrganizerUpsert.starred = false;
-    }
-
-    await sheetStore.upsertSheetOrganizer(sheetOrganizerUpsert);
+    await sheetV1Store.upsertSheetOrganizer({
+      sheet: sheet.name,
+      starred: key === "star",
+    });
     emit("refresh");
   } else if (key === "duplicate") {
     const dialogInstance = dialog.create({
       title: t("sheet.hint-tips.confirm-to-duplicate-sheet"),
       type: "info",
+      autoFocus: false,
+      closable: false,
+      maskClosable: false,
+      closeOnEsc: false,
       async onPositiveClick() {
-        const sheetCreate: SheetCreate = {
-          projectId: sheet.projectId,
-          name: sheet.name,
-          statement: sheet.statement,
-          visibility: "PRIVATE",
-          payload: getDefaultSheetPayloadWithSource("BYTEBASE"),
-        };
-        if (sheet.databaseId) {
-          sheetCreate.databaseId = sheet.databaseId;
-        }
-        await sheetStore.createSheet(sheetCreate);
+        await sheetV1Store.createSheet(
+          sheetV1Store.getSheetParentPath(sheet.name),
+          {
+            title: sheet.title,
+            content: sheet.content,
+            database: sheet.database,
+            visibility: Sheet_Visibility.VISIBILITY_PRIVATE,
+            source: Sheet_Source.SOURCE_BYTEBASE,
+            type: Sheet_Type.TYPE_SQL,
+            payload: "{}",
+          }
+        );
+        pushNotification({
+          module: "bytebase",
+          style: "INFO",
+          title: t("sheet.notifications.duplicate-success"),
+        });
         dialogInstance.destroy();
       },
       onNegativeClick() {

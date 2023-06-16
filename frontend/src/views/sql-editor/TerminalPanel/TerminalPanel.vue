@@ -29,8 +29,9 @@
             @clear-screen="handleClearScreen"
           />
           <ResultView
-            v-if="query.queryResult"
+            v-if="query.executeParams && query.queryResult"
             class="max-h-[20rem] flex-1 flex flex-col overflow-hidden"
+            :execute-params="query.executeParams"
             :result-set="query.queryResult"
             :loading="query.status === 'RUNNING'"
             :dark="true"
@@ -106,7 +107,7 @@ const currentQuery = computed(
   () => queryList.value[queryList.value.length - 1]
 );
 
-const { execute } = useExecuteSQL();
+const { executeAdmin } = useExecuteSQL();
 
 const { move: moveHistory } = useHistory();
 
@@ -146,13 +147,13 @@ const handleExecute = async (
     queryItem.executeParams = { query, config, option };
     queryItem.status = "RUNNING";
 
-    const sqlResultSet = await execute(query, config, option);
+    const queryResult = await executeAdmin(query, config, option);
 
     // If the queryItem is still the currentQuery
     // which means it hasn't been cancelled.
-    if (queryItem === currentQuery.value) {
+    if (queryResult && queryItem === currentQuery.value) {
       // If the result is empty, mock it as "Affected rows: 0"
-      const resultList = sqlResultSet?.resultList ?? [];
+      const resultList = queryResult?.resultList ?? [];
       resultList.forEach((result) => {
         if (
           !Array.isArray(result.data) ||
@@ -162,7 +163,7 @@ const handleExecute = async (
           result.data = mockAffectedRows0().data;
         }
       });
-      queryItem.queryResult = sqlResultSet;
+      queryItem.queryResult = queryResult;
       pushQueryItem();
       // Clear the tab's statement and keep it sync with the latest query
       tabStore.currentTab.statement = "";

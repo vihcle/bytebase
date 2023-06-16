@@ -19,6 +19,7 @@ func init() {
 	advisor.Register(db.MySQL, advisor.MySQLNamingColumnConvention, &NamingColumnConventionAdvisor{})
 	advisor.Register(db.TiDB, advisor.MySQLNamingColumnConvention, &NamingColumnConventionAdvisor{})
 	advisor.Register(db.MariaDB, advisor.MySQLNamingColumnConvention, &NamingColumnConventionAdvisor{})
+	advisor.Register(db.OceanBase, advisor.MySQLNamingColumnConvention, &NamingColumnConventionAdvisor{})
 }
 
 // NamingColumnConventionAdvisor is the advisor checking for column naming convention.
@@ -36,7 +37,7 @@ func (*NamingColumnConventionAdvisor) Check(ctx advisor.Context, statement strin
 	if err != nil {
 		return nil, err
 	}
-	format, maxLength, err := advisor.UnamrshalNamingRulePayloadAsRegexp(ctx.Rule.Payload)
+	format, maxLength, err := advisor.UnmarshalNamingRulePayloadAsRegexp(ctx.Rule.Payload)
 	if err != nil {
 		return nil, err
 	}

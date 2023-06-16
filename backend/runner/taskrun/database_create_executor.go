@@ -51,8 +51,19 @@ func (exec *DatabaseCreateExecutor) RunOnce(ctx context.Context, task *store.Tas
 	if err := json.Unmarshal([]byte(task.Payload), payload); err != nil {
 		return true, nil, errors.Wrap(err, "invalid create database payload")
 	}
+	statement, err := exec.store.GetSheetStatementByID(ctx, payload.SheetID)
+	if err != nil {
+		return true, nil, errors.Wrapf(err, "failed to get sheet statement of sheet: %d", payload.SheetID)
+	}
+	sheet, err := exec.store.GetSheetV2(ctx, &store.FindSheetMessage{UID: &payload.SheetID}, api.SystemBotID)
+	if err != nil {
+		return true, nil, errors.Wrapf(err, "failed to get sheet: %d", payload.SheetID)
+	}
+	if sheet == nil {
+		return true, nil, errors.Errorf("sheet not found: %d", payload.SheetID)
+	}
 
-	statement := strings.TrimSpace(payload.Statement)
+	statement = strings.TrimSpace(statement)
 	if statement == "" {
 		return true, nil, errors.Errorf("empty create database statement")
 	}
@@ -85,14 +96,7 @@ func (exec *DatabaseCreateExecutor) RunOnce(ctx context.Context, task *store.Tas
 		zap.String("database", payload.DatabaseName),
 		zap.String("statement", statement),
 	)
-	defaultDBDriver, err := exec.dbFactory.GetAdminDatabaseDriver(ctx, instance, "")
-	if err != nil {
-		return true, nil, err
-	}
-	defer defaultDBDriver.Close(ctx)
-	if _, err := defaultDBDriver.Execute(ctx, statement, true /* createDatabase */); err != nil {
-		return true, nil, err
-	}
+
 	// Upsert first because we need database id in instance change history.
 	// The sync status is NOT_FOUND, which will be updated to OK if succeeds.
 	labels := make(map[string]string)
@@ -118,6 +122,26 @@ func (exec *DatabaseCreateExecutor) RunOnce(ctx context.Context, task *store.Tas
 		return true, nil, err
 	}
 
+	var defaultDBDriver db.Driver
+	if instance.Engine == db.MongoDB {
+		// For MongoDB, it allows us to connect to the non-existing database. So we pass the database name to driver to let us connect to the specific database.
+		// And run the create collection statement later.
+		// NOTE: we have to hack the database message.
+		defaultDBDriver, err = exec.dbFactory.GetAdminDatabaseDriver(ctx, instance, database)
+		if err != nil {
+			return true, nil, err
+		}
+	} else {
+		defaultDBDriver, err = exec.dbFactory.GetAdminDatabaseDriver(ctx, instance, nil /* database */)
+		if err != nil {
+			return true, nil, err
+		}
+	}
+	defer defaultDBDriver.Close(ctx)
+	if _, err := defaultDBDriver.Execute(ctx, statement, true /* createDatabase */); err != nil {
+		return true, nil, err
+	}
+
 	// We will use schema from existing tenant databases for creating a database in a tenant mode project if possible.
 	peerSchemaVersion, peerSchema, err := exec.createInitialSchema(ctx, environment, instance, project, task, database)
 	if err != nil {
@@ -126,7 +150,6 @@ func (exec *DatabaseCreateExecutor) RunOnce(ctx context.Context, task *store.Tas
 
 	syncStatus := api.OK
 	if _, err := exec.store.UpdateDatabase(ctx, &store.UpdateDatabaseMessage{
-		EnvironmentID: environment.ResourceID,
 		InstanceID:    instance.ResourceID,
 		DatabaseName:  payload.DatabaseName,
 		SyncState:     &syncStatus,
@@ -146,6 +169,11 @@ func (exec *DatabaseCreateExecutor) RunOnce(ctx context.Context, task *store.Tas
 		UpdaterID:  api.SystemBotID,
 		DatabaseID: &database.UID,
 	}
+	sheetPatch := &store.PatchSheetMessage{
+		UID:       sheet.UID,
+		UpdaterID: api.SystemBotID,
+	}
+
 	if peerSchema != "" {
 		// Better displaying schema in the task.
 		connectionStmt, err := getConnectionStatement(instance.Engine, payload.DatabaseName)
@@ -153,10 +181,14 @@ func (exec *DatabaseCreateExecutor) RunOnce(ctx context.Context, task *store.Tas
 			return true, nil, err
 		}
 		fullSchema := fmt.Sprintf("%s\n%s\n%s", statement, connectionStmt, peerSchema)
-		taskDatabaseIDPatch.Statement = &fullSchema
+
+		sheetPatch.Statement = &fullSchema
 	}
 	if _, err := exec.store.UpdateTaskV2(ctx, taskDatabaseIDPatch); err != nil {
 		return true, nil, err
+	}
+	if _, err := exec.store.PatchSheetV2(ctx, sheetPatch); err != nil {
+		return true, nil, errors.Wrapf(err, "failed to update sheet %d after executing the task", sheet.UID)
 	}
 
 	if err := exec.schemaSyncer.SyncDatabaseSchema(ctx, database, true /* force */); err != nil {
@@ -187,7 +219,7 @@ func (exec *DatabaseCreateExecutor) createInitialSchema(ctx context.Context, env
 		return "", "", nil
 	}
 
-	driver, err := exec.dbFactory.GetAdminDatabaseDriver(ctx, instance, database.DatabaseName)
+	driver, err := exec.dbFactory.GetAdminDatabaseDriver(ctx, instance, database)
 	if err != nil {
 		return "", "", err
 	}
@@ -247,7 +279,7 @@ func (exec *DatabaseCreateExecutor) createInitialSchema(ctx context.Context, env
 
 func getConnectionStatement(dbType db.Type, databaseName string) (string, error) {
 	switch dbType {
-	case db.MySQL, db.TiDB, db.MariaDB:
+	case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 		return fmt.Sprintf("USE `%s`;\n", databaseName), nil
 	case db.MSSQL:
 		return fmt.Sprintf(`USE "%s";\n`, databaseName), nil
@@ -311,12 +343,12 @@ func (*DatabaseCreateExecutor) getSchemaFromPeerTenantDatabase(ctx context.Conte
 	if similarDB == nil {
 		return "", "", nil
 	}
-	similarDBInstance, err := stores.GetInstanceV2(ctx, &store.FindInstanceMessage{EnvironmentID: &similarDB.EnvironmentID, ResourceID: &similarDB.InstanceID})
+	similarDBInstance, err := stores.GetInstanceV2(ctx, &store.FindInstanceMessage{ResourceID: &similarDB.InstanceID})
 	if err != nil {
 		return "", "", err
 	}
 
-	driver, err := dbFactory.GetAdminDatabaseDriver(ctx, similarDBInstance, similarDB.DatabaseName)
+	driver, err := dbFactory.GetAdminDatabaseDriver(ctx, similarDBInstance, similarDB)
 	if err != nil {
 		return "", "", err
 	}

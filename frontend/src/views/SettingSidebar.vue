@@ -1,7 +1,7 @@
 <template>
   <!-- Navigation -->
   <nav class="flex-1 flex flex-col px-2 overflow-y-auto">
-    <BytebaseLogo class="w-full px-2 mb-3" />
+    <BytebaseLogo class="w-full px-2" />
     <div class="space-y-1">
       <button
         class="group flex items-center px-1 py-2 text-base leading-5 font-normal rounded-md text-gray-700 focus:outline-none"
@@ -50,6 +50,11 @@
                 'router-link-active bg-link-hover',
             ]"
             >{{ $t("settings.sidebar.members") }}</router-link
+          >
+          <router-link
+            to="/setting/role"
+            class="outline-item group w-full flex items-center pl-11 pr-2 py-2"
+            >{{ $t("settings.sidebar.custom-roles") }}</router-link
           >
           <router-link
             v-if="showProjectItem"
@@ -150,6 +155,13 @@
           >
             {{ $t("settings.sidebar.im-integration") }}
           </router-link>
+          <router-link
+            v-if="showMailDeliveryItem"
+            to="/setting/mail-delivery"
+            class="outline-item group w-full flex items-center truncate pl-11 pr-2 py-2"
+          >
+            {{ $t("settings.sidebar.mail-delivery") }}
+          </router-link>
         </div>
       </div>
     </div>
@@ -159,54 +171,54 @@
 <script lang="ts" setup>
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { hasWorkspacePermission } from "../utils";
-import { useCurrentUser, useRouterStore } from "@/store";
+import { hasWorkspacePermissionV1 } from "../utils";
+import { useCurrentUserV1, useRouterStore } from "@/store";
 import BytebaseLogo from "@/components/BytebaseLogo.vue";
 
 const routerStore = useRouterStore();
 const route = useRoute();
 const router = useRouter();
-const currentUser = useCurrentUser();
+const currentUserV1 = useCurrentUserV1();
 
 const showProjectItem = computed((): boolean => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-project",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
 const showSensitiveDataItem = computed((): boolean => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-sensitive-data",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
 const showAccessControlItem = computed((): boolean => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-access-control",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
 const showIMIntegrationItem = computed((): boolean => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-im-integration",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
 const showSSOItem = computed((): boolean => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-sso",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
 const showVCSItem = computed((): boolean => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-vcs-provider",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
@@ -215,16 +227,23 @@ const showIntegrationSection = computed(() => {
 });
 
 const showDebugLogItem = computed((): boolean => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.debug-log",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
 const showAuditLogItem = computed((): boolean => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.audit-log",
-    currentUser.value.role
+    currentUserV1.value.userRole
+  );
+});
+
+const showMailDeliveryItem = computed((): boolean => {
+  return hasWorkspacePermissionV1(
+    "bb.permission.workspace.manage-mail-delivery",
+    currentUserV1.value.userRole
   );
 });
 

@@ -12,7 +12,7 @@ import (
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/catalog"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
-	bbparser "github.com/bytebase/bytebase/backend/plugin/parser"
+	bbparser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
 )
 
 var (
@@ -23,6 +23,7 @@ var (
 func init() {
 	advisor.Register(db.MySQL, advisor.MySQLPrimaryKeyTypeAllowlist, &IndexPrimaryKeyTypeAllowlistAdvisor{})
 	advisor.Register(db.TiDB, advisor.MySQLPrimaryKeyTypeAllowlist, &IndexPrimaryKeyTypeAllowlistAdvisor{})
+	advisor.Register(db.OceanBase, advisor.MySQLPrimaryKeyTypeAllowlist, &IndexPrimaryKeyTypeAllowlistAdvisor{})
 }
 
 // IndexPrimaryKeyTypeAllowlistAdvisor is the advisor checking for primary key type allowlist.

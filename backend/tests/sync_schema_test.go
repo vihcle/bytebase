@@ -6,22 +6,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/db"
-	"github.com/bytebase/bytebase/backend/plugin/parser"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+
 	"github.com/bytebase/bytebase/backend/resources/postgres"
 	"github.com/bytebase/bytebase/backend/tests/fake"
 )
 
 func TestSyncSchema(t *testing.T) {
+	databaseName := "sync_schema"
+	newDatabaseName := "sync_schema_new"
 	const (
-		databaseName    = "sync_schema"
-		newDatabaseName = "sync_schema_new"
-		createSchema    = `
+		createSchema = `
 			create schema schema_a;
 			create table schema_a.table_t1(c1 int, c2 int, c3 int);
 			create index idx_table_t1_c1_c2_c3 on schema_a.table_t1(c1, c2, c3);
@@ -48,7 +51,7 @@ DROP SCHEMA "schema_a";
 	ctx := context.Background()
 	ctl := &controller{}
 	dataDir := t.TempDir()
-	err := ctl.StartServerWithExternalPg(ctx, &config{
+	ctx, err := ctl.StartServerWithExternalPg(ctx, &config{
 		dataDir:            dataDir,
 		vcsProviderCreator: fake.NewGitLab,
 	})
@@ -77,102 +80,99 @@ DROP SCHEMA "schema_a";
 	a.NoError(err)
 
 	// Create a project.
-	project, err := ctl.createProject(api.ProjectCreate{
-		ResourceID: generateRandomString("project", 10),
-		Name:       "Test sync schema Project",
-		Key:        "TestSyncSchemaProject",
+	project, err := ctl.createProject(ctx)
+	a.NoError(err)
+	projectUID, err := strconv.Atoi(project.Uid)
+	a.NoError(err)
+
+	prodEnvironment, err := ctl.getEnvironment(ctx, "prod")
+	a.NoError(err)
+
+	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
+		InstanceId: generateRandomString("instance", 10),
+		Instance: &v1pb.Instance{
+			Title:       "pgTestSyncSchema",
+			Engine:      v1pb.Engine_POSTGRES,
+			Environment: prodEnvironment.Name,
+			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: "/tmp", Port: strconv.Itoa(pgPort), Username: "bytebase", Password: "bytebase"}},
+		},
 	})
 	a.NoError(err)
 
-	environments, err := ctl.getEnvironments()
-	a.NoError(err)
-	prodEnvironment, err := findEnvironment(environments, "Prod")
+	err = ctl.createDatabase(ctx, projectUID, instance, databaseName, "bytebase", nil)
 	a.NoError(err)
 
-	instance, err := ctl.addInstance(api.InstanceCreate{
-		ResourceID:    generateRandomString("instance", 10),
-		EnvironmentID: prodEnvironment.ID,
-		Name:          "pgTestSyncSchema",
-		Engine:        db.Postgres,
-		Host:          "/tmp",
-		Port:          strconv.Itoa(pgPort),
-		Username:      "bytebase",
-		Password:      "bytebase",
+	database, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
+		Name: fmt.Sprintf("%s/databases/%s", instance.Name, databaseName),
 	})
 	a.NoError(err)
+	databaseUID, err := strconv.Atoi(database.Uid)
+	a.NoError(err)
 
-	databases, err := ctl.getDatabases(api.DatabaseFind{
-		ProjectID: &project.ID,
+	sheet, err := ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
+		Parent: project.Name,
+		Sheet: &v1pb.Sheet{
+			Title:      "create schema",
+			Content:    []byte(createSchema),
+			Visibility: v1pb.Sheet_VISIBILITY_PROJECT,
+			Source:     v1pb.Sheet_SOURCE_BYTEBASE_ARTIFACT,
+			Type:       v1pb.Sheet_TYPE_SQL,
+		},
 	})
 	a.NoError(err)
-	a.Nil(databases)
-
-	err = ctl.createDatabase(project, instance, databaseName, "bytebase", nil)
+	sheetUID, err := strconv.Atoi(strings.TrimPrefix(sheet.Name, fmt.Sprintf("%s/sheets/", project.Name)))
 	a.NoError(err)
-
-	databases, err = ctl.getDatabases(api.DatabaseFind{
-		ProjectID: &project.ID,
-	})
-	a.NoError(err)
-	a.Equal(1, len(databases))
-
-	database := databases[0]
-	a.Equal(instance.ID, database.Instance.ID)
 
 	// Create an issue that updates database schema.
 	createContext, err := json.Marshal(&api.MigrationContext{
 		DetailList: []*api.MigrationDetail{
 			{
 				MigrationType: db.Migrate,
-				DatabaseID:    database.ID,
-				Statement:     createSchema,
+				DatabaseID:    databaseUID,
+				SheetID:       sheetUID,
 			},
 		},
 	})
 	a.NoError(err)
 	issue, err := ctl.createIssue(api.IssueCreate{
-		ProjectID:     project.ID,
+		ProjectID:     projectUID,
 		Name:          fmt.Sprintf("Create sequence for database %q", databaseName),
 		Type:          api.IssueDatabaseSchemaUpdate,
 		Description:   fmt.Sprintf("Create sequence of database %q.", databaseName),
-		AssigneeID:    ownerID,
+		AssigneeID:    api.SystemBotID,
 		CreateContext: string(createContext),
 	})
 	a.NoError(err)
-	status, err := ctl.waitIssuePipeline(issue.ID)
+	status, err := ctl.waitIssuePipeline(ctx, issue.ID)
 	a.NoError(err)
 	a.Equal(api.TaskDone, status)
 
-	history, err := ctl.getInstanceMigrationHistory(instance.ID, db.MigrationHistoryFind{
-		Database: &database.Name,
+	resp, err := ctl.databaseServiceClient.ListChangeHistories(ctx, &v1pb.ListChangeHistoriesRequest{
+		Parent: database.Name,
+	})
+	a.NoError(err)
+	histories := resp.ChangeHistories
+	// history[0] is SchemaUpdate.
+	a.Equal(1, len(histories))
+	latest := histories[0]
+
+	err = ctl.createDatabase(ctx, projectUID, instance, newDatabaseName, "bytebase", nil)
+	a.NoError(err)
+
+	newDatabase, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
+		Name: fmt.Sprintf("%s/databases/%s", instance.Name, newDatabaseName),
 	})
 	a.NoError(err)
 
-	// history[0] is SchemaUpdate
-	a.Equal(1, len(history))
-	latest := history[0]
-
-	err = ctl.createDatabase(project, instance, newDatabaseName, "bytebase", nil)
-	a.NoError(err)
-
-	dbName := newDatabaseName
-	databases, err = ctl.getDatabases(api.DatabaseFind{
-		ProjectID: &project.ID,
-		Name:      &dbName,
+	newDatabaseSchema, err := ctl.databaseServiceClient.GetDatabaseSchema(ctx, &v1pb.GetDatabaseSchemaRequest{
+		Name: fmt.Sprintf("%s/schema", newDatabase.Name),
 	})
-	a.NoError(err)
-	a.Equal(1, len(databases))
-
-	newDatabase := databases[0]
-	a.Equal(instance.ID, database.Instance.ID)
-
-	newDatabaseSchema, err := ctl.getLatestSchemaDump(newDatabase.ID)
 	a.NoError(err)
 
 	diff, err := ctl.getSchemaDiff(schemaDiffRequest{
 		EngineType:   parser.Postgres,
 		SourceSchema: latest.Schema,
-		TargetSchema: newDatabaseSchema,
+		TargetSchema: newDatabaseSchema.Schema,
 	})
 
 	a.NoError(err)

@@ -1,50 +1,56 @@
 package tests
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/jsonapi"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/bytebase/bytebase/backend/common/log"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
-	"github.com/bytebase/bytebase/backend/plugin/db"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
-func (ctl *controller) createDatabase(project *api.Project, instance *api.Instance, databaseName string, owner string, labelMap map[string]string) error {
-	labels, err := marshalLabels(labelMap, instance.Environment.ResourceID)
+func (ctl *controller) createDatabase(ctx context.Context, projectUID int, instance *v1pb.Instance, databaseName string, owner string, labelMap map[string]string) error {
+	environmentResourceID := strings.TrimPrefix(instance.Environment, "environments/")
+	instanceUID, err := strconv.Atoi(instance.Uid)
 	if err != nil {
 		return err
 	}
-	ctx := &api.CreateDatabaseContext{
-		InstanceID:   instance.ID,
+
+	labels, err := marshalLabels(labelMap, environmentResourceID)
+	if err != nil {
+		return err
+	}
+	createCtx := &api.CreateDatabaseContext{
+		InstanceID:   instanceUID,
 		DatabaseName: databaseName,
 		Labels:       labels,
 		CharacterSet: "utf8mb4",
 		Collation:    "utf8mb4_general_ci",
 	}
-	if instance.Engine == db.Postgres {
-		ctx.Owner = owner
-		ctx.CharacterSet = "UTF8"
-		ctx.Collation = "en_US.UTF-8"
+	if instance.Engine == v1pb.Engine_POSTGRES {
+		createCtx.Owner = owner
+		createCtx.CharacterSet = "UTF8"
+		createCtx.Collation = "en_US.UTF-8"
 	}
-	createContext, err := json.Marshal(ctx)
+	createContext, err := json.Marshal(createCtx)
 	if err != nil {
 		return errors.Wrap(err, "failed to construct database creation issue CreateContext payload")
 	}
 	issue, err := ctl.createIssue(api.IssueCreate{
-		ProjectID:     project.ID,
+		ProjectID:     projectUID,
 		Name:          fmt.Sprintf("create database %q", databaseName),
 		Type:          api.IssueDatabaseCreate,
 		Description:   fmt.Sprintf("This creates a database %q.", databaseName),
-		AssigneeID:    ownerID,
+		AssigneeID:    api.SystemBotID,
 		CreateContext: string(createContext),
 	})
 	if err != nil {
@@ -53,7 +59,7 @@ func (ctl *controller) createDatabase(project *api.Project, instance *api.Instan
 	if status, _ := getNextTaskStatus(issue); status != api.TaskPendingApproval {
 		return errors.Errorf("issue %v pipeline %v is supposed to be pending manual approval %s", issue.ID, issue.Pipeline.ID, status)
 	}
-	status, err := ctl.waitIssuePipeline(issue.ID)
+	status, err := ctl.waitIssuePipeline(ctx, issue.ID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to wait for issue %v pipeline %v", issue.ID, issue.Pipeline.ID)
 	}
@@ -73,27 +79,36 @@ func (ctl *controller) createDatabase(project *api.Project, instance *api.Instan
 }
 
 // cloneDatabaseFromBackup clones the database from an existing backup.
-func (ctl *controller) cloneDatabaseFromBackup(project *api.Project, instance *api.Instance, databaseName string, backup *api.Backup, labelMap map[string]string) error {
-	labels, err := marshalLabels(labelMap, instance.Environment.ResourceID)
+func (ctl *controller) cloneDatabaseFromBackup(ctx context.Context, projectUID int, instance *v1pb.Instance, databaseName string, backup *v1pb.Backup, labelMap map[string]string) error {
+	environmentID := strings.TrimPrefix(instance.Environment, "environments/")
+	instanceUID, err := strconv.Atoi(instance.Uid)
+	if err != nil {
+		return err
+	}
+	labels, err := marshalLabels(labelMap, environmentID)
 	if err != nil {
 		return err
 	}
 
+	backupUID, err := strconv.Atoi(backup.Uid)
+	if err != nil {
+		return err
+	}
 	createContext, err := json.Marshal(&api.CreateDatabaseContext{
-		InstanceID:   instance.ID,
+		InstanceID:   instanceUID,
 		DatabaseName: databaseName,
-		BackupID:     backup.ID,
+		BackupID:     backupUID,
 		Labels:       labels,
 	})
 	if err != nil {
 		return errors.Wrap(err, "failed to construct database creation issue CreateContext payload")
 	}
 	issue, err := ctl.createIssue(api.IssueCreate{
-		ProjectID:     project.ID,
+		ProjectID:     projectUID,
 		Name:          fmt.Sprintf("create database %q from backup %q", databaseName, backup.Name),
 		Type:          api.IssueDatabaseCreate,
 		Description:   fmt.Sprintf("This creates a database %q from backup %q.", databaseName, backup.Name),
-		AssigneeID:    ownerID,
+		AssigneeID:    api.SystemBotID,
 		CreateContext: string(createContext),
 	})
 	if err != nil {
@@ -102,7 +117,7 @@ func (ctl *controller) cloneDatabaseFromBackup(project *api.Project, instance *a
 	if status, _ := getNextTaskStatus(issue); status != api.TaskPendingApproval {
 		return errors.Errorf("issue %v pipeline %v is supposed to be pending manual approval %s", issue.ID, issue.Pipeline.ID, status)
 	}
-	status, err := ctl.waitIssuePipeline(issue.ID)
+	status, err := ctl.waitIssuePipeline(ctx, issue.ID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to wait for issue %v pipeline %v", issue.ID, issue.Pipeline.ID)
 	}
@@ -117,38 +132,6 @@ func (ctl *controller) cloneDatabaseFromBackup(project *api.Project, instance *a
 		return errors.Wrapf(err, "failed to patch issue status %v to done", issue.ID)
 	}
 	return nil
-}
-
-// getDatabases gets the databases.
-func (ctl *controller) getDatabases(databaseFind api.DatabaseFind) ([]*api.Database, error) {
-	params := make(map[string]string)
-	if databaseFind.InstanceID != nil {
-		params["instance"] = fmt.Sprintf("%d", *databaseFind.InstanceID)
-	}
-	if databaseFind.ProjectID != nil {
-		params["project"] = fmt.Sprintf("%d", *databaseFind.ProjectID)
-	}
-	if databaseFind.Name != nil {
-		params["name"] = *databaseFind.Name
-	}
-	body, err := ctl.get("/database", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var databases []*api.Database
-	ps, err := jsonapi.UnmarshalManyPayload(body, reflect.TypeOf(new(api.Database)))
-	if err != nil {
-		return nil, errors.Wrap(err, "fail to unmarshal get database response")
-	}
-	for _, p := range ps {
-		database, ok := p.(*api.Database)
-		if !ok {
-			return nil, errors.Errorf("fail to convert database")
-		}
-		databases = append(databases, database)
-	}
-	return databases, nil
 }
 
 // DatabaseEditResult is a subset struct of api.DatabaseEditResult for testing,
@@ -176,42 +159,6 @@ func (ctl *controller) postDatabaseEdit(databaseEdit api.DatabaseEdit) (*Databas
 	return databaseEditResult, nil
 }
 
-func (ctl *controller) getLatestSchemaSDL(databaseID int) (string, error) {
-	body, err := ctl.get(fmt.Sprintf("/database/%d/schema", databaseID), map[string]string{"sdl": "true"})
-	if err != nil {
-		return "", err
-	}
-	bs, err := io.ReadAll(body)
-	if err != nil {
-		return "", err
-	}
-	return string(bs), nil
-}
-
-func (ctl *controller) getLatestSchemaDump(databaseID int) (string, error) {
-	body, err := ctl.get(fmt.Sprintf("/database/%d/schema", databaseID), nil)
-	if err != nil {
-		return "", err
-	}
-	bs, err := io.ReadAll(body)
-	if err != nil {
-		return "", err
-	}
-	return string(bs), nil
-}
-
-func (ctl *controller) getLatestSchemaMetadata(databaseID int) (string, error) {
-	body, err := ctl.get(fmt.Sprintf("/database/%d/schema", databaseID), map[string]string{"metadata": "true"})
-	if err != nil {
-		return "", err
-	}
-	bs, err := io.ReadAll(body)
-	if err != nil {
-		return "", err
-	}
-	return string(bs), nil
-}
-
 func marshalLabels(labelMap map[string]string, environmentID string) (string, error) {
 	var labelList []*api.DatabaseLabel
 	for k, v := range labelMap {
@@ -232,134 +179,48 @@ func marshalLabels(labelMap map[string]string, environmentID string) (string, er
 	return string(labels), nil
 }
 
-func (ctl *controller) createDataSource(databaseID int, dataSourceCreate api.DataSourceCreate) error {
-	buf := new(bytes.Buffer)
-	if err := jsonapi.MarshalPayload(buf, &dataSourceCreate); err != nil {
-		return errors.Wrap(err, "failed to marshal dataSourceCreate")
-	}
-
-	body, err := ctl.post(fmt.Sprintf("/database/%d/data-source", databaseID), buf)
-	if err != nil {
-		return err
-	}
-
-	dataSource := new(api.DataSource)
-	if err = jsonapi.UnmarshalPayload(body, dataSource); err != nil {
-		return errors.Wrap(err, "fail to unmarshal dataSource response")
-	}
-	return nil
-}
-
-func (ctl *controller) patchDataSource(databaseID, dataSourceID int, dataSourcePatch api.DataSourcePatch) error {
-	buf := new(bytes.Buffer)
-	if err := jsonapi.MarshalPayload(buf, &dataSourcePatch); err != nil {
-		return errors.Wrap(err, "failed to marshal dataSourcePatch")
-	}
-
-	body, err := ctl.patch(fmt.Sprintf("/database/%d/data-source/%d", databaseID, dataSourceID), buf)
-	if err != nil {
-		return err
-	}
-
-	dataSource := new(api.DataSource)
-	if err = jsonapi.UnmarshalPayload(body, dataSource); err != nil {
-		return errors.Wrap(err, "fail to unmarshal dataSource response")
-	}
-	return nil
-}
-
-func (ctl *controller) deleteDataSource(databaseID, dataSourceID int) error {
-	_, err := ctl.delete(fmt.Sprintf("/database/%d/data-source/%d", databaseID, dataSourceID), nil)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 // disableAutomaticBackup disables the automatic backup of a database.
-func (ctl *controller) disableAutomaticBackup(databaseID int) error {
-	backupSetting := api.BackupSettingUpsert{
-		DatabaseID: databaseID,
-		Enabled:    false,
-	}
-	buf := new(bytes.Buffer)
-	if err := jsonapi.MarshalPayload(buf, &backupSetting); err != nil {
-		return errors.Wrap(err, "failed to marshal backupSetting")
-	}
-
-	if _, err := ctl.patch(fmt.Sprintf("/database/%d/backup-setting", databaseID), buf); err != nil {
+func (ctl *controller) disableAutomaticBackup(ctx context.Context, databaseName string) error {
+	if _, err := ctl.databaseServiceClient.UpdateBackupSetting(ctx, &v1pb.UpdateBackupSettingRequest{
+		Setting: &v1pb.BackupSetting{
+			Name:                 fmt.Sprintf("%s/backupSetting", databaseName),
+			CronSchedule:         "",
+			BackupRetainDuration: durationpb.New(time.Duration(7*24*60*60) * time.Second),
+		},
+	}); err != nil {
 		return err
 	}
+
 	return nil
-}
-
-// createBackup creates a backup.
-func (ctl *controller) createBackup(backupCreate api.BackupCreate) (*api.Backup, error) {
-	buf := new(bytes.Buffer)
-	if err := jsonapi.MarshalPayload(buf, &backupCreate); err != nil {
-		return nil, errors.Wrap(err, "failed to marshal backupCreate")
-	}
-
-	body, err := ctl.post(fmt.Sprintf("/database/%d/backup", backupCreate.DatabaseID), buf)
-	if err != nil {
-		return nil, err
-	}
-
-	backup := new(api.Backup)
-	if err = jsonapi.UnmarshalPayload(body, backup); err != nil {
-		return nil, errors.Wrap(err, "fail to unmarshal backup response")
-	}
-	return backup, nil
-}
-
-// listBackups lists backups for a database.
-func (ctl *controller) listBackups(databaseID int) ([]*api.Backup, error) {
-	body, err := ctl.get(fmt.Sprintf("/database/%d/backup", databaseID), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var backups []*api.Backup
-	ps, err := jsonapi.UnmarshalManyPayload(body, reflect.TypeOf(new(api.Backup)))
-	if err != nil {
-		return nil, errors.Wrap(err, "fail to unmarshal get backup response")
-	}
-	for _, p := range ps {
-		backup, ok := p.(*api.Backup)
-		if !ok {
-			return nil, errors.Errorf("fail to convert backup")
-		}
-		backups = append(backups, backup)
-	}
-	return backups, nil
 }
 
 // waitBackup waits for a backup to be done.
-func (ctl *controller) waitBackup(databaseID, backupID int) error {
+func (ctl *controller) waitBackup(ctx context.Context, databaseName, backupName string) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	log.Debug("Waiting for backup.", zap.Int("id", backupID))
+	log.Debug("Waiting for backup.", zap.String("id", backupName))
 	for range ticker.C {
-		backups, err := ctl.listBackups(databaseID)
+		resp, err := ctl.databaseServiceClient.ListBackups(ctx, &v1pb.ListBackupsRequest{Parent: databaseName})
 		if err != nil {
 			return err
 		}
-		var backup *api.Backup
+		backups := resp.Backups
+		var backup *v1pb.Backup
 		for _, b := range backups {
-			if b.ID == backupID {
+			if b.Name == backupName {
 				backup = b
 				break
 			}
 		}
 		if backup == nil {
-			return errors.Errorf("backup %v for database %v not found", backupID, databaseID)
+			return errors.Errorf("backup %v not found", backupName)
 		}
-		switch backup.Status {
-		case api.BackupStatusDone:
+		switch backup.State {
+		case v1pb.Backup_DONE:
 			return nil
-		case api.BackupStatusFailed:
-			return errors.Errorf("backup %v for database %v failed", backupID, databaseID)
+		case v1pb.Backup_FAILED:
+			return errors.Errorf("backup %v failed", backupName)
 		}
 	}
 	// Ideally, this should never happen because the ticker will not stop till the backup is finished.
@@ -367,27 +228,25 @@ func (ctl *controller) waitBackup(databaseID, backupID int) error {
 }
 
 // waitBackupArchived waits for a backup to be archived.
-func (ctl *controller) waitBackupArchived(databaseID, backupID int) error {
+func (ctl *controller) waitBackupArchived(ctx context.Context, databaseName, backupName string) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	log.Debug("Waiting for backup.", zap.Int("id", backupID))
+	log.Debug("Waiting for backup.", zap.String("id", backupName))
 	for range ticker.C {
-		backups, err := ctl.listBackups(databaseID)
+		resp, err := ctl.databaseServiceClient.ListBackups(ctx, &v1pb.ListBackupsRequest{Parent: databaseName})
 		if err != nil {
 			return err
 		}
-		var backup *api.Backup
+		backups := resp.Backups
+		var backup *v1pb.Backup
 		for _, b := range backups {
-			if b.ID == backupID {
+			if b.Name == backupName {
 				backup = b
 				break
 			}
 		}
 		if backup == nil {
-			return errors.Errorf("backup %d for database %d not found", backupID, databaseID)
-		}
-		if backup.RowStatus == api.Archived {
 			return nil
 		}
 	}

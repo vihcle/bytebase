@@ -126,7 +126,7 @@ func (s *Store) composeTask(ctx context.Context, task *TaskMessage) (*api.Task, 
 	}
 	composedTask.Updater = updater
 
-	taskRunRawList, err := s.listTaskRun(ctx, &TaskRunFind{
+	taskRunRawList, err := s.ListTaskRun(ctx, &TaskRunFind{
 		TaskID: &composedTask.ID,
 	})
 	if err != nil {
@@ -435,15 +435,15 @@ func (s *Store) UpdateTaskV2(ctx context.Context, patch *api.TaskPatch) (*TaskMe
 	if v := patch.DatabaseID; v != nil {
 		set, args = append(set, fmt.Sprintf("database_id = $%d", len(args)+1)), append(args, *v)
 	}
-	if (patch.Statement != nil || patch.SchemaVersion != nil) && patch.Payload != nil {
-		return nil, errors.Errorf("cannot set both statement/schemaVersion and payload for TaskPatch")
+	if (patch.SchemaVersion != nil || patch.SheetID != nil) && patch.Payload != nil {
+		return nil, errors.Errorf("cannot set both sheetID/schemaVersion and payload for TaskPatch")
 	}
-	if (patch.RollbackEnabled != nil || patch.RollbackSQLStatus != nil || patch.RollbackStatement != nil || patch.RollbackError != nil) && patch.Payload != nil {
-		return nil, errors.Errorf("cannot set both rollbackEnabled/rollbackSQLStatus/rollbackStatement/rollbackError payload for TaskPatch")
+	if (patch.RollbackEnabled != nil || patch.RollbackSQLStatus != nil || patch.RollbackSheetID != nil || patch.RollbackError != nil) && patch.Payload != nil {
+		return nil, errors.Errorf("cannot set both rollbackEnabled/rollbackSQLStatus/rollbackSheetID/rollbackError payload for TaskPatch")
 	}
 	var payloadSet []string
-	if v := patch.Statement; v != nil {
-		payloadSet, args = append(payloadSet, fmt.Sprintf(`jsonb_build_object('statement', to_jsonb($%d::TEXT))`, len(args)+1)), append(args, *v)
+	if v := patch.SheetID; v != nil {
+		payloadSet, args = append(payloadSet, fmt.Sprintf(`jsonb_build_object('sheetId', to_jsonb($%d::INT))`, len(args)+1)), append(args, *v)
 	}
 	if v := patch.SchemaVersion; v != nil {
 		payloadSet, args = append(payloadSet, fmt.Sprintf(`jsonb_build_object('schemaVersion', to_jsonb($%d::TEXT))`, len(args)+1)), append(args, *v)
@@ -454,8 +454,8 @@ func (s *Store) UpdateTaskV2(ctx context.Context, patch *api.TaskPatch) (*TaskMe
 	if v := patch.RollbackSQLStatus; v != nil {
 		payloadSet, args = append(payloadSet, fmt.Sprintf(`jsonb_build_object('rollbackSqlStatus', to_jsonb($%d::TEXT))`, len(args)+1)), append(args, *v)
 	}
-	if v := patch.RollbackStatement; v != nil {
-		payloadSet, args = append(payloadSet, fmt.Sprintf(`jsonb_build_object('rollbackStatement', to_jsonb($%d::TEXT))`, len(args)+1)), append(args, *v)
+	if v := patch.RollbackSheetID; v != nil {
+		payloadSet, args = append(payloadSet, fmt.Sprintf(`jsonb_build_object('rollbackSheetId', to_jsonb($%d::INT))`, len(args)+1)), append(args, *v)
 	}
 	if v := patch.RollbackError; v != nil {
 		payloadSet, args = append(payloadSet, fmt.Sprintf(`jsonb_build_object('rollbackError', to_jsonb($%d::TEXT))`, len(args)+1)), append(args, *v)

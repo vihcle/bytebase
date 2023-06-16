@@ -1,15 +1,14 @@
-import type {
-  Database,
-  DataSourceType,
-  Environment,
-  Principal,
-} from "../types";
-import { hasWorkspacePermission } from "./role";
+import { User } from "@/types/proto/v1/auth_service";
+import { Environment as EnvironmentV1 } from "@/types/proto/v1/environment_service";
+import { keyBy } from "lodash-es";
+import type { Database, DataSourceType, Environment } from "../types";
+import { hasWorkspacePermissionV1 } from "./role";
 import { isDev, semverCompare } from "./util";
+import { Engine } from "@/types/proto/v1/common";
 
 export function allowDatabaseAccess(
   database: Database,
-  principal: Principal,
+  user: User,
   type: DataSourceType
 ): boolean {
   // "ADMIN" data source should only be used by the system, thus it shouldn't
@@ -27,9 +26,9 @@ export function allowDatabaseAccess(
   }
 
   if (
-    hasWorkspacePermission(
+    hasWorkspacePermissionV1(
       "bb.permission.workspace.manage-instance",
-      principal.role
+      user.userRole
     )
   ) {
     return true;
@@ -60,6 +59,22 @@ export function sortDatabaseList(
       }
     }
     return bEnvIndex - aEnvIndex;
+  });
+}
+
+// Sort the list to put prod items first.
+export function sortDatabaseListByEnvironmentV1(
+  list: Database[],
+  environmentList: EnvironmentV1[]
+): Database[] {
+  const environmentMap = keyBy(environmentList, (env) => env.uid);
+  return list.sort((a: Database, b: Database) => {
+    const aEnvOrder =
+      environmentMap[String(a.instance.environment.id)]?.order ?? -1;
+    const bEnvOrder =
+      environmentMap[String(b.instance.environment.id)]?.order ?? -1;
+
+    return bEnvOrder - aEnvOrder;
   });
 }
 
@@ -145,27 +160,12 @@ export function isArchivedDatabase(db: Database): boolean {
   return false;
 }
 
-export const extractDatabaseResourceName = (
-  resource: string
-): {
-  environment?: string;
-  instance?: string;
-  database?: string;
-} => {
-  const pattern =
-    /^environments\/([^/]+)\/instances\/([^/]+)\/databases\/([^/]+)$/;
-  const matches = resource.match(pattern);
-  if (matches) {
-    const [_, environment, instance, database] = matches;
-    return {
-      environment,
-      instance,
-      database,
-    };
-  }
-  return {
-    environment: undefined,
-    instance: undefined,
-    database: undefined,
-  };
+export const hasSchemaProperty = (databaseEngine: Engine) => {
+  return (
+    databaseEngine === Engine.POSTGRES ||
+    databaseEngine === Engine.SNOWFLAKE ||
+    databaseEngine === Engine.ORACLE ||
+    databaseEngine === Engine.MSSQL ||
+    databaseEngine === Engine.REDSHIFT
+  );
 };

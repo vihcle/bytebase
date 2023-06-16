@@ -1,24 +1,27 @@
 <template>
   <BBGrid
     :column-list="COLUMNS"
-    :data-source="instanceList"
+    :data-source="composedSlowQueryPolicyList"
     :row-clickable="false"
-    row-key="id"
+    :row-key="(item: ComposedSlowQueryPolicy) => item.instance.uid"
     class="border"
   >
-    <template #item="{ item: instance }: { item: Instance }">
+    <template #item="{ item }: { item: ComposedSlowQueryPolicy }">
       <div class="bb-grid-cell">
-        <InstanceName :instance="instance" />
+        <InstanceV1Name :instance="item.instance" :link="false" />
       </div>
 
       <div class="bb-grid-cell">
-        <EnvironmentName :environment="instance.environment" />
+        <EnvironmentV1Name
+          :environment="item.instance.environmentEntity"
+          :link="false"
+        />
       </div>
       <div class="bb-grid-cell">
         <SpinnerSwitch
-          :value="isActive(instance)"
+          :value="item.active"
           :disabled="!allowAdmin"
-          :on-toggle="(active) => toggleActive(instance, active)"
+          :on-toggle="(active) => toggleActive(item.instance, active)"
         />
       </div>
     </template>
@@ -30,19 +33,22 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { type BBGridColumn, BBGrid } from "@/bbkit";
-import type { Instance, Policy, SlowQueryPolicyPayload } from "@/types";
-import { InstanceName, EnvironmentName, SpinnerSwitch } from "@/components/v2/";
-import { useCurrentUser } from "@/store";
-import { hasWorkspacePermission } from "@/utils";
+import type { ComposedInstance, ComposedSlowQueryPolicy } from "@/types";
+import {
+  InstanceV1Name,
+  EnvironmentV1Name,
+  SpinnerSwitch,
+} from "@/components/v2/";
+import { useCurrentUserV1 } from "@/store";
+import { hasWorkspacePermissionV1 } from "@/utils";
 
-const props = defineProps<{
-  instanceList: Instance[];
-  policyList: Policy[];
-  toggleActive: (instance: Instance, active: boolean) => Promise<void>;
+defineProps<{
+  composedSlowQueryPolicyList: ComposedSlowQueryPolicy[];
+  toggleActive: (instance: ComposedInstance, active: boolean) => Promise<void>;
 }>();
 
 const { t } = useI18n();
-const currentUser = useCurrentUser();
+const currentUserV1 = useCurrentUserV1();
 
 const COLUMNS = computed((): BBGridColumn[] => {
   return [
@@ -55,25 +61,16 @@ const COLUMNS = computed((): BBGridColumn[] => {
       width: "minmax(auto, 1fr)",
     },
     {
-      title: t("common.active"),
+      title: t("slow-query.report"),
       width: "minmax(auto, 6rem)",
     },
   ];
 });
 
 const allowAdmin = computed(() => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-slow-query",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
-
-const isActive = (instance: Instance) => {
-  const policy = props.policyList.find((policy) => {
-    return policy.resourceId === instance.id;
-  });
-  if (!policy) return false;
-  const payload = policy.payload as SlowQueryPolicyPayload;
-  return payload.active;
-};
 </script>

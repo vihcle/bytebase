@@ -15,7 +15,7 @@
     </div>
     <div
       v-for="sheet in sheetList"
-      :key="sheet.id"
+      :key="sheet.name"
       class="sheet-list-container text-sm cursor-pointer hover:bg-gray-100"
       :class="view"
       @click="handleSheetClick(sheet)"
@@ -26,9 +26,6 @@
         class="truncate w-5/6"
         >{{ value.value }}</span
       >
-      <div>
-        <IssueLink :sheet="sheet" />
-      </div>
       <div class="flex flex-row justify-end items-center" @click.stop>
         <Dropdown :sheet="sheet" :view="view" @refresh="$emit('refresh')" />
       </div>
@@ -51,12 +48,13 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import dayjs from "dayjs";
 
-import type { Sheet } from "@/types";
+import { Sheet } from "@/types/proto/v1/sheet_service";
 import { SheetViewMode } from "../types";
-import IssueLink from "./IssueLink.vue";
 import Dropdown from "./Dropdown.vue";
 import { useRouter } from "vue-router";
-import { sheetSlug } from "@/utils";
+import { projectV1Name, sheetSlugV1 } from "@/utils";
+import { useUserStore, useSheetV1Store, useProjectV1Store } from "@/store";
+import { Sheet_Visibility } from "@/types/proto/v1/sheet_service";
 
 const props = withDefaults(
   defineProps<{
@@ -76,6 +74,8 @@ defineEmits<{
 
 const { t } = useI18n();
 const router = useRouter();
+const sheetV1Store = useSheetV1Store();
+const projectV1Store = useProjectV1Store();
 
 const showCreator = computed(() => {
   return props.view === "shared" || props.view === "starred";
@@ -85,7 +85,7 @@ const handleSheetClick = (sheet: Sheet) => {
   router.push({
     name: "sql-editor.share",
     params: {
-      sheetSlug: sheetSlug(sheet),
+      sheetSlug: sheetSlugV1(sheet),
     },
   });
 };
@@ -118,40 +118,49 @@ const headers = computed(() => {
     label: t("common.updated-at"),
   });
 
-  labelList.push({
-    key: "linked-issue",
-    label: t("sheet.linked-issue"),
-  });
-
   return labelList;
 });
 
 const getValueList = (sheet: Sheet) => {
+  const projName = sheetV1Store.getProjectResourceId(sheet.name);
+  const project = projectV1Store.getProjectByName(`projects/${projName}`);
+  let visibility = t("sql-editor.private");
+  switch (sheet.visibility) {
+    case Sheet_Visibility.VISIBILITY_PROJECT:
+      visibility = t("common.project");
+      break;
+    case Sheet_Visibility.VISIBILITY_PUBLIC:
+      visibility = t("sql-editor.public");
+  }
   const valueList = [
     {
       key: "name",
-      value: sheet.name,
+      value: sheet.title,
     },
     {
       key: "project",
-      value: sheet.project.name,
+      value: projectV1Name(project),
     },
     {
       key: "visibility",
-      value: sheet.visibility,
+      value: visibility,
     },
   ];
 
   if (showCreator.value) {
     valueList.push({
       key: "creator",
-      value: sheet.creator.name,
+      value:
+        useUserStore().getUserByIdentifier(sheet.creator)?.title ??
+        sheet.creator,
     });
   }
 
   valueList.push({
     key: "updated",
-    value: dayjs.duration(sheet.updatedTs * 1000 - Date.now()).humanize(true),
+    value: dayjs
+      .duration((sheet.updateTime ?? new Date()).getTime() - Date.now())
+      .humanize(true),
   });
 
   return valueList;

@@ -16,7 +16,9 @@
           :include-all="true"
           :filter="filterInstance"
           :environment="state.environment"
-          @update:instance="state.instance = $event ?? UNKNOWN_ID"
+          @update:instance="
+            state.instance = $event ? String($event) : String(UNKNOWN_ID)
+          "
         />
         <SearchBox
           :value="state.keyword"
@@ -27,7 +29,7 @@
     </div>
 
     <template v-if="databaseList.length > 0">
-      <DatabaseTable
+      <DatabaseV1Table
         mode="PROJECT"
         table-class="border"
         :database-list="filteredDatabaseList"
@@ -47,73 +49,86 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, PropType, computed } from "vue";
+import { reactive, PropType, computed, ref, watchEffect } from "vue";
 import { NInputGroup } from "naive-ui";
 import { uniqBy } from "lodash-es";
 
-import {
-  Database,
-  EnvironmentId,
-  Instance,
-  InstanceId,
-  Project,
-  UNKNOWN_ID,
-} from "../types";
-import { filterDatabaseByKeyword } from "@/utils";
-import DatabaseTable from "../components/DatabaseTable.vue";
+import { ComposedDatabase, ComposedInstance, UNKNOWN_ID } from "../types";
+import { filterDatabaseV1ByKeyword, isDatabaseV1Accessible } from "@/utils";
+import { DatabaseV1Table } from "./v2";
 import { EnvironmentTabFilter, InstanceSelect, SearchBox } from "./v2";
+import {
+  Policy,
+  PolicyResourceType,
+  PolicyType,
+} from "@/types/proto/v1/org_policy_service";
+import { useCurrentUserV1, usePolicyV1Store } from "@/store";
 
 interface LocalState {
-  environment: EnvironmentId;
-  instance: InstanceId;
+  environment: string;
+  instance: string;
   keyword: string;
 }
 
 const props = defineProps({
-  project: {
-    required: true,
-    type: Object as PropType<Project>,
-  },
   databaseList: {
     required: true,
-    type: Object as PropType<Database[]>,
+    type: Object as PropType<ComposedDatabase[]>,
   },
 });
 
+const currentUserV1 = useCurrentUserV1();
 const state = reactive<LocalState>({
-  environment: UNKNOWN_ID,
-  instance: UNKNOWN_ID,
+  environment: String(UNKNOWN_ID),
+  instance: String(UNKNOWN_ID),
   keyword: "",
 });
+const policyList = ref<Policy[]>([]);
+
+const preparePolicyList = () => {
+  usePolicyV1Store()
+    .fetchPolicies({
+      resourceType: PolicyResourceType.DATABASE,
+      policyType: PolicyType.ACCESS_CONTROL,
+    })
+    .then((list) => (policyList.value = list));
+};
+
+watchEffect(preparePolicyList);
 
 const filteredDatabaseList = computed(() => {
-  return props.databaseList
-    .filter((db) => {
-      return (
-        state.environment === UNKNOWN_ID ||
-        db.instance.environment.id === state.environment
-      );
-    })
-    .filter((db) => {
-      return state.instance === UNKNOWN_ID || db.instance.id === state.instance;
-    })
-    .filter((db) => {
-      return filterDatabaseByKeyword(db, state.keyword, [
+  let list = [...props.databaseList].filter((database) =>
+    isDatabaseV1Accessible(database, policyList.value, currentUserV1.value)
+  );
+  if (state.environment !== String(UNKNOWN_ID)) {
+    list = list.filter(
+      (db) => db.instanceEntity.environmentEntity.uid === state.environment
+    );
+  }
+  if (state.instance !== String(UNKNOWN_ID)) {
+    list = list.filter((db) => db.instanceEntity.uid === state.instance);
+  }
+  const keyword = state.keyword.trim().toLowerCase();
+  if (keyword) {
+    list = list.filter((db) =>
+      filterDatabaseV1ByKeyword(db, keyword, [
         "name",
         "environment",
         "instance",
-      ]);
-    });
+      ])
+    );
+  }
+  return list;
 });
 
 const instanceList = computed(() => {
   return uniqBy(
-    props.databaseList.map((db) => db.instance),
-    (instance) => instance.id
+    props.databaseList.map((db) => db.instanceEntity),
+    (instance) => instance.uid
   );
 });
 
-const filterInstance = (instance: Instance) => {
-  return instanceList.value.findIndex((inst) => inst.id === instance.id) >= 0;
+const filterInstance = (instance: ComposedInstance) => {
+  return instanceList.value.findIndex((inst) => inst.uid === instance.uid) >= 0;
 };
 </script>

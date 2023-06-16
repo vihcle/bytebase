@@ -15,31 +15,24 @@ import (
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
-// FindSetting finds a list of Setting instances.
-func (s *Store) FindSetting(ctx context.Context, find *api.SettingFind) ([]*api.Setting, error) {
-	findV2 := &FindSettingMessage{Name: find.Name}
-	settings, err := s.ListSettingV2(ctx, findV2)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to list setting with [%+v]", findV2)
-	}
-	var settingList []*api.Setting
-	for _, setting := range settings {
-		settingList = append(settingList, setting.toAPISetting())
-	}
-	return settingList, nil
+// FindSettingMessage is the message for finding setting.
+type FindSettingMessage struct {
+	Name    *api.SettingName
+	Enforce bool
 }
 
-// GetSetting gets an instance of Setting.
-func (s *Store) GetSetting(ctx context.Context, find *api.SettingFind) (*api.Setting, error) {
-	findV2 := &FindSettingMessage{Name: find.Name}
-	setting, err := s.GetSettingV2(ctx, findV2)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get setting with [%+v]", findV2)
-	}
-	if setting == nil {
-		return nil, nil
-	}
-	return setting.toAPISetting(), nil
+// SetSettingMessage is the message for updating setting.
+type SetSettingMessage struct {
+	Name        api.SettingName
+	Value       string
+	Description *string
+}
+
+// SettingMessage is the message of setting.
+type SettingMessage struct {
+	Name        api.SettingName
+	Value       string
+	Description string
 }
 
 // GetWorkspaceGeneralSetting gets the workspace general setting payload.
@@ -98,49 +91,29 @@ func (s *Store) GetWorkspaceApprovalSetting(ctx context.Context) (*storepb.Works
 	return payload, nil
 }
 
-// PatchSetting patches an instance of Setting.
-func (s *Store) PatchSetting(ctx context.Context, patch *api.SettingPatch) (*api.Setting, error) {
-	setting, err := s.UpsertSettingV2(ctx, &SetSettingMessage{
-		Name:  patch.Name,
-		Value: patch.Value,
-	}, patch.UpdaterID)
+// GetWorkspaceExternalApprovalSetting gets the workspace external approval setting.
+func (s *Store) GetWorkspaceExternalApprovalSetting(ctx context.Context) (*storepb.ExternalApprovalSetting, error) {
+	settingName := api.SettingWorkspaceExternalApproval
+	setting, err := s.GetSettingV2(ctx, &FindSettingMessage{
+		Name: &settingName,
+	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to patch setting with [%+v]", patch)
+		return nil, errors.Wrapf(err, "failed to get setting %s", settingName)
 	}
-	return setting.toAPISetting(), nil
+	if setting == nil {
+		return nil, errors.Errorf("cannot find setting %v", settingName)
+	}
+
+	payload := new(storepb.ExternalApprovalSetting)
+	if err := protojson.Unmarshal([]byte(setting.Value), payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
 }
 
 // DeleteCache deletes the cache.
 func (s *Store) DeleteCache() {
 	s.settingCache = sync.Map{}
-}
-
-// FindSettingMessage is the message for finding setting.
-type FindSettingMessage struct {
-	Name    *api.SettingName
-	Enforce bool
-}
-
-// SetSettingMessage is the message for updating setting.
-type SetSettingMessage struct {
-	Name        api.SettingName
-	Value       string
-	Description *string
-}
-
-// SettingMessage is the message of setting.
-type SettingMessage struct {
-	Name        api.SettingName
-	Value       string
-	Description string
-}
-
-func (sm *SettingMessage) toAPISetting() *api.Setting {
-	return &api.Setting{
-		Name:        sm.Name,
-		Value:       sm.Value,
-		Description: sm.Description,
-	}
 }
 
 // GetSettingV2 returns the setting by name.
@@ -334,4 +307,44 @@ func listSettingV2Impl(ctx context.Context, tx *Tx, find *FindSettingMessage) ([
 	}
 
 	return settingMessages, nil
+}
+
+// BackfillWorkspaceApprovalSetting backfills the condition field in the approval setting.
+func (s *Store) BackfillWorkspaceApprovalSetting(ctx context.Context) error {
+	setting, err := s.GetWorkspaceApprovalSetting(ctx)
+	if err != nil {
+		if strings.Contains(err.Error(), "cannot find settin") {
+			return nil
+		}
+		return err
+	}
+	hasChange := false
+	for _, rule := range setting.Rules {
+		if rule.Condition != nil && rule.Condition.Expression != "" {
+			continue
+		}
+		condition, err := common.ConvertParsedApproval(rule.Expression)
+		if err != nil {
+			return err
+		}
+		rule.Condition = condition
+		hasChange = true
+	}
+	if !hasChange {
+		return nil
+	}
+
+	bytes, err := protojson.Marshal(setting)
+	if err != nil {
+		return errors.Errorf("failed to marshal setting, error: %v", err)
+	}
+	storeSettingValue := string(bytes)
+	if _, err := s.UpsertSettingV2(ctx, &SetSettingMessage{
+		Name:  api.SettingWorkspaceApproval,
+		Value: storeSettingValue,
+	}, api.SystemBotID); err != nil {
+		return err
+	}
+
+	return nil
 }

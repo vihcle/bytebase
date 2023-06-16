@@ -1,60 +1,72 @@
 <template>
-  <div class="space-y-4 pb-4 w-[48rem] max-w-full">
+  <div class="space-y-4 pb-4 w-[56rem] max-w-full">
     <div>
-      <BBAttention :style="'WARN'" :description="attentionDescription" />
+      <BBAttention :style="'WARN'" :title="$t('slow-query.report-slow-query')">
+        <i18n-t
+          keypath="slow-query.attention-description"
+          tag="div"
+          class="text-yellow-700 whitespace-pre-wrap mt-2 text-sm"
+        >
+          <template #slow_query>
+            <code>slow_query</code>
+          </template>
+          <template #pg_stat_statements>
+            <code>pg_stat_statements</code>
+          </template>
+        </i18n-t>
+        <div v-if="false" class="mt-2">
+          <!-- TODO: update docs link -->
+          <LearnMoreLink url="https://www.bytebase.com/404?source=console" />
+        </div>
+      </BBAttention>
     </div>
-    <div>
+    <div class="flex items-center justify-between">
       <EnvironmentTabFilter
-        :environment="state.filter.environment?.id ?? UNKNOWN_ID"
+        :environment="state.filter.environment?.uid ?? String(UNKNOWN_ID)"
         :include-all="true"
         @update:environment="changeEnvironment"
       />
+      <SearchBox v-model:value="state.filter.keyword" />
     </div>
     <div>
       <SlowQueryPolicyTable
-        :instance-list="state.ready ? filteredInstanceList : []"
+        :composed-slow-query-policy-list="filteredComposedSlowQueryPolicyList"
         :policy-list="policyList"
         :toggle-active="toggleActive"
-        :show-placeholder="state.ready"
+        :ready="state.ready"
+        :show-placeholder="true"
       />
-      <div
-        v-if="!state.ready"
-        class="relative flex flex-col h-[8rem] items-center justify-center"
-      >
-        <BBSpin />
-      </div>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
 import { computed, onMounted, reactive } from "vue";
+import { useI18n } from "vue-i18n";
+import { orderBy } from "lodash-es";
 
 import { BBAttention } from "@/bbkit";
 import {
   pushNotification,
-  useEnvironmentList,
-  useInstanceStore,
+  useEnvironmentV1List,
+  useInstanceV1Store,
   useSlowQueryPolicyStore,
   useSlowQueryStore,
 } from "@/store";
-import {
-  Environment,
-  EnvironmentId,
-  Instance,
-  SlowQueryPolicyPayload,
-  UNKNOWN_ID,
-} from "@/types";
-import { EnvironmentTabFilter } from "@/components/v2";
+import { ComposedInstance, ComposedSlowQueryPolicy, UNKNOWN_ID } from "@/types";
+import { EnvironmentTabFilter, SearchBox } from "@/components/v2";
 import { SlowQueryPolicyTable } from "./components";
-import { instanceSupportSlowQuery } from "@/utils";
-import { useI18n } from "vue-i18n";
+import { instanceV1SupportSlowQuery } from "@/utils";
+import { useGracefulRequest } from "@/store/modules/utils";
+import LearnMoreLink from "@/components/LearnMoreLink.vue";
+import { Environment } from "@/types/proto/v1/environment_service";
 
 type LocalState = {
   ready: boolean;
-  instanceList: Instance[];
+  instanceList: ComposedInstance[];
   filter: {
     environment: Environment | undefined;
+    keyword: string;
   };
 };
 
@@ -63,44 +75,68 @@ const state = reactive<LocalState>({
   instanceList: [],
   filter: {
     environment: undefined,
+    keyword: "",
   },
 });
 
 const { t } = useI18n();
-const policyStore = useSlowQueryPolicyStore();
+const slowQueryPolicyStore = useSlowQueryPolicyStore();
 const slowQueryStore = useSlowQueryStore();
-const instanceStore = useInstanceStore();
-const environmentList = useEnvironmentList(["NORMAL"]);
+const instanceV1Store = useInstanceV1Store();
+const environmentList = useEnvironmentV1List(false /* !showDeleted */);
 
 const policyList = computed(() => {
-  return policyStore.getPolicyListByResourceTypeAndPolicyType(
-    "instance",
-    "bb.policy.slow-query"
+  return slowQueryPolicyStore.getPolicyList();
+});
+
+const composedSlowQueryPolicyList = computed(() => {
+  const list = state.instanceList.map<ComposedSlowQueryPolicy>((instance) => {
+    const policy = policyList.value.find((p) => p.resourceUid == instance.uid);
+    return {
+      instance,
+      active: policy?.slowQueryPolicy?.active ?? false,
+    };
+  });
+
+  return orderBy(
+    list,
+    [
+      (item) => item.instance.engine,
+      (item) => item.instance.environmentEntity.order,
+      (item) => item.instance.name,
+    ],
+    ["asc", "desc", "asc"]
   );
 });
 
-const filteredInstanceList = computed(() => {
-  const list = state.instanceList;
+const filteredComposedSlowQueryPolicyList = computed(() => {
+  let list = [...composedSlowQueryPolicyList.value];
   const { environment } = state.filter;
-  if (environment && environment.id !== UNKNOWN_ID) {
-    return list.filter(
-      (instance) => instance.environment.id === environment.id
+  if (environment && environment.uid !== String(UNKNOWN_ID)) {
+    list = list.filter(
+      (item) => String(item.instance.environment) === environment.name
     );
   }
+  const keyword = state.filter.keyword.trim().toLowerCase();
+  if (keyword) {
+    list = list.filter((item) =>
+      item.instance.name.toLowerCase().includes(keyword)
+    );
+  }
+
   return list;
 });
 
 const prepare = async () => {
   try {
     const prepareInstanceList = async () => {
-      const list = await instanceStore.fetchInstanceList(["NORMAL"]);
-      state.instanceList = list.filter(instanceSupportSlowQuery);
+      const list = await instanceV1Store.fetchInstanceList(
+        false /* !showDeleted */
+      );
+      state.instanceList = list.filter(instanceV1SupportSlowQuery);
     };
     const preparePolicyList = async () => {
-      await policyStore.fetchPolicyListByResourceTypeAndPolicyType(
-        "instance",
-        "bb.policy.slow-query"
-      );
+      await slowQueryPolicyStore.fetchPolicyList();
     };
     await Promise.all([prepareInstanceList(), preparePolicyList()]);
   } finally {
@@ -108,45 +144,45 @@ const prepare = async () => {
   }
 };
 
-const changeEnvironment = (id: EnvironmentId | undefined) => {
-  state.filter.environment = environmentList.value.find((env) => env.id === id);
+const changeEnvironment = (id: string | undefined) => {
+  state.filter.environment = environmentList.value.find(
+    (env) => env.uid === id
+  );
 };
 
-const toggleActive = async (instance: Instance, active: boolean) => {
+const patchInstanceSlowQueryPolicy = async (
+  instance: ComposedInstance,
+  active: boolean
+) => {
+  return slowQueryPolicyStore.upsertPolicy({
+    parentPath: instance.name,
+    active,
+  });
+};
+
+const toggleActive = async (instance: ComposedInstance, active: boolean) => {
   try {
-    const payload: SlowQueryPolicyPayload = {
-      active,
-    };
-    await policyStore.upsertPolicyByResourceTypeAndPolicyType(
-      "instance",
-      instance.id,
-      "bb.policy.slow-query",
-      {
-        payload,
-      }
-    );
+    await patchInstanceSlowQueryPolicy(instance, active);
     if (active) {
       // When turning ON an instance's slow query, call the corresponding
       // API endpoint to sync slow queries from the instance immediately.
-      await slowQueryStore.syncSlowQueriesByInstance(instance);
+      try {
+        await useGracefulRequest(() =>
+          slowQueryStore.syncSlowQueriesByInstance(instance.name)
+        );
+        pushNotification({
+          module: "bytebase",
+          style: "SUCCESS",
+          title: t("common.updated"),
+        });
+      } catch {
+        await patchInstanceSlowQueryPolicy(instance, false);
+      }
     }
-    pushNotification({
-      module: "bytebase",
-      style: "SUCCESS",
-      title: t("common.updated"),
-    });
   } catch {
     // nothing
   }
 };
 
 onMounted(prepare);
-
-const attentionDescription = computed(() => {
-  const versions = `MySQL >= 5.7`;
-
-  return t("slow-query.attention-description", {
-    versions,
-  });
-});
 </script>

@@ -9,7 +9,7 @@
       @click.prevent="menu.toggle()"
       @contextmenu.capture.prevent="menu.toggle()"
     >
-      <PrincipalAvatar :principal="currentUser" />
+      <UserAvatar :user="currentUserV1" />
     </button>
     <BBContextMenu ref="menu" class="origin-top-left mt-2 w-48">
       <router-link
@@ -19,14 +19,14 @@
       >
         <p class="text-sm flex justify-between">
           <span class="text-main font-medium truncate">
-            {{ currentUser.name }}
+            {{ currentUserV1.title }}
           </span>
           <span class="text-control">
-            {{ $t(`common.role.${currentUser.role.toLowerCase()}`) }}
+            {{ roleNameV1(currentUserV1.userRole) }}
           </span>
         </p>
         <p class="text-sm text-control truncate">
-          {{ currentUser.email }}
+          {{ currentUserV1.email }}
         </p>
       </router-link>
       <div class="border-t border-gray-100"></div>
@@ -74,6 +74,16 @@
                 <label class="ml-2">简体中文</label>
               </div>
             </div>
+            <div
+              class="menu-item px-3 py-1 hover:bg-gray-100"
+              :class="{ 'bg-gray-100': locale === 'es-ES' }"
+              @click.prevent="toggleLocale('es-ES')"
+            >
+              <div class="radio text-sm">
+                <input type="radio" class="btn" :checked="locale === 'es-ES'" />
+                <label class="ml-2">Español</label>
+              </div>
+            </div>
           </BBContextMenu>
         </div>
         <a
@@ -81,7 +91,7 @@
           class="menu-item"
           role="menuitem"
           @click.prevent="resetQuickstart"
-          >{{ $t("common.quickstart") }}</a
+          >{{ $t("quick-start.self") }}</a
         >
         <a
           href="https://bytebase.com/docs?source=console"
@@ -112,35 +122,32 @@
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
-import { ServerInfo } from "@/types";
-import { hasWorkspacePermission } from "@/utils";
+import { hasWorkspacePermissionV1, roleNameV1 } from "@/utils";
 import { useLanguage } from "@/composables/useLanguage";
 import {
   pushNotification,
-  useActuatorStore,
+  useActuatorV1Store,
   useAuthStore,
-  useCurrentUser,
-  useDebugStore,
+  useCurrentUserV1,
   useUIStateStore,
 } from "@/store";
-import PrincipalAvatar from "./PrincipalAvatar.vue";
+import UserAvatar from "./User/UserAvatar.vue";
 
-const actuatorStore = useActuatorStore();
+const actuatorStore = useActuatorV1Store();
 const authStore = useAuthStore();
-const debugStore = useDebugStore();
 const uiStateStore = useUIStateStore();
 const router = useRouter();
 const { setLocale, locale } = useLanguage();
 const menu = ref();
 const languageMenu = ref();
-const currentUser = useCurrentUser();
+const currentUserV1 = useCurrentUserV1();
 
 // For now, debug mode is a global setting and will affect all users.
 // So we only allow DBA and Owner to toggle it.
 const allowToggleDebug = computed(() => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.debug",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
@@ -162,6 +169,7 @@ const resetQuickstart = () => {
     "database.visit",
     "member.addOrInvite",
     "kbar.open",
+    "data.query",
     "help.issue.detail",
     "help.project",
     "help.environment",
@@ -177,16 +185,16 @@ const resetQuickstart = () => {
   });
 };
 
-const { isDebug } = storeToRefs(debugStore);
+const { isDebug } = storeToRefs(actuatorStore);
 
 const switchDebug = () => {
-  debugStore.patchDebug({
-    isDebug: !isDebug.value,
+  actuatorStore.patchDebug({
+    debug: !isDebug.value,
   });
 };
 
 const ping = () => {
-  actuatorStore.fetchServerInfo().then((info: ServerInfo) => {
+  actuatorStore.fetchServerInfo().then((info) => {
     pushNotification({
       module: "bytebase",
       style: "SUCCESS",

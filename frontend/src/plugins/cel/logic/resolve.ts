@@ -1,6 +1,5 @@
 import { Expr as CELExpr } from "@/types/proto/google/api/expr/v1alpha1/syntax";
 import type {
-  NumberFactor,
   StringFactor,
   Operator,
   CollectionOperator,
@@ -14,9 +13,9 @@ import type {
   CompareExpr,
   EqualityExpr,
   StringExpr,
+  LogicalOperator,
 } from "../types";
 import {
-  LogicalOperatorList,
   isEqualityOperator,
   isConditionGroupExpr,
   isCollectionOperator,
@@ -25,13 +24,17 @@ import {
   isStringOperator,
   isNumberFactor,
   isStringFactor,
+  isTimestampFactor,
 } from "../types";
 
 // For simplify UI implementation, the "root" condition need to be a group.
-export const wrapAsGroup = (expr: SimpleExpr): ConditionGroupExpr => {
+export const wrapAsGroup = (
+  expr: SimpleExpr,
+  operator: LogicalOperator = "_&&_"
+): ConditionGroupExpr => {
   if (isConditionGroupExpr(expr)) return expr;
   return {
-    operator: "_&&_",
+    operator,
     args: [expr],
   };
 };
@@ -61,8 +64,8 @@ export const resolveCELExpr = (expr: CELExpr): SimpleExpr => {
           group.args.push(subExpr);
         }
       };
-      sub(left, false);
-      sub(right, true);
+      sub(left, true);
+      sub(right, false);
       return group;
     }
     if (isEqualityOperator(operator)) {
@@ -85,7 +88,7 @@ export const resolveCELExpr = (expr: CELExpr): SimpleExpr => {
 const resolveEqualityExpr = (expr: CELExpr): EqualityExpr => {
   const operator = expr.callExpr!.function as EqualityOperator;
   const [factorExpr, valueExpr] = expr.callExpr!.args;
-  const factor = factorExpr.identExpr!.name;
+  const factor = getFactorName(factorExpr);
   if (isNumberFactor(factor)) {
     return {
       operator,
@@ -103,33 +106,40 @@ const resolveEqualityExpr = (expr: CELExpr): EqualityExpr => {
 
 const resolveCompareExpr = (expr: CELExpr): CompareExpr => {
   const operator = expr.callExpr!.function as CompareOperator;
-  const [factor, value] = expr.callExpr!.args;
-  return {
-    operator,
-    args: [
-      factor.identExpr!.name as NumberFactor,
-      value.constExpr!.int64Value!,
-    ],
-  };
+  const [factorExpr, valueExpr] = expr.callExpr!.args;
+  const factor = getFactorName(factorExpr);
+  if (isNumberFactor(factor)) {
+    return {
+      operator,
+      args: [factor, valueExpr.constExpr!.int64Value!],
+    };
+  }
+  if (isTimestampFactor(factor)) {
+    return {
+      operator,
+      args: [
+        factor,
+        new Date(valueExpr.callExpr!.args[0].constExpr!.stringValue!),
+      ],
+    };
+  }
+  throw new Error(`cannot resolve expr ${JSON.stringify(expr)}`);
 };
 
 const resolveStringExpr = (expr: CELExpr): StringExpr => {
   const operator = expr.callExpr!.function as StringOperator;
-  const factor = expr.callExpr!.target!;
+  const factor = getFactorName(expr.callExpr!.target!);
   const value = expr.callExpr!.args[0];
   return {
     operator,
-    args: [
-      factor.identExpr!.name as StringFactor,
-      value.constExpr!.stringValue!,
-    ],
+    args: [factor as StringFactor, value.constExpr!.stringValue!],
   };
 };
 
 const resolveCollectionExpr = (expr: CELExpr): CollectionExpr => {
   const operator = expr.callExpr!.function as CollectionOperator;
   const [factorExpr, valuesExpr] = expr.callExpr!.args;
-  const factor = factorExpr.identExpr!.name;
+  const factor = getFactorName(factorExpr);
   if (isNumberFactor(factor)) {
     return {
       operator,
@@ -152,13 +162,24 @@ const resolveCollectionExpr = (expr: CELExpr): CollectionExpr => {
       ],
     };
   }
-
   throw new Error(`cannot resolve expr ${JSON.stringify(expr)}`);
 };
 
-const emptySimpleExpr = (): ConditionGroupExpr => {
+export const emptySimpleExpr = (
+  operator: LogicalOperator = "_&&_"
+): ConditionGroupExpr => {
   return {
-    operator: LogicalOperatorList[0],
+    operator: operator,
     args: [],
   };
+};
+
+const getFactorName = (expr: CELExpr): string => {
+  if (expr.identExpr !== undefined) {
+    return expr.identExpr.name;
+  } else if (expr.selectExpr !== undefined) {
+    return `${expr.selectExpr.operand!.identExpr!.name!}.${expr.selectExpr
+      .field!}`;
+  }
+  throw new Error(`cannot resolve factor name ${JSON.stringify(expr)}`);
 };

@@ -72,14 +72,14 @@ export const SlowQueryStatistics = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.items.push(SlowQueryStatisticsItem.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -135,7 +135,7 @@ export const SlowQueryStatisticsItem = {
       writer.uint32(10).string(message.sqlFingerprint);
     }
     if (message.count !== 0) {
-      writer.uint32(16).int32(message.count);
+      writer.uint32(16).int64(message.count);
     }
     if (message.latestLogTime !== undefined) {
       Timestamp.encode(toTimestamp(message.latestLogTime), writer.uint32(26).fork()).ldelim();
@@ -150,13 +150,13 @@ export const SlowQueryStatisticsItem = {
       writer.uint32(48).int64(message.totalRowsSent);
     }
     if (message.maximumRowsSent !== 0) {
-      writer.uint32(56).int32(message.maximumRowsSent);
+      writer.uint32(56).int64(message.maximumRowsSent);
     }
     if (message.totalRowsExamined !== 0) {
       writer.uint32(64).int64(message.totalRowsExamined);
     }
     if (message.maximumRowsExamined !== 0) {
-      writer.uint32(72).int32(message.maximumRowsExamined);
+      writer.uint32(72).int64(message.maximumRowsExamined);
     }
     for (const v of message.samples) {
       SlowQueryDetails.encode(v!, writer.uint32(82).fork()).ldelim();
@@ -172,77 +172,77 @@ export const SlowQueryStatisticsItem = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.sqlFingerprint = reader.string();
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
-          message.count = reader.int32();
+          message.count = longToNumber(reader.int64() as Long);
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.latestLogTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.totalQueryTime = Duration.decode(reader, reader.uint32());
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.maximumQueryTime = Duration.decode(reader, reader.uint32());
           continue;
         case 6:
-          if (tag != 48) {
+          if (tag !== 48) {
             break;
           }
 
           message.totalRowsSent = longToNumber(reader.int64() as Long);
           continue;
         case 7:
-          if (tag != 56) {
+          if (tag !== 56) {
             break;
           }
 
-          message.maximumRowsSent = reader.int32();
+          message.maximumRowsSent = longToNumber(reader.int64() as Long);
           continue;
         case 8:
-          if (tag != 64) {
+          if (tag !== 64) {
             break;
           }
 
           message.totalRowsExamined = longToNumber(reader.int64() as Long);
           continue;
         case 9:
-          if (tag != 72) {
+          if (tag !== 72) {
             break;
           }
 
-          message.maximumRowsExamined = reader.int32();
+          message.maximumRowsExamined = longToNumber(reader.int64() as Long);
           continue;
         case 10:
-          if (tag != 82) {
+          if (tag !== 82) {
             break;
           }
 
           message.samples.push(SlowQueryDetails.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -326,10 +326,10 @@ export const SlowQueryDetails = {
       Duration.encode(message.lockTime, writer.uint32(26).fork()).ldelim();
     }
     if (message.rowsSent !== 0) {
-      writer.uint32(32).int32(message.rowsSent);
+      writer.uint32(32).int64(message.rowsSent);
     }
     if (message.rowsExamined !== 0) {
-      writer.uint32(40).int32(message.rowsExamined);
+      writer.uint32(40).int64(message.rowsExamined);
     }
     if (message.sqlText !== "") {
       writer.uint32(50).string(message.sqlText);
@@ -345,49 +345,49 @@ export const SlowQueryDetails = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.startTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.queryTime = Duration.decode(reader, reader.uint32());
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.lockTime = Duration.decode(reader, reader.uint32());
           continue;
         case 4:
-          if (tag != 32) {
+          if (tag !== 32) {
             break;
           }
 
-          message.rowsSent = reader.int32();
+          message.rowsSent = longToNumber(reader.int64() as Long);
           continue;
         case 5:
-          if (tag != 40) {
+          if (tag !== 40) {
             break;
           }
 
-          message.rowsExamined = reader.int32();
+          message.rowsExamined = longToNumber(reader.int64() as Long);
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
           message.sqlText = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -471,8 +471,8 @@ function toTimestamp(date: Date): Timestamp {
 }
 
 function fromTimestamp(t: Timestamp): Date {
-  let millis = t.seconds * 1_000;
-  millis += t.nanos / 1_000_000;
+  let millis = (t.seconds || 0) * 1_000;
+  millis += (t.nanos || 0) / 1_000_000;
   return new Date(millis);
 }
 

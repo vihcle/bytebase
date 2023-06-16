@@ -5,6 +5,7 @@
       :data-source="pagedDataSource"
       :custom-header="true"
       :class="tableClass"
+      :row-clickable="rowClickable"
       @click-row="clickDatabase"
     >
       <template #header>
@@ -96,7 +97,7 @@
                   {{ $t("database.gitops-enabled") }}
                 </span>
 
-                <heroicons-outline:collection
+                <GitIcon
                   class="w-4 h-4 text-control hover:text-control-hover"
                 />
               </template>
@@ -238,13 +239,13 @@ import {
   isPITRDatabase,
   VueClass,
 } from "../utils";
-import { Database, Policy } from "../types";
+import { Database } from "../types";
 import { BBGridColumn } from "../bbkit/types";
 import InstanceEngineIcon from "./InstanceEngineIcon.vue";
 import TenantIcon from "./TenantIcon.vue";
 import DatabaseName from "@/components/DatabaseName.vue";
 import { SQLEditorButton } from "@/components/DatabaseDetail";
-import { useCurrentUser, usePolicyStore } from "@/store";
+import { useCurrentUserV1, useDatabaseV1Store } from "@/store";
 import {
   ColumnDef,
   getCoreRowModel,
@@ -252,6 +253,12 @@ import {
   useVueTable,
 } from "@tanstack/vue-table";
 import { getScrollParent } from "@/plugins/demo/utils";
+import { usePolicyV1Store } from "@/store/modules/v1/policy";
+import {
+  Policy,
+  PolicyType,
+  PolicyResourceType,
+} from "@/types/proto/v1/org_policy_service";
 
 type Mode =
   | "ALL"
@@ -312,7 +319,7 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
-  showMissingDatabases: {
+  schemaless: {
     type: Boolean,
     default: false,
   },
@@ -321,7 +328,8 @@ const props = defineProps({
 const emit = defineEmits(["select-database"]);
 
 const router = useRouter();
-const currentUser = useCurrentUser();
+const currentUserV1 = useCurrentUserV1();
+const databaseV1Store = useDatabaseV1Store();
 const { t } = useI18n();
 const state = reactive<State>({
   showIncorrectProjectModal: false,
@@ -330,23 +338,11 @@ const state = reactive<State>({
 const wrapper = ref<HTMLElement>();
 
 const sortedDatabaseList = computed(() => {
-  let list = [...props.databaseList];
-  if (!props.showMissingDatabases) {
-    list = list.filter((db) => db.syncStatus === "OK");
-  } else {
-    list.sort((a, b) => {
-      // Put NOT_FOUND databases to the top
-      if (a.syncStatus === "NOT_FOUND" && b.syncStatus === "OK") {
-        return -1;
-      }
-      if (a.syncStatus === "OK" && b.syncStatus === "NOT_FOUND") {
-        return 1;
-      }
-      // Fallback to `id` DESC
-      return -(+a.id - +b.id);
-    });
-  }
-
+  const list = [...props.databaseList];
+  list.sort((a, b) => {
+    // Fallback to `id` DESC
+    return -(+a.id - +b.id);
+  });
   return list;
 });
 
@@ -372,11 +368,11 @@ const policyList = ref<Policy[]>([]);
 
 const preparePolicyList = () => {
   if (showSQLEditorLink.value) {
-    usePolicyStore()
-      .fetchPolicyListByResourceTypeAndPolicyType(
-        "database",
-        "bb.policy.access-control"
-      )
+    usePolicyV1Store()
+      .fetchPolicies({
+        resourceType: PolicyResourceType.DATABASE,
+        policyType: PolicyType.ACCESS_CONTROL,
+      })
       .then((list) => (policyList.value = list));
   }
 };
@@ -386,11 +382,13 @@ const columnListMap = computed(() => {
     title: t("common.name"),
     width: "minmax(auto, 1.5fr)",
   };
-  const SCHEMA_VERSION = {
-    title: t("common.schema-version"),
-    width: { lg: "minmax(auto, 1fr)" },
-    class: "hidden lg:flex",
-  };
+  const SCHEMA_VERSION = props.schemaless
+    ? undefined
+    : {
+        title: t("common.schema-version"),
+        width: { lg: "minmax(auto, 1fr)" },
+        class: "hidden lg:flex",
+      };
   const PROJECT = {
     title: t("common.project"),
     width: "minmax(auto, 1fr)",
@@ -408,7 +406,7 @@ const columnListMap = computed(() => {
     width: "auto",
     class: "items-center",
   };
-  return new Map<Mode, BBGridColumn[]>([
+  return new Map<Mode, (BBGridColumn | undefined)[]>([
     [
       "ALL",
       [NAME, SCHEMA_VERSION, PROJECT, ENVIRONMENT, INSTANCE, SYNC_STATUS],
@@ -422,7 +420,7 @@ const columnListMap = computed(() => {
 });
 
 const showSchemaVersionColumn = computed(() => {
-  return props.mode !== "ALL_TINY";
+  return props.mode !== "ALL_TINY" && !props.schemaless;
 });
 
 const showInstanceColumn = computed(() => {
@@ -449,7 +447,7 @@ const showMiscColumn = computed(() => {
 });
 
 const columnList = computed(() => {
-  const list = cloneDeep(columnListMap.value.get(props.mode)!);
+  const list = cloneDeep(columnListMap.value.get(props.mode)!).filter(Boolean);
   if (props.showSelectionColumn) {
     list.unshift({
       title: "",
@@ -457,7 +455,7 @@ const columnList = computed(() => {
       class: "items-center !px-2",
     });
   }
-  return list;
+  return list as BBGridColumn[];
 });
 
 const table = useVueTable<Database>({
@@ -466,7 +464,7 @@ const table = useVueTable<Database>({
   },
   get columns() {
     return columnList.value.map<ColumnDef<Database>>((col, index) => ({
-      header: col.title,
+      header: col.title!,
     }));
   },
   getCoreRowModel: getCoreRowModel(),
@@ -495,10 +493,6 @@ watch(
   },
   { immediate: true }
 );
-watch(
-  () => props.showMissingDatabases,
-  () => handleChangePage(1)
-);
 
 const showReservedDatabaseList = () => {
   const count = regularDatabaseList.value.length;
@@ -523,7 +517,14 @@ const showSQLEditorLink = computed(() => {
 });
 
 const allowQuery = (database: Database) => {
-  return isDatabaseAccessible(database, policyList.value, currentUser.value);
+  const composedDatabase = databaseV1Store.getDatabaseByUID(
+    String(database.id)
+  );
+  return isDatabaseAccessible(
+    composedDatabase,
+    policyList.value,
+    currentUserV1.value
+  );
 };
 
 const showTenantIcon = computed(() => {

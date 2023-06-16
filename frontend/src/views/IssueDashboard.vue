@@ -3,7 +3,7 @@
     <div class="px-4 py-2 flex justify-between items-center">
       <EnvironmentTabFilter
         :include-all="true"
-        :environment="selectedEnvironment?.id ?? UNKNOWN_ID"
+        :environment="selectedEnvironment?.uid ?? String(UNKNOWN_ID)"
         @update:environment="changeEnvironmentId($event)"
       />
       <div class="flex flex-row space-x-4">
@@ -12,11 +12,12 @@
         </NButton>
 
         <NInputGroup style="width: auto">
-          <PrincipalSelect
-            :principal="selectedPrincipalId"
+          <UserSelect
+            v-if="allowFilterUsers"
+            :user="selectedUserUID"
             :include-system-bot="true"
             :include-all="allowSelectAllUsers"
-            @update:principal="changePrincipalId"
+            @update:user="changeUserUID"
           />
           <SearchBox
             :value="state.searchText"
@@ -35,8 +36,8 @@
       :issue-find="{
         statusList: ['OPEN'],
         principalId:
-          selectedPrincipalId && selectedPrincipalId !== UNKNOWN_ID
-            ? selectedPrincipalId
+          selectedUserUID && selectedUserUID !== String(UNKNOWN_ID)
+            ? selectedUserUID
             : undefined,
         projectId: selectedProjectId,
       }"
@@ -62,8 +63,8 @@
       :issue-find="{
         statusList: ['DONE', 'CANCELED'],
         principalId:
-          selectedPrincipalId && selectedPrincipalId !== UNKNOWN_ID
-            ? selectedPrincipalId
+          selectedUserUID && selectedUserUID !== String(UNKNOWN_ID)
+            ? selectedUserUID
             : undefined,
         projectId: selectedProjectId,
       }"
@@ -86,31 +87,27 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, computed } from "vue";
+import { reactive, computed, watchEffect } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { NInputGroup, NButton } from "naive-ui";
 
-import {
-  EnvironmentTabFilter,
-  PrincipalSelect,
-  SearchBox,
-} from "@/components/v2";
+import { EnvironmentTabFilter, UserSelect, SearchBox } from "@/components/v2";
 import { IssueTable } from "../components/Issue";
-import {
-  type Environment,
-  type EnvironmentId,
-  type Issue,
-  type PrincipalId,
-  type ProjectId,
-  UNKNOWN_ID,
-} from "../types";
+import { type Issue, UNKNOWN_ID } from "../types";
 import {
   activeEnvironment,
-  hasWorkspacePermission,
-  projectSlug,
+  extractUserUID,
+  hasWorkspacePermissionV1,
+  isDatabaseRelatedIssueType,
+  projectV1Slug,
 } from "../utils";
-import { useCurrentUser, useEnvironmentStore, useProjectStore } from "@/store";
+import {
+  useCurrentUserV1,
+  useEnvironmentV1Store,
+  useProjectV1Store,
+} from "@/store";
 import PagedIssueTable from "@/components/Issue/table/PagedIssueTable.vue";
+import { Environment } from "@/types/proto/v1/environment_service";
 
 interface LocalState {
   searchText: string;
@@ -119,9 +116,9 @@ interface LocalState {
 const router = useRouter();
 const route = useRoute();
 
-const currentUser = useCurrentUser();
-const projectStore = useProjectStore();
-const environmentStore = useEnvironmentStore();
+const currentUserV1 = useCurrentUserV1();
+const projectV1Store = useProjectV1Store();
+const environmentV1Store = useEnvironmentV1Store();
 
 const statusList = computed((): string[] =>
   route.query.status ? (route.query.status as string).split(",") : []
@@ -131,6 +128,13 @@ const state = reactive<LocalState>({
   searchText: "",
 });
 
+const project = computed(() => {
+  if (selectedProjectId.value) {
+    return projectV1Store.getProjectByUID(selectedProjectId.value);
+  }
+  return undefined;
+});
+
 const showOpen = computed(
   () => statusList.value.length === 0 || statusList.value.includes("open")
 );
@@ -138,45 +142,61 @@ const showClosed = computed(
   () => statusList.value.length === 0 || statusList.value.includes("closed")
 );
 
+const allowFilterUsers = computed(() => {
+  if (
+    hasWorkspacePermissionV1(
+      "bb.permission.workspace.manage-issue",
+      currentUserV1.value.userRole
+    )
+  ) {
+    return true;
+  }
+  return false;
+});
+
 const allowSelectAllUsers = computed(() => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-issue",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
-const selectedPrincipalId = computed((): PrincipalId => {
-  const id = parseInt(route.query.user as string, 10);
-  if (id >= 0) {
+const selectedUserUID = computed((): string => {
+  if (!allowFilterUsers.value) {
+    // If current user is low-privileged. Don't filter by user id.
+    return String(UNKNOWN_ID);
+  }
+
+  const id = route.query.user as string;
+  if (id) {
     return id;
   }
   return allowSelectAllUsers.value
-    ? UNKNOWN_ID // default to 'All' if current user is owner or DBA
-    : currentUser.value.id; // default to current user otherwise
+    ? String(UNKNOWN_ID) // default to 'All' if current user is owner or DBA
+    : extractUserUID(currentUserV1.value.name); // default to current user otherwise
 });
 
 const selectedEnvironment = computed((): Environment | undefined => {
   const { environment } = route.query;
   return environment
-    ? environmentStore.getEnvironmentById(parseInt(environment as string, 10))
+    ? environmentV1Store.getEnvironmentByUID(environment as string)
     : undefined;
 });
 
-const selectedProjectId = computed((): ProjectId | undefined => {
+const selectedProjectId = computed((): string | undefined => {
   const { project } = route.query;
-  return project ? parseInt(project as string, 10) : undefined;
-});
-
-const project = computed(() => {
-  if (selectedProjectId.value) {
-    return projectStore.getProjectById(selectedProjectId.value);
-  }
-  return undefined;
+  return project ? (project as string) : undefined;
 });
 
 const filter = (issue: Issue) => {
   if (selectedEnvironment.value) {
-    if (activeEnvironment(issue.pipeline).id !== selectedEnvironment.value.id) {
+    if (!isDatabaseRelatedIssueType(issue.type)) {
+      return false;
+    }
+    if (
+      String(activeEnvironment(issue.pipeline).id) !==
+      selectedEnvironment.value.uid
+    ) {
       return false;
     }
   }
@@ -189,8 +209,8 @@ const filter = (issue: Issue) => {
   return true;
 };
 
-const changeEnvironmentId = (environment: EnvironmentId | undefined) => {
-  if (environment && environment !== UNKNOWN_ID) {
+const changeEnvironmentId = (environment: string | undefined) => {
+  if (environment && environment !== String(UNKNOWN_ID)) {
     router.replace({
       name: "workspace.issue",
       query: {
@@ -209,8 +229,8 @@ const changeEnvironmentId = (environment: EnvironmentId | undefined) => {
   }
 };
 
-const changePrincipalId = (user: PrincipalId | undefined) => {
-  if (user === UNKNOWN_ID) {
+const changeUserUID = (user: string | undefined) => {
+  if (user === String(UNKNOWN_ID)) {
     user = undefined;
   }
   router.replace({
@@ -231,8 +251,14 @@ const goProject = () => {
   router.push({
     name: "workspace.project.detail",
     params: {
-      projectSlug: projectSlug(project.value),
+      projectSlug: projectV1Slug(project.value),
     },
   });
 };
+
+watchEffect(() => {
+  if (selectedProjectId.value) {
+    projectV1Store.getOrFetchProjectByUID(selectedProjectId.value);
+  }
+});
 </script>

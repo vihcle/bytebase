@@ -1,313 +1,314 @@
 <template>
-  <div
-    class="px-4 py-2 divide-y divide-block-border"
-    :class="create ? 'w-160' : 'w-full'"
-  >
-    <div class="grid grid-cols-1 gap-x-4">
-      <div class="col-span-1">
-        <label for="name" class="textlabel">
-          {{ $t("common.environment-name") }}
-          <span class="text-red-600">*</span>
-        </label>
-        <BBTextField
-          class="mt-2 w-full"
-          :disabled="!allowEdit"
-          :required="true"
-          :value="state.environment.name"
-          @input="handleEnvironmentNameChange"
-        />
-      </div>
-
-      <ResourceIdField
-        ref="resourceIdField"
-        resource="environment"
-        :readonly="!create"
-        :value="state.environment.resourceId"
-        :resource-title="state.environment.name"
-        :validator="validateResourceId"
-      />
-
-      <div class="col-span-1 mt-6">
-        <label class="textlabel flex items-center">
-          {{ $t("policy.environment-tier.name") }}
-          <FeatureBadge
-            feature="bb.feature.environment-tier-policy"
-            class="text-accent"
+  <component :is="drawer ? DrawerContent : 'div'" v-bind="bindings">
+    <div
+      class="divide-y divide-block-border"
+      :class="drawer ? 'w-[36rem]' : 'w-full px-4 pb-4'"
+    >
+      <div class="grid grid-cols-1 gap-x-4">
+        <div class="col-span-1">
+          <label for="name" class="textlabel">
+            {{ $t("common.environment-name") }}
+            <span class="text-red-600">*</span>
+          </label>
+          <BBTextField
+            class="mt-2 w-full"
+            :disabled="!allowEdit"
+            :required="true"
+            :value="state.environment.title"
+            @input="handleEnvironmentNameChange"
           />
-        </label>
-        <p class="mt-2 text-sm text-gray-600">
-          <i18n-t tag="span" keypath="policy.environment-tier.description">
-            <template #newline><br /></template>
-          </i18n-t>
-          <a
-            class="inline-flex items-center text-blue-600 ml-1 hover:underline"
-            href="https://www.bytebase.com/docs/administration/environment-policy/tier"
-            target="_blank"
-            >{{ $t("common.learn-more")
-            }}<heroicons-outline:external-link class="w-4 h-4"
-          /></a>
-        </p>
-        <div class="mt-4 flex flex-col space-y-4">
-          <div class="flex space-x-4">
-            <BBCheckbox
-              :value="(state.environmentTierPolicy.payload as EnvironmentTierPolicyPayload).environmentTier === 'PROTECTED'"
-              :disabled="!allowEdit"
-              @toggle="(on: boolean) => {
-                (state.environmentTierPolicy.payload as EnvironmentTierPolicyPayload).environmentTier = on ? 'PROTECTED' : 'UNPROTECTED'
+        </div>
+
+        <div class="mt-2">
+          <ResourceIdField
+            ref="resourceIdField"
+            resource-type="environment"
+            :readonly="!create"
+            :value="extractEnvironmentResourceName(state.environment.name)"
+            :resource-title="state.environment.title"
+            :validate="validateResourceId"
+          />
+        </div>
+
+        <div class="col-span-1 mt-6">
+          <label class="textlabel flex items-center">
+            {{ $t("policy.environment-tier.name") }}
+            <FeatureBadge
+              feature="bb.feature.environment-tier-policy"
+              class="text-accent"
+            />
+          </label>
+          <p class="mt-2 text-sm text-gray-600">
+            <i18n-t tag="span" keypath="policy.environment-tier.description">
+              <template #newline><br /></template>
+            </i18n-t>
+            <a
+              class="inline-flex items-center text-blue-600 ml-1 hover:underline"
+              href="https://www.bytebase.com/docs/administration/environment-policy/tier"
+              target="_blank"
+              >{{ $t("common.learn-more")
+              }}<heroicons-outline:external-link class="w-4 h-4"
+            /></a>
+          </p>
+          <div class="mt-4 flex flex-col space-y-4">
+            <div class="flex space-x-4">
+              <BBCheckbox
+                :value="state.environmentTier === EnvironmentTier.PROTECTED"
+                :disabled="!allowEdit"
+                @toggle="(on: boolean) => {
+                state.environmentTier = on ? EnvironmentTier.PROTECTED : EnvironmentTier.UNPROTECTED
               }"
-            />
-            <div>
-              <div class="textlabel">
-                {{ $t("policy.environment-tier.mark-env-as-production") }}
+              />
+              <div>
+                <div class="textlabel">
+                  {{ $t("policy.environment-tier.mark-env-as-production") }}
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      <div class="col-span-1 mt-6">
-        <label class="textlabel">
-          {{ $t("policy.rollout.name") }}
-        </label>
-        <span v-show="valueChanged('approvalPolicy')" class="textlabeltip">{{
-          $t("policy.rollout.tip")
-        }}</span>
-        <div class="mt-1 textinfolabel">
-          {{ $t("policy.rollout.info") }}
-        </div>
-        <div class="mt-4 flex flex-col space-y-4">
-          <div class="flex space-x-4">
-            <input
-              v-model="(state.approvalPolicy.payload as PipelineApprovalPolicyPayload).value"
-              name="manual-approval-always"
-              tabindex="-1"
-              type="radio"
-              class="text-accent disabled:text-accent-disabled focus:ring-accent"
-              value="MANUAL_APPROVAL_ALWAYS"
-              :disabled="!allowEdit"
-            />
-            <div class="-mt-0.5">
-              <div class="textlabel">
-                {{ $t("policy.rollout.manual") }}
-              </div>
-              <div class="mt-1 textinfolabel">
-                {{ $t("policy.rollout.manual-info") }}
+        <div class="col-span-1 mt-6">
+          <label class="textlabel">
+            {{ $t("policy.rollout.name") }}
+          </label>
+          <span v-show="valueChanged('approvalPolicy')" class="textlabeltip">{{
+            $t("policy.rollout.tip")
+          }}</span>
+          <div class="mt-1 textinfolabel">
+            {{ $t("policy.rollout.info") }}
+          </div>
+          <div class="mt-4 flex flex-col space-y-4">
+            <div class="flex space-x-4">
+              <input
+                v-model="state.approvalPolicy.deploymentApprovalPolicy!.defaultStrategy"
+                name="manual-approval-always"
+                tabindex="-1"
+                type="radio"
+                class="text-accent disabled:text-accent-disabled focus:ring-accent"
+                :value="ApprovalStrategy.MANUAL"
+                :disabled="!allowEdit"
+              />
+              <div class="-mt-0.5">
+                <div class="textlabel">
+                  {{ $t("policy.rollout.manual") }}
+                </div>
+                <div class="mt-1 textinfolabel">
+                  {{ $t("policy.rollout.manual-info") }}
+                </div>
               </div>
             </div>
-          </div>
 
-          <AssigneeGroupEditor
-            class="ml-8"
-            :policy="state.approvalPolicy"
-            :allow-edit="allowEdit"
-            @update="(assigneeGroupList) => {
-              (state.approvalPolicy.payload as PipelineApprovalPolicyPayload).assigneeGroupList = assigneeGroupList
+            <AssigneeGroupEditor
+              class="ml-8"
+              :policy="state.approvalPolicy"
+              :allow-edit="allowEdit"
+              @update="(assigneeGroupList) => {
+              state.approvalPolicy.deploymentApprovalPolicy!.deploymentApprovalStrategies = assigneeGroupList
             }"
-          />
+            />
 
-          <div class="flex space-x-4">
-            <input
-              v-model="(state.approvalPolicy.payload as PipelineApprovalPolicyPayload).value"
-              name="manual-approval-never"
-              tabindex="-1"
-              type="radio"
-              class="text-accent disabled:text-accent-disabled focus:ring-accent"
-              value="MANUAL_APPROVAL_NEVER"
-              :disabled="!allowEdit"
-            />
-            <div class="-mt-0.5">
-              <div class="textlabel flex">
-                {{ $t("policy.rollout.auto") }}
-                <FeatureBadge
-                  feature="bb.feature.approval-policy"
-                  class="text-accent"
-                />
-              </div>
-              <div class="mt-1 textinfolabel">
-                {{ $t("policy.rollout.auto-info") }}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-span-1 mt-6">
-        <label class="textlabel"> {{ $t("policy.backup.name") }} </label>
-        <span v-show="valueChanged('backupPolicy')" class="textlabeltip">{{
-          $t("policy.backup.tip")
-        }}</span>
-        <div class="mt-4 flex flex-col space-y-4">
-          <div class="flex space-x-4">
-            <input
-              v-model="(state.backupPolicy.payload as BackupPlanPolicyPayload).schedule"
-              tabindex="-1"
-              type="radio"
-              class="text-accent disabled:text-accent-disabled focus:ring-accent"
-              value="UNSET"
-              :disabled="!allowEdit"
-            />
-            <div class="-mt-0.5">
-              <div class="textlabel">
-                {{ $t("policy.backup.not-enforced") }}
-              </div>
-              <div class="mt-1 textinfolabel">
-                {{ $t("policy.backup.not-enforced-info") }}
-              </div>
-            </div>
-          </div>
-          <div class="flex space-x-4">
-            <input
-              v-model="(state.backupPolicy.payload as BackupPlanPolicyPayload).schedule"
-              tabindex="-1"
-              type="radio"
-              class="text-accent disabled:text-accent-disabled focus:ring-accent"
-              value="DAILY"
-              :disabled="!allowEdit"
-            />
-            <div class="-mt-0.5">
-              <div class="textlabel flex">
-                {{ $t("policy.backup.daily") }}
-                <FeatureBadge
-                  feature="bb.feature.backup-policy"
-                  class="text-accent"
-                />
-              </div>
-              <div class="mt-1 textinfolabel">
-                {{ $t("policy.backup.daily-info") }}
-              </div>
-            </div>
-          </div>
-          <div class="flex space-x-4">
-            <input
-              v-model="(state.backupPolicy.payload as BackupPlanPolicyPayload).schedule"
-              tabindex="-1"
-              type="radio"
-              class="text-accent disabled:text-accent-disabled focus:ring-accent"
-              value="WEEKLY"
-              :disabled="!allowEdit"
-            />
-            <div class="-mt-0.5">
-              <div class="textlabel flex">
-                {{ $t("policy.backup.weekly") }}
-                <FeatureBadge
-                  feature="bb.feature.backup-policy"
-                  class="text-accent"
-                />
-              </div>
-              <div class="mt-1 textinfolabel">
-                {{ $t("policy.backup.weekly-info") }}
+            <div class="flex space-x-4">
+              <input
+                v-model="state.approvalPolicy.deploymentApprovalPolicy!.defaultStrategy"
+                name="manual-approval-never"
+                tabindex="-1"
+                type="radio"
+                class="text-accent disabled:text-accent-disabled focus:ring-accent"
+                :value="ApprovalStrategy.AUTOMATIC"
+                :disabled="!allowEdit"
+              />
+              <div class="-mt-0.5">
+                <div class="textlabel flex">
+                  {{ $t("policy.rollout.auto") }}
+                  <FeatureBadge
+                    feature="bb.feature.approval-policy"
+                    class="text-accent"
+                  />
+                </div>
+                <div class="mt-1 textinfolabel">
+                  {{ $t("policy.rollout.auto-info") }}
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      <div v-if="!create" class="col-span-1 mt-6">
-        <label class="textlabel">
-          {{ $t("sql-review.title") }}
-        </label>
-        <div class="mt-3">
-          <div v-if="sqlReviewPolicy" class="inline-flex items-center">
-            <BBSwitch
-              v-if="allowEditSQLReviewPolicy"
-              class="mr-2"
-              :text="true"
-              :value="sqlReviewPolicy.rowStatus === 'NORMAL'"
-              @toggle="toggleSQLReviewPolicy"
-            />
+        <div class="col-span-1 mt-6">
+          <label class="textlabel"> {{ $t("policy.backup.name") }} </label>
+          <span v-show="valueChanged('backupPolicy')" class="textlabeltip">{{
+            $t("policy.backup.tip")
+          }}</span>
+          <div class="mt-4 flex flex-col space-y-4">
+            <div class="flex space-x-4">
+              <input
+                v-model="state.backupPolicy.backupPlanPolicy!.schedule"
+                tabindex="-1"
+                type="radio"
+                class="text-accent disabled:text-accent-disabled focus:ring-accent"
+                :value="BackupPlanSchedule.UNSET"
+                :disabled="!allowEdit"
+              />
+              <div class="-mt-0.5">
+                <div class="textlabel">
+                  {{ $t("policy.backup.not-enforced") }}
+                </div>
+                <div class="mt-1 textinfolabel">
+                  {{ $t("policy.backup.not-enforced-info") }}
+                </div>
+              </div>
+            </div>
+            <div class="flex space-x-4">
+              <input
+                v-model="state.backupPolicy.backupPlanPolicy!.schedule"
+                tabindex="-1"
+                type="radio"
+                class="text-accent disabled:text-accent-disabled focus:ring-accent"
+                :value="BackupPlanSchedule.DAILY"
+                :disabled="!allowEdit"
+              />
+              <div class="-mt-0.5">
+                <div class="textlabel flex">
+                  {{ $t("policy.backup.daily") }}
+                  <FeatureBadge
+                    feature="bb.feature.backup-policy"
+                    class="text-accent"
+                  />
+                </div>
+                <div class="mt-1 textinfolabel">
+                  {{ $t("policy.backup.daily-info") }}
+                </div>
+              </div>
+            </div>
+            <div class="flex space-x-4">
+              <input
+                v-model="state.backupPolicy.backupPlanPolicy!.schedule"
+                tabindex="-1"
+                type="radio"
+                class="text-accent disabled:text-accent-disabled focus:ring-accent"
+                :value="BackupPlanSchedule.WEEKLY"
+                :disabled="!allowEdit"
+              />
+              <div class="-mt-0.5">
+                <div class="textlabel flex">
+                  {{ $t("policy.backup.weekly") }}
+                  <FeatureBadge
+                    feature="bb.feature.backup-policy"
+                    class="text-accent"
+                  />
+                </div>
+                <div class="mt-1 textinfolabel">
+                  {{ $t("policy.backup.weekly-info") }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="!create" class="col-span-1 mt-6">
+          <label class="textlabel">
+            {{ $t("sql-review.title") }}
+          </label>
+          <div class="mt-3">
+            <div v-if="sqlReviewPolicy" class="inline-flex items-center">
+              <BBSwitch
+                v-if="allowEditSQLReviewPolicy"
+                class="mr-2"
+                :text="true"
+                :value="sqlReviewPolicy.enforce"
+                @toggle="toggleSQLReviewPolicy"
+              />
+              <button
+                type="button"
+                class="text-sm font-medium text-accent hover:underline-2"
+                @click.prevent="onSQLReviewPolicyClick"
+              >
+                {{ sqlReviewPolicy.name }}
+              </button>
+            </div>
             <button
+              v-else-if="hasPermission"
               type="button"
-              class="text-sm font-medium text-accent hover:underline-2"
+              class="btn-normal py-2 px-4 gap-x-1 items-center"
               @click.prevent="onSQLReviewPolicyClick"
             >
-              {{ sqlReviewPolicy.name }}
+              {{ $t("sql-review.configure-policy") }}
             </button>
+            <span v-else class="textinfolabel">
+              {{ $t("sql-review.no-policy-set") }}
+            </span>
           </div>
+        </div>
+      </div>
+
+      <div v-if="!drawer" class="mt-6 flex justify-between items-center pt-5">
+        <template
+          v-if="(state.environment as Environment).state === State.ACTIVE"
+        >
+          <BBButtonConfirm
+            v-if="allowArchive"
+            :style="'ARCHIVE'"
+            :button-text="$t('environment.archive')"
+            :ok-text="$t('common.archive')"
+            :confirm-title="
+            $t('environment.archive') + ` '${(state.environment as Environment).title}'?`
+          "
+            :confirm-description="$t('environment.archive-info')"
+            :require-confirm="true"
+            @confirm="archiveEnvironment"
+          />
+        </template>
+        <template
+          v-else-if="(state.environment as Environment).state === State.DELETED"
+        >
+          <BBButtonConfirm
+            v-if="allowRestore"
+            :style="'RESTORE'"
+            :button-text="$t('environment.restore')"
+            :ok-text="$t('common.restore')"
+            :confirm-title="
+            $t('environment.restore') + ` '${(state.environment as Environment).title}'?`
+          "
+            :confirm-description="''"
+            :require-confirm="true"
+            @confirm="restoreEnvironment"
+          />
+        </template>
+        <div v-else></div>
+        <div v-if="allowEdit">
           <button
-            v-else-if="hasPermission"
             type="button"
-            class="btn-normal py-2 px-4 gap-x-1 items-center"
-            @click.prevent="onSQLReviewPolicyClick"
+            class="btn-normal py-2 px-4"
+            :disabled="!valueChanged()"
+            @click.prevent="revertEnvironment"
           >
-            {{ $t("sql-review.configure-policy") }}
+            {{ $t("common.revert") }}
           </button>
-          <span v-else class="textinfolabel">
-            {{ $t("sql-review.no-policy-set") }}
-          </span>
+          <button
+            type="submit"
+            class="btn-primary ml-3 inline-flex justify-center py-2 px-4"
+            :disabled="!valueChanged()"
+            @click.prevent="updateEnvironment"
+          >
+            {{ $t("common.update") }}
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- Create button group -->
-    <div v-if="create" class="mt-6 flex justify-end pt-5">
-      <button
-        type="button"
-        class="btn-normal py-2 px-4"
-        @click.prevent="$emit('cancel')"
-      >
-        {{ $t("common.cancel") }}
-      </button>
-      <button
-        type="submit"
-        class="btn-primary ml-3 inline-flex justify-center py-2 px-4"
-        :disabled="!allowCreate"
-        @click.prevent="createEnvironment"
-      >
-        {{ $t("common.create") }}
-      </button>
-    </div>
-    <!-- Update button group -->
-    <div v-else class="mt-6 flex justify-between items-center pt-5">
-      <template
-        v-if="(state.environment as Environment).rowStatus === 'NORMAL'"
-      >
-        <BBButtonConfirm
-          v-if="allowArchive"
-          :style="'ARCHIVE'"
-          :button-text="$t('environment.archive')"
-          :ok-text="$t('common.archive')"
-          :confirm-title="
-            $t('environment.archive') + ` '${state.environment.name}'?`
-          "
-          :confirm-description="$t('environment.archive-info')"
-          :require-confirm="true"
-          @confirm="archiveEnvironment"
-        />
-      </template>
-      <template
-        v-else-if="(state.environment as Environment).rowStatus === 'ARCHIVED'"
-      >
-        <BBButtonConfirm
-          v-if="allowRestore"
-          :style="'RESTORE'"
-          :button-text="$t('environment.restore')"
-          :ok-text="$t('common.restore')"
-          :confirm-title="
-            $t('environment.restore') + ` '${state.environment.name}'?`
-          "
-          :confirm-description="''"
-          :require-confirm="true"
-          @confirm="restoreEnvironment"
-        />
-      </template>
-      <div v-else></div>
-      <div v-if="allowEdit">
-        <button
-          type="button"
-          class="btn-normal py-2 px-4"
-          :disabled="!valueChanged()"
-          @click.prevent="revertEnvironment"
+    <template v-if="drawer" #footer>
+      <div class="flex justify-end items-center gap-x-3">
+        <NButton @click.prevent="$emit('cancel')">
+          {{ $t("common.cancel") }}
+        </NButton>
+        <NButton
+          type="primary"
+          :disabled="!allowCreate"
+          @click.prevent="createEnvironment"
         >
-          {{ $t("common.revert") }}
-        </button>
-        <button
-          type="submit"
-          class="btn-primary ml-3 inline-flex justify-center py-2 px-4"
-          :disabled="!valueChanged()"
-          @click.prevent="updateEnvironment"
-        >
-          {{ $t("common.update") }}
-        </button>
+          {{ $t("common.create") }}
+        </NButton>
       </div>
-    </div>
-  </div>
+      <!-- Update button group -->
+    </template>
+  </component>
 </template>
 
 <script lang="ts" setup>
@@ -316,37 +317,44 @@ import { cloneDeep, isEqual, isEmpty } from "lodash-es";
 import { Status } from "nice-grpc-common";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
+import { NButton } from "naive-ui";
 
-import type {
-  BackupPlanPolicyPayload,
-  Environment,
-  EnvironmentCreate,
-  EnvironmentPatch,
-  EnvironmentTierPolicyPayload,
-  PipelineApprovalPolicyPayload,
-  Policy,
-  ResourceId,
-  SQLReviewPolicy,
-} from "../types";
+import type { ResourceId, SQLReviewPolicy, ValidatedMessage } from "@/types";
 import { useEnvironmentV1Store } from "@/store/modules/v1/environment";
 import { environmentNamePrefix } from "@/store/modules/v1/common";
 import { getErrorCode } from "@/utils/grpcweb";
 import { BBSwitch } from "@/bbkit";
-import { hasWorkspacePermission, sqlReviewPolicySlug } from "@/utils";
+import { DrawerContent } from "@/components/v2";
+import {
+  extractEnvironmentResourceName,
+  hasWorkspacePermissionV1,
+  sqlReviewPolicySlug,
+} from "@/utils";
 import {
   pushNotification,
-  useCurrentUser,
-  useEnvironmentList,
+  useCurrentUserV1,
+  useEnvironmentV1List,
   useSQLReviewStore,
 } from "@/store";
 import AssigneeGroupEditor from "./EnvironmentForm/AssigneeGroupEditor.vue";
-import ResourceIdField from "./ResourceIdField.vue";
+import ResourceIdField from "@/components/v2/Form/ResourceIdField.vue";
+import {
+  Policy,
+  PolicyType,
+  BackupPlanSchedule,
+  ApprovalStrategy,
+} from "@/types/proto/v1/org_policy_service";
+import {
+  Environment,
+  EnvironmentTier,
+} from "@/types/proto/v1/environment_service";
+import { State } from "@/types/proto/v1/common";
 
 interface LocalState {
-  environment: Environment | EnvironmentCreate;
+  environment: Environment;
   approvalPolicy: Policy;
   backupPolicy: Policy;
-  environmentTierPolicy: Policy;
+  environmentTier: EnvironmentTier;
 }
 
 const ROUTE_NAME = "setting.workspace.sql-review";
@@ -358,7 +366,7 @@ const props = defineProps({
   },
   environment: {
     required: true,
-    type: Object as PropType<Environment | EnvironmentCreate>,
+    type: Object as PropType<Environment>,
   },
   approvalPolicy: {
     required: true,
@@ -368,9 +376,13 @@ const props = defineProps({
     required: true,
     type: Object as PropType<Policy>,
   },
-  environmentTierPolicy: {
+  environmentTier: {
     required: true,
-    type: Object as PropType<Policy>,
+    type: Number as PropType<EnvironmentTier>,
+  },
+  drawer: {
+    type: Boolean,
+    default: false,
   },
 });
 
@@ -388,7 +400,7 @@ const state = reactive<LocalState>({
   environment: cloneDeep(props.environment),
   approvalPolicy: cloneDeep(props.approvalPolicy),
   backupPolicy: cloneDeep(props.backupPolicy),
-  environmentTierPolicy: cloneDeep(props.environmentTierPolicy),
+  environmentTier: props.environmentTier,
 });
 
 const router = useRouter();
@@ -396,18 +408,29 @@ const environmentV1Store = useEnvironmentV1Store();
 const sqlReviewStore = useSQLReviewStore();
 const resourceIdField = ref<InstanceType<typeof ResourceIdField>>();
 
+const bindings = computed(() => {
+  if (props.drawer) {
+    return {
+      title: t("environment.create"),
+    };
+  }
+  return {};
+});
+
 const environmentId = computed(() => {
   if (props.create) {
     return;
   }
-  return (props.environment as Environment).id;
+  return (props.environment as Environment).uid;
 });
 
 const prepareSQLReviewPolicy = () => {
   if (!environmentId.value) {
     return;
   }
-  return sqlReviewStore.fetchReviewPolicyByEnvironmentId(environmentId.value);
+  return sqlReviewStore.getOrFetchReviewPolicyByEnvironmentUID(
+    environmentId.value
+  );
 };
 watchEffect(prepareSQLReviewPolicy);
 
@@ -415,11 +438,11 @@ const sqlReviewPolicy = computed((): SQLReviewPolicy | undefined => {
   if (!environmentId.value) {
     return;
   }
-  return sqlReviewStore.getReviewPolicyByEnvironmentId(environmentId.value);
+  return sqlReviewStore.getReviewPolicyByEnvironmentUID(environmentId.value);
 });
 
 const handleEnvironmentNameChange = (event: InputEvent) => {
-  state.environment.name = (event.target as HTMLInputElement).value;
+  state.environment.title = (event.target as HTMLInputElement).value;
 };
 
 const onSQLReviewPolicyClick = () => {
@@ -442,7 +465,7 @@ const onSQLReviewPolicyClick = () => {
 
 watch(
   () => props.environment,
-  (cur: Environment | EnvironmentCreate) => {
+  (cur) => {
     state.environment = cloneDeep(cur);
   }
 );
@@ -462,42 +485,51 @@ watch(
 );
 
 watch(
-  () => props.environmentTierPolicy,
-  (cur: Policy) => {
-    state.environmentTierPolicy = cloneDeep(cur);
+  () => props.environmentTier,
+  (cur: EnvironmentTier) => {
+    state.environmentTier = cur;
   }
 );
 
-const currentUser = useCurrentUser();
+const currentUserV1 = useCurrentUserV1();
 
-const environmentList = useEnvironmentList();
+const environmentList = useEnvironmentV1List();
 
 const hasPermission = computed(() => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-environment",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
-const validateResourceId = async (resourceId: ResourceId) => {
+const validateResourceId = async (
+  resourceId: ResourceId
+): Promise<ValidatedMessage[]> => {
   if (!resourceId) {
-    return;
+    return [];
   }
 
   try {
     const env = await environmentV1Store.getOrFetchEnvironmentByName(
-      environmentNamePrefix + resourceId
+      environmentNamePrefix + resourceId,
+      true /* silent */
     );
     if (env) {
-      return t("resource-id.validation.duplicated", {
-        resource: t("resource.environment"),
-      });
+      return [
+        {
+          type: "error",
+          message: t("resource-id.validation.duplicated", {
+            resource: t("resource.environment"),
+          }),
+        },
+      ];
     }
   } catch (error) {
     if (getErrorCode(error) !== Status.NOT_FOUND) {
       throw error;
     }
   }
+  return [];
 };
 
 const allowArchive = computed(() => {
@@ -511,32 +543,28 @@ const allowRestore = computed(() => {
 const allowEdit = computed(() => {
   return (
     props.create ||
-    ((state.environment as Environment).rowStatus === "NORMAL" &&
+    ((state.environment as Environment).state === State.ACTIVE &&
       hasPermission.value)
   );
 });
 
 const allowCreate = computed(() => {
   return (
-    !isEmpty(state.environment?.name) &&
+    !isEmpty(state.environment?.title) &&
     resourceIdField.value?.resourceId &&
     resourceIdField.value?.isValidated
   );
 });
 
 const allowEditSQLReviewPolicy = computed(() => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-sql-review-policy",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
 const valueChanged = (
-  field?:
-    | "environment"
-    | "approvalPolicy"
-    | "backupPolicy"
-    | "environmentTierPolicy"
+  field?: "environment" | "approvalPolicy" | "backupPolicy" | "environmentTier"
 ): boolean => {
   switch (field) {
     case "environment":
@@ -545,15 +573,15 @@ const valueChanged = (
       return !isEqual(props.approvalPolicy, state.approvalPolicy);
     case "backupPolicy":
       return !isEqual(props.backupPolicy, state.backupPolicy);
-    case "environmentTierPolicy":
-      return !isEqual(props.environmentTierPolicy, state.environmentTierPolicy);
+    case "environmentTier":
+      return !isEqual(props.environmentTier, state.environmentTier);
 
     default:
       return (
         !isEqual(props.environment, state.environment) ||
         !isEqual(props.approvalPolicy, state.approvalPolicy) ||
         !isEqual(props.backupPolicy, state.backupPolicy) ||
-        !isEqual(props.environmentTierPolicy, state.environmentTierPolicy)
+        !isEqual(props.environmentTier, state.environmentTier)
       );
   }
 };
@@ -562,37 +590,40 @@ const revertEnvironment = () => {
   state.environment = cloneDeep(props.environment!);
   state.approvalPolicy = cloneDeep(props.approvalPolicy!);
   state.backupPolicy = cloneDeep(props.backupPolicy!);
-  state.environmentTierPolicy = cloneDeep(props.environmentTierPolicy!);
+  state.environmentTier = cloneDeep(props.environmentTier!);
 };
 
 const createEnvironment = () => {
   emit(
     "create",
     {
-      ...state.environment,
-      resourceId: resourceIdField.value?.resourceId,
+      name: resourceIdField.value?.resourceId,
+      title: state.environment.title,
     },
     state.approvalPolicy,
     state.backupPolicy,
-    state.environmentTierPolicy
+    state.environmentTier
   );
 };
 
 const updateEnvironment = () => {
-  if (state.environment.name != props.environment!.name) {
-    const patchedEnvironment: EnvironmentPatch = {};
-
-    patchedEnvironment.name = state.environment.name;
+  const env = props.environment;
+  if (
+    state.environment.title !== env.title ||
+    state.environmentTier !== env.tier
+  ) {
+    const patchedEnvironment = {
+      title: state.environment.title,
+      tier: state.environmentTier,
+    };
     emit("update", patchedEnvironment);
   }
-
-  const environmentId = (state.environment as Environment).id;
 
   if (!isEqual(props.approvalPolicy, state.approvalPolicy)) {
     emit(
       "update-policy",
-      environmentId,
-      "bb.policy.pipeline-approval",
+      state.environment,
+      PolicyType.DEPLOYMENT_APPROVAL,
       state.approvalPolicy
     );
   }
@@ -600,18 +631,9 @@ const updateEnvironment = () => {
   if (!isEqual(props.backupPolicy, state.backupPolicy)) {
     emit(
       "update-policy",
-      environmentId,
-      "bb.policy.backup-plan",
+      state.environment,
+      PolicyType.BACKUP_PLAN,
       state.backupPolicy
-    );
-  }
-
-  if (!isEqual(props.environmentTierPolicy, state.environmentTierPolicy)) {
-    emit(
-      "update-policy",
-      environmentId,
-      "bb.policy.environment-tier",
-      state.environmentTierPolicy
     );
   }
 };
@@ -627,11 +649,11 @@ const restoreEnvironment = () => {
 const toggleSQLReviewPolicy = async (on: boolean) => {
   const policy = sqlReviewPolicy.value;
   if (!policy) return;
-  const originalOn = policy.rowStatus === "NORMAL";
+  const originalOn = policy.enforce;
   if (on === originalOn) return;
   await useSQLReviewStore().updateReviewPolicy({
     id: policy.id,
-    rowStatus: on ? "NORMAL" : "ARCHIVED",
+    enforce: on,
   });
   pushNotification({
     module: "bytebase",

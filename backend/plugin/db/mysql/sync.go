@@ -20,18 +20,24 @@ import (
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	"github.com/bytebase/bytebase/backend/plugin/parser"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
 	systemDatabases = map[string]bool{
 		"information_schema": true,
-		// TiDB only
-		"metrics_schema":     true,
 		"mysql":              true,
 		"performance_schema": true,
 		"sys":                true,
+		// TiDB only
+		"metrics_schema": true,
+		// OceanBase only
+		"oceanbase":  true,
+		"SYS":        true,
+		"LBACSYS":    true,
+		"ORAAUDITOR": true,
+		"__public":   true,
 	}
 )
 
@@ -467,6 +473,31 @@ type slowLog struct {
 
 // SyncSlowQuery syncs slow query from mysql.slow_log.
 func (driver *Driver) SyncSlowQuery(ctx context.Context, logDateTs time.Time) (map[string]*storepb.SlowQueryStatistics, error) {
+	var timeZone string
+	// The MySQL function convert_tz requires loading the time zone table into MySQL.
+	// So we convert time zone in backend instead of MySQL server
+	// https://stackoverflow.com/questions/14454304/convert-tz-returns-null
+	timeZoneQuery := `SELECT @@log_timestamps, @@system_time_zone;`
+	timeZoneRows, err := driver.db.QueryContext(ctx, timeZoneQuery)
+	if err != nil {
+		return nil, util.FormatErrorWithQuery(err, timeZoneQuery)
+	}
+	defer timeZoneRows.Close()
+	for timeZoneRows.Next() {
+		var logTimeZone, systemTimeZone string
+		if err := timeZoneRows.Scan(&logTimeZone, &systemTimeZone); err != nil {
+			return nil, err
+		}
+
+		timeZone = logTimeZone
+		if strings.ToLower(logTimeZone) == "system" {
+			timeZone = systemTimeZone
+		}
+	}
+	if err := timeZoneRows.Err(); err != nil {
+		return nil, util.FormatErrorWithQuery(err, timeZoneQuery)
+	}
+
 	logs := make([]*slowLog, 0, db.SlowQueryMaxSamplePerDay)
 	query := `
 		SELECT
@@ -506,7 +537,11 @@ func (driver *Driver) SyncSlowQuery(ctx context.Context, logDateTs time.Time) (m
 			return nil, err
 		}
 
-		startTimeTs, err := time.Parse("2006-01-02 15:04:05.999999", startTime)
+		location, err := time.LoadLocation(timeZone)
+		if err != nil {
+			return nil, err
+		}
+		startTimeTs, err := time.ParseInLocation("2006-01-02 15:04:05.999999", startTime, location)
 		if err != nil {
 			return nil, err
 		}
@@ -596,15 +631,33 @@ func analyzeSlowLog(logs []*slowLog) (map[string]*storepb.SlowQueryStatistics, e
 func mergeSlowLog(fingerprint string, statistics *storepb.SlowQueryStatisticsItem, details *storepb.SlowQueryDetails) *storepb.SlowQueryStatisticsItem {
 	if statistics == nil {
 		return &storepb.SlowQueryStatisticsItem{
-			SqlFingerprint: fingerprint,
-			Count:          1,
-			LatestLogTime:  details.StartTime,
-			Samples:        []*storepb.SlowQueryDetails{details},
+			SqlFingerprint:      fingerprint,
+			Count:               1,
+			LatestLogTime:       details.StartTime,
+			TotalQueryTime:      details.QueryTime,
+			MaximumQueryTime:    details.QueryTime,
+			TotalRowsSent:       details.RowsSent,
+			MaximumRowsSent:     details.RowsSent,
+			TotalRowsExamined:   details.RowsExamined,
+			MaximumRowsExamined: details.RowsExamined,
+			Samples:             []*storepb.SlowQueryDetails{details},
 		}
 	}
 	statistics.Count++
 	if statistics.LatestLogTime.AsTime().Before(details.StartTime.AsTime()) {
 		statistics.LatestLogTime = details.StartTime
+	}
+	statistics.TotalQueryTime = durationpb.New(statistics.TotalQueryTime.AsDuration() + details.QueryTime.AsDuration())
+	if statistics.MaximumQueryTime.AsDuration() < details.QueryTime.AsDuration() {
+		statistics.MaximumQueryTime = details.QueryTime
+	}
+	statistics.TotalRowsSent += details.RowsSent
+	if statistics.MaximumRowsSent < details.RowsSent {
+		statistics.MaximumRowsSent = details.RowsSent
+	}
+	statistics.TotalRowsExamined += details.RowsExamined
+	if statistics.MaximumRowsExamined < details.RowsExamined {
+		statistics.MaximumRowsExamined = details.RowsExamined
 	}
 	if len(statistics.Samples) < db.SlowQueryMaxSamplePerFingerprint {
 		statistics.Samples = append(statistics.Samples, details)

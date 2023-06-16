@@ -8,9 +8,9 @@ import (
 	pgquery "github.com/pganalyze/pg_query_go/v2"
 
 	"github.com/bytebase/bytebase/backend/plugin/db"
-	"github.com/bytebase/bytebase/backend/plugin/parser"
-	"github.com/bytebase/bytebase/backend/plugin/parser/ast"
-	"github.com/bytebase/bytebase/backend/plugin/parser/engine/pg"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/engine/pg"
 
 	"github.com/pkg/errors"
 
@@ -23,6 +23,7 @@ const (
 )
 
 type sensitiveFieldExtractor struct {
+	// For Oracle, we need to know the current database to determine if the table is in the current schema.
 	currentDatabase    string
 	schemaInfo         *db.SensitiveSchemaInfo
 	outerSchemaInfo    []fieldInfo
@@ -38,7 +39,7 @@ func extractSensitiveField(dbType db.Type, statement string, currentDatabase str
 	}
 
 	switch dbType {
-	case db.MySQL, db.TiDB, db.MariaDB:
+	case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 		extractor := &sensitiveFieldExtractor{
 			currentDatabase: currentDatabase,
 			schemaInfo:      schemaInfo,
@@ -59,6 +60,12 @@ func extractSensitiveField(dbType db.Type, statement string, currentDatabase str
 			return nil, err
 		}
 		return result, nil
+	case db.Oracle:
+		extractor := &sensitiveFieldExtractor{
+			currentDatabase: currentDatabase,
+			schemaInfo:      schemaInfo,
+		}
+		return extractor.extractOracleSensitiveField(statement)
 	default:
 		return nil, nil
 	}

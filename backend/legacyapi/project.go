@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"regexp"
 	"strings"
 
@@ -74,9 +73,6 @@ type Project struct {
 	ResourceID string    `jsonapi:"attr,resourceId"`
 	RowStatus  RowStatus `jsonapi:"attr,rowStatus"`
 
-	// Related fields
-	ProjectMemberList []*ProjectMember `jsonapi:"relation,projectMember"`
-
 	// Domain specific fields
 	Name         string              `jsonapi:"attr,name"`
 	Key          string              `jsonapi:"attr,key"`
@@ -92,52 +88,6 @@ type Project struct {
 	DBNameTemplate string `jsonapi:"attr,dbNameTemplate"`
 	// SchemaChangeType is the type of the schema migration script.
 	SchemaChangeType ProjectSchemaChangeType `jsonapi:"attr,schemaChangeType"`
-}
-
-// ProjectCreate is the API message for creating a project.
-type ProjectCreate struct {
-	ResourceID string `jsonapi:"attr,resourceId"`
-
-	// Domain specific fields
-	Name             string                  `jsonapi:"attr,name"`
-	Key              string                  `jsonapi:"attr,key"`
-	TenantMode       ProjectTenantMode       `jsonapi:"attr,tenantMode"`
-	DBNameTemplate   string                  `jsonapi:"attr,dbNameTemplate"`
-	SchemaChangeType ProjectSchemaChangeType `jsonapi:"attr,schemaChangeType"`
-}
-
-// ProjectFind is the API message for finding projects.
-type ProjectFind struct {
-	ID *int
-
-	// Standard fields
-	RowStatus *RowStatus
-}
-
-func (find *ProjectFind) String() string {
-	str, err := json.Marshal(*find)
-	if err != nil {
-		return err.Error()
-	}
-	return string(str)
-}
-
-// ProjectPatch is the API message for patching a project.
-type ProjectPatch struct {
-	ID int `jsonapi:"primary,projectPatch"`
-
-	// Standard fields
-	RowStatus *string `jsonapi:"attr,rowStatus"`
-	// Value is assigned from the jwt subject field passed by the client.
-	UpdaterID int
-
-	// Domain specific fields
-	Name             *string `jsonapi:"attr,name"`
-	Key              *string `jsonapi:"attr,key"`
-	TenantMode       *string `jsonapi:"attr,tenantMode"`
-	DBNameTemplate   *string `jsonapi:"attr,dbNameTemplate"`
-	WorkflowType     *string `jsonapi:"attr,workflowType"`     // NOTE: We can't use *ProjectWorkflowType because "google/jsonapi" doesn't support.
-	SchemaChangeType *string `jsonapi:"attr,schemaChangeType"` // NOTE:
 }
 
 var (

@@ -18,8 +18,12 @@ const (
 	typeFile           = "../advisor.go"
 	mysqlTemplate      = "./mysql.template"
 	postgresqlTemplate = "./postgresql.template"
+	oracleTemplate     = "./oracle.template"
+	snowflakeTemplate  = "./snowflake.template"
 	lowerMySQL         = "mysql"
 	lowerPostgreSQL    = "postgresql"
+	lowerOracle        = "oracle"
+	lowerSnowflake     = "snowflake"
 )
 
 var (
@@ -57,6 +61,12 @@ var (
 						case lowerPostgreSQL:
 							advisorComment = strings.Join(wordList[i+1:], " ")
 							engineType = lowerPostgreSQL
+						case lowerOracle:
+							advisorComment = strings.Join(wordList[i+1:], " ")
+							engineType = lowerOracle
+						case lowerSnowflake:
+							advisorComment = strings.Join(wordList[i+1:], " ")
+							engineType = "snowflake"
 						}
 						if advisorComment != "" {
 							break
@@ -72,7 +82,7 @@ var (
 							continue
 						}
 						switch token {
-						case lowerMySQL, lowerPostgreSQL:
+						case lowerMySQL, lowerPostgreSQL, lowerOracle, lowerSnowflake:
 							needed = true
 						}
 					}
@@ -86,7 +96,11 @@ var (
 			}
 			testName = strings.Join(advisorNameTokenList, "")
 			advisorName = fmt.Sprintf("%sAdvisor", testName)
-			checkerName = fmt.Sprintf("%s%sChecker", strings.ToLower(advisorNameTokenList[0]), strings.Join(advisorNameTokenList[1:], ""))
+			if engineType == lowerOracle {
+				checkerName = fmt.Sprintf("%s%sListener", strings.ToLower(advisorNameTokenList[0]), strings.Join(advisorNameTokenList[1:], ""))
+			} else {
+				checkerName = fmt.Sprintf("%s%sChecker", strings.ToLower(advisorNameTokenList[0]), strings.Join(advisorNameTokenList[1:], ""))
+			}
 
 			fmt.Printf("Try to generate %s...\n", fileName)
 			fmt.Printf("SQL rule type is %s\n", flags.rule)
@@ -95,11 +109,23 @@ var (
 			fmt.Printf("Checker name is %s\n", checkerName)
 
 			// generator code
-			templateFile := mysqlTemplate
-			dir := "mysql"
-			if engineType == lowerPostgreSQL {
+			var templateFile, dir string
+			switch engineType {
+			case lowerMySQL:
+				templateFile = mysqlTemplate
+				dir = "mysql"
+			case lowerPostgreSQL:
 				templateFile = postgresqlTemplate
 				dir = "pg"
+			case lowerOracle:
+				templateFile = oracleTemplate
+				dir = "oracle"
+			case "snowflake":
+				templateFile = snowflakeTemplate
+				dir = "snowflake"
+			default:
+				fmt.Printf("unknown engine type %s\n", engineType)
+				return
 			}
 
 			if err := generateFile(path.Join(dir, fmt.Sprintf("%s.go", fileName)), templateFile, flags.rule, advisorName, advisorComment, checkerName, testName); err != nil {

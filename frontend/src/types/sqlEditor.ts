@@ -1,6 +1,6 @@
 import type * as monaco from "monaco-editor";
-import { InstanceId, DatabaseId, ActivityId, EngineType } from "../types";
-import { Principal } from "./principal";
+import { InstanceId, DatabaseId, EngineType } from "../types";
+import { Engine } from "./proto/v1/common";
 
 export type EditorModel = monaco.editor.ITextModel;
 export type EditorPosition = monaco.Position;
@@ -15,14 +15,35 @@ export const EngineTypesUsingSQL = [
   "SNOWFLAKE",
   "TIDB",
   "SPANNER",
+  "OCEANBASE",
 ] as const;
 export type SQLDialect = typeof EngineTypesUsingSQL[number];
+export const EngineToSQLDialectMap = new Map<Engine, SQLDialect>([
+  [Engine.MYSQL, "MYSQL"],
+  [Engine.CLICKHOUSE, "CLICKHOUSE"],
+  [Engine.POSTGRES, "POSTGRES"],
+  [Engine.SNOWFLAKE, "SNOWFLAKE"],
+  [Engine.TIDB, "TIDB"],
+  [Engine.SPANNER, "SPANNER"],
+  [Engine.OCEANBASE, "OCEANBASE"],
+]);
 
 export const languageOfEngine = (engine?: EngineType | "unknown"): Language => {
   if (engine === "MONGODB") {
     return "javascript";
   }
   if (engine === "REDIS") {
+    return "redis";
+  }
+
+  return "sql";
+};
+
+export const languageOfEngineV1 = (engine?: Engine): Language => {
+  if (engine === Engine.MONGODB) {
+    return "javascript";
+  }
+  if (engine === Engine.REDIS) {
     return "redis";
   }
 
@@ -37,6 +58,12 @@ export const dialectOfEngine = (engine = "unknown"): SQLDialect => {
   return "MYSQL";
 };
 
+export const dialectOfEngineV1 = (
+  engine: Engine = Engine.UNRECOGNIZED
+): SQLDialect => {
+  return EngineToSQLDialectMap.get(engine) ?? "MYSQL";
+};
+
 export enum SortText {
   DATABASE = "0",
   TABLE = "1",
@@ -45,12 +72,12 @@ export enum SortText {
 }
 
 export interface QueryHistory {
-  id: ActivityId;
+  name: string;
 
   // Standard fields
-  creator: Principal;
-  createdTs: number;
-  updatedTs: number;
+  // creator in users/{email} format.
+  creator: string;
+  createTime: Date;
 
   // Domain fields
   statement: string;
@@ -60,7 +87,4 @@ export interface QueryHistory {
   instanceId: InstanceId;
   databaseId: DatabaseId;
   error: string;
-
-  // Customized fields
-  createdAt: string;
 }

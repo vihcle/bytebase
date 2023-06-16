@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/bytebase/bytebase/backend/common"
@@ -24,6 +27,7 @@ import (
 	metricAPI "github.com/bytebase/bytebase/backend/metric"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/metric"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
 	"github.com/bytebase/bytebase/backend/plugin/vcs"
 	"github.com/bytebase/bytebase/backend/store"
 	"github.com/bytebase/bytebase/backend/utils"
@@ -226,19 +230,21 @@ func (s *Server) registerIssueRoutes(g *echo.Group) {
 				return err
 			}
 			updateIssueMessage.Assignee = assignee
-			stages, err := s.store.ListStageV2(ctx, issue.PipelineUID)
-			if err != nil {
-				return err
-			}
-			activeStage := utils.GetActiveStage(stages)
-			// When all stages have finished, assignee can be anyone such as creator.
-			if activeStage != nil {
-				ok, err := s.TaskScheduler.CanPrincipalBeAssignee(ctx, assignee.ID, activeStage.EnvironmentID, issue.Project.UID, issue.Type)
+			if issue.PipelineUID != nil {
+				stages, err := s.store.ListStageV2(ctx, *issue.PipelineUID)
 				if err != nil {
-					return echo.NewHTTPError(http.StatusInternalServerError, "Failed to check if the assignee can be changed").SetInternal(err)
+					return err
 				}
-				if !ok {
-					return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Cannot set assignee with user id %d", *issuePatch.AssigneeID)).SetInternal(err)
+				activeStage := utils.GetActiveStage(stages)
+				// When all stages have finished, assignee can be anyone such as creator.
+				if activeStage != nil {
+					ok, err := s.TaskScheduler.CanPrincipalBeAssignee(ctx, assignee.ID, activeStage.EnvironmentID, issue.Project.UID, issue.Type)
+					if err != nil {
+						return echo.NewHTTPError(http.StatusInternalServerError, "Failed to check if the assignee can be changed").SetInternal(err)
+					}
+					if !ok {
+						return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Cannot set assignee with user id %d", *issuePatch.AssigneeID)).SetInternal(err)
+					}
 				}
 			}
 			// set AssigneeNeedAttention to false on assignee change
@@ -298,12 +304,12 @@ func (s *Server) registerIssueRoutes(g *echo.Group) {
 		}
 
 		for _, payload := range payloadList {
-			activityCreate := &api.ActivityCreate{
-				CreatorID:   c.Get(getPrincipalIDContextKey()).(int),
-				ContainerID: issue.UID,
-				Type:        api.ActivityIssueFieldUpdate,
-				Level:       api.ActivityInfo,
-				Payload:     string(payload),
+			activityCreate := &store.ActivityMessage{
+				CreatorUID:   c.Get(getPrincipalIDContextKey()).(int),
+				ContainerUID: issue.UID,
+				Type:         api.ActivityIssueFieldUpdate,
+				Level:        api.ActivityInfo,
+				Payload:      string(payload),
 			}
 			if _, err := s.ActivityManager.CreateActivity(ctx, activityCreate, &activity.Metadata{
 				Issue: updatedIssue,
@@ -372,12 +378,15 @@ func (s *Server) createIssue(ctx context.Context, issueCreate *api.IssueCreate, 
 	if issueCreate.ProjectID == api.DefaultProjectUID {
 		return nil, echo.NewHTTPError(http.StatusBadRequest, "Cannot create a new issue in the default project")
 	}
+	if issueCreate.Type == api.IssueGrantRequest {
+		return s.createGrantRequestIssue(ctx, issueCreate, creatorID)
+	}
 
 	// Run pre-condition check first to make sure all tasks are valid, otherwise we will create partial pipelines
 	// since we are not creating pipeline/stage list/task list in a single transaction.
 	// We may still run into this issue when we actually create those pipeline/stage list/task list, however, that's
 	// quite unlikely so we will live with it for now.
-	pipelineCreate, err := s.getPipelineCreate(ctx, issueCreate)
+	pipelineCreate, err := s.getPipelineCreate(ctx, issueCreate, creatorID)
 	if err != nil {
 		return nil, err
 	}
@@ -419,12 +428,22 @@ func (s *Server) createIssue(ctx context.Context, issueCreate *api.IssueCreate, 
 	if assignee == nil {
 		return nil, echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("assignee %d not found", issueCreate.AssigneeID))
 	}
-	// TODO(p0ny): remove issueCreate.Payload
+
 	issueCreatePayload := &storepb.IssuePayload{
 		Approval: &storepb.IssuePayloadApproval{
 			ApprovalFindingDone: false,
 		},
 	}
+	databaseGroup, err := isGroupingChangeIssueCreate(issueCreate)
+	if err != nil {
+		return nil, err
+	}
+	if databaseGroup != "" {
+		issueCreatePayload.Grouping = &storepb.Grouping{
+			DatabaseGroupName: databaseGroup,
+		}
+	}
+
 	if !s.licenseService.IsFeatureEnabled(api.FeatureCustomApproval) {
 		issueCreatePayload.Approval.ApprovalFindingDone = true
 	}
@@ -456,7 +475,7 @@ func (s *Server) createIssue(ctx context.Context, issueCreate *api.IssueCreate, 
 	if err != nil {
 		return nil, err
 	}
-	issueCreateMessage.PipelineUID = pipeline.ID
+	issueCreateMessage.PipelineUID = &pipeline.ID
 	issue, err := s.store.CreateIssueV2(ctx, issueCreateMessage, creatorID)
 	if err != nil {
 		return nil, err
@@ -480,12 +499,12 @@ func (s *Server) createIssue(ctx context.Context, issueCreate *api.IssueCreate, 
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create ActivityIssueCreate activity after creating the issue: %v", issue.Title)
 	}
-	activityCreate := &api.ActivityCreate{
-		CreatorID:   creatorID,
-		ContainerID: issue.UID,
-		Type:        api.ActivityIssueCreate,
-		Level:       api.ActivityInfo,
-		Payload:     string(bytes),
+	activityCreate := &store.ActivityMessage{
+		CreatorUID:   creatorID,
+		ContainerUID: issue.UID,
+		Type:         api.ActivityIssueCreate,
+		Level:        api.ActivityInfo,
+		Payload:      string(bytes),
 	}
 	if _, err := s.ActivityManager.CreateActivity(ctx, activityCreate, &activity.Metadata{
 		Issue: issue,
@@ -505,12 +524,12 @@ func (s *Server) createIssue(ctx context.Context, issueCreate *api.IssueCreate, 
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create ActivityPipelineStageStatusUpdate activity after creating the issue: %v", issue.Title)
 		}
-		activityCreate := &api.ActivityCreate{
-			CreatorID:   api.SystemBotID,
-			ContainerID: issue.PipelineUID,
-			Type:        api.ActivityPipelineStageStatusUpdate,
-			Level:       api.ActivityInfo,
-			Payload:     string(bytes),
+		activityCreate := &store.ActivityMessage{
+			CreatorUID:   api.SystemBotID,
+			ContainerUID: *issue.PipelineUID,
+			Type:         api.ActivityPipelineStageStatusUpdate,
+			Level:        api.ActivityInfo,
+			Payload:      string(bytes),
 		}
 		if _, err := s.ActivityManager.CreateActivity(ctx, activityCreate, &activity.Metadata{
 			Issue: issue,
@@ -519,6 +538,116 @@ func (s *Server) createIssue(ctx context.Context, issueCreate *api.IssueCreate, 
 		}
 	}
 
+	return composedIssue, nil
+}
+
+func isGroupingChangeIssueCreate(issueCreate *api.IssueCreate) (string, error) {
+	if issueCreate.Type != api.IssueDatabaseDataUpdate && issueCreate.Type != api.IssueDatabaseSchemaUpdate {
+		return "", nil
+	}
+	c := api.MigrationContext{}
+	if err := json.Unmarshal([]byte(issueCreate.CreateContext), &c); err != nil {
+		return "", err
+	}
+	for _, detail := range c.DetailList {
+		if detail.DatabaseGroupName != "" {
+			return detail.DatabaseGroupName, nil
+		}
+	}
+	return "", nil
+}
+
+func (s *Server) createGrantRequestIssue(ctx context.Context, issueCreate *api.IssueCreate, creatorID int) (*api.Issue, error) {
+	project, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{UID: &issueCreate.ProjectID})
+	if err != nil {
+		return nil, err
+	}
+	if project == nil {
+		return nil, echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("project %d not found", issueCreate.ProjectID))
+	}
+	policy, err := s.store.GetProjectPolicy(ctx, &store.GetProjectPolicyMessage{ProjectID: &project.ResourceID})
+	if err != nil {
+		return nil, err
+	}
+	var assignee *store.UserMessage
+	for _, binding := range policy.Bindings {
+		if binding.Role != api.Owner {
+			continue
+		}
+		if binding.Condition == nil || binding.Condition.Expression != "" {
+			continue
+		}
+		if len(binding.Members) == 0 {
+			continue
+		}
+		assignee = binding.Members[0]
+		break
+	}
+	if assignee == nil {
+		return nil, echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("project owner %d not found", issueCreate.ProjectID))
+	}
+
+	var issuePayload storepb.IssuePayload
+	if err := protojson.Unmarshal([]byte(issueCreate.Payload), &issuePayload); err != nil {
+		return nil, err
+	}
+	issueCreatePayload := &storepb.IssuePayload{
+		GrantRequest: issuePayload.GrantRequest,
+		Approval: &storepb.IssuePayloadApproval{
+			ApprovalFindingDone: false,
+		},
+	}
+	issueCreatePayloadBytes, err := protojson.Marshal(issueCreatePayload)
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, "Failed to marshal issue payload").SetInternal(err)
+	}
+	issueCreateMessage := &store.IssueMessage{
+		Project:       project,
+		Title:         issueCreate.Name,
+		Type:          issueCreate.Type,
+		Description:   issueCreate.Description,
+		Assignee:      assignee,
+		NeedAttention: issueCreate.AssigneeNeedAttention,
+		Payload:       string(issueCreatePayloadBytes),
+	}
+	issue, err := s.store.CreateIssueV2(ctx, issueCreateMessage, creatorID)
+	if err != nil {
+		return nil, err
+	}
+	s.stateCfg.ApprovalFinding.Store(issue.UID, issue)
+
+	// Composed the issue.
+	composedIssue := &api.Issue{
+		ID:                    issue.UID,
+		CreatorID:             issue.Creator.ID,
+		CreatedTs:             issue.CreatedTime.Unix(),
+		UpdaterID:             issue.Updater.ID,
+		UpdatedTs:             issue.UpdatedTime.Unix(),
+		ProjectID:             issue.Project.UID,
+		PipelineID:            issue.PipelineUID,
+		Name:                  issue.Title,
+		Status:                issue.Status,
+		Type:                  issue.Type,
+		Description:           issue.Description,
+		AssigneeID:            issue.Assignee.ID,
+		AssigneeNeedAttention: issue.NeedAttention,
+		Payload:               issue.Payload,
+	}
+	composedCreator, err := s.store.GetPrincipalByID(ctx, issue.Creator.ID)
+	if err != nil {
+		return nil, err
+	}
+	composedIssue.Creator = composedCreator
+	composedUpdater, err := s.store.GetPrincipalByID(ctx, issue.Updater.ID)
+	if err != nil {
+		return nil, err
+	}
+	composedIssue.Updater = composedUpdater
+	composedAssignee, err := s.store.GetPrincipalByID(ctx, issue.Assignee.ID)
+	if err != nil {
+		return nil, err
+	}
+	composedIssue.Assignee = composedAssignee
 	return composedIssue, nil
 }
 
@@ -574,14 +703,14 @@ func (s *Server) createPipeline(ctx context.Context, creatorID int, pipelineCrea
 	return pipelineCreated, nil
 }
 
-func (s *Server) getPipelineCreate(ctx context.Context, issueCreate *api.IssueCreate) (*api.PipelineCreate, error) {
+func (s *Server) getPipelineCreate(ctx context.Context, issueCreate *api.IssueCreate, creatorID int) (*api.PipelineCreate, error) {
 	switch issueCreate.Type {
 	case api.IssueDatabaseCreate:
 		return s.getPipelineCreateForDatabaseCreate(ctx, issueCreate)
 	case api.IssueDatabaseRestorePITR:
 		return s.getPipelineCreateForDatabasePITR(ctx, issueCreate)
 	case api.IssueDatabaseSchemaUpdate, api.IssueDatabaseDataUpdate, api.IssueDatabaseSchemaUpdateGhost:
-		return s.getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx, issueCreate)
+		return s.getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx, issueCreate, creatorID)
 	default:
 		return nil, echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("invalid issue type %q", issueCreate.Type))
 	}
@@ -633,7 +762,7 @@ func (s *Server) getPipelineCreateForDatabaseCreate(ctx context.Context, issueCr
 	}
 
 	if c.BackupID != 0 {
-		backup, err := s.store.GetBackupV2(ctx, c.BackupID)
+		backup, err := s.store.GetBackupByUID(ctx, c.BackupID)
 		if err != nil {
 			return nil, errors.Errorf("failed to find backup %v", c.BackupID)
 		}
@@ -714,7 +843,7 @@ func (s *Server) getPipelineCreateForDatabasePITR(ctx context.Context, issueCrea
 	if database == nil {
 		return nil, echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("database %d not found", c.DatabaseID))
 	}
-	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{EnvironmentID: &database.EnvironmentID, ResourceID: &database.InstanceID})
+	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{ResourceID: &database.InstanceID})
 	if err != nil {
 		return nil, err
 	}
@@ -750,7 +879,7 @@ func (s *Server) getPipelineCreateForDatabasePITR(ctx context.Context, issueCrea
 	}, nil
 }
 
-func (s *Server) getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx context.Context, issueCreate *api.IssueCreate) (*api.PipelineCreate, error) {
+func (s *Server) getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx context.Context, issueCreate *api.IssueCreate, creatorID int) (*api.PipelineCreate, error) {
 	c := api.MigrationContext{}
 	if err := json.Unmarshal([]byte(issueCreate.CreateContext), &c); err != nil {
 		return nil, err
@@ -786,15 +915,17 @@ func (s *Server) getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx context.Con
 		return nil, echo.NewHTTPError(http.StatusBadRequest, "migration detail list should not be empty")
 	}
 	emptyDatabaseIDCount, databaseIDCount := 0, 0
+	isGroupingChange := false
+
 	for _, detail := range c.DetailList {
 		if detail.MigrationType != db.Baseline && detail.MigrationType != db.Migrate && detail.MigrationType != db.MigrateSDL && detail.MigrationType != db.Data {
 			return nil, echo.NewHTTPError(http.StatusBadRequest, "support migrate, migrateSDL and data type migration only")
 		}
-		if detail.MigrationType != db.Baseline && (detail.Statement == "" && detail.SheetID == 0) {
-			return nil, echo.NewHTTPError(http.StatusBadRequest, "require sql statement or sheet ID to create an issue")
+		if detail.MigrationType != db.Baseline && !issueCreate.ValidateOnly && detail.SheetID == 0 {
+			return nil, echo.NewHTTPError(http.StatusBadRequest, "require sheet ID to create an issue")
 		}
-		if detail.Statement != "" && detail.SheetID > 0 {
-			return nil, echo.NewHTTPError(http.StatusBadRequest, "Cannot set both statement and sheet ID to create an issue")
+		if detail.DatabaseGroupName != "" {
+			isGroupingChange = true
 		}
 		// TODO(d): validate sheet ID.
 		if detail.DatabaseID > 0 {
@@ -803,6 +934,9 @@ func (s *Server) getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx context.Con
 			emptyDatabaseIDCount++
 		}
 	}
+	// Now, we only allow 2 cases:
+	// 1. All migration details have database ID, which means the users manually select the databases to change.
+	// 2. Only have one migration detail, and the database ID is empty, which means the users want to deploy to all tenant databases or specifying the database group.
 	if emptyDatabaseIDCount > 0 && databaseIDCount > 0 {
 		return nil, echo.NewHTTPError(http.StatusBadRequest, "Migration detail should set either database name or database ID.")
 	}
@@ -821,24 +955,68 @@ func (s *Server) getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx context.Con
 	// databaseToMigrationList is the mapping from database ID to migration detail.
 	aggregatedMatrix := make([][]*store.DatabaseMessage, len(deploySchedule.Deployments))
 	databaseToMigrationList := make(map[int][]*api.MigrationDetail)
+	var schemaGroups []*store.SchemaGroupMessage
 
-	databases, err := s.store.ListDatabases(ctx, &store.FindDatabaseMessage{ProjectID: &project.ResourceID})
+	allDatabases, err := s.store.ListDatabases(ctx, &store.FindDatabaseMessage{ProjectID: &project.ResourceID})
 	if err != nil {
 		return nil, echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to fetch databases in project ID: %v", issueCreate.ProjectID)).SetInternal(err)
 	}
-	databaseMap := make(map[int]*store.DatabaseMessage)
-	for _, database := range databases {
-		databaseMap[database.UID] = database
+	allDatabasesMap := make(map[int]*store.DatabaseMessage)
+	for _, database := range allDatabases {
+		allDatabasesMap[database.UID] = database
 	}
 
 	if databaseIDCount == 0 {
-		// Deploy to all tenant databases.
 		migrationDetail := c.DetailList[0]
-		matrix, err := utils.GetDatabaseMatrixFromDeploymentSchedule(deploySchedule, databases)
-		if err != nil {
-			return nil, echo.NewHTTPError(http.StatusInternalServerError, "Failed to build deployment pipeline").SetInternal(err)
+		var matrix [][]*store.DatabaseMessage
+		if migrationDetail.DatabaseGroupName != "" {
+			// If users use grouping to make batch changes, we split the statements entered by the users into multiple statement,
+			// each statement will be considered to belong to **at most one table group**. And then, this one statement will be rendered by the
+			// table group into `M` different statements (M is the number of tables in the table group).
+			// We will generate a task for each (database, table).
+			// This means that, assuming the database group has `N` databases and the database group contains `M` table groups,
+			// and each table group has `K` tables on average, we will generate at most `M * K + N` tasks.
+			if !s.licenseService.IsFeatureEnabled(api.FeatureDatabaseGrouping) {
+				return nil, echo.NewHTTPError(http.StatusForbidden, api.FeatureDatabaseGrouping.AccessErrorMessage())
+			}
+			parts := strings.Split(migrationDetail.DatabaseGroupName, "/")
+			if len(parts) != 4 {
+				return nil, echo.NewHTTPError(http.StatusBadRequest, "Invalid database group name")
+			}
+			projectResourceID, databaseGroupResourceID := parts[1], parts[3]
+			if project.ResourceID != projectResourceID {
+				return nil, echo.NewHTTPError(http.StatusBadRequest, "Invalid database group name")
+			}
+			databaseGroup, err := s.store.GetDatabaseGroup(ctx, &store.FindDatabaseGroupMessage{ProjectUID: &project.UID, ResourceID: &databaseGroupResourceID})
+			if err != nil {
+				return nil, err
+			}
+			if databaseGroup == nil {
+				return nil, echo.NewHTTPError(http.StatusBadRequest, "Invalid database group name")
+			}
+
+			storeSchemaGroups, err := s.store.ListSchemaGroups(ctx, &store.FindSchemaGroupMessage{DatabaseGroupUID: &databaseGroup.UID})
+			if err != nil {
+				return nil, err
+			}
+			schemaGroups = append(schemaGroups, storeSchemaGroups...)
+			matches, _, err := getMatchedAndUnmatchedDatabases(ctx, databaseGroup, allDatabases)
+			if err != nil {
+				return nil, err
+			}
+			// Currently, database group are n:1 mapping to environment, so we only need to deploy to one environment.
+			matrix = [][]*store.DatabaseMessage{
+				matches,
+			}
+			aggregatedMatrix = matrix
+		} else {
+			// Deploy to all tenant databases.
+			matrix, err = utils.GetDatabaseMatrixFromDeploymentSchedule(deploySchedule, allDatabases)
+			if err != nil {
+				return nil, echo.NewHTTPError(http.StatusInternalServerError, "Failed to build deployment pipeline").SetInternal(err)
+			}
+			aggregatedMatrix = matrix
 		}
-		aggregatedMatrix = matrix
 		for _, databaseList := range matrix {
 			for _, database := range databaseList {
 				// There should be only one migration per database for tenant mode deployment.
@@ -847,20 +1025,16 @@ func (s *Server) getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx context.Con
 		}
 	} else {
 		for _, d := range c.DetailList {
-			database, ok := databaseMap[d.DatabaseID]
+			database, ok := allDatabasesMap[d.DatabaseID]
 			if !ok {
 				return nil, echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("Database ID %d not found in project %d", d.DatabaseID, issueCreate.ProjectID))
 			}
-			instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{EnvironmentID: &database.EnvironmentID, ResourceID: &database.InstanceID})
+			instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{ResourceID: &database.InstanceID})
 			if err != nil {
 				return nil, err
 			}
 			if instance == nil {
 				return nil, echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("instance not found for database %v", d.DatabaseID))
-			}
-			if instance.Engine == db.MongoDB && d.MigrationType != db.Data && d.MigrationType != db.Baseline {
-				// We disallow user to create non-data migration for MongoDB.
-				return nil, echo.NewHTTPError(http.StatusBadRequest, "Cannot create non-data migration for MongoDB, consider using data migration(DML) instead.")
 			}
 			matrix, err := utils.GetDatabaseMatrixFromDeploymentSchedule(deploySchedule, []*store.DatabaseMessage{database})
 			if err != nil {
@@ -909,10 +1083,7 @@ func (s *Server) getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx context.Con
 				schemaVersion := common.DefaultMigrationVersion()
 				migrationDetailList := databaseToMigrationList[database.UID]
 				for _, migrationDetail := range migrationDetailList {
-					instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
-						EnvironmentID: &database.EnvironmentID,
-						ResourceID:    &database.InstanceID,
-					})
+					instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{ResourceID: &database.InstanceID})
 					if err != nil {
 						return nil, err
 					}
@@ -945,6 +1116,7 @@ func (s *Server) getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx context.Con
 	create := &api.PipelineCreate{
 		Name: "Change database pipeline",
 	}
+
 	for i, databaseList := range aggregatedMatrix {
 		// Skip the stage if the stage includes no database.
 		if len(databaseList) == 0 {
@@ -958,7 +1130,7 @@ func (s *Server) getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx context.Con
 				return nil, echo.NewHTTPError(http.StatusInternalServerError, "all databases in a stage should have the same environment")
 			}
 			environmentID = database.EnvironmentID
-			instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{EnvironmentID: &database.EnvironmentID, ResourceID: &database.InstanceID})
+			instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{ResourceID: &database.InstanceID})
 			if err != nil {
 				return nil, err
 			}
@@ -970,15 +1142,210 @@ func (s *Server) getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx context.Con
 			sort.Slice(migrationDetailList, func(i, j int) bool {
 				return migrationDetailList[i].SchemaVersion < migrationDetailList[j].SchemaVersion
 			})
-			for i := 0; i < len(migrationDetailList)-1; i++ {
-				taskIndexDAGList = append(taskIndexDAGList, api.TaskIndexDAG{FromIndex: len(taskCreateList) + i, ToIndex: len(taskCreateList) + i + 1})
-			}
-			for _, migrationDetail := range migrationDetailList {
-				taskCreate, err := getUpdateTask(database, instance, c.VCSPushEvent, migrationDetail, getOrDefaultSchemaVersion(migrationDetail))
-				if err != nil {
-					return nil, err
+			if isGroupingChange {
+				if issueCreate.ValidateOnly {
+					dbSchema, err := s.store.GetDBSchema(ctx, database.UID)
+					if err != nil {
+						return nil, echo.NewHTTPError(http.StatusInternalServerError, "Failed to get database schema").SetInternal(err)
+					}
+					schemaGroupsToMatchedTableNames := make(map[string][]string)
+					tableToTaskStatement := make(map[string]*strings.Builder)
+					// Empty table name means the statement is not matched to any table group.
+					tableToTaskStatement[""] = &strings.Builder{}
+					tableToSchemaGroupName := make(map[string]string)
+					for _, schemaGroup := range schemaGroups {
+						matches, _, err := getMatchesAndUnmatchedTables(ctx, dbSchema, schemaGroup)
+						if err != nil {
+							return nil, err
+						}
+						databaseGroup, err := s.store.GetDatabaseGroup(ctx, &store.FindDatabaseGroupMessage{
+							UID: &schemaGroup.DatabaseGroupUID,
+						})
+						if err != nil {
+							return nil, err
+						}
+						if databaseGroup == nil {
+							return nil, echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("cannot find database group with uid %d", schemaGroup.DatabaseGroupUID))
+						}
+						for _, tableName := range matches {
+							tableToSchemaGroupName[tableName] = fmt.Sprintf("databaseGroups/%s/schemaGroups/%s", databaseGroup.ResourceID, schemaGroup.ResourceID)
+							tableToTaskStatement[tableName] = &strings.Builder{}
+						}
+						if err != nil {
+							return nil, err
+						}
+						// Placeholder is unique in the same database group parent, so we can use it as the key.
+						schemaGroupsToMatchedTableNames[schemaGroup.Placeholder] = matches
+					}
+
+					// For grouping batch change, the migration detail list must contain only one migration detail.
+					// TODO(zp): Can we move the logic of rendering statement from here to generate multiple detail list?
+					if len(migrationDetailList) != 1 {
+						return nil, echo.NewHTTPError(http.StatusInternalServerError, "Migration detail list should contain only one migration detail for grouping batch change")
+					}
+					migrationDetail := migrationDetailList[0]
+					originalStatement := migrationDetail.Statement
+					if originalStatement == "" {
+						return nil, echo.NewHTTPError(http.StatusBadRequest, "The statement of migration detail should not be empty")
+					}
+					parserEngineType, err := convertDatabaseToParserEngineType(instance.Engine)
+					if err != nil {
+						return nil, echo.NewHTTPError(http.StatusBadRequest, "Failed to convert database engine type").SetInternal(err)
+					}
+					singleStatements, err := parser.SplitMultiSQL(parserEngineType, originalStatement)
+					if err != nil {
+						return nil, echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Cannot split statements to multiple SQL, please check your SQL syntax. Error: %s", err.Error()))
+					}
+					if len(singleStatements) == 0 {
+						return nil, echo.NewHTTPError(http.StatusBadRequest, "There should be at least one non-empty statement provided")
+					}
+
+					var prevSchemaGroup *store.SchemaGroupMessage
+					var emptyStatementsBuffer strings.Builder
+					var taskCreateListGroup [][]api.TaskCreate
+					var taskIndexDAGListGroup [][]api.TaskIndexDAG
+					for _, singleStatement := range singleStatements {
+						// We don't want empty statements(likes comments) to be involved in the match/replace SchemaGroup operation. We will
+						// put them in the next valid statement.
+						if singleStatement.Empty {
+							if _, err := emptyStatementsBuffer.Write([]byte(singleStatement.Text)); err != nil {
+								return nil, echo.NewHTTPError(http.StatusInternalServerError, "Cannot write to string builder")
+							}
+							continue
+						}
+						// If singleStatement contains the schema table placeholder, we regard it belongs to this table group.
+						match := false
+						for _, schemaGroup := range schemaGroups {
+							if strings.Contains(singleStatement.Text, schemaGroup.Placeholder) {
+								// Current statement belongs to another schemaGroup, we should flush the statement buf to the prevSchemaGroup.
+								if ((prevSchemaGroup == nil) != (schemaGroup == nil)) || (prevSchemaGroup != nil && schemaGroup.ResourceID != prevSchemaGroup.ResourceID) {
+									taskCreates, err := flushGroupingDatabaseTaskToTaskCreate(&emptyStatementsBuffer, tableToTaskStatement, tableToSchemaGroupName, database, instance, c.VCSPushEvent, migrationDetail)
+									emptyStatementsBuffer.Reset()
+									if err != nil {
+										return nil, echo.NewHTTPError(http.StatusInternalServerError, "Failed to flush grouping database task to task create").SetInternal(err)
+									}
+									var tempTaskIndexDAGList []api.TaskIndexDAG
+									for i := 0; i < len(taskCreates)-1; i++ {
+										tempTaskIndexDAGList = append(tempTaskIndexDAGList, api.TaskIndexDAG{FromIndex: len(taskCreateList) + i, ToIndex: len(taskCreateList) + i + 1})
+									}
+									taskIndexDAGListGroup = append(taskIndexDAGListGroup, tempTaskIndexDAGList)
+									taskCreateListGroup = append(taskCreateListGroup, taskCreates)
+								}
+								prevSchemaGroup = schemaGroup
+								// Iterate the matches tables in this physical database and render the statement.
+								for _, tableName := range schemaGroupsToMatchedTableNames[schemaGroup.Placeholder] {
+									newStatement := strings.ReplaceAll(singleStatement.Text, schemaGroup.Placeholder, tableName)
+									if _, err := tableToTaskStatement[tableName].Write([]byte(newStatement)); err != nil {
+										return nil, echo.NewHTTPError(http.StatusInternalServerError, "Cannot write to string builder")
+									}
+									if _, err := tableToTaskStatement[tableName].Write([]byte("\n")); err != nil {
+										return nil, echo.NewHTTPError(http.StatusInternalServerError, "Cannot write to string builder")
+									}
+								}
+								match = true
+								break
+							}
+						}
+						if !match {
+							if prevSchemaGroup != nil {
+								taskCreates, err := flushGroupingDatabaseTaskToTaskCreate(&emptyStatementsBuffer, tableToTaskStatement, tableToSchemaGroupName, database, instance, c.VCSPushEvent, migrationDetail)
+								emptyStatementsBuffer.Reset()
+								if err != nil {
+									return nil, echo.NewHTTPError(http.StatusInternalServerError, "Failed to flush grouping database task to task create").SetInternal(err)
+								}
+								var tempTaskIndexDAGList []api.TaskIndexDAG
+								for i := 0; i < len(taskCreates)-1; i++ {
+									tempTaskIndexDAGList = append(tempTaskIndexDAGList, api.TaskIndexDAG{FromIndex: len(taskCreateList) + i, ToIndex: len(taskCreateList) + i + 1})
+								}
+								taskIndexDAGListGroup = append(taskIndexDAGListGroup, tempTaskIndexDAGList)
+								taskCreateListGroup = append(taskCreateListGroup, taskCreates)
+							}
+							prevSchemaGroup = nil
+							if _, err := tableToTaskStatement[""].Write([]byte(emptyStatementsBuffer.String())); err != nil {
+								return nil, echo.NewHTTPError(http.StatusInternalServerError, "Cannot write to string builder")
+							}
+							emptyStatementsBuffer.Reset()
+							if _, err := tableToTaskStatement[""].Write([]byte(singleStatement.Text)); err != nil {
+								return nil, echo.NewHTTPError(http.StatusInternalServerError, "Cannot write to string builder")
+							}
+							if _, err := tableToTaskStatement[""].Write([]byte("\n")); err != nil {
+								return nil, echo.NewHTTPError(http.StatusInternalServerError, "Cannot write to string builder")
+							}
+						}
+					}
+					// Flush the last statement.
+					taskCreates, err := flushGroupingDatabaseTaskToTaskCreate(&emptyStatementsBuffer, tableToTaskStatement, tableToSchemaGroupName, database, instance, c.VCSPushEvent, migrationDetail)
+					emptyStatementsBuffer.Reset()
+					if err != nil {
+						return nil, echo.NewHTTPError(http.StatusInternalServerError, "Failed to flush grouping database task to task create").SetInternal(err)
+					}
+					var tempTaskIndexDAGList []api.TaskIndexDAG
+					for i := 0; i < len(taskCreates)-1; i++ {
+						tempTaskIndexDAGList = append(tempTaskIndexDAGList, api.TaskIndexDAG{FromIndex: len(taskCreateList) + i, ToIndex: len(taskCreateList) + i + 1})
+					}
+					taskIndexDAGListGroup = append(taskIndexDAGListGroup, tempTaskIndexDAGList)
+					taskCreateListGroup = append(taskCreateListGroup, taskCreates)
+
+					// If there is no previous task group, it means that there is no any non-empty statement, we should report an error.
+					if len(taskCreateListGroup) == 0 {
+						return nil, echo.NewHTTPError(http.StatusBadRequest, "There should be at least one non-empty statement provided")
+					}
+					// If the last statement is empty, and there are no non-empty statement following it, we should put the
+					// empty statement in the previous task group.
+					if emptyStatementsBuffer.Len() > 0 {
+						lastTaskCreateList := taskCreateListGroup[len(taskCreateListGroup)-1]
+						for i := 0; i < len(lastTaskCreateList); i++ {
+							lastTaskCreateList[i].Statement += emptyStatementsBuffer.String()
+						}
+					}
+
+					// Flatten taskCreateListGroup and taskIndexDAGListGroup to taskCreateList and taskIndexDAGList.
+					for _, taskCreateListEle := range taskCreateListGroup {
+						taskCreateList = append(taskCreateList, taskCreateListEle...)
+					}
+					for _, taskIndexDAGListEle := range taskIndexDAGListGroup {
+						taskIndexDAGList = append(taskIndexDAGList, taskIndexDAGListEle...)
+					}
+				} else {
+					// Create grouping batch change issue.
+					for i := 0; i < len(migrationDetailList)-1; i++ {
+						taskIndexDAGList = append(taskIndexDAGList, api.TaskIndexDAG{FromIndex: len(taskCreateList) + i, ToIndex: len(taskCreateList) + i + 1})
+					}
+					for migrationDetailIdx, migrationDetail := range migrationDetailList {
+						// CreateSheetV2 for each migration detail.
+						sheet, err := s.store.CreateSheetV2(ctx, &store.SheetMessage{
+							ProjectUID:  project.UID,
+							DatabaseUID: &migrationDetail.DatabaseID,
+							CreatorID:   creatorID,
+							Statement:   migrationDetail.Statement,
+							Visibility:  api.ProjectSheet,
+							Source:      api.SheetFromBytebaseArtifact,
+							Type:        api.SheetForSQL,
+							Payload:     "",
+						})
+						if err != nil {
+							return nil, err
+						}
+						newMigrationDetail := *migrationDetail
+						newMigrationDetail.SheetID = sheet.UID
+						taskCreate, err := getUpdateTask(database, instance, c.VCSPushEvent, &newMigrationDetail, getOrDefaultSchemaVersionWithSuffix(&newMigrationDetail, fmt.Sprintf("-%03d", migrationDetailIdx)), migrationDetail.SchemaGroupName)
+						if err != nil {
+							return nil, err
+						}
+						taskCreateList = append(taskCreateList, taskCreate)
+					}
 				}
-				taskCreateList = append(taskCreateList, taskCreate)
+			} else {
+				for i := 0; i < len(migrationDetailList)-1; i++ {
+					taskIndexDAGList = append(taskIndexDAGList, api.TaskIndexDAG{FromIndex: len(taskCreateList) + i, ToIndex: len(taskCreateList) + i + 1})
+				}
+				for _, migrationDetail := range migrationDetailList {
+					taskCreate, err := getUpdateTask(database, instance, c.VCSPushEvent, migrationDetail, getOrDefaultSchemaVersion(migrationDetail), "")
+					if err != nil {
+						return nil, err
+					}
+					taskCreateList = append(taskCreateList, taskCreate)
+				}
 			}
 		}
 
@@ -996,6 +1363,49 @@ func (s *Server) getPipelineCreateForDatabaseSchemaAndDataUpdate(ctx context.Con
 	return create, nil
 }
 
+func flushGroupingDatabaseTaskToTaskCreate(statementPrefix *strings.Builder, table2TaskStatement map[string]*strings.Builder, table2SchemaGroupName map[string]string, database *store.DatabaseMessage, instance *store.InstanceMessage, pushEvent *vcs.PushEvent, migrationDetail *api.MigrationDetail) ([]api.TaskCreate, error) {
+	var taskCreateList []api.TaskCreate
+	idx := 0
+	for tableName, statement := range table2TaskStatement {
+		if statement.Len() == 0 {
+			continue
+		}
+		newMigrationDetail := *migrationDetail
+		statementWithPrefix := statementPrefix.String() + statement.String()
+		statement.Reset()
+		newMigrationDetail.Statement = statementWithPrefix
+		taskCreate, err := getUpdateTask(database, instance, pushEvent, &newMigrationDetail, getOrDefaultSchemaVersionWithSuffix(&newMigrationDetail, fmt.Sprintf("-%03d", idx)), table2SchemaGroupName[tableName])
+		if err != nil {
+			return nil, err
+		}
+		taskCreateList = append(taskCreateList, taskCreate)
+		idx++
+	}
+	return taskCreateList, nil
+}
+
+func convertDatabaseToParserEngineType(engine db.Type) (parser.EngineType, error) {
+	switch engine {
+	case db.Oracle:
+		return parser.Oracle, nil
+	case db.MSSQL:
+		return parser.MSSQL, nil
+	case db.Postgres:
+		return parser.Postgres, nil
+	case db.Redshift:
+		return parser.Redshift, nil
+	case db.MySQL:
+		return parser.MySQL, nil
+	case db.TiDB:
+		return parser.TiDB, nil
+	case db.MariaDB:
+		return parser.MariaDB, nil
+	case db.OceanBase:
+		return parser.OceanBase, nil
+	}
+	return parser.EngineType("UNKNOWN"), errors.Errorf("unsupported engine type %q", engine)
+}
+
 func getOrDefaultSchemaVersion(detail *api.MigrationDetail) string {
 	if detail.SchemaVersion != "" {
 		return detail.SchemaVersion
@@ -1003,7 +1413,14 @@ func getOrDefaultSchemaVersion(detail *api.MigrationDetail) string {
 	return common.DefaultMigrationVersion()
 }
 
-func getUpdateTask(database *store.DatabaseMessage, instance *store.InstanceMessage, vcsPushEvent *vcs.PushEvent, d *api.MigrationDetail, schemaVersion string) (api.TaskCreate, error) {
+func getOrDefaultSchemaVersionWithSuffix(detail *api.MigrationDetail, suffix string) string {
+	if detail.SchemaVersion != "" {
+		return detail.SchemaVersion + suffix
+	}
+	return common.DefaultMigrationVersion() + suffix
+}
+
+func getUpdateTask(database *store.DatabaseMessage, instance *store.InstanceMessage, vcsPushEvent *vcs.PushEvent, d *api.MigrationDetail, schemaVersion string, schemaGroupName string) (api.TaskCreate, error) {
 	var taskName string
 	var taskType api.TaskType
 
@@ -1024,10 +1441,10 @@ func getUpdateTask(database *store.DatabaseMessage, instance *store.InstanceMess
 		taskName = fmt.Sprintf("DDL(schema) for database %q", database.DatabaseName)
 		taskType = api.TaskDatabaseSchemaUpdate
 		payload := api.TaskDatabaseSchemaUpdatePayload{
-			Statement:     d.Statement,
-			SheetID:       d.SheetID,
-			SchemaVersion: schemaVersion,
-			VCSPushEvent:  vcsPushEvent,
+			SheetID:         d.SheetID,
+			SchemaVersion:   schemaVersion,
+			VCSPushEvent:    vcsPushEvent,
+			SchemaGroupName: schemaGroupName,
 		}
 		bytes, err := json.Marshal(payload)
 		if err != nil {
@@ -1038,7 +1455,6 @@ func getUpdateTask(database *store.DatabaseMessage, instance *store.InstanceMess
 		taskName = fmt.Sprintf("SDL for database %q", database.DatabaseName)
 		taskType = api.TaskDatabaseSchemaUpdateSDL
 		payload := api.TaskDatabaseSchemaUpdateSDLPayload{
-			Statement:     d.Statement,
 			SheetID:       d.SheetID,
 			SchemaVersion: schemaVersion,
 			VCSPushEvent:  vcsPushEvent,
@@ -1052,12 +1468,12 @@ func getUpdateTask(database *store.DatabaseMessage, instance *store.InstanceMess
 		taskName = fmt.Sprintf("DML(data) for database %q", database.DatabaseName)
 		taskType = api.TaskDatabaseDataUpdate
 		payload := api.TaskDatabaseDataUpdatePayload{
-			Statement:         d.Statement,
 			SheetID:           d.SheetID,
 			SchemaVersion:     schemaVersion,
 			VCSPushEvent:      vcsPushEvent,
 			RollbackEnabled:   d.RollbackEnabled,
 			RollbackSQLStatus: api.RollbackSQLStatusPending,
+			SchemaGroupName:   schemaGroupName,
 		}
 		if d.RollbackDetail != nil {
 			payload.RollbackFromIssueID = d.RollbackDetail.IssueID
@@ -1078,9 +1494,9 @@ func getUpdateTask(database *store.DatabaseMessage, instance *store.InstanceMess
 		DatabaseID:        &database.UID,
 		Status:            api.TaskPendingApproval,
 		Type:              taskType,
-		Statement:         d.Statement,
 		EarliestAllowedTs: d.EarliestAllowedTs,
 		Payload:           payloadString,
+		Statement:         d.Statement,
 	}, nil
 }
 
@@ -1121,11 +1537,11 @@ func (s *Server) createDatabaseCreateTaskList(ctx context.Context, c api.CreateD
 	case db.Snowflake:
 		// Snowflake needs to use upper case of DatabaseName.
 		databaseName = strings.ToUpper(databaseName)
-	case db.MySQL, db.MariaDB:
+	case db.MySQL, db.MariaDB, db.OceanBase:
 		// For MySQL, we need to use different case of DatabaseName depends on the variable `lower_case_table_names`.
 		// https://dev.mysql.com/doc/refman/8.0/en/identifier-case-sensitivity.html
 		// And also, meet an error in here is not a big deal, we will just use the original DatabaseName.
-		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, "" /* databaseName */)
+		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, nil /* database */)
 		if err != nil {
 			log.Warn("failed to get admin database driver for instance %q, please check the connection for admin data source", zap.Error(err), zap.String("instance", instance.Title))
 			break
@@ -1147,6 +1563,20 @@ func (s *Server) createDatabaseCreateTaskList(ctx context.Context, c api.CreateD
 	if err != nil {
 		return nil, err
 	}
+	sheet, err := s.store.CreateSheetV2(ctx, &store.SheetMessage{
+		CreatorID:  api.SystemBotID,
+		ProjectUID: project.UID,
+		Name:       fmt.Sprintf("Sheet for creating database %v", databaseName),
+		Statement:  statement,
+		Visibility: api.ProjectSheet,
+		Source:     api.SheetFromBytebaseArtifact,
+		Type:       api.SheetForSQL,
+		Payload:    "{}",
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create database creation sheet")
+	}
+
 	payload := api.TaskDatabaseCreatePayload{
 		ProjectID:    project.UID,
 		CharacterSet: c.CharacterSet,
@@ -1154,7 +1584,7 @@ func (s *Server) createDatabaseCreateTaskList(ctx context.Context, c api.CreateD
 		Collation:    c.Collation,
 		Labels:       c.Labels,
 		DatabaseName: databaseName,
-		Statement:    statement,
+		SheetID:      sheet.UID,
 	}
 	bytes, err := json.Marshal(payload)
 	if err != nil {
@@ -1258,7 +1688,7 @@ func (s *Server) createPITRTaskList(ctx context.Context, originDatabase *store.D
 func getCreateDatabaseStatement(dbType db.Type, createDatabaseContext api.CreateDatabaseContext, databaseName, adminDatasourceUser string) (string, error) {
 	var stmt string
 	switch dbType {
-	case db.MySQL, db.TiDB, db.MariaDB:
+	case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 		return fmt.Sprintf("CREATE DATABASE `%s` CHARACTER SET %s COLLATE %s;", databaseName, createDatabaseContext.CharacterSet, createDatabaseContext.Collation), nil
 	case db.MSSQL:
 		return fmt.Sprintf(`CREATE DATABASE "%s";`, databaseName), nil
@@ -1326,7 +1756,7 @@ func createGhostTaskList(database *store.DatabaseMessage, instance *store.Instan
 	var taskCreateList []api.TaskCreate
 	// task "sync"
 	payloadSync := api.TaskDatabaseSchemaUpdateGhostSyncPayload{
-		Statement:     detail.Statement,
+		SheetID:       detail.SheetID,
 		SchemaVersion: schemaVersion,
 		VCSPushEvent:  vcsPushEvent,
 	}
@@ -1340,7 +1770,6 @@ func createGhostTaskList(database *store.DatabaseMessage, instance *store.Instan
 		DatabaseID:        &database.UID,
 		Status:            api.TaskPendingApproval,
 		Type:              api.TaskDatabaseSchemaUpdateGhostSync,
-		Statement:         detail.Statement,
 		EarliestAllowedTs: detail.EarliestAllowedTs,
 		Payload:           string(bytesSync),
 	})
@@ -1420,8 +1849,9 @@ func checkCharacterSetCollationOwner(dbType db.Type, characterSet, collation, ow
 }
 
 func (s *Server) setTaskProgressForIssue(issue *api.Issue) {
-	if s.TaskScheduler == nil {
+	if s.TaskScheduler == nil || issue.Pipeline == nil {
 		// readonly server doesn't have a TaskScheduler.
+		// Skip issues without pipelines.
 		return
 	}
 	for _, stage := range issue.Pipeline.StageList {
@@ -1478,4 +1908,73 @@ func convertDatabaseLabels(labelsJSON string) ([]*api.DatabaseLabel, error) {
 		return nil, echo.NewHTTPError(http.StatusBadRequest, err.Error()).SetInternal(err)
 	}
 	return labels, nil
+}
+
+// TODO(zp): keep this function as same as the one in the project_service.go.
+func getMatchedAndUnmatchedDatabases(ctx context.Context, databaseGroup *store.DatabaseGroupMessage, allDatabases []*store.DatabaseMessage) ([]*store.DatabaseMessage, []*store.DatabaseMessage, error) {
+	prog, err := common.ValidateGroupCELExpr(databaseGroup.Expression.Expression)
+	if err != nil {
+		return nil, nil, err
+	}
+	var matches []*store.DatabaseMessage
+	var unmatches []*store.DatabaseMessage
+
+	for _, database := range allDatabases {
+		res, _, err := prog.ContextEval(ctx, map[string]any{
+			"resource": map[string]any{
+				"database_name":    database.DatabaseName,
+				"environment_name": fmt.Sprintf("%s%s", "environments/", database.EnvironmentID),
+				"instance_id":      database.InstanceID,
+			},
+		})
+		if err != nil {
+			return nil, nil, status.Errorf(codes.Internal, err.Error())
+		}
+
+		val, err := res.ConvertToNative(reflect.TypeOf(false))
+		if err != nil {
+			return nil, nil, status.Errorf(codes.Internal, "expect bool result")
+		}
+		if boolVal, ok := val.(bool); ok && boolVal {
+			matches = append(matches, database)
+		} else {
+			unmatches = append(unmatches, database)
+		}
+	}
+	return matches, unmatches, nil
+}
+
+func getMatchesAndUnmatchedTables(ctx context.Context, dbSchema *store.DBSchema, schemaGroup *store.SchemaGroupMessage) ([]string, []string, error) {
+	prog, err := common.ValidateGroupCELExpr(schemaGroup.Expression.Expression)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var matched []string
+	var unmatched []string
+
+	for _, schema := range dbSchema.Metadata.Schemas {
+		for _, table := range schema.Tables {
+			res, _, err := prog.ContextEval(ctx, map[string]any{
+				"resource": map[string]any{
+					"table_name": table.Name,
+				},
+			})
+			if err != nil {
+				return nil, nil, status.Errorf(codes.Internal, err.Error())
+			}
+
+			val, err := res.ConvertToNative(reflect.TypeOf(false))
+			if err != nil {
+				return nil, nil, status.Errorf(codes.Internal, "expect bool result")
+			}
+
+			if boolVal, ok := val.(bool); ok && boolVal {
+				matched = append(matched, table.Name)
+			} else {
+				unmatched = append(unmatched, table.Name)
+			}
+		}
+	}
+	return matched, unmatched, nil
 }

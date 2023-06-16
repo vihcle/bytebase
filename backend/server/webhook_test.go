@@ -10,6 +10,7 @@ import (
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/vcs"
+	"github.com/bytebase/bytebase/backend/store"
 )
 
 // TODO(d): fix the double underscore "__".
@@ -137,13 +138,13 @@ func TestVCSSQLReview_ConvertSQLAdviceToGitLabCIResult(t *testing.T) {
 		`<?xml version="1.0" encoding="UTF-8"?>
 <testsuites name="SQL Review">
 <testsuite name="file1.sql">
-<testcase name="file1.sql#L1: column.no-null" classname="file1.sql" file="file1.sql#L1">
+<testcase name="[WARN] file1.sql#L1: column.no-null" classname="file1.sql" file="file1.sql#L1">
 <failure>
 Error: Column "id" in "public"."book" cannot have NULL value.
 You can check the docs at https://www.bytebase.com/docs/reference/error-code/advisor#402
 </failure>
 </testcase>
-<testcase name="file1.sql#L2: naming.index.idx" classname="file1.sql" file="file1.sql#L2">
+<testcase name="[ERROR] file1.sql#L2: naming.index.idx" classname="file1.sql" file="file1.sql#L2">
 <failure>
 Error: Index in table "tech_book" mismatches the naming convention, expect "^$|^idx_tech_book_id_name$" but found "tech_book_id_name".
 You can check the docs at https://www.bytebase.com/docs/reference/error-code/advisor#303
@@ -151,13 +152,13 @@ You can check the docs at https://www.bytebase.com/docs/reference/error-code/adv
 </testcase>
 </testsuite>
 <testsuite name="file2.sql">
-<testcase name="file2.sql#L1: naming.table" classname="file2.sql" file="file2.sql#L1">
+<testcase name="[WARN] file2.sql#L1: naming.table" classname="file2.sql" file="file2.sql#L1">
 <failure>
 Error: "techBook" mismatches table naming convention, naming format should be "^[a-z]+(_[a-z]+)*$".
 You can check the docs at https://www.bytebase.com/docs/reference/error-code/advisor#301
 </failure>
 </testcase>
-<testcase name="file2.sql#L4: naming.index.uk" classname="file2.sql" file="file2.sql#L4">
+<testcase name="[ERROR] file2.sql#L4: naming.index.uk" classname="file2.sql" file="file2.sql#L4">
 <failure>
 Error: Unique key in table "tech_book" mismatches the naming convention, expect "^$|^uk_tech_book_id_name$" but found "tech_book_id_name".
 You can check the docs at https://www.bytebase.com/docs/reference/error-code/advisor#304
@@ -186,21 +187,24 @@ func TestVCSSQLReview_ConvertSQLAdviceToGitHubActionResult(t *testing.T) {
 
 func TestGetFileInfo(t *testing.T) {
 	t.Run("a SQL format DDL", func(t *testing.T) {
-		mi, fileType, repo, err := getFileInfo(
+		mi, fileType, repoInfo, err := getFileInfo(
 			vcs.DistinctFileItem{
 				FileName: "db##0001##migrate.sql",
 				ItemType: vcs.FileItemTypeAdded,
 			},
-			[]*api.Repository{
+			[]*repoInfo{
 				{
-					ID:               1,
-					Project:          &api.Project{},
-					FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					repository: &store.RepositoryMessage{
+						UID:              1,
+						FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					},
+					project: &store.ProjectMessage{},
+					vcs:     &store.ExternalVersionControlMessage{},
 				},
 			},
 		)
 		require.NoError(t, err)
-		assert.Equal(t, 1, repo.ID)
+		assert.Equal(t, 1, repoInfo.repository.UID)
 		assert.Equal(t, fileTypeMigration, fileType)
 
 		want := &db.MigrationInfo{
@@ -215,21 +219,24 @@ func TestGetFileInfo(t *testing.T) {
 	})
 
 	t.Run("a SQL format DML", func(t *testing.T) {
-		mi, fileType, repo, err := getFileInfo(
+		mi, fileType, repoInfo, err := getFileInfo(
 			vcs.DistinctFileItem{
 				FileName: "db##0001##data.sql",
 				ItemType: vcs.FileItemTypeAdded,
 			},
-			[]*api.Repository{
+			[]*repoInfo{
 				{
-					ID:               1,
-					Project:          &api.Project{},
-					FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					repository: &store.RepositoryMessage{
+						UID:              1,
+						FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					},
+					project: &store.ProjectMessage{},
+					vcs:     &store.ExternalVersionControlMessage{},
 				},
 			},
 		)
 		require.NoError(t, err)
-		assert.Equal(t, 1, repo.ID)
+		assert.Equal(t, 1, repoInfo.repository.UID)
 		assert.Equal(t, fileTypeMigration, fileType)
 
 		want := &db.MigrationInfo{
@@ -244,24 +251,27 @@ func TestGetFileInfo(t *testing.T) {
 	})
 
 	t.Run("a YAML format DML in a tenant project", func(t *testing.T) {
-		mi, fileType, repo, err := getFileInfo(
+		mi, fileType, repoInfo, err := getFileInfo(
 			vcs.DistinctFileItem{
 				FileName: "db##0001##data.yml",
 				ItemType: vcs.FileItemTypeAdded,
 				IsYAML:   true,
 			},
-			[]*api.Repository{
+			[]*repoInfo{
 				{
-					ID: 1,
-					Project: &api.Project{
+					repository: &store.RepositoryMessage{
+						UID:              1,
+						FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					},
+					project: &store.ProjectMessage{
 						TenantMode: api.TenantModeTenant,
 					},
-					FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					vcs: &store.ExternalVersionControlMessage{},
 				},
 			},
 		)
 		require.NoError(t, err)
-		assert.Equal(t, 1, repo.ID)
+		assert.Equal(t, 1, repoInfo.repository.UID)
 		assert.Equal(t, fileTypeMigration, fileType)
 
 		want := &db.MigrationInfo{
@@ -282,13 +292,16 @@ func TestGetFileInfo(t *testing.T) {
 				ItemType: vcs.FileItemTypeAdded,
 				IsYAML:   true,
 			},
-			[]*api.Repository{
+			[]*repoInfo{
 				{
-					ID: 1,
-					Project: &api.Project{
+					repository: &store.RepositoryMessage{
+						UID:              1,
+						FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					},
+					project: &store.ProjectMessage{
 						TenantMode: api.TenantModeTenant,
 					},
-					FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					vcs: &store.ExternalVersionControlMessage{},
 				},
 			},
 		)
@@ -301,12 +314,15 @@ func TestGetFileInfo(t *testing.T) {
 				FileName: "db##0001##migrate.sql",
 				ItemType: vcs.FileItemTypeAdded,
 			},
-			[]*api.Repository{
+			[]*repoInfo{
 				{
-					ID:               1,
-					Project:          &api.Project{},
-					BaseDirectory:    "bytebase",
-					FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					repository: &store.RepositoryMessage{
+						UID:              1,
+						BaseDirectory:    "bytebase",
+						FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					},
+					project: &store.ProjectMessage{},
+					vcs:     &store.ExternalVersionControlMessage{},
 				},
 			},
 		)
@@ -319,22 +335,56 @@ func TestGetFileInfo(t *testing.T) {
 				FileName: "db##0001##migrate.sql",
 				ItemType: vcs.FileItemTypeAdded,
 			},
-			[]*api.Repository{
+			[]*repoInfo{
 				{
-					ID: 1,
-					Project: &api.Project{
-						Name: "project-1",
+					repository: &store.RepositoryMessage{
+						UID:              1,
+						FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
 					},
-					FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
-				}, {
-					ID: 2,
-					Project: &api.Project{
-						Name: "project-2",
+					project: &store.ProjectMessage{
+						Title: "project-1",
 					},
-					FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					vcs: &store.ExternalVersionControlMessage{},
+				},
+				{
+					repository: &store.RepositoryMessage{
+						UID:              2,
+						FilePathTemplate: "{{DB_NAME}}##{{VERSION}}##{{TYPE}}.sql",
+					},
+					project: &store.ProjectMessage{
+						Title: "project-2",
+					},
+					vcs: &store.ExternalVersionControlMessage{},
 				},
 			},
 		)
 		require.EqualError(t, err, "file change should be associated with exactly one project but found project-1, project-2")
 	})
+}
+
+func TestExtractDBTypeFromJDBCConnectionString(t *testing.T) {
+	testCases := []struct {
+		jdbcConnectionString string
+		want                 db.Type
+		wantErr              bool
+	}{
+		{
+			jdbcConnectionString: "jdbc:mysql://localhost:3306/bytebase?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=UTC",
+			want:                 db.MySQL,
+		},
+		{
+			jdbcConnectionString: "jdbc:mysql+srv+loadbalance://localhost:3306/bytebase?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=UTC",
+			want:                 db.MySQL,
+		},
+		{
+			jdbcConnectionString: "jdbc:postgresql://localhost:5432/bytebase?currentSchema=public&sslmode=disable",
+			want:                 db.Postgres,
+		},
+	}
+
+	for _, tc := range testCases {
+		dbType, err := extractDBTypeFromJDBCConnectionString(tc.jdbcConnectionString)
+		require.NoError(t, err)
+		assert.Equal(t, tc.want, dbType)
+	}
 }

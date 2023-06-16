@@ -83,12 +83,11 @@
         />
         <ResourceIdField
           ref="resourceIdField"
-          resource="idp"
+          resource-type="idp"
           :readonly="!isCreating"
           :value="resourceId"
-          :random-string="true"
           :resource-title="identityProvider.title"
-          :validator="validateResourceId"
+          :validate="validateResourceId"
         />
       </div>
       <div class="w-full flex flex-col justify-start items-start">
@@ -240,6 +239,22 @@
           class="textfield mt-1 w-full"
           placeholder="e.g. https://api.github.com/user"
         />
+      </div>
+      <div class="w-full flex flex-col justify-start items-start">
+        <p class="textlabel">
+          {{ $t("settings.sso.form.connection-security") }}
+        </p>
+        <p class="textinfolabel mt-1">
+          <BBCheckbox
+            :title="$t('settings.sso.form.connection-security-skip-tls-verify')"
+            :v-model="configForOAuth2.skipTlsVerify"
+            :disabled="!allowEdit"
+            @toggle="
+              () =>
+                (configForOAuth2.skipTlsVerify = !configForOAuth2.skipTlsVerify)
+            "
+          />
+        </p>
       </div>
 
       <div class="w-full flex flex-col justify-start items-start">
@@ -396,6 +411,21 @@
               : $t('common.sensitive-placeholder')
           "
         />
+      </div>
+      <div class="w-full flex flex-col justify-start items-start">
+        <p class="textlabel">
+          {{ $t("settings.sso.form.connection-security") }}
+        </p>
+        <p class="textinfolabel mt-1">
+          <BBCheckbox
+            :title="$t('settings.sso.form.connection-security-skip-tls-verify')"
+            :value="configForOIDC.skipTlsVerify"
+            :disabled="!allowEdit"
+            @toggle="
+              () => (configForOIDC.skipTlsVerify = !configForOIDC.skipTlsVerify)
+            "
+          />
+        </p>
       </div>
 
       <div class="w-full flex flex-col justify-start items-start">
@@ -559,14 +589,14 @@ import {
   OIDCIdentityProviderConfig,
 } from "@/types/proto/v1/idp_service";
 import { useIdentityProviderStore } from "@/store/modules/idp";
-import { pushNotification, useActuatorStore } from "@/store";
+import { pushNotification, useActuatorV1Store } from "@/store";
 import {
   IdentityProviderTemplate,
   identityProviderTemplateList,
   identityProviderTypeToString,
   openWindowForSSO,
 } from "@/utils";
-import { OAuthWindowEventPayload, ResourceId } from "@/types";
+import { OAuthWindowEventPayload, ResourceId, ValidatedMessage } from "@/types";
 import { identityProviderClient } from "@/grpcweb";
 import { State } from "@/types/proto/v1/common";
 import { useRouter } from "vue-router";
@@ -574,7 +604,7 @@ import {
   getIdentityProviderResourceId,
   idpNamePrefix,
 } from "@/store/modules/v1/common";
-import ResourceIdField from "./ResourceIdField.vue";
+import ResourceIdField from "@/components/v2/Form/ResourceIdField.vue";
 import { getErrorCode } from "@/utils/grpcweb";
 
 interface LocalState {
@@ -621,11 +651,11 @@ const identityProviderTypeList = computed(() => {
 const redirectUrl = computed(() => {
   if (state.type === IdentityProviderType.OAUTH2) {
     return `${
-      useActuatorStore().serverInfo?.externalUrl || window.origin
+      useActuatorV1Store().serverInfo?.externalUrl || window.origin
     }/oauth/callback`;
   } else if (state.type === IdentityProviderType.OIDC) {
     return `${
-      useActuatorStore().serverInfo?.externalUrl || window.origin
+      useActuatorV1Store().serverInfo?.externalUrl || window.origin
     }/oidc/callback`;
   } else {
     throw new Error(`identity provider type ${state.type} is invalid`);
@@ -821,25 +851,34 @@ const copyRedirectUrl = () => {
   });
 };
 
-const validateResourceId = async (resourceId: ResourceId) => {
+const validateResourceId = async (
+  resourceId: ResourceId
+): Promise<ValidatedMessage[]> => {
   if (!resourceId) {
-    return;
+    return [];
   }
 
   try {
     const idp = await identityProviderStore.getOrFetchIdentityProviderByName(
-      idpNamePrefix + resourceId
+      idpNamePrefix + resourceId,
+      true /* silent */
     );
     if (idp) {
-      return t("resource-id.validation.duplicated", {
-        resource: t("resource.idp"),
-      });
+      return [
+        {
+          type: "error",
+          message: t("resource-id.validation.duplicated", {
+            resource: t("resource.idp"),
+          }),
+        },
+      ];
     }
   } catch (error) {
     if (getErrorCode(error) !== Status.NOT_FOUND) {
       throw error;
     }
   }
+  return [];
 };
 
 const testConnection = () => {

@@ -9,17 +9,18 @@ import (
 
 	"github.com/bytebase/bytebase/backend/component/dbfactory"
 	"github.com/bytebase/bytebase/backend/plugin/db"
-	"github.com/bytebase/bytebase/backend/plugin/parser"
-	"github.com/bytebase/bytebase/backend/plugin/parser/differ"
-	"github.com/bytebase/bytebase/backend/plugin/parser/transform"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/differ"
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/transform"
 	"github.com/bytebase/bytebase/backend/store"
 )
 
 // ComputeDatabaseSchemaDiff computes the diff between current database schema
 // and the given schema. It returns an empty string if there is no applicable
 // diff.
-func ComputeDatabaseSchemaDiff(ctx context.Context, instance *store.InstanceMessage, databaseName string, dbFactory *dbfactory.DBFactory, newSchema string) (string, error) {
-	driver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, databaseName)
+func ComputeDatabaseSchemaDiff(ctx context.Context, instance *store.InstanceMessage, database *store.DatabaseMessage, dbFactory *dbfactory.DBFactory, newSchema string) (string, error) {
+	driver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, database)
 	if err != nil {
 		return "", errors.Wrap(err, "get admin driver")
 	}
@@ -37,7 +38,7 @@ func ComputeDatabaseSchemaDiff(ctx context.Context, instance *store.InstanceMess
 	switch instance.Engine {
 	case db.Postgres:
 		engine = parser.Postgres
-	case db.MySQL, db.TiDB, db.MariaDB:
+	case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 		engine = parser.MySQL
 	default:
 		return "", errors.Errorf("unsupported database engine %q", instance.Engine)

@@ -58,6 +58,7 @@ export interface DeleteRoleRequest {
 export interface Role {
   /** Format: roles/{role} */
   name: string;
+  title: string;
   description: string;
 }
 
@@ -84,21 +85,21 @@ export const ListRolesRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 8) {
+          if (tag !== 8) {
             break;
           }
 
           message.pageSize = reader.int32();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.pageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -155,21 +156,21 @@ export const ListRolesResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.roles.push(Role.decode(reader, reader.uint32()));
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.nextPageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -230,21 +231,21 @@ export const CreateRoleRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.role = Role.decode(reader, reader.uint32());
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.roleId = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -301,21 +302,21 @@ export const UpdateRoleRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.role = Role.decode(reader, reader.uint32());
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.updateMask = FieldMask.unwrap(FieldMask.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -369,14 +370,14 @@ export const DeleteRoleRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -406,7 +407,7 @@ export const DeleteRoleRequest = {
 };
 
 function createBaseRole(): Role {
-  return { name: "", description: "" };
+  return { name: "", title: "", description: "" };
 }
 
 export const Role = {
@@ -414,8 +415,11 @@ export const Role = {
     if (message.name !== "") {
       writer.uint32(10).string(message.name);
     }
+    if (message.title !== "") {
+      writer.uint32(18).string(message.title);
+    }
     if (message.description !== "") {
-      writer.uint32(18).string(message.description);
+      writer.uint32(26).string(message.description);
     }
     return writer;
   },
@@ -428,21 +432,28 @@ export const Role = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.title = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
             break;
           }
 
           message.description = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -453,6 +464,7 @@ export const Role = {
   fromJSON(object: any): Role {
     return {
       name: isSet(object.name) ? String(object.name) : "",
+      title: isSet(object.title) ? String(object.title) : "",
       description: isSet(object.description) ? String(object.description) : "",
     };
   },
@@ -460,6 +472,7 @@ export const Role = {
   toJSON(message: Role): unknown {
     const obj: any = {};
     message.name !== undefined && (obj.name = message.name);
+    message.title !== undefined && (obj.title = message.title);
     message.description !== undefined && (obj.description = message.description);
     return obj;
   },
@@ -471,6 +484,7 @@ export const Role = {
   fromPartial(object: DeepPartial<Role>): Role {
     const message = createBaseRole();
     message.name = object.name ?? "";
+    message.title = object.title ?? "";
     message.description = object.description ?? "";
     return message;
   },

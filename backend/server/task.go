@@ -46,7 +46,7 @@ func (s *Server) registerTaskRoutes(g *echo.Group) {
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Issue not found with pipelineID: %d", pipelineID))
 		}
 
-		tasks, err := s.store.ListTasks(ctx, &api.TaskFind{PipelineID: &issue.PipelineUID})
+		tasks, err := s.store.ListTasks(ctx, &api.TaskFind{PipelineID: issue.PipelineUID})
 		if err != nil {
 			return err
 		}
@@ -64,7 +64,7 @@ func (s *Server) registerTaskRoutes(g *echo.Group) {
 		}
 
 		// dismiss stale review, re-find the approval template
-		if taskPatch.Statement != nil {
+		if taskPatch.SheetID != nil {
 			payloadBytes, err := protojson.Marshal(&storepb.IssuePayload{
 				Approval: &storepb.IssuePayloadApproval{
 					ApprovalFindingDone: false,
@@ -111,7 +111,7 @@ func (s *Server) registerTaskRoutes(g *echo.Group) {
 			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update task").SetInternal(err)
 		}
 		if task == nil {
-			return echo.NewHTTPError(http.StatusUnauthorized, fmt.Sprintf("Task ID not found: %d", taskID))
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Task ID not found: %d", taskID))
 		}
 
 		issue, err := s.store.GetIssueV2(ctx, &store.FindIssueMessage{PipelineID: &task.PipelineID})
@@ -120,13 +120,6 @@ func (s *Server) registerTaskRoutes(g *echo.Group) {
 		}
 		if issue == nil {
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Issue not found with pipelineID: %d", task.PipelineID))
-		}
-
-		if taskPatch.Statement != nil {
-			// Tenant mode project don't allow updating SQL statement for a single task.
-			if issue.Project.TenantMode == api.TenantModeTenant && (task.Type == api.TaskDatabaseSchemaUpdate || task.Type == api.TaskDatabaseSchemaUpdateSDL) {
-				return echo.NewHTTPError(http.StatusBadRequest, "cannot update SQL statement of a single task for projects in tenant mode")
-			}
 		}
 
 		if taskPatch.RollbackEnabled != nil && task.Type != api.TaskDatabaseDataUpdate {
@@ -138,7 +131,7 @@ func (s *Server) registerTaskRoutes(g *echo.Group) {
 		}
 
 		// dismiss stale review, re-find the approval template
-		if taskPatch.Statement != nil && task.Status == api.TaskPendingApproval {
+		if taskPatch.SheetID != nil && task.Status == api.TaskPendingApproval {
 			payloadBytes, err := protojson.Marshal(&storepb.IssuePayload{
 				Approval: &storepb.IssuePayloadApproval{
 					ApprovalFindingDone: false,
@@ -193,19 +186,22 @@ func (s *Server) registerTaskRoutes(g *echo.Group) {
 			return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("Task not found with ID %d", taskID))
 		}
 
-		issue, err := s.store.GetIssueV2(ctx, &store.FindIssueMessage{PipelineID: &task.PipelineID})
+		ok, err := s.TaskScheduler.CanPrincipalChangeTaskStatus(ctx, currentPrincipalID, task, taskStatusPatch.Status)
 		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to fetch issue with pipeline ID %d", task.PipelineID)).SetInternal(err)
+			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to validate if the principal can change task status").SetInternal(err)
 		}
-		if issue == nil {
-			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Issue not found with pipeline ID %d", task.PipelineID))
-		}
-
-		if !s.TaskScheduler.CanPrincipalChangeTaskStatus(currentPrincipalID, issue) {
-			return echo.NewHTTPError(http.StatusUnauthorized, "Not allowed to change task status")
+		if !ok {
+			return echo.NewHTTPError(http.StatusForbidden, "Not allowed to change task status")
 		}
 
 		if taskStatusPatch.Status == api.TaskPending {
+			issue, err := s.store.GetIssueV2(ctx, &store.FindIssueMessage{PipelineID: &task.PipelineID})
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to fetch issue with pipeline ID %d", task.PipelineID)).SetInternal(err)
+			}
+			if issue == nil {
+				return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Issue not found with pipeline ID %d", task.PipelineID))
+			}
 			approved, err := utils.CheckIssueApproved(issue)
 			if err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to check if the issue is approved").SetInternal(err)
@@ -222,7 +218,7 @@ func (s *Server) registerTaskRoutes(g *echo.Group) {
 			if err != nil {
 				return err
 			}
-			ok, err := utils.PassAllCheck(task, api.TaskCheckStatusWarn, taskCheckRuns, instance.Engine)
+			ok, err = utils.PassAllCheck(task, api.TaskCheckStatusWarn, taskCheckRuns, instance.Engine)
 			if err != nil {
 				return err
 			}
@@ -313,7 +309,7 @@ func (s *Server) registerTaskRoutes(g *echo.Group) {
 			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update task status").SetInternal(err)
 		}
 		if task == nil {
-			return echo.NewHTTPError(http.StatusUnauthorized, fmt.Sprintf("Task not found with ID %d", taskID))
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Task not found with ID %d", taskID))
 		}
 
 		if err := s.TaskCheckScheduler.ScheduleCheck(ctx, task, c.Get(getPrincipalIDContextKey()).(int)); err != nil {

@@ -51,7 +51,7 @@
         </div>
         <div>
           <n-button
-            v-if="selectedProject?.workflowType === 'VCS'"
+            v-if="selectedProject?.workflow === Workflow.VCS"
             @click="handleSyncSheetFromVCS"
           >
             <heroicons-outline:refresh
@@ -92,18 +92,22 @@ import { last } from "lodash-es";
 import { useDialog } from "naive-ui";
 import { t } from "@/plugins/i18n";
 
+import { Sheet } from "@/types/proto/v1/sheet_service";
 import {
   hasFeature,
-  useCurrentUser,
-  useProjectStore,
-  useSheetStore,
+  useUserStore,
+  useSheetV1Store,
+  useProjectV1ListByCurrentUser,
+  useProjectV1Store,
+  useEnvironmentV1Store,
 } from "@/store";
-import { Sheet } from "@/types";
+import { getSheetIssueBacktracePayloadV1 } from "@/utils";
 import {
   type SheetViewMode,
   SheetTable,
   SheetViewModeList,
 } from "./sql-editor/Sheet";
+import { Workflow } from "@/types/proto/v1/project_service";
 
 interface LocalState {
   isLoading: boolean;
@@ -118,9 +122,7 @@ const state = reactive<LocalState>({
   sheetList: [],
   showFeatureModal: false,
 });
-const currentUser = useCurrentUser();
-const projectStore = useProjectStore();
-const sheetStore = useSheetStore();
+const sheetV1Store = useSheetV1Store();
 
 const projectSelectorValue = ref("");
 const sheetSearchValue = ref("");
@@ -145,37 +147,34 @@ const navigationList = computed(() => {
 });
 
 const shownSheetList = computed(() => {
-  return state.sheetList
-    .filter((sheet) => {
-      let t = true;
+  let list = [...state.sheetList];
+  const projectName = projectSelectorValue.value;
+  if (projectName !== "") {
+    list = list.filter((sheet) => sheet.name.startsWith(projectName));
+  }
 
-      if (
-        projectSelectorValue.value !== "" &&
-        projectSelectorValue.value !== sheet.project.resourceId
-      ) {
-        t = false;
-      }
-      if (sheetSearchValue.value !== "") {
-        if (
-          !sheet.name.includes(sheetSearchValue.value) &&
-          !sheet.statement.includes(sheetSearchValue.value)
-        ) {
-          t = false;
-        }
-      }
+  const keyword = sheetSearchValue.value.trim().toLowerCase();
+  if (keyword) {
+    list = list.filter((sheet) => {
+      return (
+        sheet.name.toLowerCase().includes(keyword) ||
+        new TextDecoder().decode(sheet.content).toLowerCase().includes(keyword)
+      );
+    });
+  }
 
-      return t;
-    })
-    .sort((a, b) => b.updatedTs - a.updatedTs);
+  return list.sort(
+    (a, b) =>
+      (b.updateTime ?? new Date()).getTime() -
+      (a.updateTime ?? new Date()).getTime()
+  );
 });
 
-const projectList = computed(() => {
-  return projectStore.getProjectListByUser(currentUser.value.id);
-});
+const { projectList } = useProjectV1ListByCurrentUser(false /* !showDeleted */);
 
 const selectedProject = computed(() => {
   for (const project of projectList.value) {
-    if (project.resourceId === projectSelectorValue.value) {
+    if (project.uid === projectSelectorValue.value) {
       return project;
     }
   }
@@ -192,8 +191,8 @@ const projectSelectOptions = computed(() => {
   ].concat(
     projectList.value.map((project) => {
       return {
-        label: project.name,
-        value: project.resourceId,
+        label: project.title,
+        value: project.name,
       };
     })
   );
@@ -213,19 +212,30 @@ const currentSheetViewMode = computed((): SheetViewMode => {
 });
 
 const fetchSheetData = async () => {
+  await useUserStore().fetchUserList();
+
+  // TODO: switching view mode very quickly will cause some
+  // race condition problems.
+  let sheetList: Sheet[] = [];
   if (currentSheetViewMode.value === "my") {
-    state.sheetList = await sheetStore.fetchMySheetList();
+    sheetList = await sheetV1Store.fetchMySheetList();
   } else if (currentSheetViewMode.value === "starred") {
-    state.sheetList = await sheetStore.fetchStarredSheetList();
+    sheetList = await sheetV1Store.fetchStarredSheetList();
   } else if (currentSheetViewMode.value === "shared") {
-    state.sheetList = await sheetStore.fetchSharedSheetList();
+    sheetList = await sheetV1Store.fetchSharedSheetList();
   }
+
+  // Hide those sheets from issue.
+  state.sheetList = sheetList.filter((sheet) => {
+    return !getSheetIssueBacktracePayloadV1(sheet);
+  });
 };
 
 onMounted(async () => {
-  await projectStore.fetchProjectListByUser({
-    userId: currentUser.value.id,
-  });
+  // Initialize project list state for iam policy and `project` fields of sheets.
+  await useProjectV1Store().fetchProjectList(true /* include archived */);
+  // Initialize environment list for composing.
+  await useEnvironmentV1Store().fetchEnvironments(true /* include archived */);
   await fetchSheetData();
   state.isLoading = false;
 });
@@ -250,25 +260,28 @@ const handleSyncSheetFromVCS = () => {
 
   if (
     selectedProject.value === null ||
-    selectedProject.value.workflowType !== "VCS"
+    selectedProject.value.workflow !== Workflow.VCS
   ) {
     return;
   }
 
-  const selectedProjectId = selectedProject.value.id;
+  const selectedProjectName = selectedProject.value.name;
   const dialogInstance = dialog.create({
     title: t("sheet.hint-tips.confirm-to-sync-sheet"),
     type: "info",
+    autoFocus: false,
+    closable: false,
+    maskClosable: false,
+    closeOnEsc: false,
     async onPositiveClick() {
       dialogInstance.closable = false;
       dialogInstance.loading = true;
-      await sheetStore.syncSheetFromVCS(selectedProjectId);
+      await sheetV1Store.syncSheetFromVCS(selectedProjectName);
       await fetchSheetData();
       dialogInstance.destroy();
     },
     positiveText: t("common.confirm"),
     showIcon: true,
-    maskClosable: false,
   });
 };
 </script>

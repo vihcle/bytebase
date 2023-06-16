@@ -2,9 +2,7 @@ import { computed } from "vue";
 import { head } from "lodash-es";
 
 import {
-  ActivityCreate,
-  ActivityIssueCommentCreatePayload,
-  Database,
+  ComposedDatabase,
   Issue,
   IssueCreate,
   IssueId,
@@ -16,19 +14,22 @@ import {
   UNKNOWN_ID,
 } from "@/types";
 import {
-  hasProjectPermission,
-  hasWorkspacePermission,
+  extractUserUID,
+  hasPermissionInProjectV1,
+  hasWorkspacePermissionV1,
   isTaskCreate,
   isTaskSkipped,
   semverCompare,
 } from "@/utils";
 import { flattenTaskList, useIssueLogic } from "../logic";
 import {
-  useActivityStore,
-  useCurrentUser,
-  useDatabaseStore,
+  useReviewV1Store,
+  useCurrentUserV1,
+  useDatabaseV1Store,
   useIssueStore,
+  useProjectV1Store,
 } from "@/store";
+import { Engine } from "@/types/proto/v1/common";
 
 const MIN_ROLLBACK_SQL_MYSQL_VERSION = "5.7.0";
 
@@ -38,7 +39,7 @@ export type RollbackUIType =
   | "NONE"; // Nothing
 
 export const useRollbackLogic = () => {
-  const currentUser = useCurrentUser();
+  const currentUserV1 = useCurrentUserV1();
   const context = useIssueLogic();
   const {
     create,
@@ -57,16 +58,16 @@ export const useRollbackLogic = () => {
       return "NONE";
     }
     const database = databaseOfTask(task.value);
-    const { engine, engineVersion } = database.instance;
+    const { engine, engineVersion } = database.instanceEntity;
     switch (engine) {
-      case "MYSQL":
+      case Engine.MYSQL:
         if (
           !semverCompare(engineVersion, MIN_ROLLBACK_SQL_MYSQL_VERSION, "gte")
         ) {
           return "NONE";
         }
         break;
-      case "ORACLE":
+      case Engine.ORACLE:
         // We don't have a check for oracle similar to the MySQL version check.
         break;
       default:
@@ -102,34 +103,37 @@ export const useRollbackLogic = () => {
     }
 
     const issueEntity = issue.value as Issue;
-    const user = currentUser.value;
+    const user = currentUserV1.value;
+    const userUID = extractUserUID(user.name);
 
-    if (user.id === issueEntity.creator.id) {
+    if (userUID === String(issueEntity.creator.id)) {
       // Allowed to the issue creator
       return true;
     }
 
-    if (user.id === issueEntity.assignee.id) {
+    if (userUID === String(issueEntity.assignee.id)) {
       // Allowed to the issue assignee
       return true;
     }
 
-    const memberInProject = issueEntity.project.memberList.find(
-      (member) => member.principal.id === user.id
+    const projectV1 = useProjectV1Store().getProjectByUID(
+      String(issueEntity.project.id)
     );
     if (
-      memberInProject?.role &&
-      hasProjectPermission(
-        "bb.permission.project.admin-database",
-        memberInProject.role
+      hasPermissionInProjectV1(
+        projectV1.iamPolicy,
+        user,
+        "bb.permission.project.admin-database"
       )
     ) {
-      // Allowed to the project owner
       return true;
     }
 
     if (
-      hasWorkspacePermission("bb.permission.workspace.manage-issue", user.role)
+      hasWorkspacePermissionV1(
+        "bb.permission.workspace.manage-issue",
+        user.userRole
+      )
     ) {
       // Allowed to DBAs and workspace owners
       return true;
@@ -183,19 +187,14 @@ export const useRollbackLogic = () => {
 
       const issueEntity = issue.value as Issue;
       const action = on ? "Enable" : "Disable";
-      const taskName = `[${taskEntity.name}]`;
-      const comment = `${action} SQL rollback log for task ${taskName}.`;
-      const payload: ActivityIssueCommentCreatePayload = {
-        issueName: issueEntity.name,
-      };
-      const createActivity: ActivityCreate = {
-        type: "bb.issue.comment.create",
-        containerId: issueEntity.id,
-        comment,
-        payload,
-      };
       try {
-        await useActivityStore().createActivity(createActivity);
+        await useReviewV1Store().createReviewComment({
+          reviewId: issueEntity.id,
+          comment: `${action} SQL rollback log for task [${taskEntity.name}].`,
+          payload: {
+            issueName: issueEntity.name,
+          },
+        });
       } catch {
         // do nothing
         // failing to comment to won't be too bad
@@ -211,12 +210,11 @@ export const useRollbackLogic = () => {
   };
 };
 
-const databaseOfTask = (task: Task | TaskCreate): Database => {
-  if (isTaskCreate(task)) {
-    return useDatabaseStore().getDatabaseById((task as TaskCreate).databaseId!);
-  }
-
-  return task.database!;
+const databaseOfTask = (task: Task | TaskCreate): ComposedDatabase => {
+  const uid = isTaskCreate(task)
+    ? String((task as TaskCreate).databaseId!)
+    : String(task.database!.id);
+  return useDatabaseV1Store().getDatabaseByUID(uid);
 };
 
 export const maybeCreateBackTraceComments = async (newIssue: Issue) => {
@@ -262,24 +260,20 @@ export const maybeCreateBackTraceComments = async (newIssue: Issue) => {
       "to rollback task",
       `[${fromTask.name}]`,
     ].join(" ");
-
-    const payload: ActivityIssueCommentCreatePayload = {
-      issueName: fromIssue.name,
-      taskRollbackBy: {
-        issueId: fromIssue.id,
-        taskId: fromTask.id,
-        rollbackByIssueId: newIssue.id,
-        rollbackByTaskId: byTask.id,
-      },
-    };
-    const createActivity: ActivityCreate = {
-      type: "bb.issue.comment.create",
-      containerId: fromIssue.id,
-      comment,
-      payload,
-    };
     try {
-      await useActivityStore().createActivity(createActivity);
+      await useReviewV1Store().createReviewComment({
+        reviewId: fromIssue.id,
+        comment,
+        payload: {
+          issueName: fromIssue.name,
+          taskRollbackBy: {
+            issueId: fromIssue.id,
+            taskId: fromTask.id,
+            rollbackByIssueId: newIssue.id,
+            rollbackByTaskId: byTask.id,
+          },
+        },
+      });
     } catch {
       // do nothing
       // failing to comment to won't be too bad

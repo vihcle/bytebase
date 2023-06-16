@@ -25,23 +25,22 @@
           {{ item.schema ? `${item.schema}.${item.table}` : item.table }}
         </div>
         <div class="bb-grid-cell">
-          {{ item.database.name }}
+          <DatabaseV1Name :database="item.database" :link="false" />
         </div>
         <div class="bb-grid-cell gap-x-1">
-          <InstanceEngineIcon :instance="item.database.instance" />
-          <span class="flex-1 whitespace-pre-wrap">
-            {{ instanceName(item.database.instance) }}
-          </span>
-        </div>
-        <div class="bb-grid-cell">
-          {{ environmentName(item.database.instance.environment) }}
-          <ProductionEnvironmentIcon
-            class="ml-1 w-4 h-4"
-            :environment="item.database.instance.environment"
+          <InstanceV1Name
+            :instance="item.database.instanceEntity"
+            :link="false"
           />
         </div>
         <div class="bb-grid-cell">
-          {{ projectName(item.database.project) }}
+          <EnvironmentV1Name
+            :environment="item.database.instanceEntity.environmentEntity"
+            :link="false"
+          />
+        </div>
+        <div class="bb-grid-cell">
+          <ProjectV1Name :project="item.database.projectEntity" :link="false" />
         </div>
         <div class="bb-grid-cell justify-center !px-2">
           <NPopconfirm @positive-click="removeSensitiveColumn(item)">
@@ -85,20 +84,28 @@ import { NPopconfirm } from "naive-ui";
 import { uniq } from "lodash-es";
 import { useRouter } from "vue-router";
 
+import { featureToRef, useCurrentUserV1, useDatabaseV1Store } from "@/store";
+import { ComposedDatabase } from "@/types";
+import { databaseV1Slug, hasWorkspacePermissionV1 } from "@/utils";
+import { BBGrid, type BBGridColumn } from "@/bbkit";
 import {
-  featureToRef,
-  useCurrentUser,
-  useDatabaseStore,
   usePolicyListByResourceTypeAndPolicyType,
-  usePolicyStore,
-} from "@/store";
-import { Database, Policy, SensitiveDataPolicyPayload } from "@/types";
-import { BBGridColumn } from "@/bbkit/types";
-import { databaseSlug, hasWorkspacePermission } from "@/utils";
-import { BBGrid } from "@/bbkit";
+  usePolicyV1Store,
+} from "@/store/modules/v1/policy";
+import {
+  PolicyType,
+  Policy,
+  PolicyResourceType,
+} from "@/types/proto/v1/org_policy_service";
+import {
+  DatabaseV1Name,
+  EnvironmentV1Name,
+  InstanceV1Name,
+  ProjectV1Name,
+} from "@/components/v2";
 
 type SensitiveColumn = {
-  database: Database;
+  database: ComposedDatabase;
   policy: Policy;
   schema: string;
   table: string;
@@ -117,44 +124,47 @@ const state = reactive<LocalState>({
   isLoading: false,
   sensitiveColumnList: [],
 });
-const databaseStore = useDatabaseStore();
+const databaseStore = useDatabaseV1Store();
 const hasSensitiveDataFeature = featureToRef("bb.feature.sensitive-data");
 
-const currentUser = useCurrentUser();
+const currentUserV1 = useCurrentUserV1();
 const allowAdmin = computed(() => {
-  return hasWorkspacePermission(
+  return hasWorkspacePermissionV1(
     "bb.permission.workspace.manage-sensitive-data",
-    currentUser.value.role
+    currentUserV1.value.userRole
   );
 });
 
 const policyList = usePolicyListByResourceTypeAndPolicyType({
-  resourceType: "database",
-  policyType: "bb.policy.sensitive-data",
+  resourceType: PolicyResourceType.DATABASE,
+  policyType: PolicyType.SENSITIVE_DATA,
+  showDeleted: false,
 });
 
 const updateList = async () => {
   state.isLoading = true;
   const distinctDatabaseIdList = uniq(
-    policyList.value.map((policy) => policy.resourceId)
+    policyList.value.map((policy) => policy.resourceUid)
   );
   // Fetch or get all needed databases
   await Promise.all(
     distinctDatabaseIdList.map((databaseId) =>
-      databaseStore.getOrFetchDatabaseById(databaseId)
+      databaseStore.getOrFetchDatabaseByUID(databaseId)
     )
   );
 
   const sensitiveColumnList: SensitiveColumn[] = [];
   for (let i = 0; i < policyList.value.length; i++) {
     const policy = policyList.value[i];
-    const payload = policy.payload as SensitiveDataPolicyPayload;
+    if (!policy.sensitiveDataPolicy) {
+      continue;
+    }
 
-    const databaseId = policy.resourceId;
-    const database = await databaseStore.getOrFetchDatabaseById(databaseId);
+    const databaseId = policy.resourceUid;
+    const database = await databaseStore.getOrFetchDatabaseByUID(databaseId);
 
-    for (let j = 0; j < payload.sensitiveDataList.length; j++) {
-      const { schema, table, column } = payload.sensitiveDataList[j];
+    for (const sensitiveData of policy.sensitiveDataPolicy.sensitiveData) {
+      const { schema, table, column } = sensitiveData;
       sensitiveColumnList.push({ database, policy, schema, table, column });
     }
   }
@@ -170,27 +180,29 @@ const removeSensitiveColumn = (sensitiveColumn: SensitiveColumn) => {
     return;
   }
 
-  const { database, table, column } = sensitiveColumn;
+  const { table, column } = sensitiveColumn;
   const policy = policyList.value.find(
-    (policy) => policy.resourceId === sensitiveColumn.database.id
+    (policy) => policy.resourceUid == sensitiveColumn.database.uid
   );
   if (!policy) return;
+  const sensitiveData = policy.sensitiveDataPolicy?.sensitiveData;
+  if (!sensitiveData) return;
 
-  const payload = policy.payload as SensitiveDataPolicyPayload;
-  const index = payload.sensitiveDataList.findIndex(
+  const index = sensitiveData.findIndex(
     (sensitiveData) =>
       sensitiveData.table === table && sensitiveData.column === column
   );
   if (index >= 0) {
     // mutate the list and the item directly
     // so we don't need to re-fetch the whole list.
-    payload.sensitiveDataList.splice(index, 1);
+    sensitiveData.splice(index, 1);
 
-    usePolicyStore().upsertPolicyByDatabaseAndType({
-      databaseId: database.id,
-      type: "bb.policy.sensitive-data",
-      policyUpsert: {
-        payload,
+    usePolicyV1Store().updatePolicy(["payload"], {
+      name: policy.name,
+      type: PolicyType.SENSITIVE_DATA,
+      resourceType: PolicyResourceType.DATABASE,
+      sensitiveDataPolicy: {
+        sensitiveData,
       },
     });
   }
@@ -235,7 +247,7 @@ const clickRow = (
   row: number,
   e: MouseEvent
 ) => {
-  let url = `/db/${databaseSlug(item.database)}/table/${item.table}`;
+  let url = `/db/${databaseV1Slug(item.database)}/table/${item.table}`;
   if (item.schema != "") {
     url += `?schema=${item.schema}`;
   }

@@ -37,7 +37,7 @@
           >
             {{ $t("task.rollback.preview-rollback-issue") }}
           </button>
-          <NTooltip v-else :disabled="!!payload?.rollbackStatement">
+          <NTooltip v-else :disabled="!!payload?.rollbackSheetId">
             <template #trigger>
               <div
                 class="select-none inline-flex border border-control-border rounded-md bg-control-bg opacity-50 cursor-not-allowed px-3 py-1 text-sm leading-5 font-medium"
@@ -46,10 +46,10 @@
               </div>
             </template>
 
-            <div v-if="!payload?.rollbackStatement" class="whitespace-pre-line">
+            <div v-if="!payload?.rollbackSheetId" class="whitespace-pre-line">
               {{ $t("task.rollback.empty-rollback-statement") }}
               <LearnMoreLink
-                url="https://www.bytebase.com/docs/change-database/rollback-data-changes?source=console#why-i-get-the-rollback-statement-is-empty"
+                url="https://www.bytebase.com/docs/change-database/rollback-data-changes?source=console#why-i-get-the-rollback-sheet-is-empty"
                 color="light"
                 class="ml-1"
               />
@@ -81,8 +81,9 @@ import { useRollbackLogic } from "./common";
 import IssueStatusIcon from "../IssueStatusIcon.vue";
 import LogButton from "./LogButton.vue";
 import LoggingButton from "./LoggingButton.vue";
-import { useActivityStore, useIssueById } from "@/store";
+import { useActivityV1Store, useIssueById, useSheetV1Store } from "@/store";
 import LearnMoreLink from "@/components/LearnMoreLink.vue";
+import { LogEntity_Action } from "@/types/proto/v1/logging_service";
 
 type LocalState = {
   loading: boolean;
@@ -90,6 +91,7 @@ type LocalState = {
 };
 
 const router = useRouter();
+const sheetV1Store = useSheetV1Store();
 
 const context = useIssueLogic();
 const { allowRollback } = useRollbackLogic();
@@ -109,21 +111,22 @@ const allowPreviewRollback = computed(() => {
   if (!allowRollback.value) {
     return false;
   }
-  if (!payload.value?.rollbackStatement) {
+  if (!payload.value?.rollbackSheetId) {
     return false;
   }
   return true;
 });
 
 const taskRollbackBy = computed((): TaskRollbackBy | undefined => {
-  const activityList = useActivityStore().getActivityListByIssue(
+  const activityList = useActivityV1Store().getActivityListByIssue(
     issue.value.id
   );
   // Find the latest comment activity with TaskRollbackBy struct if possible.
   for (let i = activityList.length - 1; i >= 0; i--) {
     const activity = activityList[i];
-    if (activity.type !== "bb.issue.comment.create") continue;
-    const payload = activity.payload as
+    if (activity.action !== LogEntity_Action.ACTION_ISSUE_COMMENT_CREATE)
+      continue;
+    const payload = JSON.parse(activity.payload) as
       | ActivityIssueCommentCreatePayload
       | undefined;
     if (!payload) continue;
@@ -157,9 +160,14 @@ const tryRollbackTask = async () => {
       `${issue.value.name}`,
     ].join(" ");
 
+    const originalSheetUID = payload.value!.sheetId!;
+    const rollbackSheetUID = payload.value!.rollbackSheetId!;
+    const originalSheet = await sheetV1Store.getOrFetchSheetByUid(
+      originalSheetUID
+    );
     const description = [
       "The original SQL statement:",
-      `${payload.value!.statement}`,
+      `${new TextDecoder().decode(originalSheet?.content)}`,
     ].join("\n");
 
     router.push({
@@ -174,7 +182,7 @@ const tryRollbackTask = async () => {
         databaseList: [task.value.database!.id].join(","),
         rollbackIssueId: issue.value.id,
         rollbackTaskIdList: [task.value.id].join(","),
-        sql: payload.value!.rollbackStatement!,
+        sheetId: rollbackSheetUID,
         description,
       },
     });

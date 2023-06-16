@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,12 +13,14 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/slices"
 	"gopkg.in/yaml.v3"
 
 	"github.com/bytebase/bytebase/backend/plugin/advisor/catalog"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
 	database "github.com/bytebase/bytebase/backend/plugin/db"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 var (
@@ -162,7 +163,7 @@ func RunSQLReviewRuleTest(t *testing.T, rule SQLReviewRuleType, dbType db.Type, 
 		}
 		finder := catalog.NewFinder(database, &catalog.FinderContext{CheckIntegrity: true, EngineType: dbType})
 
-		payload, err := SetDefaultSQLReviewRulePayload(rule)
+		payload, err := SetDefaultSQLReviewRulePayload(rule, dbType)
 		require.NoError(t, err)
 
 		ruleList := []*SQLReviewRule{
@@ -174,15 +175,23 @@ func RunSQLReviewRuleTest(t *testing.T, rule SQLReviewRuleType, dbType db.Type, 
 		}
 
 		ctx := SQLReviewCheckContext{
-			Charset:   "",
-			Collation: "",
-			DbType:    dbType,
-			Catalog:   &testCatalog{finder: finder},
-			Driver:    nil,
-			Context:   context.Background(),
+			Charset:       "",
+			Collation:     "",
+			DbType:        dbType,
+			Catalog:       &testCatalog{finder: finder},
+			Driver:        nil,
+			Context:       context.Background(),
+			CurrentSchema: "SYS",
 		}
 
 		adviceList, err := SQLReviewCheck(tc.Statement, ruleList, ctx)
+		// Sort adviceList by (line, content)
+		slices.SortFunc[Advice](adviceList, func(i, j Advice) bool {
+			if i.Line != j.Line {
+				return i.Line < j.Line
+			}
+			return i.Content < j.Content
+		})
 		require.NoError(t, err)
 		if record {
 			tests[i].Want = adviceList
@@ -199,18 +208,6 @@ func RunSQLReviewRuleTest(t *testing.T, rule SQLReviewRuleType, dbType db.Type, 
 		err = os.WriteFile(filepath, byteValue, 0644)
 		require.NoError(t, err)
 	}
-}
-
-// RandomString returns random string with specific length.
-func RandomString(length int) string {
-	var letters = []rune("abcdefghijklmnopqrstuvwxyz")
-	var rand = rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	b := make([]rune, length)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(b)
 }
 
 // MockDriver is the driver for test only.
@@ -245,6 +242,16 @@ func (*MockDriver) GetDB() *sql.DB {
 // Execute implements the Driver interface.
 func (*MockDriver) Execute(_ context.Context, _ string, _ bool) (int64, error) {
 	return 0, nil
+}
+
+// QueryConn2 queries a SQL statement in a given connection.
+func (*MockDriver) QueryConn2(_ context.Context, _ *sql.Conn, _ string, _ *database.QueryContext) ([]*v1pb.QueryResult, error) {
+	return nil, nil
+}
+
+// RunStatement implements the Driver interface.
+func (*MockDriver) RunStatement(_ context.Context, _ *sql.Conn, _ string) ([]*v1pb.QueryResult, error) {
+	return nil, nil
 }
 
 // QueryConn implements the Driver interface.
@@ -338,7 +345,7 @@ func (*MockDriver) CheckSlowQueryLogEnabled(_ context.Context) error {
 }
 
 // SetDefaultSQLReviewRulePayload sets the default payload for this rule.
-func SetDefaultSQLReviewRulePayload(ruleTp SQLReviewRuleType) (string, error) {
+func SetDefaultSQLReviewRulePayload(ruleTp SQLReviewRuleType, dbType db.Type) (string, error) {
 	var payload []byte
 	var err error
 	switch ruleTp {
@@ -364,6 +371,7 @@ func SetDefaultSQLReviewRulePayload(ruleTp SQLReviewRuleType) (string, error) {
 		SchemaRuleColumnAutoIncrementMustInteger,
 		SchemaRuleColumnDisallowSetCharset,
 		SchemaRuleColumnAutoIncrementMustUnsigned,
+		SchemaRuleAddNotNullColumnRequireDefault,
 		SchemaRuleCurrentTimeColumnCountLimit,
 		SchemaRuleColumnRequireDefault,
 		SchemaRuleSchemaBackwardCompatibility,
@@ -374,7 +382,9 @@ func SetDefaultSQLReviewRulePayload(ruleTp SQLReviewRuleType) (string, error) {
 		SchemaRuleCreateIndexConcurrently,
 		SchemaRuleStatementAddCheckNotValid,
 		SchemaRuleStatementDisallowAddNotNull,
-		SchemaRuleIndexTypeNoBlob:
+		SchemaRuleIndexTypeNoBlob,
+		SchemaRuleIdentifierNoKeyword,
+		SchemaRuleTableNameNoKeyword:
 	case SchemaRuleTableDropNamingConvention:
 		payload, err = json.Marshal(NamingRulePayload{
 			Format: "_delete$",
@@ -382,9 +392,14 @@ func SetDefaultSQLReviewRulePayload(ruleTp SQLReviewRuleType) (string, error) {
 	case SchemaRuleTableNaming:
 		fallthrough
 	case SchemaRuleColumnNaming:
+		format := "^[a-z]+(_[a-z]+)*$"
+		maxLength := 64
+		if dbType == db.Snowflake {
+			format = "^[A-Z]+(_[A-Z]+)*$"
+		}
 		payload, err = json.Marshal(NamingRulePayload{
-			Format:    "^[a-z]+(_[a-z]+)*$",
-			MaxLength: 64,
+			Format:    format,
+			MaxLength: maxLength,
 		})
 	case SchemaRuleIDXNaming:
 		payload, err = json.Marshal(NamingRulePayload{
@@ -432,11 +447,15 @@ func SetDefaultSQLReviewRulePayload(ruleTp SQLReviewRuleType) (string, error) {
 		})
 	case SchemaRuleColumnTypeDisallowList:
 		payload, err = json.Marshal(StringArrayTypeRulePayload{
-			List: []string{"JSON"},
+			List: []string{"JSON", "BINARY_FLOAT"},
 		})
 	case SchemaRuleColumnMaximumCharacterLength:
 		payload, err = json.Marshal(NumberTypeRulePayload{
 			Number: 20,
+		})
+	case SchemaRuleColumnMaximumVarcharLength:
+		payload, err = json.Marshal(NumberTypeRulePayload{
+			Number: 2560,
 		})
 	case SchemaRuleColumnAutoIncrementInitialValue:
 		payload, err = json.Marshal(NumberTypeRulePayload{
@@ -461,6 +480,10 @@ func SetDefaultSQLReviewRulePayload(ruleTp SQLReviewRuleType) (string, error) {
 	case SchemaRuleIndexPrimaryKeyTypeAllowlist:
 		payload, err = json.Marshal(StringArrayTypeRulePayload{
 			List: []string{"serial", "bigserial", "int", "bigint"},
+		})
+	case SchemaRuleIdentifierCase:
+		payload, err = json.Marshal(NamingCaseRulePayload{
+			Upper: true,
 		})
 	default:
 		return "", errors.Errorf("unknown SQL review type for default payload: %s", ruleTp)

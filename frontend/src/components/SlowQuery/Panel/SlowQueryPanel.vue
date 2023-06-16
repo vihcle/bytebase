@@ -22,7 +22,7 @@
         :show-environment-column="showEnvironmentColumn"
         :show-instance-column="showInstanceColumn"
         :show-database-column="showDatabaseColumn"
-        @select="selectedSlowQueryLog = $event"
+        @select="selectSlowQueryLog"
       />
       <div
         v-if="loading"
@@ -44,10 +44,10 @@ import { computed, shallowRef, watch } from "vue";
 import { NButton } from "naive-ui";
 import { useI18n } from "vue-i18n";
 
-import type { ComposedSlowQueryLog, SlowQueryPolicyPayload } from "@/types";
+import { ComposedSlowQueryLog } from "@/types";
 import {
   pushNotification,
-  useInstanceStore,
+  useGracefulRequest,
   useSlowQueryPolicyStore,
   useSlowQueryStore,
 } from "@/store";
@@ -60,6 +60,7 @@ import {
 import LogFilter from "./LogFilter.vue";
 import LogTable from "./LogTable.vue";
 import DetailPanel from "./DetailPanel.vue";
+import { extractInstanceResourceName } from "@/utils";
 
 const props = withDefaults(
   defineProps<{
@@ -104,31 +105,30 @@ const fetchSlowQueryLogList = async () => {
   }
 };
 
+const selectSlowQueryLog = (log: ComposedSlowQueryLog) => {
+  selectedSlowQueryLog.value = log;
+};
+
 const syncNow = async () => {
   syncing.value = true;
   try {
-    const instanceStore = useInstanceStore();
-    await instanceStore.fetchInstanceList(["NORMAL"]);
-    const policyList =
-      await useSlowQueryPolicyStore().fetchPolicyListByResourceTypeAndPolicyType(
-        "instance",
-        "bb.policy.slow-query"
-      );
-    const requestList = policyList
-      .filter((policy) => {
-        const payload = policy.payload as SlowQueryPolicyPayload;
-        return payload.active;
-      })
-      .map((policy) => {
-        const instanceId = policy.resourceId;
-        const instance = instanceStore.getInstanceById(instanceId);
-        return slowQueryStore.syncSlowQueriesByInstance(instance);
+    await useGracefulRequest(async () => {
+      const policyList = await useSlowQueryPolicyStore().fetchPolicyList();
+      const requestList = policyList
+        .filter((policy) => {
+          return policy.slowQueryPolicy?.active;
+        })
+        .map(async (policy) => {
+          return slowQueryStore.syncSlowQueriesByInstance(
+            `instances/${extractInstanceResourceName(policy.name)}`
+          );
+        });
+      await Promise.all(requestList);
+      pushNotification({
+        module: "bytebase",
+        style: "SUCCESS",
+        title: t("slow-query.sync-job-started"),
       });
-    await Promise.all(requestList);
-    pushNotification({
-      module: "bytebase",
-      style: "SUCCESS",
-      title: t("slow-query.sync-job-started"),
     });
   } finally {
     syncing.value = false;

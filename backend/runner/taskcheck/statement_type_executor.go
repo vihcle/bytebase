@@ -14,10 +14,12 @@ import (
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/db"
-	"github.com/bytebase/bytebase/backend/plugin/parser"
-	"github.com/bytebase/bytebase/backend/plugin/parser/ast"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
 	"github.com/bytebase/bytebase/backend/runner/utils"
 	"github.com/bytebase/bytebase/backend/store"
+	backendutils "github.com/bytebase/bytebase/backend/utils"
 )
 
 // NewStatementTypeExecutor creates a task check DML executor.
@@ -52,31 +54,46 @@ func (exec *StatementTypeExecutor) Run(ctx context.Context, _ *store.TaskCheckRu
 	if err := json.Unmarshal([]byte(task.Payload), payload); err != nil {
 		return nil, err
 	}
-	if payload.SheetID > 0 {
+	sheet, err := exec.store.GetSheetV2(ctx, &store.FindSheetMessage{UID: &payload.SheetID}, api.SystemBotID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get sheet %d", payload.SheetID)
+	}
+	if sheet == nil {
+		return nil, errors.Errorf("sheet %d not found", payload.SheetID)
+	}
+	if sheet.Size > common.MaxSheetSizeForTaskCheck {
 		return []api.TaskCheckResult{
 			{
 				Status:    api.TaskCheckStatusSuccess,
 				Namespace: api.AdvisorNamespace,
 				Code:      common.Ok.Int(),
-				Title:     "Large SQL statement type check is disabled",
+				Title:     "Large SQL review policy is disabled",
 				Content:   "",
 			},
 		}, nil
 	}
+	statement, err := exec.store.GetSheetStatementByID(ctx, payload.SheetID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get sheet statement %d", payload.SheetID)
+	}
+
+	materials := backendutils.GetSecretMapFromDatabaseMessage(database)
+	// To avoid leaking the rendered statement, the error message should use the original statement and not the rendered statement.
+	renderedStatement := backendutils.RenderStatement(statement, materials)
 
 	switch instance.Engine {
 	case db.Postgres:
-		result, err = postgresqlStatementTypeCheck(payload.Statement, task.Type)
+		result, err = postgresqlStatementTypeCheck(renderedStatement, task.Type)
 		if err != nil {
 			return nil, err
 		}
-	case db.MySQL, db.TiDB, db.MariaDB:
-		result, err = mysqlStatementTypeCheck(payload.Statement, dbSchema.Metadata.CharacterSet, dbSchema.Metadata.Collation, task.Type)
+	case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
+		result, err = mysqlStatementTypeCheck(renderedStatement, dbSchema.Metadata.CharacterSet, dbSchema.Metadata.Collation, task.Type)
 		if err != nil {
 			return nil, err
 		}
 		if task.Type == api.TaskDatabaseSchemaUpdateSDL {
-			sdlAdvice, err := exec.mysqlSDLTypeCheck(ctx, payload.Statement, task)
+			sdlAdvice, err := exec.mysqlSDLTypeCheck(ctx, renderedStatement, task)
 			if err != nil {
 				return nil, err
 			}
@@ -108,7 +125,7 @@ func (exec *StatementTypeExecutor) mysqlSDLTypeCheck(ctx context.Context, newSch
 	if err != nil {
 		return nil, err
 	}
-	ddl, err := utils.ComputeDatabaseSchemaDiff(ctx, instance, database.DatabaseName, exec.dbFactory, newSchema)
+	ddl, err := utils.ComputeDatabaseSchemaDiff(ctx, instance, database, exec.dbFactory, newSchema)
 	if err != nil {
 		return nil, err
 	}

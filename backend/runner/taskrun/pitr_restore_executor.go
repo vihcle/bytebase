@@ -87,7 +87,7 @@ func (exec *PITRRestoreExecutor) doBackupRestore(ctx context.Context, stores *st
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to find database for the backup")
 	}
-	backup, err := stores.GetBackupV2(ctx, *payload.BackupID)
+	backup, err := stores.GetBackupByUID(ctx, *payload.BackupID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to find backup with ID %d", *payload.BackupID)
 	}
@@ -120,7 +120,7 @@ func (exec *PITRRestoreExecutor) doBackupRestore(ctx context.Context, stores *st
 	if err != nil {
 		return nil, err
 	}
-	targetDatabase, err := exec.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{EnvironmentID: &targetInstance.EnvironmentID, InstanceID: &targetInstance.ResourceID, DatabaseName: payload.DatabaseName})
+	targetDatabase, err := exec.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{InstanceID: &targetInstance.ResourceID, DatabaseName: payload.DatabaseName})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to find target database %q in instance %q", *payload.DatabaseName, instance.Title)
 	}
@@ -139,7 +139,7 @@ func (exec *PITRRestoreExecutor) doBackupRestore(ctx context.Context, stores *st
 	)
 
 	// Restore the database to the target database.
-	if err := exec.restoreDatabase(ctx, dbFactory, s3Client, profile, targetInstance, targetDatabase.DatabaseName, backup); err != nil {
+	if err := exec.restoreDatabase(ctx, dbFactory, s3Client, profile, targetInstance, targetDatabase, backup); err != nil {
 		return nil, err
 	}
 	// TODO(zp): This should be done in the same transaction as restoreDatabase to guarantee consistency.
@@ -154,7 +154,6 @@ func (exec *PITRRestoreExecutor) doBackupRestore(ctx context.Context, stores *st
 	// and since we can't guarantee cross database transaction consistency, there is always a chance to have
 	// inconsistent data. We choose to do Patch afterwards since this one is unlikely to fail.
 	if _, err := stores.UpdateDatabase(ctx, &store.UpdateDatabaseMessage{
-		EnvironmentID:  targetDatabase.EnvironmentID,
 		InstanceID:     targetDatabase.InstanceID,
 		DatabaseName:   targetDatabase.DatabaseName,
 		SourceBackupID: &backup.UID,
@@ -188,7 +187,7 @@ func (exec *PITRRestoreExecutor) doPITRRestore(ctx context.Context, dbFactory *d
 		return nil, err
 	}
 
-	sourceDriver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, "")
+	sourceDriver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, nil /* database */)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +199,7 @@ func (exec *PITRRestoreExecutor) doPITRRestore(ctx context.Context, dbFactory *d
 		if err != nil {
 			return nil, err
 		}
-		if targetDriver, err = dbFactory.GetAdminDatabaseDriver(ctx, targetInstance, ""); err != nil {
+		if targetDriver, err = dbFactory.GetAdminDatabaseDriver(ctx, targetInstance, nil /* database */); err != nil {
 			return nil, err
 		}
 	}
@@ -348,7 +347,7 @@ func (*PITRRestoreExecutor) doRestoreInPlacePostgres(ctx context.Context, stores
 		return nil, errors.Errorf("PITR for Postgres is not implemented")
 	}
 
-	backup, err := stores.GetBackupV2(ctx, *payload.BackupID)
+	backup, err := stores.GetBackupByUID(ctx, *payload.BackupID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to find backup with ID %d", *payload.BackupID)
 	}
@@ -370,7 +369,7 @@ func (*PITRRestoreExecutor) doRestoreInPlacePostgres(ctx context.Context, stores
 	if err != nil {
 		return nil, err
 	}
-	driver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, database.DatabaseName)
+	driver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, database)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +385,7 @@ func (*PITRRestoreExecutor) doRestoreInPlacePostgres(ctx context.Context, stores
 		return nil, errors.Wrapf(err, "failed to get the OWNER of database %q", database.DatabaseName)
 	}
 
-	defaultDBDriver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, "")
+	defaultDBDriver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, nil /* database */)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +401,7 @@ func (*PITRRestoreExecutor) doRestoreInPlacePostgres(ctx context.Context, stores
 		return nil, errors.Wrapf(err, "failed to create the PITR database %q", pitrDatabaseName)
 	}
 
-	pitrDBDriver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, "")
+	pitrDBDriver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, nil /* database */)
 	if err != nil {
 		return nil, err
 	}
@@ -460,8 +459,8 @@ func (exec *PITRRestoreExecutor) updateProgress(ctx context.Context, driver *mys
 }
 
 // restoreDatabase will restore the database to the instance from the backup.
-func (*PITRRestoreExecutor) restoreDatabase(ctx context.Context, dbFactory *dbfactory.DBFactory, s3Client *bbs3.Client, profile config.Profile, instance *store.InstanceMessage, databaseName string, backup *store.BackupMessage) error {
-	driver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, databaseName)
+func (*PITRRestoreExecutor) restoreDatabase(ctx context.Context, dbFactory *dbfactory.DBFactory, s3Client *bbs3.Client, profile config.Profile, instance *store.InstanceMessage, database *store.DatabaseMessage, backup *store.BackupMessage) error {
+	driver, err := dbFactory.GetAdminDatabaseDriver(ctx, instance, database)
 	if err != nil {
 		return err
 	}
@@ -550,7 +549,7 @@ func createBranchMigrationHistory(ctx context.Context, stores *store.Store, dbFa
 		CreatorID:      creator.ID,
 		IssueID:        issueID,
 	}
-	targetDriver, err := dbFactory.GetAdminDatabaseDriver(ctx, targetInstance, targetDatabase.DatabaseName)
+	targetDriver, err := dbFactory.GetAdminDatabaseDriver(ctx, targetInstance, targetDatabase)
 	if err != nil {
 		return "", "", err
 	}

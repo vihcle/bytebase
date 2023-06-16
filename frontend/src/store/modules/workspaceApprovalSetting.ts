@@ -1,8 +1,8 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
+import { cloneDeep } from "lodash-es";
 
 import { settingServiceClient } from "@/grpcweb";
-import { WorkspaceApprovalSetting } from "@/types/proto/store/setting";
 import { Setting } from "@/types/proto/v1/setting_service";
 import type { LocalApprovalConfig, LocalApprovalRule } from "@/types";
 import {
@@ -11,6 +11,7 @@ import {
   seedWorkspaceApprovalSetting,
 } from "@/utils";
 import { Risk_Source } from "@/types/proto/v1/risk_service";
+import { useGracefulRequest } from "./utils";
 
 const SETTING_NAME = "settings/bb.workspace.approval";
 
@@ -23,14 +24,14 @@ export const useWorkspaceApprovalSettingStore = defineStore(
       unrecognized: [],
     });
 
-    const setConfigSetting = (setting: Setting) => {
-      const _config = WorkspaceApprovalSetting.fromJSON(
-        JSON.parse(setting.value?.stringValue || "{}")
-      );
-      if (_config.rules.length === 0) {
-        _config.rules.push(...seedWorkspaceApprovalSetting());
+    const setConfigSetting = async (setting: Setting) => {
+      const _config = setting.value?.workspaceApprovalSettingValue;
+      if (_config) {
+        if (_config.rules.length === 0) {
+          _config.rules.push(...seedWorkspaceApprovalSetting());
+        }
+        config.value = await resolveLocalApprovalConfig(_config);
       }
-      config.value = resolveLocalApprovalConfig(_config);
     };
 
     const fetchConfig = async () => {
@@ -38,53 +39,66 @@ export const useWorkspaceApprovalSettingStore = defineStore(
         const setting = await settingServiceClient.getSetting({
           name: SETTING_NAME,
         });
-        setConfigSetting(setting);
+        await setConfigSetting(setting);
       } catch (ex) {
         console.error(ex);
       }
     };
 
     const updateConfig = async () => {
-      const setting = buildWorkspaceApprovalSetting(config.value);
+      const setting = await buildWorkspaceApprovalSetting(config.value);
       await settingServiceClient.setSetting({
         setting: {
           name: SETTING_NAME,
           value: {
-            stringValue: JSON.stringify(setting),
+            workspaceApprovalSettingValue: setting,
           },
         },
       });
+    };
+
+    const useBackupAndUpdateConfig = async (update: () => Promise<any>) => {
+      const backup = cloneDeep(config.value);
+      try {
+        await useGracefulRequest(update);
+      } catch (err) {
+        config.value = backup;
+        throw err;
+      }
     };
 
     const upsertRule = async (
       newRule: LocalApprovalRule,
       oldRule: LocalApprovalRule | undefined
     ) => {
-      const { rules } = config.value;
-      if (oldRule) {
-        const index = rules.indexOf(oldRule);
-        if (index >= 0) {
-          rules[index] = newRule;
+      await useBackupAndUpdateConfig(async () => {
+        const { rules } = config.value;
+        if (oldRule) {
+          const index = rules.indexOf(oldRule);
+          if (index >= 0) {
+            rules[index] = newRule;
+            await updateConfig();
+          }
+        } else {
+          rules.unshift(newRule);
           await updateConfig();
         }
-      } else {
-        rules.unshift(newRule);
-        await updateConfig();
-      }
+      });
     };
 
     const deleteRule = async (rule: LocalApprovalRule) => {
-      await new Promise((r) => setTimeout(r, 500));
-      const { rules, parsed, unrecognized } = config.value;
-      config.value.parsed = parsed.filter((item) => item.rule !== rule.uid);
-      config.value.unrecognized = unrecognized.filter(
-        (item) => item.rule !== rule.uid
-      );
-      const index = rules.indexOf(rule);
-      if (index >= 0) {
-        rules.splice(index, 1);
-      }
-      await updateConfig();
+      await useBackupAndUpdateConfig(async () => {
+        const { rules, parsed, unrecognized } = config.value;
+        config.value.parsed = parsed.filter((item) => item.rule !== rule.uid);
+        config.value.unrecognized = unrecognized.filter(
+          (item) => item.rule !== rule.uid
+        );
+        const index = rules.indexOf(rule);
+        if (index >= 0) {
+          rules.splice(index, 1);
+        }
+        await updateConfig();
+      });
     };
 
     const updateRuleFlow = async (
@@ -92,26 +106,28 @@ export const useWorkspaceApprovalSettingStore = defineStore(
       level: number,
       rule: string | undefined
     ) => {
-      const { parsed } = config.value;
-      const index = parsed.findIndex(
-        (item) => item.source == source && item.level === level
-      );
-      if (index >= 0) {
-        if (rule) {
-          parsed[index].rule = rule;
+      await useBackupAndUpdateConfig(async () => {
+        const { parsed } = config.value;
+        const index = parsed.findIndex(
+          (item) => item.source == source && item.level === level
+        );
+        if (index >= 0) {
+          if (rule) {
+            parsed[index].rule = rule;
+          } else {
+            parsed.splice(index, 1);
+          }
         } else {
-          parsed.splice(index, 1);
+          if (rule) {
+            parsed.push({
+              source,
+              level,
+              rule,
+            });
+          }
         }
-      } else {
-        if (rule) {
-          parsed.push({
-            source,
-            level,
-            rule,
-          });
-        }
-      }
-      await updateConfig();
+        await updateConfig();
+      });
     };
 
     return {

@@ -39,53 +39,36 @@ func TestIsValidResourceID(t *testing.T) {
 	}
 }
 
-func TestGetFilter(t *testing.T) {
+func TestGetProjectFilter(t *testing.T) {
 	tests := []struct {
-		filter    string
-		filterKey string
-		want      string
-		wantErr   bool
+		filter  string
+		want    string
+		wantErr bool
 	}{
 		{
-			filter:    "",
-			filterKey: "",
-			want:      "",
-			wantErr:   true,
+			filter:  "",
+			want:    "",
+			wantErr: true,
 		},
 		{
-			filter:    `project= "projects/abc".`,
-			filterKey: "project",
-			want:      "projects/abc",
-			wantErr:   false,
+			filter:  `project == "projects/abc"`,
+			want:    "projects/abc",
+			wantErr: false,
 		},
 		{
-			filter:    `project= "projects/abc".`,
-			filterKey: "instance",
-			want:      "",
-			wantErr:   true,
+			filter:  `project== "projects/abc"`,
+			want:    "projects/abc",
+			wantErr: false,
 		},
 		{
-			filter:    `project= abc.`,
-			filterKey: "project",
-			want:      "",
-			wantErr:   true,
-		},
-		{
-			filter:    `project= abc`,
-			filterKey: "project",
-			want:      "",
-			wantErr:   true,
-		},
-		{
-			filter:    `project= "projects/abc"`,
-			filterKey: "project",
-			want:      "",
-			wantErr:   true,
+			filter:  `project== "projects/abc".`,
+			want:    "",
+			wantErr: true,
 		},
 	}
 
 	for _, test := range tests {
-		value, err := getFilter(test.filter, test.filterKey)
+		value, err := getProjectFilter(test.filter)
 		if test.wantErr {
 			require.Error(t, err)
 		} else {
@@ -95,13 +78,12 @@ func TestGetFilter(t *testing.T) {
 	}
 }
 
-func TestGetEnvironmentInstanceDatabaseID(t *testing.T) {
-	environmentID, instanceID, err := getEnvironmentInstanceID("environments/e1/instances/i2")
+func TestGetInstanceDatabaseID(t *testing.T) {
+	instanceID, err := getInstanceID("instances/i2")
 	require.NoError(t, err)
-	require.Equal(t, "e1", environmentID)
 	require.Equal(t, "i2", instanceID)
 
-	_, _, err = getEnvironmentInstanceID("environments/e1/instances/i2/databases/d3")
+	_, err = getInstanceID("instances/i2/databases/d3")
 	require.Error(t, err)
 }
 
@@ -192,9 +174,9 @@ func TestParseFilter(t *testing.T) {
 			input: `resource="environments/e1/instances/i2"`,
 			want: []expression{
 				{
-					key:        "resource",
-					comparator: comparatorTypeEqual,
-					value:      "environments/e1/instances/i2",
+					key:      "resource",
+					operator: comparatorTypeEqual,
+					value:    "environments/e1/instances/i2",
 				},
 			},
 		},
@@ -202,19 +184,19 @@ func TestParseFilter(t *testing.T) {
 			input: `project = "p1" && start_time>="2020-01-01T00:00:00Z" && start_time<2020-01-02T00:00:00Z`,
 			want: []expression{
 				{
-					key:        "project",
-					comparator: comparatorTypeEqual,
-					value:      "p1",
+					key:      "project",
+					operator: comparatorTypeEqual,
+					value:    "p1",
 				},
 				{
-					key:        "start_time",
-					comparator: comparatorTypeGreaterEqual,
-					value:      "2020-01-01T00:00:00Z",
+					key:      "start_time",
+					operator: comparatorTypeGreaterEqual,
+					value:    "2020-01-01T00:00:00Z",
 				},
 				{
-					key:        "start_time",
-					comparator: comparatorTypeLess,
-					value:      "2020-01-02T00:00:00Z",
+					key:      "start_time",
+					operator: comparatorTypeLess,
+					value:    "2020-01-02T00:00:00Z",
 				},
 			},
 		},

@@ -125,17 +125,9 @@
           <heroicons-outline:bell class="w-6 h-6" />
         </router-link>
         <div class="ml-2">
-          <div
-            class="flex justify-center items-center bg-gray-100 rounded-3xl"
-            :class="logoUrl ? 'p-2' : ''"
-          >
-            <img
-              v-if="logoUrl"
-              class="h-7 mr-4 ml-2 bg-no-repeat bg-contain bg-center"
-              :src="logoUrl"
-            />
+          <ProfileBrandingLogo>
             <ProfileDropdown />
-          </div>
+          </ProfileBrandingLogo>
         </div>
         <div class="ml-2 -mr-2 flex md:hidden">
           <!-- Mobile menu button -->
@@ -214,16 +206,17 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
 import BytebaseLogo from "../components/BytebaseLogo.vue";
+import ProfileBrandingLogo from "../components/ProfileBrandingLogo.vue";
 import ProfileDropdown from "../components/ProfileDropdown.vue";
 import { UNKNOWN_ID } from "../types";
-import { hasWorkspacePermission, isDev } from "../utils";
+import { hasWorkspacePermissionV1, isDev } from "../utils";
 import { useLanguage } from "../composables/useLanguage";
 import {
   useCurrentUser,
-  useDebugStore,
-  useSettingStore,
-  useSubscriptionStore,
-  useInboxStore,
+  useActuatorV1Store,
+  useSubscriptionV1Store,
+  useInboxV1Store,
+  useCurrentUserV1,
 } from "@/store";
 import { storeToRefs } from "pinia";
 import { PlanType } from "@/types/proto/v1/subscription_service";
@@ -237,14 +230,14 @@ export default defineComponent({
   name: "DashboardHeader",
   components: {
     BytebaseLogo,
+    ProfileBrandingLogo,
     ProfileDropdown,
   },
   setup() {
     const { t, availableLocales } = useI18n();
-    const debugStore = useDebugStore();
-    const inboxStore = useInboxStore();
-    const settingStore = useSettingStore();
-    const subscriptionStore = useSubscriptionStore();
+    const actuatorV1Store = useActuatorV1Store();
+    const inboxV1Store = useInboxV1Store();
+    const subscriptionStore = useSubscriptionV1Store();
     const router = useRouter();
     const route = useRoute();
     const { setLocale, toggleLocales, locale } = useLanguage();
@@ -255,6 +248,7 @@ export default defineComponent({
     });
 
     const currentUser = useCurrentUser();
+    const currentUserV1 = useCurrentUserV1();
 
     const { currentPlan } = storeToRefs(subscriptionStore);
 
@@ -269,16 +263,16 @@ export default defineComponent({
     };
 
     const shouldShowIssueEntry = computed((): boolean => {
-      return hasWorkspacePermission(
+      return hasWorkspacePermissionV1(
         "bb.permission.workspace.manage-issue",
-        currentUser.value.role
+        currentUserV1.value.userRole
       );
     });
 
     const shouldShowInstanceEntry = computed(() => {
-      return hasWorkspacePermission(
+      return hasWorkspacePermissionV1(
         "bb.permission.workspace.manage-instance",
-        currentUser.value.role
+        currentUserV1.value.userRole
       );
     });
 
@@ -286,23 +280,17 @@ export default defineComponent({
       return isDev();
     });
 
-    const logoUrl = computed((): string | undefined => {
-      const brandingLogoSetting =
-        settingStore.getSettingByName("bb.branding.logo");
-      return brandingLogoSetting?.value;
-    });
-
     const prepareInboxSummary = () => {
       // It will also be called when user logout
       if (currentUser.value.id != UNKNOWN_ID) {
-        inboxStore.fetchInboxSummaryByUser(currentUser.value.id);
+        inboxV1Store.fetchInboxSummary();
       }
     };
 
     watchEffect(prepareInboxSummary);
 
     const inboxSummary = computed(() => {
-      return inboxStore.getInboxSummaryByUser(currentUser.value.id);
+      return inboxV1Store.inboxSummary;
     });
 
     const kbarActions = computed(() => [
@@ -373,11 +361,11 @@ export default defineComponent({
       );
     };
 
-    const { isDebug } = storeToRefs(debugStore);
+    const { isDebug } = storeToRefs(actuatorV1Store);
 
     const toggleDebug = () => {
-      debugStore.patchDebug({
-        isDebug: !isDebug.value,
+      actuatorV1Store.patchDebug({
+        debug: !isDebug.value,
       });
     };
 
@@ -422,8 +410,6 @@ export default defineComponent({
       getRouteLinkClass,
       shouldShowInstanceEntry,
       shouldShowIssueEntry,
-      logoUrl,
-      currentUser,
       currentPlan,
       PlanType,
       isDevFeatures,

@@ -6,7 +6,7 @@
           <div v-if="!create">
             <IssueStatusIcon
               :issue-status="issue.status"
-              :task-status="activeTask(issue.pipeline).status"
+              :task-status="issueTaskStatus"
             />
           </div>
           <BBTextField
@@ -22,8 +22,8 @@
           />
 
           <div class="mt-4 flex space-x-3 md:mt-0 md:ml-4">
-            <IssueReviewButtonGroup v-if="showReviewButton" />
-            <IssueStatusTransitionButtonGroup v-else-if="showRolloutButton" />
+            <IssueReviewButtonGroup v-if="showReviewButtonGroup" />
+            <CombinedRolloutButtonGroup v-else-if="showRolloutButtonGroup" />
           </div>
         </div>
         <div v-if="!create">
@@ -40,7 +40,7 @@
               >
             </template>
             <template #time>{{
-              dayjs(issue.updatedTs * 1000).format("LLL")
+              dayjs(issue.createdTs * 1000).format("LLL")
             }}</template>
           </i18n-t>
           <p
@@ -80,7 +80,7 @@
             </i18n-t>
           </p>
         </div>
-        <IssueRollbackFromTips />
+        <slot name="tips"></slot>
       </div>
     </div>
   </div>
@@ -91,8 +91,11 @@ import { reactive, watch, computed, Ref } from "vue";
 import { head } from "lodash-es";
 
 import IssueStatusIcon from "./IssueStatusIcon.vue";
-import IssueRollbackFromTips from "./IssueRollbackFromTips.vue";
-import { activeTask } from "@/utils";
+import {
+  activeTask,
+  isDatabaseRelatedIssueType,
+  isGrantRequestIssueType,
+} from "@/utils";
 import {
   TaskDatabaseSchemaUpdatePayload,
   TaskDatabaseDataUpdatePayload,
@@ -100,9 +103,9 @@ import {
   VCSPushEvent,
 } from "@/types";
 import { useExtraIssueLogic, useIssueLogic } from "./logic";
-import IssueStatusTransitionButtonGroup from "./IssueStatusTransitionButtonGroup.vue";
 import { IssueReviewButtonGroup } from "./review";
 import { useIssueReviewContext } from "@/plugins/issue/logic/review/context";
+import { CombinedRolloutButtonGroup } from "./StatusTransitionButtonGroup";
 
 interface LocalState {
   editing: boolean;
@@ -121,16 +124,37 @@ const state = reactive<LocalState>({
   name: issue.value.name,
 });
 
-const showReviewButton = computed(() => {
+/**
+ * Send back / Approve
+ * + cancel issue (dropdown)
+ */
+const showReviewButtonGroup = computed(() => {
   if (create.value) return false;
   if (reviewError.value) return false;
+  // User can cancel issue when it's in review.
+  if (isGrantRequestIssueType(issue.value.type)) return true;
   return !reviewDone.value;
 });
 
-const showRolloutButton = computed(() => {
+/**
+ * Rollout / Retry
+ * + cancel issue (dropdown)
+ * * skip all failed tasks in current stage (dropdown)
+ */
+const showRolloutButtonGroup = computed(() => {
   if (create.value) return true;
+  if (isGrantRequestIssueType(issue.value.type)) return false;
 
   return reviewDone.value;
+});
+
+const issueTaskStatus = computed(() => {
+  // For grant request issue, we always show the status as "PENDING_APPROVAL" as task status.
+  if (!isDatabaseRelatedIssueType(issue.value.type)) {
+    return "PENDING_APPROVAL";
+  }
+
+  return activeTask(issue.value.pipeline!).status;
 });
 
 watch(
@@ -142,11 +166,11 @@ watch(
 
 const pushEvent = computed((): VCSPushEvent | undefined => {
   if (issue.value.type == "bb.issue.database.schema.update") {
-    const payload = activeTask(issue.value.pipeline)
+    const payload = activeTask(issue.value.pipeline!)
       .payload as TaskDatabaseSchemaUpdatePayload;
     return payload?.pushEvent;
   } else if (issue.value.type == "bb.issue.database.data.update") {
-    const payload = activeTask(issue.value.pipeline)
+    const payload = activeTask(issue.value.pipeline!)
       .payload as TaskDatabaseDataUpdatePayload;
     return payload?.pushEvent;
   }

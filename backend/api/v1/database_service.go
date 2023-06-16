@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,30 +10,45 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/pkg/errors"
+	openai "github.com/sashabaranov/go-openai"
 
+	tidbparser "github.com/pingcap/tidb/parser"
+	tidbast "github.com/pingcap/tidb/parser/ast"
+	"github.com/pingcap/tidb/parser/format"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
+	enterpriseAPI "github.com/bytebase/bytebase/backend/enterprise/api"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
+	"github.com/bytebase/bytebase/backend/plugin/db"
+	"github.com/bytebase/bytebase/backend/plugin/db/util"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/transform"
 	"github.com/bytebase/bytebase/backend/runner/backuprun"
+	"github.com/bytebase/bytebase/backend/runner/schemasync"
 	"github.com/bytebase/bytebase/backend/store"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 const (
-	filterKeyProject   = "project"
-	filterKeyStartTime = "start_time"
+	filterKeyEnvironment = "environment"
+	filterKeyProject     = "project"
+	filterKeyStartTime   = "start_time"
 
-	// Support order by count, latest_log_time, average_query_time, nighty_fifth_percentile_query_time,
-	// average_rows_sent, nighty_fifth_percentile_rows_sent, average_rows_examined, nighty_fifth_percentile_rows_examined for now.
+	// Support order by count, latest_log_time, average_query_time, maximum_query_time,
+	// average_rows_sent, maximum_rows_sent, average_rows_examined, maximum_rows_examined for now.
 	orderByKeyCount               = "count"
 	orderByKeyLatestLogTime       = "latest_log_time"
 	orderByKeyAverageQueryTime    = "average_query_time"
@@ -46,29 +62,39 @@ const (
 // DatabaseService implements the database service.
 type DatabaseService struct {
 	v1pb.UnimplementedDatabaseServiceServer
-	store        *store.Store
-	BackupRunner *backuprun.Runner
+	store          *store.Store
+	backupRunner   *backuprun.Runner
+	schemaSyncer   *schemasync.Syncer
+	licenseService enterpriseAPI.LicenseService
 }
 
 // NewDatabaseService creates a new DatabaseService.
-func NewDatabaseService(store *store.Store, br *backuprun.Runner) *DatabaseService {
+func NewDatabaseService(store *store.Store, br *backuprun.Runner, schemaSyncer *schemasync.Syncer, licenseService enterpriseAPI.LicenseService) *DatabaseService {
 	return &DatabaseService{
-		store:        store,
-		BackupRunner: br,
+		store:          store,
+		backupRunner:   br,
+		schemaSyncer:   schemaSyncer,
+		licenseService: licenseService,
 	}
 }
 
 // GetDatabase gets a database.
 func (s *DatabaseService) GetDatabase(ctx context.Context, request *v1pb.GetDatabaseRequest) (*v1pb.Database, error) {
-	environmentID, instanceID, databaseName, err := getEnvironmentInstanceDatabaseID(request.Name)
+	instanceID, databaseName, err := getInstanceDatabaseID(request.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
-	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-		EnvironmentID: &environmentID,
-		InstanceID:    &instanceID,
-		DatabaseName:  &databaseName,
-	})
+	find := &store.FindDatabaseMessage{}
+	databaseUID, isNumber := isNumber(databaseName)
+	if isNumber {
+		// Expected format: "instances/{ignored_value}/database/{uid}"
+		find.UID = &databaseUID
+	} else {
+		// Expected format: "instances/{instance}/database/{database}"
+		find.InstanceID = &instanceID
+		find.DatabaseName = &databaseName
+	}
+	database, err := s.store.GetDatabaseV2(ctx, find)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
@@ -80,19 +106,16 @@ func (s *DatabaseService) GetDatabase(ctx context.Context, request *v1pb.GetData
 
 // ListDatabases lists all databases.
 func (s *DatabaseService) ListDatabases(ctx context.Context, request *v1pb.ListDatabasesRequest) (*v1pb.ListDatabasesResponse, error) {
-	environmentID, instanceID, err := getEnvironmentInstanceID(request.Parent)
+	instanceID, err := getInstanceID(request.Parent)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 	find := &store.FindDatabaseMessage{}
-	if environmentID != "-" {
-		find.EnvironmentID = &environmentID
-	}
 	if instanceID != "-" {
 		find.InstanceID = &instanceID
 	}
 	if request.Filter != "" {
-		projectFilter, err := getFilter(request.Filter, "project")
+		projectFilter, err := getProjectFilter(request.Filter)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}
@@ -113,6 +136,48 @@ func (s *DatabaseService) ListDatabases(ctx context.Context, request *v1pb.ListD
 	return response, nil
 }
 
+// SearchDatabases searches all databases.
+func (s *DatabaseService) SearchDatabases(ctx context.Context, request *v1pb.SearchDatabasesRequest) (*v1pb.SearchDatabasesResponse, error) {
+	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	role := ctx.Value(common.RoleContextKey).(api.Role)
+
+	instanceID, err := getInstanceID(request.Parent)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+	find := &store.FindDatabaseMessage{}
+	if instanceID != "-" {
+		find.InstanceID = &instanceID
+	}
+	if request.Filter != "" {
+		projectFilter, err := getProjectFilter(request.Filter)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, err.Error())
+		}
+		projectID, err := getProjectID(projectFilter)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid project %q in the filter", projectFilter)
+		}
+		find.ProjectID = &projectID
+	}
+	databases, err := s.store.ListDatabases(ctx, find)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	response := &v1pb.SearchDatabasesResponse{}
+	for _, database := range databases {
+		policy, err := s.store.GetProjectPolicy(ctx, &store.GetProjectPolicyMessage{ProjectID: &database.ProjectID})
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+		if !isOwnerOrDBA(role) && !isProjectMember(policy, principalID) {
+			continue
+		}
+		response.Databases = append(response.Databases, convertToDatabase(database))
+	}
+	return response, nil
+}
+
 // UpdateDatabase updates a database.
 func (s *DatabaseService) UpdateDatabase(ctx context.Context, request *v1pb.UpdateDatabaseRequest) (*v1pb.Database, error) {
 	if request.Database == nil {
@@ -122,14 +187,13 @@ func (s *DatabaseService) UpdateDatabase(ctx context.Context, request *v1pb.Upda
 		return nil, status.Errorf(codes.InvalidArgument, "update_mask must be set")
 	}
 
-	environmentID, instanceID, databaseName, err := getEnvironmentInstanceDatabaseID(request.Database.Name)
+	instanceID, databaseName, err := getInstanceDatabaseID(request.Database.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-		EnvironmentID: &environmentID,
-		InstanceID:    &instanceID,
-		DatabaseName:  &databaseName,
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -139,7 +203,10 @@ func (s *DatabaseService) UpdateDatabase(ctx context.Context, request *v1pb.Upda
 	}
 
 	var project *store.ProjectMessage
-	patch := &store.UpdateDatabaseMessage{}
+	patch := &store.UpdateDatabaseMessage{
+		InstanceID:   instanceID,
+		DatabaseName: databaseName,
+	}
 	for _, path := range request.UpdateMask.Paths {
 		switch path {
 		case "project":
@@ -180,6 +247,35 @@ func (s *DatabaseService) UpdateDatabase(ctx context.Context, request *v1pb.Upda
 	return convertToDatabase(updatedDatabase), nil
 }
 
+// SyncDatabase syncs the schema of a database.
+func (s *DatabaseService) SyncDatabase(ctx context.Context, request *v1pb.SyncDatabaseRequest) (*v1pb.SyncDatabaseResponse, error) {
+	instanceID, databaseName, err := getInstanceDatabaseID(request.Name)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+	find := &store.FindDatabaseMessage{}
+	databaseUID, isNumber := isNumber(databaseName)
+	if isNumber {
+		// Expected format: "instances/{ignored_value}/database/{uid}"
+		find.UID = &databaseUID
+	} else {
+		// Expected format: "instances/{instance}/database/{database}"
+		find.InstanceID = &instanceID
+		find.DatabaseName = &databaseName
+	}
+	database, err := s.store.GetDatabaseV2(ctx, find)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if database == nil {
+		return nil, status.Errorf(codes.NotFound, "database %q not found", databaseName)
+	}
+	if err := s.schemaSyncer.SyncDatabaseSchema(ctx, database, true /* force */); err != nil {
+		return nil, err
+	}
+	return &v1pb.SyncDatabaseResponse{}, nil
+}
+
 // BatchUpdateDatabases updates a database in batch.
 func (s *DatabaseService) BatchUpdateDatabases(ctx context.Context, request *v1pb.BatchUpdateDatabasesRequest) (*v1pb.BatchUpdateDatabasesResponse, error) {
 	var databases []*store.DatabaseMessage
@@ -191,14 +287,13 @@ func (s *DatabaseService) BatchUpdateDatabases(ctx context.Context, request *v1p
 		if req.UpdateMask == nil {
 			return nil, status.Errorf(codes.InvalidArgument, "update_mask must be set")
 		}
-		environmentID, instanceID, databaseName, err := getEnvironmentInstanceDatabaseID(req.Database.Name)
+		instanceID, databaseName, err := getInstanceDatabaseID(req.Database.Name)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}
 		database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-			EnvironmentID: &environmentID,
-			InstanceID:    &instanceID,
-			DatabaseName:  &databaseName,
+			InstanceID:   &instanceID,
+			DatabaseName: &databaseName,
 		})
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, err.Error())
@@ -249,14 +344,13 @@ func (s *DatabaseService) BatchUpdateDatabases(ctx context.Context, request *v1p
 
 // GetDatabaseMetadata gets the metadata of a database.
 func (s *DatabaseService) GetDatabaseMetadata(ctx context.Context, request *v1pb.GetDatabaseMetadataRequest) (*v1pb.DatabaseMetadata, error) {
-	environmentID, instanceID, databaseName, err := trimSuffixAndGetEnvironmentInstanceDatabaseID(request.Name, metadataSuffix)
+	instanceID, databaseName, err := trimSuffixAndGetInstanceDatabaseID(request.Name, metadataSuffix)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-		EnvironmentID: &environmentID,
-		InstanceID:    &instanceID,
-		DatabaseName:  &databaseName,
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -273,14 +367,13 @@ func (s *DatabaseService) GetDatabaseMetadata(ctx context.Context, request *v1pb
 
 // GetDatabaseSchema gets the schema of a database.
 func (s *DatabaseService) GetDatabaseSchema(ctx context.Context, request *v1pb.GetDatabaseSchemaRequest) (*v1pb.DatabaseSchema, error) {
-	environmentID, instanceID, databaseName, err := trimSuffixAndGetEnvironmentInstanceDatabaseID(request.Name, schemaSuffix)
+	instanceID, databaseName, err := trimSuffixAndGetInstanceDatabaseID(request.Name, schemaSuffix)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-		EnvironmentID: &environmentID,
-		InstanceID:    &instanceID,
-		DatabaseName:  &databaseName,
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -295,27 +388,33 @@ func (s *DatabaseService) GetDatabaseSchema(ctx context.Context, request *v1pb.G
 	if dbSchema == nil {
 		return nil, status.Errorf(codes.NotFound, "database schema %q not found", databaseName)
 	}
-	return &v1pb.DatabaseSchema{Schema: string(dbSchema.Schema)}, nil
+	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{ResourceID: &database.InstanceID})
+	if err != nil {
+		return nil, err
+	}
+	// We only support MySQL engine for now.
+	schema := string(dbSchema.Schema)
+	if request.SdlFormat {
+		switch instance.Engine {
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
+			sdlSchema, err := transform.SchemaTransform(parser.MySQL, schema)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to convert schema to sdl format, error %v", err.Error())
+			}
+			schema = sdlSchema
+		}
+	}
+	return &v1pb.DatabaseSchema{Schema: schema}, nil
 }
 
 // GetBackupSetting gets the backup setting of a database.
 func (s *DatabaseService) GetBackupSetting(ctx context.Context, request *v1pb.GetBackupSettingRequest) (*v1pb.BackupSetting, error) {
-	environmentID, instanceID, databaseName, err := trimSuffixAndGetEnvironmentInstanceDatabaseID(request.Name, backupSettingSuffix)
+	instanceID, databaseName, err := trimSuffixAndGetInstanceDatabaseID(request.Name, backupSettingSuffix)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
-	environment, err := s.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{
-		ResourceID: &environmentID,
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
-	if environment == nil {
-		return nil, status.Errorf(codes.NotFound, "environment %q not found", environmentID)
-	}
 	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
-		EnvironmentID: &environmentID,
-		ResourceID:    &instanceID,
+		ResourceID: &instanceID,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -324,9 +423,8 @@ func (s *DatabaseService) GetBackupSetting(ctx context.Context, request *v1pb.Ge
 		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
 	}
 	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-		EnvironmentID: &environmentID,
-		InstanceID:    &instanceID,
-		DatabaseName:  &databaseName,
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -340,29 +438,19 @@ func (s *DatabaseService) GetBackupSetting(ctx context.Context, request *v1pb.Ge
 	}
 	if backupSetting == nil {
 		// If the backup setting is not found, return the default backup setting.
-		return getDefaultBackupSetting(environment.ResourceID, instance.ResourceID, database.DatabaseName), nil
+		return getDefaultBackupSetting(instance.ResourceID, database.DatabaseName), nil
 	}
-	return convertToBackupSetting(backupSetting, environment.ResourceID, instance.ResourceID, database.DatabaseName)
+	return convertToBackupSetting(backupSetting, instance.ResourceID, database.DatabaseName)
 }
 
 // UpdateBackupSetting updates the backup setting of a database.
 func (s *DatabaseService) UpdateBackupSetting(ctx context.Context, request *v1pb.UpdateBackupSettingRequest) (*v1pb.BackupSetting, error) {
-	environmentID, instanceID, databaseName, err := trimSuffixAndGetEnvironmentInstanceDatabaseID(request.Setting.Name, backupSettingSuffix)
+	instanceID, databaseName, err := trimSuffixAndGetInstanceDatabaseID(request.Setting.Name, backupSettingSuffix)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
-	environment, err := s.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{
-		ResourceID: &environmentID,
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
-	if environment == nil {
-		return nil, status.Errorf(codes.NotFound, "environment %q not found", environmentID)
-	}
 	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
-		EnvironmentID: &environmentID,
-		ResourceID:    &instanceID,
+		ResourceID: &instanceID,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -371,9 +459,8 @@ func (s *DatabaseService) UpdateBackupSetting(ctx context.Context, request *v1pb
 		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
 	}
 	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-		EnvironmentID: &environmentID,
-		InstanceID:    &instanceID,
-		DatabaseName:  &databaseName,
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -381,7 +468,7 @@ func (s *DatabaseService) UpdateBackupSetting(ctx context.Context, request *v1pb
 	if database == nil {
 		return nil, status.Errorf(codes.NotFound, "database %q not found", databaseName)
 	}
-	backupSetting, err := validateAndConvertToStoreBackupSetting(request.Setting, database.UID)
+	backupSetting, err := s.validateAndConvertToStoreBackupSetting(ctx, request.Setting, database)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -390,27 +477,17 @@ func (s *DatabaseService) UpdateBackupSetting(ctx context.Context, request *v1pb
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
-	return convertToBackupSetting(backupSetting, environment.ResourceID, instance.ResourceID, database.DatabaseName)
+	return convertToBackupSetting(backupSetting, instance.ResourceID, database.DatabaseName)
 }
 
-// ListBackup lists the backups of a database.
-func (s *DatabaseService) ListBackup(ctx context.Context, request *v1pb.ListBackupRequest) (*v1pb.ListBackupResponse, error) {
-	environmentID, instanceID, databaseName, err := getEnvironmentInstanceDatabaseID(request.Parent)
+// ListBackups lists the backups of a database.
+func (s *DatabaseService) ListBackups(ctx context.Context, request *v1pb.ListBackupsRequest) (*v1pb.ListBackupsResponse, error) {
+	instanceID, databaseName, err := getInstanceDatabaseID(request.Parent)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
-	environment, err := s.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{
-		ResourceID: &environmentID,
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
-	if environment == nil {
-		return nil, status.Errorf(codes.NotFound, "environment %q not found", environmentID)
-	}
 	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
-		EnvironmentID: &environmentID,
-		ResourceID:    &instanceID,
+		ResourceID: &instanceID,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -419,9 +496,8 @@ func (s *DatabaseService) ListBackup(ctx context.Context, request *v1pb.ListBack
 		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
 	}
 	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-		EnvironmentID: &environmentID,
-		InstanceID:    &instanceID,
-		DatabaseName:  &databaseName,
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -441,31 +517,21 @@ func (s *DatabaseService) ListBackup(ctx context.Context, request *v1pb.ListBack
 
 	var backupList []*v1pb.Backup
 	for _, existedBackup := range existedBackupList {
-		backupList = append(backupList, convertToBackup(existedBackup, environment.ResourceID, instance.ResourceID, database.DatabaseName))
+		backupList = append(backupList, convertToBackup(existedBackup, instance.ResourceID, database.DatabaseName))
 	}
-	return &v1pb.ListBackupResponse{
+	return &v1pb.ListBackupsResponse{
 		Backups: backupList,
 	}, nil
 }
 
 // CreateBackup creates a backup of a database.
 func (s *DatabaseService) CreateBackup(ctx context.Context, request *v1pb.CreateBackupRequest) (*v1pb.Backup, error) {
-	environmentID, instanceID, databaseName, backupName, err := getEnvironmentIDInstanceDatabaseIDBackupName(request.Backup.Name)
+	instanceID, databaseName, backupName, err := getInstanceDatabaseIDBackupName(request.Backup.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
-	environment, err := s.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{
-		ResourceID: &environmentID,
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
-	}
-	if environment == nil {
-		return nil, status.Errorf(codes.NotFound, "environment %q not found", environmentID)
-	}
 	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
-		EnvironmentID: &environmentID,
-		ResourceID:    &instanceID,
+		ResourceID: &instanceID,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -474,9 +540,8 @@ func (s *DatabaseService) CreateBackup(ctx context.Context, request *v1pb.Create
 		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
 	}
 	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-		EnvironmentID: &environmentID,
-		InstanceID:    &instanceID,
-		DatabaseName:  &databaseName,
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -497,22 +562,532 @@ func (s *DatabaseService) CreateBackup(ctx context.Context, request *v1pb.Create
 	}
 
 	creatorID := ctx.Value(common.PrincipalIDContextKey).(int)
-	backup, err := s.BackupRunner.ScheduleBackupTask(ctx, database, backupName, api.BackupTypeManual, creatorID)
+	backup, err := s.backupRunner.ScheduleBackupTask(ctx, database, backupName, api.BackupTypeManual, creatorID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
-	return convertToBackup(backup, environmentID, instanceID, databaseName), nil
+	return convertToBackup(backup, instanceID, databaseName), nil
+}
+
+// ListChangeHistories lists the change histories of a database.
+func (s *DatabaseService) ListChangeHistories(ctx context.Context, request *v1pb.ListChangeHistoriesRequest) (*v1pb.ListChangeHistoriesResponse, error) {
+	instanceID, databaseName, err := getInstanceDatabaseID(request.Parent)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
+		ResourceID: &instanceID,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if instance == nil {
+		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
+	}
+	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if database == nil {
+		return nil, status.Errorf(codes.NotFound, "database %q not found", databaseName)
+	}
+
+	var pageToken storepb.PageToken
+	if request.PageToken != "" {
+		if err := unmarshalPageToken(request.PageToken, &pageToken); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid page token: %v", err)
+		}
+		if pageToken.Limit != request.PageSize {
+			return nil, status.Errorf(codes.InvalidArgument, "request page size does not match the page token")
+		}
+	} else {
+		pageToken.Limit = request.PageSize
+	}
+
+	limit := int(pageToken.Limit)
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	limitPlusOne := limit + 1
+	offset := int(pageToken.Offset)
+
+	find := &store.FindInstanceChangeHistoryMessage{
+		InstanceID: &instance.UID,
+		DatabaseID: &database.UID,
+		Limit:      &limitPlusOne,
+		Offset:     &offset,
+	}
+	if request.View == v1pb.ChangeHistoryView_CHANGE_HISTORY_VIEW_FULL {
+		find.ShowFull = true
+	}
+	changeHistories, err := s.store.ListInstanceChangeHistory(ctx, find)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list change history, error: %v", err)
+	}
+
+	if len(changeHistories) == limitPlusOne {
+		nextPageToken, err := marshalPageToken(&storepb.PageToken{
+			Limit:  int32(limit),
+			Offset: int32(limit + offset),
+		})
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to marshal next page token, error: %v", err)
+		}
+		converted, err := convertToChangeHistories(changeHistories[:limit])
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to convert change histories, error: %v", err)
+		}
+		return &v1pb.ListChangeHistoriesResponse{
+			ChangeHistories: converted,
+			NextPageToken:   nextPageToken,
+		}, nil
+	}
+
+	// no subsequent pages
+	converted, err := convertToChangeHistories(changeHistories)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to convert change histories, error: %v", err)
+	}
+	return &v1pb.ListChangeHistoriesResponse{
+		ChangeHistories: converted,
+		NextPageToken:   "",
+	}, nil
+}
+
+// GetChangeHistory gets a change history.
+func (s *DatabaseService) GetChangeHistory(ctx context.Context, request *v1pb.GetChangeHistoryRequest) (*v1pb.ChangeHistory, error) {
+	instanceID, databaseName, changeHistoryIDStr, err := getInstanceDatabaseIDChangeHistory(request.Name)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+	changeHistoryID, err := strconv.ParseInt(changeHistoryIDStr, 10, 64)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "cannot parse change history id %q", changeHistoryIDStr)
+	}
+	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
+		ResourceID: &instanceID,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if instance == nil {
+		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
+	}
+	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if database == nil {
+		return nil, status.Errorf(codes.NotFound, "database %q not found", databaseName)
+	}
+	find := &store.FindInstanceChangeHistoryMessage{
+		InstanceID: &instance.UID,
+		DatabaseID: &database.UID,
+		ID:         &changeHistoryID,
+	}
+	if request.View == v1pb.ChangeHistoryView_CHANGE_HISTORY_VIEW_FULL {
+		find.ShowFull = true
+	}
+	changeHistory, err := s.store.ListInstanceChangeHistory(ctx, find)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list change history, error: %v", err)
+	}
+	if len(changeHistory) == 0 {
+		return nil, status.Errorf(codes.NotFound, "change history %q not found", changeHistoryIDStr)
+	}
+	if len(changeHistory) > 1 {
+		return nil, status.Errorf(codes.Internal, "expect to find one change history, got %d", len(changeHistory))
+	}
+	converted, err := convertToChangeHistory(changeHistory[0])
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to convert change history, error: %v", err)
+	}
+	if request.SdlFormat {
+		switch instance.Engine {
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
+			sdlSchema, err := transform.SchemaTransform(parser.MySQL, converted.Schema)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to convert schema to sdl format, error %v", err.Error())
+			}
+			converted.Schema = sdlSchema
+			sdlSchema, err = transform.SchemaTransform(parser.MySQL, converted.PrevSchema)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to convert previous schema to sdl format, error %v", err.Error())
+			}
+			converted.PrevSchema = sdlSchema
+		}
+	}
+	return converted, nil
+}
+
+func convertToChangeHistories(h []*store.InstanceChangeHistoryMessage) ([]*v1pb.ChangeHistory, error) {
+	var changeHistories []*v1pb.ChangeHistory
+	for _, history := range h {
+		converted, err := convertToChangeHistory(history)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to convert change history")
+		}
+		changeHistories = append(changeHistories, converted)
+	}
+	return changeHistories, nil
+}
+
+func convertToChangeHistory(h *store.InstanceChangeHistoryMessage) (*v1pb.ChangeHistory, error) {
+	_, version, _, err := util.FromStoredVersion(h.Version)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to convert stored version %q", h.Version)
+	}
+	v1pbHistory := &v1pb.ChangeHistory{
+		Name:              fmt.Sprintf("%s%s/%s%s/%s%v", instanceNamePrefix, h.InstanceID, databaseIDPrefix, h.DatabaseName, changeHistoryPrefix, h.UID),
+		Uid:               h.UID,
+		Creator:           fmt.Sprintf("users/%s", h.Creator.Email),
+		Updater:           fmt.Sprintf("users/%s", h.Updater.Email),
+		CreateTime:        timestamppb.New(time.Unix(h.CreatedTs, 0)),
+		UpdateTime:        timestamppb.New(time.Unix(h.UpdatedTs, 0)),
+		ReleaseVersion:    h.ReleaseVersion,
+		Source:            convertToChangeHistorySource(h.Source),
+		Type:              convertToChangeHistoryType(h.Type),
+		Status:            convertToChangeHistoryStatus(h.Status),
+		Version:           version,
+		Description:       h.Description,
+		Statement:         h.Statement,
+		Schema:            h.Schema,
+		PrevSchema:        h.SchemaPrev,
+		ExecutionDuration: durationpb.New(time.Duration(h.ExecutionDurationNs)),
+		PushEvent:         convertToPushEvent(h.Payload.GetPushEvent()),
+		Review:            "",
+	}
+	if h.IssueUID != nil {
+		v1pbHistory.Review = fmt.Sprintf("%s%s/%s%d", projectNamePrefix, h.IssueProjectID, reviewPrefix, *h.IssueUID)
+	}
+	return v1pbHistory, nil
+}
+
+func convertToPushEvent(e *storepb.PushEvent) *v1pb.PushEvent {
+	if e == nil {
+		return nil
+	}
+	return &v1pb.PushEvent{
+		VcsType:            convertToVcsType(e.VcsType),
+		BaseDir:            e.BaseDir,
+		Ref:                e.Ref,
+		Before:             e.Before,
+		After:              e.After,
+		RepositoryId:       e.RepositoryId,
+		RepositoryUrl:      e.RepositoryUrl,
+		RepositoryFullPath: e.RepositoryFullPath,
+		AuthorName:         e.AuthorName,
+		Commits:            convertToCommits(e.Commits),
+		FileCommit:         convertToFileCommit(e.FileCommit),
+	}
+}
+
+func convertToVcsType(t storepb.VcsType) v1pb.VcsType {
+	switch t {
+	case storepb.VcsType_GITLAB:
+		return v1pb.VcsType_GITLAB
+	case storepb.VcsType_GITHUB:
+		return v1pb.VcsType_GITHUB
+	case storepb.VcsType_BITBUCKET:
+		return v1pb.VcsType_BITBUCKET
+	case storepb.VcsType_VCS_TYPE_UNSPECIFIED:
+		return v1pb.VcsType_VCS_TYPE_UNSPECIFIED
+	default:
+		return v1pb.VcsType_VCS_TYPE_UNSPECIFIED
+	}
+}
+
+func convertToCommits(commits []*storepb.Commit) []*v1pb.Commit {
+	var converted []*v1pb.Commit
+	for _, c := range commits {
+		converted = append(converted, &v1pb.Commit{
+			Id:           c.Id,
+			Title:        c.Title,
+			Message:      c.Message,
+			CreatedTime:  timestamppb.New(time.Unix(c.CreatedTs, 0)),
+			Url:          c.Url,
+			AuthorName:   c.AuthorName,
+			AuthorEmail:  c.AuthorEmail,
+			AddedList:    c.AddedList,
+			ModifiedList: c.ModifiedList,
+		})
+	}
+	return converted
+}
+
+func convertToFileCommit(c *storepb.FileCommit) *v1pb.FileCommit {
+	if c == nil {
+		return nil
+	}
+	return &v1pb.FileCommit{
+		Id:          c.Id,
+		Title:       c.Title,
+		Message:     c.Message,
+		CreatedTime: timestamppb.New(time.Unix(c.CreatedTs, 0)),
+		Url:         c.Url,
+		AuthorName:  c.AuthorName,
+		AuthorEmail: c.AuthorEmail,
+		Added:       c.Added,
+	}
+}
+
+func convertToChangeHistorySource(source db.MigrationSource) v1pb.ChangeHistory_Source {
+	switch source {
+	case db.UI:
+		return v1pb.ChangeHistory_UI
+	case db.VCS:
+		return v1pb.ChangeHistory_VCS
+	case db.LIBRARY:
+		return v1pb.ChangeHistory_LIBRARY
+	default:
+		return v1pb.ChangeHistory_SOURCE_UNSPECIFIED
+	}
+}
+
+func convertToChangeHistoryType(t db.MigrationType) v1pb.ChangeHistory_Type {
+	switch t {
+	case db.Baseline:
+		return v1pb.ChangeHistory_BASELINE
+	case db.Migrate:
+		return v1pb.ChangeHistory_MIGRATE
+	case db.MigrateSDL:
+		return v1pb.ChangeHistory_MIGRATE_SDL
+	case db.Branch:
+		return v1pb.ChangeHistory_BRANCH
+	case db.Data:
+		return v1pb.ChangeHistory_DATA
+	default:
+		return v1pb.ChangeHistory_TYPE_UNSPECIFIED
+	}
+}
+
+func convertToChangeHistoryStatus(s db.MigrationStatus) v1pb.ChangeHistory_Status {
+	switch s {
+	case db.Pending:
+		return v1pb.ChangeHistory_PENDING
+	case db.Done:
+		return v1pb.ChangeHistory_DONE
+	case db.Failed:
+		return v1pb.ChangeHistory_FAILED
+	default:
+		return v1pb.ChangeHistory_STATUS_UNSPECIFIED
+	}
+}
+
+// ListSecrets lists the secrets of a database.
+func (s *DatabaseService) ListSecrets(ctx context.Context, request *v1pb.ListSecretsRequest) (*v1pb.ListSecretsResponse, error) {
+	instanceID, databaseName, err := getInstanceDatabaseID(request.Parent)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
+		ResourceID: &instanceID,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if instance == nil {
+		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
+	}
+	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if database == nil {
+		return nil, status.Errorf(codes.NotFound, "database %q not found", databaseName)
+	}
+	return &v1pb.ListSecretsResponse{
+		Secrets: stripeAndConvertToServiceSecrets(database.Secrets, database.InstanceID, database.DatabaseName),
+	}, nil
+}
+
+// UpdateSecret updates a secret of a database.
+func (s *DatabaseService) UpdateSecret(ctx context.Context, request *v1pb.UpdateSecretRequest) (*v1pb.Secret, error) {
+	if !s.licenseService.IsFeatureEnabled(api.FeatureEncryptedSecrets) {
+		return nil, status.Errorf(codes.PermissionDenied, api.FeatureEncryptedSecrets.AccessErrorMessage())
+	}
+	if request.Secret == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "secret is required")
+	}
+	if request.UpdateMask == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "update_mask must be set")
+	}
+
+	instanceID, databaseName, updateSecretName, err := getInstanceDatabaseIDSecretName(request.Secret.Name)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
+		ResourceID: &instanceID,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if instance == nil {
+		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
+	}
+	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if database == nil {
+		return nil, status.Errorf(codes.NotFound, "database %q not found", databaseName)
+	}
+
+	// We retrieve the secret from the database, convert secrets to map, upsert the new secret and store it back.
+	// But if two processes are doing this at the same time, the second one will override the first one.
+	// It is not a big deal for now because it's not a common case and users can find that secret he set is not existed or not correct.
+	secretsMap := make(map[string]*storepb.SecretItem)
+	if database.Secrets != nil {
+		for _, secret := range database.Secrets.Items {
+			secretsMap[secret.Name] = secret
+		}
+	}
+
+	var newSecret storepb.SecretItem
+	if _, ok := secretsMap[updateSecretName]; !ok {
+		// If the secret is not existed and allow_missing is false, we will not create it.
+		if !request.AllowMissing {
+			return nil, status.Errorf(codes.NotFound, "secret %q not found", updateSecretName)
+		}
+		newSecret.Name = updateSecretName
+		newSecret.Value = request.Secret.Value
+		newSecret.Description = request.Secret.Description
+	} else {
+		oldSecret := secretsMap[updateSecretName]
+		newSecret.Name = oldSecret.Name
+		newSecret.Value = oldSecret.Value
+		newSecret.Description = oldSecret.Description
+		for _, path := range request.UpdateMask.Paths {
+			switch path {
+			case "value":
+				newSecret.Value = request.Secret.Value
+			case "name":
+				// We don't allow users to update the name of a secret.
+				return nil, status.Errorf(codes.InvalidArgument, "name of a secret is not allowed to be updated")
+			case "description":
+				newSecret.Description = request.Secret.Description
+			}
+		}
+	}
+	if err := isSecretValid(&newSecret); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+
+	secretsMap[updateSecretName] = &newSecret
+	// Flatten the map to a slice.
+	var secretItems []*storepb.SecretItem
+	for _, secret := range secretsMap {
+		secretItems = append(secretItems, secret)
+	}
+	var updateDatabaseMessage store.UpdateDatabaseMessage
+	updateDatabaseMessage.Secrets = &storepb.Secrets{
+		Items: secretItems,
+	}
+	updateDatabaseMessage.InstanceID = database.InstanceID
+	updateDatabaseMessage.DatabaseName = database.DatabaseName
+	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	updatedDatabase, err := s.store.UpdateDatabase(ctx, &updateDatabaseMessage, principalID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	// Get the secret from the updated database.
+	for _, secret := range updatedDatabase.Secrets.Items {
+		if secret.Name == updateSecretName {
+			return stripeAndConvertToServiceSecret(secret, updatedDatabase.InstanceID, updatedDatabase.DatabaseName), nil
+		}
+	}
+	return &v1pb.Secret{}, nil
+}
+
+// DeleteSecret deletes a secret of a database.
+func (s *DatabaseService) DeleteSecret(ctx context.Context, request *v1pb.DeleteSecretRequest) (*emptypb.Empty, error) {
+	if !s.licenseService.IsFeatureEnabled(api.FeatureEncryptedSecrets) {
+		return nil, status.Errorf(codes.PermissionDenied, api.FeatureEncryptedSecrets.AccessErrorMessage())
+	}
+
+	instanceID, databaseName, secretName, err := getInstanceDatabaseIDSecretName(request.Name)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+
+	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
+		ResourceID: &instanceID,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if instance == nil {
+		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
+	}
+	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if database == nil {
+		return nil, status.Errorf(codes.NotFound, "database %q not found", databaseName)
+	}
+
+	// We retrieve the secret from the database, convert secrets to map, upsert the new secret and store it back.
+	// But if two processes are doing this at the same time, the second one will override the first one.
+	// It is not a big deal for now because it's not a common case and users can find that secret he set is not existed or not correct.
+	secretsMap := make(map[string]*storepb.SecretItem)
+	if database.Secrets != nil {
+		for _, secret := range database.Secrets.Items {
+			secretsMap[secret.Name] = secret
+		}
+	}
+	delete(secretsMap, secretName)
+
+	// Flatten the map to a slice.
+	var secretItems []*storepb.SecretItem
+	for _, secret := range secretsMap {
+		secretItems = append(secretItems, secret)
+	}
+	var updateDatabaseMessage store.UpdateDatabaseMessage
+	updateDatabaseMessage.Secrets = &storepb.Secrets{
+		Items: secretItems,
+	}
+	updateDatabaseMessage.InstanceID = database.InstanceID
+	updateDatabaseMessage.DatabaseName = database.DatabaseName
+	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	if _, err := s.store.UpdateDatabase(ctx, &updateDatabaseMessage, principalID); err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+
+	return &emptypb.Empty{}, nil
+}
+
+type totalValue struct {
+	totalQueryTime time.Duration
+	totalCount     int64
 }
 
 // ListSlowQueries lists the slow queries.
 func (s *DatabaseService) ListSlowQueries(ctx context.Context, request *v1pb.ListSlowQueriesRequest) (*v1pb.ListSlowQueriesResponse, error) {
 	findDatabase := &store.FindDatabaseMessage{}
-	environmentID, instanceID, databaseName, err := getEnvironmentInstanceDatabaseID(request.Parent)
+	instanceID, databaseName, err := getInstanceDatabaseID(request.Parent)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
-	}
-	if environmentID != "-" {
-		findDatabase.EnvironmentID = &environmentID
 	}
 	if instanceID != "-" {
 		findDatabase.InstanceID = &instanceID
@@ -529,6 +1104,13 @@ func (s *DatabaseService) ListSlowQueries(ctx context.Context, request *v1pb.Lis
 	var startLogDate, endLogDate *time.Time
 	for _, expr := range filters {
 		switch expr.key {
+		case filterKeyEnvironment:
+			reg := regexp.MustCompile(`^environments/(.+)`)
+			match := reg.FindStringSubmatch(expr.value)
+			if len(match) != 2 {
+				return nil, status.Errorf(codes.InvalidArgument, "invalid environment filter %q", expr.value)
+			}
+			findDatabase.EnvironmentID = &match[1]
 		case filterKeyProject:
 			reg := regexp.MustCompile(`^projects/(.+)`)
 			match := reg.FindStringSubmatch(expr.value)
@@ -537,7 +1119,7 @@ func (s *DatabaseService) ListSlowQueries(ctx context.Context, request *v1pb.Lis
 			}
 			findDatabase.ProjectID = &match[1]
 		case filterKeyStartTime:
-			switch expr.comparator {
+			switch expr.operator {
 			case comparatorTypeGreater:
 				if startLogDate != nil {
 					return nil, status.Errorf(codes.InvalidArgument, "invalid filter %q", request.Filter)
@@ -546,7 +1128,7 @@ func (s *DatabaseService) ListSlowQueries(ctx context.Context, request *v1pb.Lis
 				if err != nil {
 					return nil, status.Errorf(codes.InvalidArgument, "invalid start_time filter %q", expr.value)
 				}
-				t = t.AddDate(0, 0, 1)
+				t = t.AddDate(0, 0, 1).UTC()
 				startLogDate = &t
 			case comparatorTypeGreaterEqual:
 				if startLogDate != nil {
@@ -556,6 +1138,7 @@ func (s *DatabaseService) ListSlowQueries(ctx context.Context, request *v1pb.Lis
 				if err != nil {
 					return nil, status.Errorf(codes.InvalidArgument, "invalid start_time filter %q", expr.value)
 				}
+				t = t.UTC()
 				startLogDate = &t
 			case comparatorTypeLess:
 				if endLogDate != nil {
@@ -565,6 +1148,7 @@ func (s *DatabaseService) ListSlowQueries(ctx context.Context, request *v1pb.Lis
 				if err != nil {
 					return nil, status.Errorf(codes.InvalidArgument, "invalid start_time filter %q", expr.value)
 				}
+				t = t.UTC()
 				endLogDate = &t
 			case comparatorTypeLessEqual:
 				if endLogDate != nil {
@@ -574,10 +1158,10 @@ func (s *DatabaseService) ListSlowQueries(ctx context.Context, request *v1pb.Lis
 				if err != nil {
 					return nil, status.Errorf(codes.InvalidArgument, "invalid start_time filter %q", expr.value)
 				}
-				t = t.AddDate(0, 0, 1)
+				t = t.AddDate(0, 0, 1).UTC()
 				endLogDate = &t
 			default:
-				return nil, status.Errorf(codes.InvalidArgument, "invalid start_time filter %q %q %q", expr.key, expr.comparator, expr.value)
+				return nil, status.Errorf(codes.InvalidArgument, "invalid start_time filter %q %q %q", expr.key, expr.operator, expr.value)
 			}
 		default:
 			return nil, status.Errorf(codes.InvalidArgument, "invalid filter key %q", expr.key)
@@ -597,9 +1181,34 @@ func (s *DatabaseService) ListSlowQueries(ctx context.Context, request *v1pb.Lis
 		return nil, status.Errorf(codes.Internal, "failed to find database list %q", err.Error())
 	}
 
-	result := &v1pb.ListSlowQueriesResponse{}
+	var canAccessDBs []*store.DatabaseMessage
 
-	for _, database := range databases {
+	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	user, err := s.store.GetUserByID(ctx, principalID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to find user %q", err.Error())
+	}
+	switch user.Role {
+	case api.Owner, api.DBA:
+		canAccessDBs = databases
+	case api.Developer:
+		for _, database := range databases {
+			policy, err := s.store.GetProjectPolicy(ctx, &store.GetProjectPolicyMessage{ProjectID: &database.ProjectID})
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to find project policy %q", err.Error())
+			}
+			if isProjectOwnerOrDeveloper(principalID, policy) {
+				canAccessDBs = append(canAccessDBs, database)
+			}
+		}
+	default:
+		return nil, status.Errorf(codes.PermissionDenied, "unknown role %q", user.Role)
+	}
+
+	result := &v1pb.ListSlowQueriesResponse{}
+	instanceMap := make(map[string]*totalValue)
+
+	for _, database := range canAccessDBs {
 		instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
 			ResourceID: &database.InstanceID,
 		})
@@ -621,8 +1230,27 @@ func (s *DatabaseService) ListSlowQueries(ctx context.Context, request *v1pb.Lis
 		}
 
 		for _, log := range logs {
-			result.SlowQueryLogs = append(result.SlowQueryLogs, convertToSlowQueryLog(database.EnvironmentID, database.InstanceID, database.DatabaseName, database.ProjectID, log))
+			result.SlowQueryLogs = append(result.SlowQueryLogs, convertToSlowQueryLog(database.InstanceID, database.DatabaseName, database.ProjectID, log))
+			if value, exists := instanceMap[database.InstanceID]; exists {
+				value.totalQueryTime += log.Statistics.AverageQueryTime.AsDuration() * time.Duration(log.Statistics.Count)
+				value.totalCount += log.Statistics.Count
+			} else {
+				instanceMap[database.InstanceID] = &totalValue{
+					totalQueryTime: log.Statistics.AverageQueryTime.AsDuration() * time.Duration(log.Statistics.Count),
+					totalCount:     log.Statistics.Count,
+				}
+			}
 		}
+	}
+
+	for _, log := range result.SlowQueryLogs {
+		instanceID, _, err := getInstanceDatabaseID(log.Resource)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to get instance id %q", err.Error())
+		}
+		totalQueryTime := log.Statistics.AverageQueryTime.AsDuration() * time.Duration(log.Statistics.Count)
+		log.Statistics.QueryTimePercent = float64(totalQueryTime) / float64(instanceMap[instanceID].totalQueryTime)
+		log.Statistics.CountPercent = float64(log.Statistics.Count) / float64(instanceMap[instanceID].totalCount)
 	}
 
 	result, err = sortSlowQueryLogResponse(result, orderByKeys)
@@ -637,7 +1265,7 @@ func sortSlowQueryLogResponse(response *v1pb.ListSlowQueriesResponse, orderByKey
 	if len(orderByKeys) == 0 {
 		orderByKeys = []orderByKey{
 			{
-				key:      orderByKeyMaximumQueryTime,
+				key:      orderByKeyAverageQueryTime,
 				isAscend: false,
 			},
 		}
@@ -733,8 +1361,8 @@ func sortSlowQueryLogResponse(response *v1pb.ListSlowQueriesResponse, orderByKey
 func validSlowQueryOrderByKey(keys []orderByKey) error {
 	for _, key := range keys {
 		switch key.key {
-		// Support order by count, latest_log_time, average_query_time, nighty_fifth_percentile_query_time,
-		// average_rows_sent, nighty_fifth_percentile_rows_sent, average_rows_examined, nighty_fifth_percentile_rows_examined for now.
+		// Support order by count, latest_log_time, average_query_time, maximum_query_time,
+		// average_rows_sent, maximum_rows_sent, average_rows_examined, maximum_rows_examined for now.
 		case orderByKeyCount, orderByKeyLatestLogTime, orderByKeyAverageQueryTime, orderByKeyMaximumQueryTime,
 			orderByKeyAverageRowsSent, orderByKeyMaximumRowsSent, orderByKeyAverageRowsExamined, orderByKeyMaximumRowsExamined:
 		default:
@@ -744,15 +1372,15 @@ func validSlowQueryOrderByKey(keys []orderByKey) error {
 	return nil
 }
 
-func convertToSlowQueryLog(environmentID string, instanceID string, databaseName string, projectID string, log *v1pb.SlowQueryLog) *v1pb.SlowQueryLog {
+func convertToSlowQueryLog(instanceID string, databaseName string, projectID string, log *v1pb.SlowQueryLog) *v1pb.SlowQueryLog {
 	return &v1pb.SlowQueryLog{
-		Resource:   fmt.Sprintf("%s%s/%s%s/%s%s", environmentNamePrefix, environmentID, instanceNamePrefix, instanceID, databaseIDPrefix, databaseName),
+		Resource:   fmt.Sprintf("%s%s/%s%s", instanceNamePrefix, instanceID, databaseIDPrefix, databaseName),
 		Project:    fmt.Sprintf("%s%s", projectNamePrefix, projectID),
 		Statistics: log.Statistics,
 	}
 }
 
-func convertToBackup(backup *store.BackupMessage, enviromentID string, instanceID string, databaseName string) *v1pb.Backup {
+func convertToBackup(backup *store.BackupMessage, instanceID string, databaseName string) *v1pb.Backup {
 	createTime := timestamppb.New(time.Unix(backup.CreatedTs, 0))
 	updateTime := timestamppb.New(time.Unix(backup.UpdatedTs, 0))
 	backupState := v1pb.Backup_BACKUP_STATE_UNSPECIFIED
@@ -774,12 +1402,13 @@ func convertToBackup(backup *store.BackupMessage, enviromentID string, instanceI
 		backupType = v1pb.Backup_PITR
 	}
 	return &v1pb.Backup{
-		Name:       fmt.Sprintf("%s%s/%s%s/%s%s/%s", environmentNamePrefix, enviromentID, instanceNamePrefix, instanceID, databaseIDPrefix, databaseName, backup.Name),
+		Name:       fmt.Sprintf("%s%s/%s%s/%s%s", instanceNamePrefix, instanceID, databaseIDPrefix, databaseName, backupPrefix, backup.Name),
 		CreateTime: createTime,
 		UpdateTime: updateTime,
 		State:      backupState,
 		BackupType: backupType,
 		Comment:    backup.Comment,
+		Uid:        fmt.Sprintf("%d", backup.UID),
 	}
 }
 
@@ -792,7 +1421,7 @@ func convertToDatabase(database *store.DatabaseMessage) *v1pb.Database {
 		syncState = v1pb.State_DELETED
 	}
 	return &v1pb.Database{
-		Name:               fmt.Sprintf("environments/%s/instances/%s/databases/%s", database.EnvironmentID, database.InstanceID, database.DatabaseName),
+		Name:               fmt.Sprintf("instances/%s/databases/%s", database.InstanceID, database.DatabaseName),
 		Uid:                fmt.Sprintf("%d", database.UID),
 		SyncState:          syncState,
 		SuccessfulSyncTime: timestamppb.New(time.Unix(database.SuccessfulSyncTimeTs, 0)),
@@ -878,6 +1507,12 @@ func convertDatabaseMetadata(metadata *storepb.DatabaseMetadata) *v1pb.DatabaseM
 				DependentColumns: dependentColumnList,
 			})
 		}
+		for _, function := range schema.Functions {
+			s.Functions = append(s.Functions, &v1pb.FunctionMetadata{
+				Name:       function.Name,
+				Definition: function.Definition,
+			})
+		}
 		m.Schemas = append(m.Schemas, s)
 	}
 	for _, extension := range metadata.Extensions {
@@ -892,7 +1527,7 @@ func convertDatabaseMetadata(metadata *storepb.DatabaseMetadata) *v1pb.DatabaseM
 }
 
 func (s *DatabaseService) createTransferProjectActivity(ctx context.Context, newProject *store.ProjectMessage, updaterID int, databases ...*store.DatabaseMessage) error {
-	var creates []*api.ActivityCreate
+	var creates []*store.ActivityMessage
 	for _, database := range databases {
 		oldProject, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{ResourceID: &database.ProjectID})
 		if err != nil {
@@ -906,44 +1541,44 @@ func (s *DatabaseService) createTransferProjectActivity(ctx context.Context, new
 			return err
 		}
 		creates = append(creates,
-			&api.ActivityCreate{
-				CreatorID:   updaterID,
-				ContainerID: oldProject.UID,
-				Type:        api.ActivityProjectDatabaseTransfer,
-				Level:       api.ActivityInfo,
-				Comment:     fmt.Sprintf("Transferred out database %q to project %q.", database.DatabaseName, newProject.Title),
-				Payload:     string(bytes),
+			&store.ActivityMessage{
+				CreatorUID:   updaterID,
+				ContainerUID: oldProject.UID,
+				Type:         api.ActivityProjectDatabaseTransfer,
+				Level:        api.ActivityInfo,
+				Comment:      fmt.Sprintf("Transferred out database %q to project %q.", database.DatabaseName, newProject.Title),
+				Payload:      string(bytes),
 			},
-			&api.ActivityCreate{
-				CreatorID:   updaterID,
-				ContainerID: newProject.UID,
-				Type:        api.ActivityProjectDatabaseTransfer,
-				Level:       api.ActivityInfo,
-				Comment:     fmt.Sprintf("Transferred in database %q from project %q.", database.DatabaseName, oldProject.Title),
-				Payload:     string(bytes),
+			&store.ActivityMessage{
+				CreatorUID:   updaterID,
+				ContainerUID: newProject.UID,
+				Type:         api.ActivityProjectDatabaseTransfer,
+				Level:        api.ActivityInfo,
+				Comment:      fmt.Sprintf("Transferred in database %q from project %q.", database.DatabaseName, oldProject.Title),
+				Payload:      string(bytes),
 			},
 		)
 	}
-	if _, err := s.store.BatchCreateActivity(ctx, creates); err != nil {
+	if _, err := s.store.BatchCreateActivityV2(ctx, creates); err != nil {
 		log.Warn("failed to create activities for database project updates", zap.Error(err))
 	}
 	return nil
 }
 
-func getDefaultBackupSetting(environmentID, instanceID, databaseName string) *v1pb.BackupSetting {
+func getDefaultBackupSetting(instanceID, databaseName string) *v1pb.BackupSetting {
 	sevenDays, err := convertPeriodTsToDuration(int(time.Duration(7 * 24 * time.Hour).Seconds()))
 	if err != nil {
 		log.Warn("failed to convert period ts to duration", zap.Error(err))
 	}
 	return &v1pb.BackupSetting{
-		Name:                 fmt.Sprintf("%s%s/%s%s/%s%s/%s", environmentNamePrefix, environmentID, instanceNamePrefix, instanceID, databaseIDPrefix, databaseName, backupSettingSuffix),
+		Name:                 fmt.Sprintf("%s%s/%s%s/%s", instanceNamePrefix, instanceID, databaseIDPrefix, databaseName, backupSettingSuffix),
 		BackupRetainDuration: sevenDays,
 		CronSchedule:         "", /* Disable automatic backup */
 		HookUrl:              "",
 	}
 }
 
-func convertToBackupSetting(backupSetting *store.BackupSettingMessage, environmentID, instanceID, databaseName string) (*v1pb.BackupSetting, error) {
+func convertToBackupSetting(backupSetting *store.BackupSettingMessage, instanceID, databaseName string) (*v1pb.BackupSetting, error) {
 	period, err := convertPeriodTsToDuration(backupSetting.RetentionPeriodTs)
 	if err != nil {
 		return nil, err
@@ -953,14 +1588,14 @@ func convertToBackupSetting(backupSetting *store.BackupSettingMessage, environme
 		cronSchedule = buildSimpleCron(backupSetting.HourOfDay, backupSetting.DayOfWeek)
 	}
 	return &v1pb.BackupSetting{
-		Name:                 fmt.Sprintf("%s%s%s%s%s%s%s", environmentNamePrefix, environmentID, instanceNamePrefix, instanceID, databaseIDPrefix, databaseName, backupSettingSuffix),
+		Name:                 fmt.Sprintf("%s%s/%s%s/%s", instanceNamePrefix, instanceID, databaseIDPrefix, databaseName, backupSettingSuffix),
 		BackupRetainDuration: period,
 		CronSchedule:         cronSchedule,
 		HookUrl:              backupSetting.HookURL,
 	}, nil
 }
 
-func validateAndConvertToStoreBackupSetting(backupSetting *v1pb.BackupSetting, databaseUID int) (*store.BackupSettingMessage, error) {
+func (s *DatabaseService) validateAndConvertToStoreBackupSetting(ctx context.Context, backupSetting *v1pb.BackupSetting, database *store.DatabaseMessage) (*store.BackupSettingMessage, error) {
 	enable := backupSetting.CronSchedule != ""
 	hourOfDay := 0
 	dayOfWeek := -1
@@ -975,14 +1610,46 @@ func validateAndConvertToStoreBackupSetting(backupSetting *v1pb.BackupSetting, d
 	if err != nil {
 		return nil, err
 	}
-	return &store.BackupSettingMessage{
-		DatabaseUID:       databaseUID,
+	setting := &store.BackupSettingMessage{
+		DatabaseUID:       database.UID,
 		Enabled:           enable,
 		HourOfDay:         hourOfDay,
 		DayOfWeek:         dayOfWeek,
 		RetentionPeriodTs: periodTs,
 		HookURL:           backupSetting.HookUrl,
-	}, nil
+	}
+
+	environment, err := s.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{
+		ResourceID:  &database.EnvironmentID,
+		ShowDeleted: true,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if environment == nil {
+		return nil, status.Errorf(codes.NotFound, "environment %q not found", database.EnvironmentID)
+	}
+	backupPlanPolicy, err := s.store.GetBackupPlanPolicyByEnvID(ctx, environment.UID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	if backupPlanPolicy.Schedule != api.BackupPlanPolicyScheduleUnset {
+		if !setting.Enabled {
+			return nil, &common.Error{Code: common.Invalid, Err: errors.Errorf("backup setting should not be disabled for backup plan policy schedule %q", backupPlanPolicy.Schedule)}
+		}
+		switch backupPlanPolicy.Schedule {
+		case api.BackupPlanPolicyScheduleDaily:
+			if setting.DayOfWeek != -1 {
+				return nil, &common.Error{Code: common.Invalid, Err: errors.Errorf("backup setting DayOfWeek should be unset for backup plan policy schedule %q", backupPlanPolicy.Schedule)}
+			}
+		case api.BackupPlanPolicyScheduleWeekly:
+			if setting.DayOfWeek == -1 {
+				return nil, &common.Error{Code: common.Invalid, Err: errors.Errorf("backup setting DayOfWeek should be set for backup plan policy schedule %q", backupPlanPolicy.Schedule)}
+			}
+		}
+	}
+
+	return setting, nil
 }
 
 // parseSimpleCron parses a simple cron expression(only support hour of day and day of week), and returns them as int.
@@ -1033,4 +1700,396 @@ func convertPeriodTsToDuration(periodTs int) (*durationpb.Duration, error) {
 		return nil, errors.New("invalid period")
 	}
 	return durationpb.New(time.Duration(periodTs) * time.Second), nil
+}
+
+// isProjectOwnerOrDeveloper returns whether a principal is a project owner or developer in the project.
+func isProjectOwnerOrDeveloper(principalID int, projectPolicy *store.IAMPolicyMessage) bool {
+	for _, binding := range projectPolicy.Bindings {
+		if binding.Role != api.Owner && binding.Role != api.Developer {
+			continue
+		}
+		for _, member := range binding.Members {
+			if member.ID == principalID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func stripeAndConvertToServiceSecrets(secrets *storepb.Secrets, instanceID, databaseName string) []*v1pb.Secret {
+	var serviceSecrets []*v1pb.Secret
+	if secrets == nil || len(secrets.Items) == 0 {
+		return serviceSecrets
+	}
+	for _, secret := range secrets.Items {
+		serviceSecrets = append(serviceSecrets, stripeAndConvertToServiceSecret(secret, instanceID, databaseName))
+	}
+	return serviceSecrets
+}
+
+func stripeAndConvertToServiceSecret(secretEntry *storepb.SecretItem, instanceID, databaseName string) *v1pb.Secret {
+	return &v1pb.Secret{
+		Name:        fmt.Sprintf("%s%s/%s%s/%s%s", instanceNamePrefix, instanceID, databaseIDPrefix, databaseName, secretNamePrefix, secretEntry.Name),
+		Value:       "", /* stripped */
+		Description: secretEntry.Description,
+	}
+}
+
+func isSecretValid(secret *storepb.SecretItem) error {
+	// Names can not be empty.
+	if secret.Name == "" {
+		return errors.Errorf("invalid secret name: %s, name can not be empty", secret.Name)
+	}
+	// Values can not be empty.
+	if secret.Value == "" {
+		return errors.Errorf("the value of secret: %s can not be empty", secret.Name)
+	}
+
+	// Names must not start with the 'BYTEBASE_' prefix.
+	bytebaseCaseInsensitivePrefixRegexp := regexp.MustCompile(`(?i)^BYTEBASE_`)
+	if bytebaseCaseInsensitivePrefixRegexp.MatchString(secret.Name) {
+		return errors.Errorf("invalid secret name: %s, name must not start with the 'BYTEBASE_' prefix", secret.Name)
+	}
+	// Names must not start with a number.
+	if unicode.IsDigit(rune(secret.Name[0])) {
+		return errors.Errorf("invalid secret name: %s, name must not start with a number", secret.Name)
+	}
+
+	// Names can only contain alphanumeric characters ([A-Z], [0-9]) or underscores (_). Spaces are not allowed.
+	for _, c := range secret.Name {
+		if !isUpperCaseLetter(c) && !unicode.IsDigit(c) && c != '_' {
+			return errors.Errorf("invalid secret name: %s, expect [A-Z], [0-9], '_', but meet: %v", secret.Name, c)
+		}
+	}
+	return nil
+}
+
+func isUpperCaseLetter(c rune) bool {
+	return 'A' <= c && c <= 'Z'
+}
+
+// AdviseIndex advises the index of a table.
+func (s *DatabaseService) AdviseIndex(ctx context.Context, request *v1pb.AdviseIndexRequest) (*v1pb.AdviseIndexResponse, error) {
+	if !s.licenseService.IsFeatureEnabled(api.FeaturePluginOpenAI) {
+		return nil, status.Errorf(codes.PermissionDenied, api.FeaturePluginOpenAI.AccessErrorMessage())
+	}
+	instanceID, databaseName, err := getInstanceDatabaseID(request.Parent)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+
+	findDatabase := &store.FindDatabaseMessage{
+		InstanceID:   &instanceID,
+		DatabaseName: &databaseName,
+	}
+	database, err := s.store.GetDatabaseV2(ctx, findDatabase)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to get database: %v", err)
+	}
+
+	findInstance := &store.FindInstanceMessage{
+		ResourceID: &instanceID,
+	}
+	instance, err := s.store.GetInstanceV2(ctx, findInstance)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to get instance: %v", err)
+	}
+
+	switch instance.Engine {
+	case db.Postgres:
+		return s.pgAdviseIndex(ctx, request, database)
+	case db.MySQL:
+		return s.mysqlAdviseIndex(ctx, request, database)
+	default:
+		return nil, status.Errorf(codes.InvalidArgument, "AdviseIndex is not implemented for engine: %v", instance.Engine)
+	}
+}
+
+func (s *DatabaseService) mysqlAdviseIndex(ctx context.Context, request *v1pb.AdviseIndexRequest, database *store.DatabaseMessage) (*v1pb.AdviseIndexResponse, error) {
+	openaiKeyName := api.SettingPluginOpenAIKey
+	key, err := s.store.GetSettingV2(ctx, &store.FindSettingMessage{Name: &openaiKeyName})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to get setting: %v", err)
+	}
+	if key.Value == "" {
+		return nil, status.Errorf(codes.FailedPrecondition, "OpenAI key is not set")
+	}
+
+	var schemas []*store.DBSchema
+
+	// Deal with the cross database query
+	dbList, err := parser.ExtractDatabaseList(parser.MySQL, request.Statement)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "Failed to extract database list: %v", err)
+	}
+	for _, db := range dbList {
+		if db != "" && db != database.DatabaseName {
+			findDatabase := &store.FindDatabaseMessage{
+				InstanceID:   &database.InstanceID,
+				DatabaseName: &db,
+			}
+			database, err := s.store.GetDatabaseV2(ctx, findDatabase)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "Failed to get database: %v", err)
+			}
+			schema, err := s.store.GetDBSchema(ctx, database.UID)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "Failed to get database schema: %v", err)
+			}
+			schemas = append(schemas, schema)
+		}
+	}
+
+	schema, err := s.store.GetDBSchema(ctx, database.UID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to get database schema: %v", err)
+	}
+	schemas = append(schemas, schema)
+
+	var compactBuf bytes.Buffer
+	for _, schema := range schemas {
+		compactSchema, err := schema.CompactText()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "Failed to compact database schema: %v", err)
+		}
+		if _, err := compactBuf.WriteString(compactSchema); err != nil {
+			return nil, status.Errorf(codes.Internal, "Failed to write compact database schema: %v", err)
+		}
+	}
+
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: `You are a MySQL index advisor. You answer the question about the index of tables and SQLs. DO NOT EXPLAIN THE ANSWER.`,
+		},
+		{
+			Role: openai.ChatMessageRoleUser,
+			Content: `You are an assistant who works as a Magic: The strict MySQL index advisor. Analyze the SQL with schema and existing indexes, then give the advice in the JSON format.
+			If the SQL will use the existing index, the current_index field is the index name with database name and table name. Otherwise, the current_index field is "N/A".
+			If it is possible to create a new index to speed up the query, the create_index_statement field is the SQL statement to create the index. Otherwise, the create_index_statement field is empty string.
+			YOUR ADVICE MUST FOLLOW JSON FORMAT. DO NOT EXPLAIN THE ADVICE.
+			Here two examples:
+			{"current_index": "index_schema_table_age ON db1.schema_table", "create_index_statement":""}
+			{"current_index": "N/A", "create_index_statement":"CREATE INDEX ON db1.schema_table(collected_at, schema_index_id)"}
+			` + fmt.Sprintf(`### MySQL schema:\n### %s\n###The SQL is:\n### %s###`, compactBuf.String(), request.Statement),
+		},
+	}
+
+	generateFunc := func(resp *v1pb.AdviseIndexResponse) error {
+		// Generate current index.
+		if resp.CurrentIndex != "N/A" {
+			// Use regex to extract the index name, database name and table name from "index_schema_table_age ON public.schema_table".
+			reg := regexp.MustCompile(`(?i)(.*) ON (.*)\.(.*)`)
+			matches := reg.FindStringSubmatch(resp.CurrentIndex)
+			if len(matches) != 4 {
+				return errors.Errorf("failed to extract index name, database name and table name from %s", resp.CurrentIndex)
+			}
+			var dbSchema *store.DBSchema
+			for _, schema := range schemas {
+				if schema.Metadata.Name == matches[2] {
+					dbSchema = schema
+					break
+				}
+			}
+			if dbSchema == nil {
+				return errors.Errorf("database %s doesn't exist", matches[2])
+			}
+			indexMetadata := dbSchema.FindIndex("", matches[3], matches[1])
+			if indexMetadata == nil {
+				return errors.Errorf("index %s doesn't exist", resp.CurrentIndex)
+			}
+			resp.CurrentIndex = fmt.Sprintf("USING %s (%s)", indexMetadata.Type, strings.Join(indexMetadata.Expressions, ", "))
+		} else {
+			resp.CurrentIndex = "No usable index"
+		}
+
+		// Generate suggestion and create index statement.
+		if resp.CreateIndexStatement != "" {
+			p := tidbparser.New()
+			node, err := p.ParseOneStmt(resp.CreateIndexStatement, "", "")
+			if err != nil {
+				return errors.Errorf("failed to parse create index statement: %v", err)
+			}
+			switch createIndex := node.(type) {
+			case *tidbast.CreateIndexStmt:
+				defineString, err := mysqlIndexExpressionList(createIndex)
+				if err != nil {
+					return errors.Errorf("failed to generate create index statement: %v", err)
+				}
+				indexType := createIndex.IndexOption.Tp.String()
+				if indexType == "" {
+					indexType = "BTREE"
+				}
+				resp.Suggestion = fmt.Sprintf("USING %s (%s)", indexType, defineString)
+			default:
+				return errors.Errorf("expect create index statement, but got %T", node)
+			}
+		} else {
+			resp.Suggestion = "N/A"
+		}
+
+		return nil
+	}
+
+	result, err := getOpenAIResponse(ctx, messages, key.Value, generateFunc)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func mysqlIndexExpressionList(node *tidbast.CreateIndexStmt) (string, error) {
+	var buf bytes.Buffer
+	for i, item := range node.IndexPartSpecifications {
+		text, err := restoreNode(item)
+		if err != nil {
+			return "", err
+		}
+		if i != 0 {
+			if _, err := buf.WriteString(", "); err != nil {
+				return "", err
+			}
+		}
+		if _, err := buf.WriteString(text); err != nil {
+			return "", err
+		}
+	}
+	return buf.String(), nil
+}
+
+func restoreNode(node tidbast.Node) (string, error) {
+	var buffer strings.Builder
+	ctx := format.NewRestoreCtx(format.DefaultRestoreFlags, &buffer)
+	if err := node.Restore(ctx); err != nil {
+		return "", err
+	}
+	return buffer.String(), nil
+}
+
+func (s *DatabaseService) pgAdviseIndex(ctx context.Context, request *v1pb.AdviseIndexRequest, database *store.DatabaseMessage) (*v1pb.AdviseIndexResponse, error) {
+	openaiKeyName := api.SettingPluginOpenAIKey
+	key, err := s.store.GetSettingV2(ctx, &store.FindSettingMessage{Name: &openaiKeyName})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to get setting: %v", err)
+	}
+	if key.Value == "" {
+		return nil, status.Errorf(codes.FailedPrecondition, "OpenAI key is not set")
+	}
+
+	schema, err := s.store.GetDBSchema(ctx, database.UID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to get database schema: %v", err)
+	}
+	compactSchema, err := schema.CompactText()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to compact database schema: %v", err)
+	}
+
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: `You are a PostgreSQL index advisor. You answer the question about the index of tables and SQLs. DO NOT EXPLAIN THE ANSWER.`,
+		},
+		{
+			Role: openai.ChatMessageRoleUser,
+			Content: `You are an assistant who works as a Magic: The strict PostgreSQL index advisor. Analyze the SQL with schema and existing indexes, then give the advice in the JSON format.
+			If the SQL will use the existing index, the current_index field is the index name with schema name and table name. Otherwise, the current_index field is "N/A".
+			If it is possible to create a new index to speed up the query, the create_index_statement field is the SQL statement to create the index. Otherwise, the create_index_statement field is empty string.
+			YOUR ADVICE MUST FOLLOW JSON FORMAT. DO NOT EXPLAIN THE ADVICE.
+			Here two examples:
+			{"current_index": "index_schema_table_age ON public.schema_table", "create_index_statement":""}
+			{"current_index": "N/A", "create_index_statement":"CREATE INDEX ON public.schema_table(collected_at, schema_index_id)"}
+			` + fmt.Sprintf(`### Postgres schema:\n### %s\n###The SQL is:\n### %s###`, compactSchema, request.Statement),
+		},
+	}
+
+	generateFunc := func(resp *v1pb.AdviseIndexResponse) error {
+		// Generate current index.
+		if resp.CurrentIndex != "N/A" {
+			// Use regex to extract the index name, schema name and table name from "index_schema_table_age ON public.schema_table".
+			reg := regexp.MustCompile(`(?i)(.*) ON (.*)\.(.*)`)
+			matches := reg.FindStringSubmatch(resp.CurrentIndex)
+			if len(matches) != 4 {
+				return errors.Errorf("failed to extract index name, schema name and table name from %s", resp.CurrentIndex)
+			}
+			indexMetadata := schema.FindIndex(matches[2], matches[3], matches[1])
+			if indexMetadata == nil {
+				return errors.Errorf("index %s doesn't exist", resp.CurrentIndex)
+			}
+			resp.CurrentIndex = fmt.Sprintf("USING %s (%s)", indexMetadata.Type, strings.Join(indexMetadata.Expressions, ", "))
+		} else {
+			resp.CurrentIndex = "No usable index"
+		}
+
+		// Generate suggestion and create index statement.
+		if resp.CreateIndexStatement != "" {
+			nodes, err := parser.Parse(parser.Postgres, parser.ParseContext{}, resp.CreateIndexStatement)
+			if err != nil {
+				return errors.Errorf("failed to parse create index statement: %v", err)
+			}
+			if len(nodes) != 1 {
+				return errors.Errorf("expect 1 statement, but got %d", len(nodes))
+			}
+			switch node := nodes[0].(type) {
+			case *ast.CreateIndexStmt:
+				resp.Suggestion = fmt.Sprintf("USING %s (%s)", node.Index.Method, strings.Join(node.Index.GetKeyNameList(), ", "))
+			default:
+				return errors.Errorf("expect CreateIndexStmt, but got %T", node)
+			}
+		} else {
+			resp.Suggestion = "N/A"
+		}
+
+		return nil
+	}
+
+	result, err := getOpenAIResponse(ctx, messages, key.Value, generateFunc)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func getOpenAIResponse(ctx context.Context, messages []openai.ChatCompletionMessage, key string, generateResponse func(*v1pb.AdviseIndexResponse) error) (*v1pb.AdviseIndexResponse, error) {
+	var result v1pb.AdviseIndexResponse
+	successful := false
+	var retErr error
+	// Retry 5 times if failed.
+	for i := 0; i < 5; i++ {
+		client := openai.NewClient(key)
+		resp, err := client.CreateChatCompletion(
+			ctx,
+			openai.ChatCompletionRequest{
+				Model:            openai.GPT3Dot5Turbo,
+				Messages:         messages,
+				Temperature:      0,
+				Stop:             []string{"#", ";"},
+				TopP:             1.0,
+				FrequencyPenalty: 0.0,
+				PresencePenalty:  0.0,
+			},
+		)
+		if err != nil {
+			retErr = err
+			continue
+		}
+		if err := protojson.Unmarshal([]byte(resp.Choices[0].Message.Content), &result); err != nil {
+			retErr = err
+			continue
+		}
+		if err = generateResponse(&result); err != nil {
+			retErr = err
+			continue
+		}
+		successful = true
+		break
+	}
+
+	if !successful {
+		return nil, status.Errorf(codes.Internal, "Failed to get index advice, error %v", retErr)
+	}
+	return &result, nil
 }

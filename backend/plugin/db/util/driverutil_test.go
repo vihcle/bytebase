@@ -85,39 +85,9 @@ func TestGetStatementWithResultLimit(t *testing.T) {
 		want         string
 	}{
 		{
-			sqlStatement: "  seLeCT * FROM test;",
+			sqlStatement: "  seLeCT * FROM test",
 			limit:        123,
 			want:         "WITH result AS (  seLeCT * FROM test) SELECT * FROM result LIMIT 123;",
-		},
-		{
-			sqlStatement: "  seLeCT * FROM test;",
-			limit:        0,
-			want:         "WITH result AS (  seLeCT * FROM test) SELECT * FROM result;",
-		},
-		{
-			sqlStatement: "  \n \r SELEct * from test ",
-			limit:        100,
-			want:         "WITH result AS (  \n \r SELEct * from test) SELECT * FROM result LIMIT 100;",
-		},
-		{
-			sqlStatement: "SELECT\n*\nFROM\ntest  ;\n",
-			limit:        100,
-			want:         "WITH result AS (SELECT\n*\nFROM\ntest) SELECT * FROM result LIMIT 100;",
-		},
-		{
-			sqlStatement: "SELECT\n*\nFROM\ntest  ;;;\n",
-			limit:        100,
-			want:         "WITH result AS (SELECT\n*\nFROM\ntest) SELECT * FROM result LIMIT 100;",
-		},
-		{
-			sqlStatement: "SELECT\n*\nFROM\n`test;`  ;;;\n",
-			limit:        100,
-			want:         "WITH result AS (SELECT\n*\nFROM\n`test;`) SELECT * FROM result LIMIT 100;",
-		},
-		{
-			sqlStatement: "EXPLAIN  \n \r SELEct * from test ",
-			limit:        0,
-			want:         "EXPLAIN  \n \r SELEct * from test",
 		},
 	}
 
@@ -136,39 +106,9 @@ func TestGetMySQLStatementWithResultLimit(t *testing.T) {
 		want         string
 	}{
 		{
-			sqlStatement: "  seLeCT * FROM test;",
+			sqlStatement: "  seLeCT * FROM test",
 			limit:        123,
 			want:         "SELECT * FROM (  seLeCT * FROM test) result LIMIT 123;",
-		},
-		{
-			sqlStatement: "  seLeCT * FROM test;",
-			limit:        0,
-			want:         "SELECT * FROM (  seLeCT * FROM test) result;",
-		},
-		{
-			sqlStatement: "  \n \r SELEct * from test ",
-			limit:        100,
-			want:         "SELECT * FROM (  \n \r SELEct * from test) result LIMIT 100;",
-		},
-		{
-			sqlStatement: "SELECT\n*\nFROM\ntest  ;\n",
-			limit:        100,
-			want:         "SELECT * FROM (SELECT\n*\nFROM\ntest) result LIMIT 100;",
-		},
-		{
-			sqlStatement: "SELECT\n*\nFROM\ntest  ;;;\n",
-			limit:        100,
-			want:         "SELECT * FROM (SELECT\n*\nFROM\ntest) result LIMIT 100;",
-		},
-		{
-			sqlStatement: "SELECT\n*\nFROM\n`test;`  ;;;\n",
-			limit:        100,
-			want:         "SELECT * FROM (SELECT\n*\nFROM\n`test;`) result LIMIT 100;",
-		},
-		{
-			sqlStatement: "EXPLAIN  \n \r SELEct * from test ",
-			limit:        0,
-			want:         "EXPLAIN  \n \r SELEct * from test",
 		},
 	}
 
@@ -1273,6 +1213,84 @@ func TestPostgreSQLExtractSensitiveField(t *testing.T) {
 
 	for _, test := range tests {
 		res, err := extractSensitiveField(db.Postgres, test.statement, defaultDatabase, test.schemaInfo)
+		require.NoError(t, err)
+		require.Equal(t, test.fieldList, res, test.statement)
+	}
+}
+
+func TestPLSQLExtractSensitiveField(t *testing.T) {
+	const (
+		defaultSchema = "ROOT"
+	)
+	var (
+		defaultDatabaseSchema = &db.SensitiveSchemaInfo{
+			DatabaseList: []db.DatabaseSchema{
+				{
+					Name: defaultSchema,
+					TableList: []db.TableSchema{
+						{
+							Name: "T",
+							ColumnList: []db.ColumnInfo{
+								{
+									Name:      "A",
+									Sensitive: true,
+								},
+								{
+									Name:      "B",
+									Sensitive: false,
+								},
+								{
+									Name:      "C",
+									Sensitive: false,
+								},
+								{
+									Name:      "D",
+									Sensitive: true,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	)
+	tests := []struct {
+		statement  string
+		schemaInfo *db.SensitiveSchemaInfo
+		fieldList  []db.SensitiveField
+	}{
+		{
+			statement:  "SELECT * FROM ROOT.T;",
+			schemaInfo: defaultDatabaseSchema,
+			fieldList: []db.SensitiveField{
+				{
+					Name:      "A",
+					Sensitive: true,
+				},
+				{
+					Name:      "B",
+					Sensitive: false,
+				},
+				{
+					Name:      "C",
+					Sensitive: false,
+				},
+				{
+					Name:      "D",
+					Sensitive: true,
+				},
+			},
+		},
+		{
+			// Test for EXPLAIN statements.
+			statement:  "explain plan for select 1 from dual;",
+			schemaInfo: &db.SensitiveSchemaInfo{},
+			fieldList:  nil,
+		},
+	}
+
+	for _, test := range tests {
+		res, err := extractSensitiveField(db.Oracle, test.statement, defaultSchema, test.schemaInfo)
 		require.NoError(t, err)
 		require.Equal(t, test.fieldList, res, test.statement)
 	}

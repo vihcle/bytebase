@@ -3,17 +3,62 @@ import * as Long from "long";
 import type { CallContext, CallOptions } from "nice-grpc-common";
 import * as _m0 from "protobufjs/minimal";
 import { Duration } from "../google/protobuf/duration";
+import { Empty } from "../google/protobuf/empty";
 import { FieldMask } from "../google/protobuf/field_mask";
 import { Timestamp } from "../google/protobuf/timestamp";
 import { StringValue } from "../google/protobuf/wrappers";
 import { State, stateFromJSON, stateToJSON } from "./common";
+import { PushEvent } from "./vcs";
 
 export const protobufPackage = "bytebase.v1";
+
+export enum ChangeHistoryView {
+  /**
+   * CHANGE_HISTORY_VIEW_UNSPECIFIED - The default / unset value.
+   * The API will default to the BASIC view.
+   */
+  CHANGE_HISTORY_VIEW_UNSPECIFIED = 0,
+  CHANGE_HISTORY_VIEW_BASIC = 1,
+  CHANGE_HISTORY_VIEW_FULL = 2,
+  UNRECOGNIZED = -1,
+}
+
+export function changeHistoryViewFromJSON(object: any): ChangeHistoryView {
+  switch (object) {
+    case 0:
+    case "CHANGE_HISTORY_VIEW_UNSPECIFIED":
+      return ChangeHistoryView.CHANGE_HISTORY_VIEW_UNSPECIFIED;
+    case 1:
+    case "CHANGE_HISTORY_VIEW_BASIC":
+      return ChangeHistoryView.CHANGE_HISTORY_VIEW_BASIC;
+    case 2:
+    case "CHANGE_HISTORY_VIEW_FULL":
+      return ChangeHistoryView.CHANGE_HISTORY_VIEW_FULL;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return ChangeHistoryView.UNRECOGNIZED;
+  }
+}
+
+export function changeHistoryViewToJSON(object: ChangeHistoryView): string {
+  switch (object) {
+    case ChangeHistoryView.CHANGE_HISTORY_VIEW_UNSPECIFIED:
+      return "CHANGE_HISTORY_VIEW_UNSPECIFIED";
+    case ChangeHistoryView.CHANGE_HISTORY_VIEW_BASIC:
+      return "CHANGE_HISTORY_VIEW_BASIC";
+    case ChangeHistoryView.CHANGE_HISTORY_VIEW_FULL:
+      return "CHANGE_HISTORY_VIEW_FULL";
+    case ChangeHistoryView.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
 
 export interface GetDatabaseRequest {
   /**
    * The name of the database to retrieve.
-   * Format: environments/{environment}/instances/{instance}/databases/{database}
+   * Format: instances/{instance}/databases/{database}
    */
   name: string;
 }
@@ -21,8 +66,8 @@ export interface GetDatabaseRequest {
 export interface ListDatabasesRequest {
   /**
    * The parent, which owns this collection of databases.
-   * Format: environments/{environment}/instances/{instance}
-   * Use "environments/-/instances/-" to list all databases from all environments.
+   * Format: instances/{instance}
+   * Use "instances/-" to list all databases.
    */
   parent: string;
   /**
@@ -57,12 +102,51 @@ export interface ListDatabasesResponse {
   nextPageToken: string;
 }
 
+export interface SearchDatabasesRequest {
+  /**
+   * The parent, which owns this collection of databases.
+   * Format: instances/{instance}
+   * Use "instances/-" to list all databases.
+   */
+  parent: string;
+  /**
+   * The maximum number of databases to return. The service may return fewer than
+   * this value.
+   * If unspecified, at most 50 databases will be returned.
+   * The maximum value is 1000; values above 1000 will be coerced to 1000.
+   */
+  pageSize: number;
+  /**
+   * A page token, received from a previous `ListDatabases` call.
+   * Provide this to retrieve the subsequent page.
+   *
+   * When paginating, all other parameters provided to `ListDatabases` must match
+   * the call that provided the page token.
+   */
+  pageToken: string;
+  /**
+   * Filter is used to filter databases returned in the list.
+   * For example, "project = projects/{project}" can be used to list databases in a project.
+   */
+  filter: string;
+}
+
+export interface SearchDatabasesResponse {
+  /** The databases from the specified request. */
+  databases: Database[];
+  /**
+   * A token, which can be sent as `page_token` to retrieve the next page.
+   * If this field is omitted, there are no subsequent pages.
+   */
+  nextPageToken: string;
+}
+
 export interface UpdateDatabaseRequest {
   /**
    * The database to update.
    *
    * The database's `name` field is used to identify the database to update.
-   * Format: environments/{environment}/instances/{instance}/databases/{database}
+   * Format: instances/{instance}/databases/{database}
    */
   database?: Database;
   /** The list of fields to update. */
@@ -72,7 +156,7 @@ export interface UpdateDatabaseRequest {
 export interface BatchUpdateDatabasesRequest {
   /**
    * The parent resource shared by all databases being updated.
-   * Format: environments/{environment}/instances/{instance}
+   * Format: instances/{instance}
    * If the operation spans parents, a dash (-) may be accepted as a wildcard.
    * We only support updating the project of databases for now.
    */
@@ -89,10 +173,21 @@ export interface BatchUpdateDatabasesResponse {
   databases: Database[];
 }
 
+export interface SyncDatabaseRequest {
+  /**
+   * The name of the database to sync.
+   * Format: instances/{instance}/databases/{database}
+   */
+  name: string;
+}
+
+export interface SyncDatabaseResponse {
+}
+
 export interface GetDatabaseMetadataRequest {
   /**
    * The name of the database to retrieve metadata.
-   * Format: environments/{environment}/instances/{instance}/databases/{database}
+   * Format: instances/{instance}/databases/{database}/metadata
    */
   name: string;
 }
@@ -100,15 +195,17 @@ export interface GetDatabaseMetadataRequest {
 export interface GetDatabaseSchemaRequest {
   /**
    * The name of the database to retrieve schema.
-   * Format: environments/{environment}/instances/{instance}/databases/{database}
+   * Format: instances/{instance}/databases/{database}/schema
    */
   name: string;
+  /** Format the schema dump into SDL format. */
+  sdlFormat: boolean;
 }
 
 export interface GetBackupSettingRequest {
   /**
    * The name of the database to retrieve backup setting.
-   * Format: environments/{environment}/instances/{instance}/databases/{database}/backupSetting
+   * Format: instances/{instance}/databases/{database}/backupSetting
    */
   name: string;
 }
@@ -122,17 +219,17 @@ export interface UpdateBackupSettingRequest {
 export interface CreateBackupRequest {
   /**
    * The parent resource where this backup will be created.
-   * Format: environments/{environment}/instances/{instance}/databases/{database}
+   * Format: instances/{instance}/databases/{database}
    */
   parent: string;
   backup?: Backup;
 }
 
-/** ListBackupRequest is the request message for ListBackup. */
-export interface ListBackupRequest {
+/** ListBackupsRequest is the request message for ListBackup. */
+export interface ListBackupsRequest {
   /**
    * The parent resource where this backup will be created.
-   * Format: environments/{environment}/instances/{instance}/databases/{database}
+   * Format: instances/{instance}/databases/{database}
    */
   parent: string;
   /**
@@ -152,7 +249,7 @@ export interface ListBackupRequest {
   pageToken: string;
 }
 
-export interface ListBackupResponse {
+export interface ListBackupsResponse {
   /** The backups from the specified request. */
   backups: Backup[];
   /**
@@ -165,7 +262,7 @@ export interface ListBackupResponse {
 export interface Database {
   /**
    * The name of the database.
-   * Format: environments/{environment}/instances/{instance}/databases/{database}
+   * Format: instances/{instance}/databases/{database}
    * {database} is the database name in the instance.
    */
   name: string;
@@ -218,6 +315,8 @@ export interface SchemaMetadata {
   tables: TableMetadata[];
   /** The views is the list of views in a schema. */
   views: ViewMetadata[];
+  /** The functions is the list of functions in a schema. */
+  functions: FunctionMetadata[];
 }
 
 /** TableMetadata is the metadata for tables. */
@@ -290,6 +389,14 @@ export interface DependentColumn {
   column: string;
 }
 
+/** FunctionMetadata is the metadata for functions. */
+export interface FunctionMetadata {
+  /** The name is the name of a view. */
+  name: string;
+  /** The definition is the definition of a view. */
+  definition: string;
+}
+
 /** IndexMetadata is the metadata for indexes. */
 export interface IndexMetadata {
   /** The name is the name of an index. */
@@ -360,7 +467,7 @@ export interface DatabaseSchema {
 export interface BackupSetting {
   /**
    * The name of the database backup setting.
-   * Format: environments/{environment}/instances/{instance}/databases/{database}/backupSettings
+   * Format: instances/{instance}/databases/{database}/backupSetting
    */
   name: string;
   /**
@@ -377,7 +484,7 @@ export interface BackupSetting {
    * Default (empty): Disable automatic backup.
    */
   cronSchedule: string;
-  /** hook_url(https://www.bytebase.com/docs/administration/webhook-integration/database-webhook) is the URL to send a notification when a backup is created. */
+  /** hook_url(https://www.bytebase.com/docs/disaster-recovery/backup/#post-backup-webhook) is the URL to send a notification when a backup is created. */
   hookUrl: string;
 }
 
@@ -385,10 +492,10 @@ export interface BackupSetting {
 export interface Backup {
   /**
    * The resource name of the database backup. backup-name is specified by the client.
-   * Format: environments/{environment}/instances/{instance}/databases/{database}/backups/{backup-name}
+   * Format: instances/{instance}/databases/{database}/backups/{backup-name}
    */
   name: string;
-  /** The timestamp when the backup resource was created initally. */
+  /** The timestamp when the backup resource was created initially. */
   createTime?: Date;
   /** The timestamp when the backup resource was updated. */
   updateTime?: Date;
@@ -398,6 +505,7 @@ export interface Backup {
   backupType: Backup_BackupType;
   /** The comment of the backup. */
   comment: string;
+  uid: string;
 }
 
 /** The type of the backup. */
@@ -502,7 +610,7 @@ export function backup_BackupStateToJSON(object: Backup_BackupState): string {
 
 /** ListSlowQueriesRequest is the request of listing slow query. */
 export interface ListSlowQueriesRequest {
-  /** Format: environments/{environment}/instances/{instance}/databases/{database} */
+  /** Format: instances/{instance}/databases/{database} */
   parent: string;
   /**
    * The filter of the slow query log.
@@ -519,12 +627,12 @@ export interface ListSlowQueriesRequest {
   filter: string;
   /**
    * The order by of the slow query log.
-   * Support order by count, latest_log_time, average_query_time, nighty_fifth_percentile_query_time,
-   * average_rows_sent, nighty_fifth_percentile_rows_sent, average_rows_examined, nighty_fifth_percentile_rows_examined for now.
+   * Support order by count, latest_log_time, average_query_time, maximum_query_time,
+   * average_rows_sent, maximum_rows_sent, average_rows_examined, maximum_rows_examined for now.
    * For example:
    *  - order by count: order_by = "count"
    *  - order by latest_log_time desc: order_by = "latest_log_time desc"
-   * Default: order by nighty_fifth_percentile_query_time desc.
+   * Default: order by average_query_time desc.
    */
   orderBy: string;
 }
@@ -539,7 +647,7 @@ export interface ListSlowQueriesResponse {
 export interface SlowQueryLog {
   /**
    * The resource of the slow query log.
-   * The format is "environments/{environment}/instances/{instance}/databases/{database}".
+   * The format is "instances/{instance}/databases/{database}".
    */
   resource: string;
   /**
@@ -571,6 +679,10 @@ export interface SlowQueryStatistics {
   averageRowsExamined: number;
   /** The maximum rows examined of the slow query log. */
   maximumRowsExamined: number;
+  /** The percentage of the query time. */
+  queryTimePercent: number;
+  /** The percentage of the count. */
+  countPercent: number;
   /** Samples are details of the sample slow query logs with the same fingerprint. */
   samples: SlowQueryDetails[];
 }
@@ -589,6 +701,316 @@ export interface SlowQueryDetails {
   rowsExamined: number;
   /** The sql text of the slow query log. */
   sqlText: string;
+}
+
+export interface ListSecretsRequest {
+  /**
+   * The parent of the secret.
+   * Format: instances/{instance}/databases/{database}
+   */
+  parent: string;
+  /**
+   * Not used. The maximum number of databases to return. The service may return fewer than
+   * this value.
+   * If unspecified, at most 50 databases will be returned.
+   * The maximum value is 1000; values above 1000 will be coerced to 1000.
+   */
+  pageSize: number;
+  /**
+   * Not used. A page token, received from a previous `ListSecrets` call.
+   * Provide this to retrieve the subsequent page.
+   *
+   * When paginating, all other parameters provided to `ListSecrets` must match
+   * the call that provided the page token.
+   */
+  pageToken: string;
+}
+
+export interface ListSecretsResponse {
+  /** The list of secrets. */
+  secrets: Secret[];
+  /**
+   * Not used. A token, which can be sent as `page_token` to retrieve the next page.
+   * If this field is omitted, there are no subsequent pages.
+   */
+  nextPageToken: string;
+}
+
+export interface UpdateSecretRequest {
+  /** The secret to be created or updated. */
+  secret?: Secret;
+  /** The mask of the fields to be updated. */
+  updateMask?: string[];
+  /** If true, the secret will be created if it does not exist. */
+  allowMissing: boolean;
+}
+
+export interface DeleteSecretRequest {
+  /**
+   * The name of the secret to be deleted.
+   * Format:
+   * instances/{instance}/databases/{database}/secrets/{secret}
+   */
+  name: string;
+}
+
+/** Secret is the secret of the database now. */
+export interface Secret {
+  /**
+   * name is the unique name of the secret, which is specified by the client.
+   * Format:
+   * instances/{instance}/databases/{database}/secrets/{secret}
+   */
+  name: string;
+  /** Not used. The timestamp when the secret resource was created initially. */
+  createdTime?: Date;
+  /** Not used. The timestamp when the secret resource was updated. */
+  updatedTime?: Date;
+  /** The value of the secret. */
+  value: string;
+  /** The description of the secret. */
+  description: string;
+}
+
+/** AdviseIndexRequest is the request of advising index. */
+export interface AdviseIndexRequest {
+  /** Format: instances/{instance}/databases/{database} */
+  parent: string;
+  /** The statement to be advised. */
+  statement: string;
+}
+
+/** AdviseIndexResponse is the response of advising index. */
+export interface AdviseIndexResponse {
+  /** The current index of the statement used. */
+  currentIndex: string;
+  /** The suggested index of the statement. */
+  suggestion: string;
+  /** The create index statement of the suggested index. */
+  createIndexStatement: string;
+}
+
+export interface ChangeHistory {
+  /** Format: instances/{instance}/databases/{database}/changeHistories/{changeHistory} */
+  name: string;
+  uid: string;
+  /** Format: users/hello@world.com */
+  creator: string;
+  /** Format: users/hello@world.com */
+  updater: string;
+  createTime?: Date;
+  updateTime?: Date;
+  /** release version of Bytebase */
+  releaseVersion: string;
+  source: ChangeHistory_Source;
+  type: ChangeHistory_Type;
+  status: ChangeHistory_Status;
+  version: string;
+  description: string;
+  statement: string;
+  schema: string;
+  prevSchema: string;
+  executionDuration?: Duration;
+  /** Format: projects/{project}/reviews/{review} */
+  review: string;
+  pushEvent?: PushEvent;
+}
+
+export enum ChangeHistory_Source {
+  SOURCE_UNSPECIFIED = 0,
+  UI = 1,
+  VCS = 2,
+  LIBRARY = 3,
+  UNRECOGNIZED = -1,
+}
+
+export function changeHistory_SourceFromJSON(object: any): ChangeHistory_Source {
+  switch (object) {
+    case 0:
+    case "SOURCE_UNSPECIFIED":
+      return ChangeHistory_Source.SOURCE_UNSPECIFIED;
+    case 1:
+    case "UI":
+      return ChangeHistory_Source.UI;
+    case 2:
+    case "VCS":
+      return ChangeHistory_Source.VCS;
+    case 3:
+    case "LIBRARY":
+      return ChangeHistory_Source.LIBRARY;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return ChangeHistory_Source.UNRECOGNIZED;
+  }
+}
+
+export function changeHistory_SourceToJSON(object: ChangeHistory_Source): string {
+  switch (object) {
+    case ChangeHistory_Source.SOURCE_UNSPECIFIED:
+      return "SOURCE_UNSPECIFIED";
+    case ChangeHistory_Source.UI:
+      return "UI";
+    case ChangeHistory_Source.VCS:
+      return "VCS";
+    case ChangeHistory_Source.LIBRARY:
+      return "LIBRARY";
+    case ChangeHistory_Source.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
+export enum ChangeHistory_Type {
+  TYPE_UNSPECIFIED = 0,
+  BASELINE = 1,
+  MIGRATE = 2,
+  MIGRATE_SDL = 3,
+  MIGRATE_GHOST = 4,
+  BRANCH = 5,
+  DATA = 6,
+  UNRECOGNIZED = -1,
+}
+
+export function changeHistory_TypeFromJSON(object: any): ChangeHistory_Type {
+  switch (object) {
+    case 0:
+    case "TYPE_UNSPECIFIED":
+      return ChangeHistory_Type.TYPE_UNSPECIFIED;
+    case 1:
+    case "BASELINE":
+      return ChangeHistory_Type.BASELINE;
+    case 2:
+    case "MIGRATE":
+      return ChangeHistory_Type.MIGRATE;
+    case 3:
+    case "MIGRATE_SDL":
+      return ChangeHistory_Type.MIGRATE_SDL;
+    case 4:
+    case "MIGRATE_GHOST":
+      return ChangeHistory_Type.MIGRATE_GHOST;
+    case 5:
+    case "BRANCH":
+      return ChangeHistory_Type.BRANCH;
+    case 6:
+    case "DATA":
+      return ChangeHistory_Type.DATA;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return ChangeHistory_Type.UNRECOGNIZED;
+  }
+}
+
+export function changeHistory_TypeToJSON(object: ChangeHistory_Type): string {
+  switch (object) {
+    case ChangeHistory_Type.TYPE_UNSPECIFIED:
+      return "TYPE_UNSPECIFIED";
+    case ChangeHistory_Type.BASELINE:
+      return "BASELINE";
+    case ChangeHistory_Type.MIGRATE:
+      return "MIGRATE";
+    case ChangeHistory_Type.MIGRATE_SDL:
+      return "MIGRATE_SDL";
+    case ChangeHistory_Type.MIGRATE_GHOST:
+      return "MIGRATE_GHOST";
+    case ChangeHistory_Type.BRANCH:
+      return "BRANCH";
+    case ChangeHistory_Type.DATA:
+      return "DATA";
+    case ChangeHistory_Type.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
+export enum ChangeHistory_Status {
+  STATUS_UNSPECIFIED = 0,
+  PENDING = 1,
+  DONE = 2,
+  FAILED = 3,
+  UNRECOGNIZED = -1,
+}
+
+export function changeHistory_StatusFromJSON(object: any): ChangeHistory_Status {
+  switch (object) {
+    case 0:
+    case "STATUS_UNSPECIFIED":
+      return ChangeHistory_Status.STATUS_UNSPECIFIED;
+    case 1:
+    case "PENDING":
+      return ChangeHistory_Status.PENDING;
+    case 2:
+    case "DONE":
+      return ChangeHistory_Status.DONE;
+    case 3:
+    case "FAILED":
+      return ChangeHistory_Status.FAILED;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return ChangeHistory_Status.UNRECOGNIZED;
+  }
+}
+
+export function changeHistory_StatusToJSON(object: ChangeHistory_Status): string {
+  switch (object) {
+    case ChangeHistory_Status.STATUS_UNSPECIFIED:
+      return "STATUS_UNSPECIFIED";
+    case ChangeHistory_Status.PENDING:
+      return "PENDING";
+    case ChangeHistory_Status.DONE:
+      return "DONE";
+    case ChangeHistory_Status.FAILED:
+      return "FAILED";
+    case ChangeHistory_Status.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
+export interface ListChangeHistoriesRequest {
+  /**
+   * The parent of the change histories.
+   * Format: instances/{instance}/databases/{database}
+   */
+  parent: string;
+  /**
+   * The maximum number of change histories to return. The service may return fewer than this value.
+   * If unspecified, at most 10 change histories will be returned.
+   * The maximum value is 1000; values above 1000 will be coerced to 1000.
+   */
+  pageSize: number;
+  /**
+   * Not used. A page token, received from a previous `ListChangeHistories` call.
+   * Provide this to retrieve the subsequent page.
+   *
+   * When paginating, all other parameters provided to `ListChangeHistories` must match
+   * the call that provided the page token.
+   */
+  pageToken: string;
+  view: ChangeHistoryView;
+}
+
+export interface ListChangeHistoriesResponse {
+  /** The list of change histories. */
+  changeHistories: ChangeHistory[];
+  /**
+   * A token, which can be sent as `page_token` to retrieve the next page.
+   * If this field is omitted, there are no subsequent pages.
+   */
+  nextPageToken: string;
+}
+
+export interface GetChangeHistoryRequest {
+  /**
+   * The name of the change history to retrieve.
+   * Format: instances/{instance}/databases/{database}/changeHistories/{changeHistory}
+   */
+  name: string;
+  view: ChangeHistoryView;
+  /** Format the schema dump into SDL format. */
+  sdlFormat: boolean;
 }
 
 function createBaseGetDatabaseRequest(): GetDatabaseRequest {
@@ -611,14 +1033,14 @@ export const GetDatabaseRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -676,35 +1098,35 @@ export const ListDatabasesRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.parent = reader.string();
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.pageSize = reader.int32();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.pageToken = reader.string();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.filter = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -767,21 +1189,21 @@ export const ListDatabasesResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.databases.push(Database.decode(reader, reader.uint32()));
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.nextPageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -819,6 +1241,178 @@ export const ListDatabasesResponse = {
   },
 };
 
+function createBaseSearchDatabasesRequest(): SearchDatabasesRequest {
+  return { parent: "", pageSize: 0, pageToken: "", filter: "" };
+}
+
+export const SearchDatabasesRequest = {
+  encode(message: SearchDatabasesRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    if (message.pageSize !== 0) {
+      writer.uint32(16).int32(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      writer.uint32(26).string(message.pageToken);
+    }
+    if (message.filter !== "") {
+      writer.uint32(34).string(message.filter);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SearchDatabasesRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSearchDatabasesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.pageSize = reader.int32();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.pageToken = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.filter = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SearchDatabasesRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+      filter: isSet(object.filter) ? String(object.filter) : "",
+    };
+  },
+
+  toJSON(message: SearchDatabasesRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
+    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
+    message.filter !== undefined && (obj.filter = message.filter);
+    return obj;
+  },
+
+  create(base?: DeepPartial<SearchDatabasesRequest>): SearchDatabasesRequest {
+    return SearchDatabasesRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<SearchDatabasesRequest>): SearchDatabasesRequest {
+    const message = createBaseSearchDatabasesRequest();
+    message.parent = object.parent ?? "";
+    message.pageSize = object.pageSize ?? 0;
+    message.pageToken = object.pageToken ?? "";
+    message.filter = object.filter ?? "";
+    return message;
+  },
+};
+
+function createBaseSearchDatabasesResponse(): SearchDatabasesResponse {
+  return { databases: [], nextPageToken: "" };
+}
+
+export const SearchDatabasesResponse = {
+  encode(message: SearchDatabasesResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.databases) {
+      Database.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.nextPageToken !== "") {
+      writer.uint32(18).string(message.nextPageToken);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SearchDatabasesResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSearchDatabasesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.databases.push(Database.decode(reader, reader.uint32()));
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.nextPageToken = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SearchDatabasesResponse {
+    return {
+      databases: Array.isArray(object?.databases) ? object.databases.map((e: any) => Database.fromJSON(e)) : [],
+      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+    };
+  },
+
+  toJSON(message: SearchDatabasesResponse): unknown {
+    const obj: any = {};
+    if (message.databases) {
+      obj.databases = message.databases.map((e) => e ? Database.toJSON(e) : undefined);
+    } else {
+      obj.databases = [];
+    }
+    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    return obj;
+  },
+
+  create(base?: DeepPartial<SearchDatabasesResponse>): SearchDatabasesResponse {
+    return SearchDatabasesResponse.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<SearchDatabasesResponse>): SearchDatabasesResponse {
+    const message = createBaseSearchDatabasesResponse();
+    message.databases = object.databases?.map((e) => Database.fromPartial(e)) || [];
+    message.nextPageToken = object.nextPageToken ?? "";
+    return message;
+  },
+};
+
 function createBaseUpdateDatabaseRequest(): UpdateDatabaseRequest {
   return { database: undefined, updateMask: undefined };
 }
@@ -842,21 +1436,21 @@ export const UpdateDatabaseRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.database = Database.decode(reader, reader.uint32());
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.updateMask = FieldMask.unwrap(FieldMask.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -915,21 +1509,21 @@ export const BatchUpdateDatabasesRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.parent = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.requests.push(UpdateDatabaseRequest.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -989,14 +1583,14 @@ export const BatchUpdateDatabasesResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.databases.push(Database.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1031,6 +1625,106 @@ export const BatchUpdateDatabasesResponse = {
   },
 };
 
+function createBaseSyncDatabaseRequest(): SyncDatabaseRequest {
+  return { name: "" };
+}
+
+export const SyncDatabaseRequest = {
+  encode(message: SyncDatabaseRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SyncDatabaseRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSyncDatabaseRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SyncDatabaseRequest {
+    return { name: isSet(object.name) ? String(object.name) : "" };
+  },
+
+  toJSON(message: SyncDatabaseRequest): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    return obj;
+  },
+
+  create(base?: DeepPartial<SyncDatabaseRequest>): SyncDatabaseRequest {
+    return SyncDatabaseRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<SyncDatabaseRequest>): SyncDatabaseRequest {
+    const message = createBaseSyncDatabaseRequest();
+    message.name = object.name ?? "";
+    return message;
+  },
+};
+
+function createBaseSyncDatabaseResponse(): SyncDatabaseResponse {
+  return {};
+}
+
+export const SyncDatabaseResponse = {
+  encode(_: SyncDatabaseResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SyncDatabaseResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSyncDatabaseResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): SyncDatabaseResponse {
+    return {};
+  },
+
+  toJSON(_: SyncDatabaseResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<SyncDatabaseResponse>): SyncDatabaseResponse {
+    return SyncDatabaseResponse.fromPartial(base ?? {});
+  },
+
+  fromPartial(_: DeepPartial<SyncDatabaseResponse>): SyncDatabaseResponse {
+    const message = createBaseSyncDatabaseResponse();
+    return message;
+  },
+};
+
 function createBaseGetDatabaseMetadataRequest(): GetDatabaseMetadataRequest {
   return { name: "" };
 }
@@ -1051,14 +1745,14 @@ export const GetDatabaseMetadataRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1088,13 +1782,16 @@ export const GetDatabaseMetadataRequest = {
 };
 
 function createBaseGetDatabaseSchemaRequest(): GetDatabaseSchemaRequest {
-  return { name: "" };
+  return { name: "", sdlFormat: false };
 }
 
 export const GetDatabaseSchemaRequest = {
   encode(message: GetDatabaseSchemaRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.name !== "") {
       writer.uint32(10).string(message.name);
+    }
+    if (message.sdlFormat === true) {
+      writer.uint32(16).bool(message.sdlFormat);
     }
     return writer;
   },
@@ -1107,14 +1804,21 @@ export const GetDatabaseSchemaRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.sdlFormat = reader.bool();
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1123,12 +1827,16 @@ export const GetDatabaseSchemaRequest = {
   },
 
   fromJSON(object: any): GetDatabaseSchemaRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      sdlFormat: isSet(object.sdlFormat) ? Boolean(object.sdlFormat) : false,
+    };
   },
 
   toJSON(message: GetDatabaseSchemaRequest): unknown {
     const obj: any = {};
     message.name !== undefined && (obj.name = message.name);
+    message.sdlFormat !== undefined && (obj.sdlFormat = message.sdlFormat);
     return obj;
   },
 
@@ -1139,6 +1847,7 @@ export const GetDatabaseSchemaRequest = {
   fromPartial(object: DeepPartial<GetDatabaseSchemaRequest>): GetDatabaseSchemaRequest {
     const message = createBaseGetDatabaseSchemaRequest();
     message.name = object.name ?? "";
+    message.sdlFormat = object.sdlFormat ?? false;
     return message;
   },
 };
@@ -1163,14 +1872,14 @@ export const GetBackupSettingRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1219,14 +1928,14 @@ export const UpdateBackupSettingRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.setting = BackupSetting.decode(reader, reader.uint32());
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1281,21 +1990,21 @@ export const CreateBackupRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.parent = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.backup = Backup.decode(reader, reader.uint32());
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1331,12 +2040,12 @@ export const CreateBackupRequest = {
   },
 };
 
-function createBaseListBackupRequest(): ListBackupRequest {
+function createBaseListBackupsRequest(): ListBackupsRequest {
   return { parent: "", pageSize: 0, pageToken: "" };
 }
 
-export const ListBackupRequest = {
-  encode(message: ListBackupRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+export const ListBackupsRequest = {
+  encode(message: ListBackupsRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.parent !== "") {
       writer.uint32(10).string(message.parent);
     }
@@ -1349,36 +2058,36 @@ export const ListBackupRequest = {
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): ListBackupRequest {
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListBackupsRequest {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseListBackupRequest();
+    const message = createBaseListBackupsRequest();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.parent = reader.string();
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.pageSize = reader.int32();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.pageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1386,7 +2095,7 @@ export const ListBackupRequest = {
     return message;
   },
 
-  fromJSON(object: any): ListBackupRequest {
+  fromJSON(object: any): ListBackupsRequest {
     return {
       parent: isSet(object.parent) ? String(object.parent) : "",
       pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
@@ -1394,7 +2103,7 @@ export const ListBackupRequest = {
     };
   },
 
-  toJSON(message: ListBackupRequest): unknown {
+  toJSON(message: ListBackupsRequest): unknown {
     const obj: any = {};
     message.parent !== undefined && (obj.parent = message.parent);
     message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
@@ -1402,12 +2111,12 @@ export const ListBackupRequest = {
     return obj;
   },
 
-  create(base?: DeepPartial<ListBackupRequest>): ListBackupRequest {
-    return ListBackupRequest.fromPartial(base ?? {});
+  create(base?: DeepPartial<ListBackupsRequest>): ListBackupsRequest {
+    return ListBackupsRequest.fromPartial(base ?? {});
   },
 
-  fromPartial(object: DeepPartial<ListBackupRequest>): ListBackupRequest {
-    const message = createBaseListBackupRequest();
+  fromPartial(object: DeepPartial<ListBackupsRequest>): ListBackupsRequest {
+    const message = createBaseListBackupsRequest();
     message.parent = object.parent ?? "";
     message.pageSize = object.pageSize ?? 0;
     message.pageToken = object.pageToken ?? "";
@@ -1415,12 +2124,12 @@ export const ListBackupRequest = {
   },
 };
 
-function createBaseListBackupResponse(): ListBackupResponse {
+function createBaseListBackupsResponse(): ListBackupsResponse {
   return { backups: [], nextPageToken: "" };
 }
 
-export const ListBackupResponse = {
-  encode(message: ListBackupResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+export const ListBackupsResponse = {
+  encode(message: ListBackupsResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     for (const v of message.backups) {
       Backup.encode(v!, writer.uint32(10).fork()).ldelim();
     }
@@ -1430,29 +2139,29 @@ export const ListBackupResponse = {
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): ListBackupResponse {
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListBackupsResponse {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseListBackupResponse();
+    const message = createBaseListBackupsResponse();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.backups.push(Backup.decode(reader, reader.uint32()));
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.nextPageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1460,14 +2169,14 @@ export const ListBackupResponse = {
     return message;
   },
 
-  fromJSON(object: any): ListBackupResponse {
+  fromJSON(object: any): ListBackupsResponse {
     return {
       backups: Array.isArray(object?.backups) ? object.backups.map((e: any) => Backup.fromJSON(e)) : [],
       nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
     };
   },
 
-  toJSON(message: ListBackupResponse): unknown {
+  toJSON(message: ListBackupsResponse): unknown {
     const obj: any = {};
     if (message.backups) {
       obj.backups = message.backups.map((e) => e ? Backup.toJSON(e) : undefined);
@@ -1478,12 +2187,12 @@ export const ListBackupResponse = {
     return obj;
   },
 
-  create(base?: DeepPartial<ListBackupResponse>): ListBackupResponse {
-    return ListBackupResponse.fromPartial(base ?? {});
+  create(base?: DeepPartial<ListBackupsResponse>): ListBackupsResponse {
+    return ListBackupsResponse.fromPartial(base ?? {});
   },
 
-  fromPartial(object: DeepPartial<ListBackupResponse>): ListBackupResponse {
-    const message = createBaseListBackupResponse();
+  fromPartial(object: DeepPartial<ListBackupsResponse>): ListBackupsResponse {
+    const message = createBaseListBackupsResponse();
     message.backups = object.backups?.map((e) => Backup.fromPartial(e)) || [];
     message.nextPageToken = object.nextPageToken ?? "";
     return message;
@@ -1528,49 +2237,49 @@ export const Database = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.uid = reader.string();
           continue;
         case 3:
-          if (tag != 24) {
+          if (tag !== 24) {
             break;
           }
 
           message.syncState = reader.int32() as any;
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.successfulSyncTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.project = reader.string();
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
           message.schemaVersion = reader.string();
           continue;
         case 7:
-          if (tag != 58) {
+          if (tag !== 58) {
             break;
           }
 
@@ -1580,7 +2289,7 @@ export const Database = {
           }
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1667,21 +2376,21 @@ export const Database_LabelsEntry = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.key = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.value = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1744,42 +2453,42 @@ export const DatabaseMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.schemas.push(SchemaMetadata.decode(reader, reader.uint32()));
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.characterSet = reader.string();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.collation = reader.string();
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.extensions.push(ExtensionMetadata.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1833,7 +2542,7 @@ export const DatabaseMetadata = {
 };
 
 function createBaseSchemaMetadata(): SchemaMetadata {
-  return { name: "", tables: [], views: [] };
+  return { name: "", tables: [], views: [], functions: [] };
 }
 
 export const SchemaMetadata = {
@@ -1847,6 +2556,9 @@ export const SchemaMetadata = {
     for (const v of message.views) {
       ViewMetadata.encode(v!, writer.uint32(26).fork()).ldelim();
     }
+    for (const v of message.functions) {
+      FunctionMetadata.encode(v!, writer.uint32(34).fork()).ldelim();
+    }
     return writer;
   },
 
@@ -1858,28 +2570,35 @@ export const SchemaMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.tables.push(TableMetadata.decode(reader, reader.uint32()));
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.views.push(ViewMetadata.decode(reader, reader.uint32()));
           continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.functions.push(FunctionMetadata.decode(reader, reader.uint32()));
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1892,6 +2611,7 @@ export const SchemaMetadata = {
       name: isSet(object.name) ? String(object.name) : "",
       tables: Array.isArray(object?.tables) ? object.tables.map((e: any) => TableMetadata.fromJSON(e)) : [],
       views: Array.isArray(object?.views) ? object.views.map((e: any) => ViewMetadata.fromJSON(e)) : [],
+      functions: Array.isArray(object?.functions) ? object.functions.map((e: any) => FunctionMetadata.fromJSON(e)) : [],
     };
   },
 
@@ -1908,6 +2628,11 @@ export const SchemaMetadata = {
     } else {
       obj.views = [];
     }
+    if (message.functions) {
+      obj.functions = message.functions.map((e) => e ? FunctionMetadata.toJSON(e) : undefined);
+    } else {
+      obj.functions = [];
+    }
     return obj;
   },
 
@@ -1920,6 +2645,7 @@ export const SchemaMetadata = {
     message.name = object.name ?? "";
     message.tables = object.tables?.map((e) => TableMetadata.fromPartial(e)) || [];
     message.views = object.views?.map((e) => ViewMetadata.fromPartial(e)) || [];
+    message.functions = object.functions?.map((e) => FunctionMetadata.fromPartial(e)) || [];
     return message;
   },
 };
@@ -1990,91 +2716,91 @@ export const TableMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.columns.push(ColumnMetadata.decode(reader, reader.uint32()));
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.indexes.push(IndexMetadata.decode(reader, reader.uint32()));
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.engine = reader.string();
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.collation = reader.string();
           continue;
         case 6:
-          if (tag != 48) {
+          if (tag !== 48) {
             break;
           }
 
           message.rowCount = longToNumber(reader.int64() as Long);
           continue;
         case 7:
-          if (tag != 56) {
+          if (tag !== 56) {
             break;
           }
 
           message.dataSize = longToNumber(reader.int64() as Long);
           continue;
         case 8:
-          if (tag != 64) {
+          if (tag !== 64) {
             break;
           }
 
           message.indexSize = longToNumber(reader.int64() as Long);
           continue;
         case 9:
-          if (tag != 72) {
+          if (tag !== 72) {
             break;
           }
 
           message.dataFree = longToNumber(reader.int64() as Long);
           continue;
         case 10:
-          if (tag != 82) {
+          if (tag !== 82) {
             break;
           }
 
           message.createOptions = reader.string();
           continue;
         case 11:
-          if (tag != 90) {
+          if (tag !== 90) {
             break;
           }
 
           message.comment = reader.string();
           continue;
         case 12:
-          if (tag != 98) {
+          if (tag !== 98) {
             break;
           }
 
           message.foreignKeys.push(ForeignKeyMetadata.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -2202,63 +2928,63 @@ export const ColumnMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.position = reader.int32();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.default = StringValue.decode(reader, reader.uint32()).value;
           continue;
         case 4:
-          if (tag != 32) {
+          if (tag !== 32) {
             break;
           }
 
           message.nullable = reader.bool();
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.type = reader.string();
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
           message.characterSet = reader.string();
           continue;
         case 7:
-          if (tag != 58) {
+          if (tag !== 58) {
             break;
           }
 
           message.collation = reader.string();
           continue;
         case 8:
-          if (tag != 66) {
+          if (tag !== 66) {
             break;
           }
 
           message.comment = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -2339,35 +3065,35 @@ export const ViewMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.definition = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.comment = reader.string();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.dependentColumns.push(DependentColumn.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -2439,28 +3165,28 @@ export const DependentColumn = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.schema = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.table = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.column = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -2493,6 +3219,77 @@ export const DependentColumn = {
     message.schema = object.schema ?? "";
     message.table = object.table ?? "";
     message.column = object.column ?? "";
+    return message;
+  },
+};
+
+function createBaseFunctionMetadata(): FunctionMetadata {
+  return { name: "", definition: "" };
+}
+
+export const FunctionMetadata = {
+  encode(message: FunctionMetadata, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.definition !== "") {
+      writer.uint32(18).string(message.definition);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): FunctionMetadata {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFunctionMetadata();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.definition = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): FunctionMetadata {
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      definition: isSet(object.definition) ? String(object.definition) : "",
+    };
+  },
+
+  toJSON(message: FunctionMetadata): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    message.definition !== undefined && (obj.definition = message.definition);
+    return obj;
+  },
+
+  create(base?: DeepPartial<FunctionMetadata>): FunctionMetadata {
+    return FunctionMetadata.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<FunctionMetadata>): FunctionMetadata {
+    const message = createBaseFunctionMetadata();
+    message.name = object.name ?? "";
+    message.definition = object.definition ?? "";
     return message;
   },
 };
@@ -2535,56 +3332,56 @@ export const IndexMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.expressions.push(reader.string());
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.type = reader.string();
           continue;
         case 4:
-          if (tag != 32) {
+          if (tag !== 32) {
             break;
           }
 
           message.unique = reader.bool();
           continue;
         case 5:
-          if (tag != 40) {
+          if (tag !== 40) {
             break;
           }
 
           message.primary = reader.bool();
           continue;
         case 6:
-          if (tag != 48) {
+          if (tag !== 48) {
             break;
           }
 
           message.visible = reader.bool();
           continue;
         case 7:
-          if (tag != 58) {
+          if (tag !== 58) {
             break;
           }
 
           message.comment = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -2666,35 +3463,35 @@ export const ExtensionMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.schema = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.version = reader.string();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.description = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -2784,63 +3581,63 @@ export const ForeignKeyMetadata = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.columns.push(reader.string());
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.referencedSchema = reader.string();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.referencedTable = reader.string();
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.referencedColumns.push(reader.string());
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
           message.onDelete = reader.string();
           continue;
         case 7:
-          if (tag != 58) {
+          if (tag !== 58) {
             break;
           }
 
           message.onUpdate = reader.string();
           continue;
         case 8:
-          if (tag != 66) {
+          if (tag !== 66) {
             break;
           }
 
           message.matchType = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -2922,14 +3719,14 @@ export const DatabaseSchema = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.schema = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -2987,35 +3784,35 @@ export const BackupSetting = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.backupRetainDuration = Duration.decode(reader, reader.uint32());
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.cronSchedule = reader.string();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.hookUrl = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -3062,7 +3859,7 @@ export const BackupSetting = {
 };
 
 function createBaseBackup(): Backup {
-  return { name: "", createTime: undefined, updateTime: undefined, state: 0, backupType: 0, comment: "" };
+  return { name: "", createTime: undefined, updateTime: undefined, state: 0, backupType: 0, comment: "", uid: "" };
 }
 
 export const Backup = {
@@ -3085,6 +3882,9 @@ export const Backup = {
     if (message.comment !== "") {
       writer.uint32(50).string(message.comment);
     }
+    if (message.uid !== "") {
+      writer.uint32(58).string(message.uid);
+    }
     return writer;
   },
 
@@ -3096,49 +3896,56 @@ export const Backup = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.createTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.updateTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
         case 4:
-          if (tag != 32) {
+          if (tag !== 32) {
             break;
           }
 
           message.state = reader.int32() as any;
           continue;
         case 5:
-          if (tag != 40) {
+          if (tag !== 40) {
             break;
           }
 
           message.backupType = reader.int32() as any;
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
           message.comment = reader.string();
           continue;
+        case 7:
+          if (tag !== 58) {
+            break;
+          }
+
+          message.uid = reader.string();
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -3154,6 +3961,7 @@ export const Backup = {
       state: isSet(object.state) ? backup_BackupStateFromJSON(object.state) : 0,
       backupType: isSet(object.backupType) ? backup_BackupTypeFromJSON(object.backupType) : 0,
       comment: isSet(object.comment) ? String(object.comment) : "",
+      uid: isSet(object.uid) ? String(object.uid) : "",
     };
   },
 
@@ -3165,6 +3973,7 @@ export const Backup = {
     message.state !== undefined && (obj.state = backup_BackupStateToJSON(message.state));
     message.backupType !== undefined && (obj.backupType = backup_BackupTypeToJSON(message.backupType));
     message.comment !== undefined && (obj.comment = message.comment);
+    message.uid !== undefined && (obj.uid = message.uid);
     return obj;
   },
 
@@ -3180,6 +3989,7 @@ export const Backup = {
     message.state = object.state ?? 0;
     message.backupType = object.backupType ?? 0;
     message.comment = object.comment ?? "";
+    message.uid = object.uid ?? "";
     return message;
   },
 };
@@ -3210,28 +4020,28 @@ export const ListSlowQueriesRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.parent = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.filter = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.orderBy = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -3288,14 +4098,14 @@ export const ListSlowQueriesResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.slowQueryLogs.push(SlowQueryLog.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -3358,28 +4168,28 @@ export const SlowQueryLog = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.resource = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.project = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.statistics = SlowQueryStatistics.decode(reader, reader.uint32());
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -3430,6 +4240,8 @@ function createBaseSlowQueryStatistics(): SlowQueryStatistics {
     maximumRowsSent: 0,
     averageRowsExamined: 0,
     maximumRowsExamined: 0,
+    queryTimePercent: 0,
+    countPercent: 0,
     samples: [],
   };
 }
@@ -3440,7 +4252,7 @@ export const SlowQueryStatistics = {
       writer.uint32(10).string(message.sqlFingerprint);
     }
     if (message.count !== 0) {
-      writer.uint32(16).int32(message.count);
+      writer.uint32(16).int64(message.count);
     }
     if (message.latestLogTime !== undefined) {
       Timestamp.encode(toTimestamp(message.latestLogTime), writer.uint32(26).fork()).ldelim();
@@ -3452,19 +4264,25 @@ export const SlowQueryStatistics = {
       Duration.encode(message.maximumQueryTime, writer.uint32(42).fork()).ldelim();
     }
     if (message.averageRowsSent !== 0) {
-      writer.uint32(48).int32(message.averageRowsSent);
+      writer.uint32(48).int64(message.averageRowsSent);
     }
     if (message.maximumRowsSent !== 0) {
-      writer.uint32(56).int32(message.maximumRowsSent);
+      writer.uint32(56).int64(message.maximumRowsSent);
     }
     if (message.averageRowsExamined !== 0) {
-      writer.uint32(64).int32(message.averageRowsExamined);
+      writer.uint32(64).int64(message.averageRowsExamined);
     }
     if (message.maximumRowsExamined !== 0) {
-      writer.uint32(72).int32(message.maximumRowsExamined);
+      writer.uint32(72).int64(message.maximumRowsExamined);
+    }
+    if (message.queryTimePercent !== 0) {
+      writer.uint32(81).double(message.queryTimePercent);
+    }
+    if (message.countPercent !== 0) {
+      writer.uint32(89).double(message.countPercent);
     }
     for (const v of message.samples) {
-      SlowQueryDetails.encode(v!, writer.uint32(82).fork()).ldelim();
+      SlowQueryDetails.encode(v!, writer.uint32(98).fork()).ldelim();
     }
     return writer;
   },
@@ -3477,77 +4295,91 @@ export const SlowQueryStatistics = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.sqlFingerprint = reader.string();
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
-          message.count = reader.int32();
+          message.count = longToNumber(reader.int64() as Long);
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.latestLogTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.averageQueryTime = Duration.decode(reader, reader.uint32());
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.maximumQueryTime = Duration.decode(reader, reader.uint32());
           continue;
         case 6:
-          if (tag != 48) {
+          if (tag !== 48) {
             break;
           }
 
-          message.averageRowsSent = reader.int32();
+          message.averageRowsSent = longToNumber(reader.int64() as Long);
           continue;
         case 7:
-          if (tag != 56) {
+          if (tag !== 56) {
             break;
           }
 
-          message.maximumRowsSent = reader.int32();
+          message.maximumRowsSent = longToNumber(reader.int64() as Long);
           continue;
         case 8:
-          if (tag != 64) {
+          if (tag !== 64) {
             break;
           }
 
-          message.averageRowsExamined = reader.int32();
+          message.averageRowsExamined = longToNumber(reader.int64() as Long);
           continue;
         case 9:
-          if (tag != 72) {
+          if (tag !== 72) {
             break;
           }
 
-          message.maximumRowsExamined = reader.int32();
+          message.maximumRowsExamined = longToNumber(reader.int64() as Long);
           continue;
         case 10:
-          if (tag != 82) {
+          if (tag !== 81) {
+            break;
+          }
+
+          message.queryTimePercent = reader.double();
+          continue;
+        case 11:
+          if (tag !== 89) {
+            break;
+          }
+
+          message.countPercent = reader.double();
+          continue;
+        case 12:
+          if (tag !== 98) {
             break;
           }
 
           message.samples.push(SlowQueryDetails.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -3566,6 +4398,8 @@ export const SlowQueryStatistics = {
       maximumRowsSent: isSet(object.maximumRowsSent) ? Number(object.maximumRowsSent) : 0,
       averageRowsExamined: isSet(object.averageRowsExamined) ? Number(object.averageRowsExamined) : 0,
       maximumRowsExamined: isSet(object.maximumRowsExamined) ? Number(object.maximumRowsExamined) : 0,
+      queryTimePercent: isSet(object.queryTimePercent) ? Number(object.queryTimePercent) : 0,
+      countPercent: isSet(object.countPercent) ? Number(object.countPercent) : 0,
       samples: Array.isArray(object?.samples) ? object.samples.map((e: any) => SlowQueryDetails.fromJSON(e)) : [],
     };
   },
@@ -3583,6 +4417,8 @@ export const SlowQueryStatistics = {
     message.maximumRowsSent !== undefined && (obj.maximumRowsSent = Math.round(message.maximumRowsSent));
     message.averageRowsExamined !== undefined && (obj.averageRowsExamined = Math.round(message.averageRowsExamined));
     message.maximumRowsExamined !== undefined && (obj.maximumRowsExamined = Math.round(message.maximumRowsExamined));
+    message.queryTimePercent !== undefined && (obj.queryTimePercent = message.queryTimePercent);
+    message.countPercent !== undefined && (obj.countPercent = message.countPercent);
     if (message.samples) {
       obj.samples = message.samples.map((e) => e ? SlowQueryDetails.toJSON(e) : undefined);
     } else {
@@ -3610,6 +4446,8 @@ export const SlowQueryStatistics = {
     message.maximumRowsSent = object.maximumRowsSent ?? 0;
     message.averageRowsExamined = object.averageRowsExamined ?? 0;
     message.maximumRowsExamined = object.maximumRowsExamined ?? 0;
+    message.queryTimePercent = object.queryTimePercent ?? 0;
+    message.countPercent = object.countPercent ?? 0;
     message.samples = object.samples?.map((e) => SlowQueryDetails.fromPartial(e)) || [];
     return message;
   },
@@ -3631,10 +4469,10 @@ export const SlowQueryDetails = {
       Duration.encode(message.lockTime, writer.uint32(26).fork()).ldelim();
     }
     if (message.rowsSent !== 0) {
-      writer.uint32(32).int32(message.rowsSent);
+      writer.uint32(32).int64(message.rowsSent);
     }
     if (message.rowsExamined !== 0) {
-      writer.uint32(40).int32(message.rowsExamined);
+      writer.uint32(40).int64(message.rowsExamined);
     }
     if (message.sqlText !== "") {
       writer.uint32(50).string(message.sqlText);
@@ -3650,49 +4488,49 @@ export const SlowQueryDetails = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.startTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.queryTime = Duration.decode(reader, reader.uint32());
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.lockTime = Duration.decode(reader, reader.uint32());
           continue;
         case 4:
-          if (tag != 32) {
+          if (tag !== 32) {
             break;
           }
 
-          message.rowsSent = reader.int32();
+          message.rowsSent = longToNumber(reader.int64() as Long);
           continue;
         case 5:
-          if (tag != 40) {
+          if (tag !== 40) {
             break;
           }
 
-          message.rowsExamined = reader.int32();
+          message.rowsExamined = longToNumber(reader.int64() as Long);
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
           message.sqlText = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -3743,6 +4581,1134 @@ export const SlowQueryDetails = {
   },
 };
 
+function createBaseListSecretsRequest(): ListSecretsRequest {
+  return { parent: "", pageSize: 0, pageToken: "" };
+}
+
+export const ListSecretsRequest = {
+  encode(message: ListSecretsRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    if (message.pageSize !== 0) {
+      writer.uint32(16).int32(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      writer.uint32(26).string(message.pageToken);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListSecretsRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListSecretsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.pageSize = reader.int32();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.pageToken = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListSecretsRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+    };
+  },
+
+  toJSON(message: ListSecretsRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
+    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListSecretsRequest>): ListSecretsRequest {
+    return ListSecretsRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<ListSecretsRequest>): ListSecretsRequest {
+    const message = createBaseListSecretsRequest();
+    message.parent = object.parent ?? "";
+    message.pageSize = object.pageSize ?? 0;
+    message.pageToken = object.pageToken ?? "";
+    return message;
+  },
+};
+
+function createBaseListSecretsResponse(): ListSecretsResponse {
+  return { secrets: [], nextPageToken: "" };
+}
+
+export const ListSecretsResponse = {
+  encode(message: ListSecretsResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.secrets) {
+      Secret.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.nextPageToken !== "") {
+      writer.uint32(18).string(message.nextPageToken);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListSecretsResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListSecretsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.secrets.push(Secret.decode(reader, reader.uint32()));
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.nextPageToken = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListSecretsResponse {
+    return {
+      secrets: Array.isArray(object?.secrets) ? object.secrets.map((e: any) => Secret.fromJSON(e)) : [],
+      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+    };
+  },
+
+  toJSON(message: ListSecretsResponse): unknown {
+    const obj: any = {};
+    if (message.secrets) {
+      obj.secrets = message.secrets.map((e) => e ? Secret.toJSON(e) : undefined);
+    } else {
+      obj.secrets = [];
+    }
+    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListSecretsResponse>): ListSecretsResponse {
+    return ListSecretsResponse.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<ListSecretsResponse>): ListSecretsResponse {
+    const message = createBaseListSecretsResponse();
+    message.secrets = object.secrets?.map((e) => Secret.fromPartial(e)) || [];
+    message.nextPageToken = object.nextPageToken ?? "";
+    return message;
+  },
+};
+
+function createBaseUpdateSecretRequest(): UpdateSecretRequest {
+  return { secret: undefined, updateMask: undefined, allowMissing: false };
+}
+
+export const UpdateSecretRequest = {
+  encode(message: UpdateSecretRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.secret !== undefined) {
+      Secret.encode(message.secret, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.updateMask !== undefined) {
+      FieldMask.encode(FieldMask.wrap(message.updateMask), writer.uint32(18).fork()).ldelim();
+    }
+    if (message.allowMissing === true) {
+      writer.uint32(24).bool(message.allowMissing);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): UpdateSecretRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseUpdateSecretRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.secret = Secret.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.updateMask = FieldMask.unwrap(FieldMask.decode(reader, reader.uint32()));
+          continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.allowMissing = reader.bool();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): UpdateSecretRequest {
+    return {
+      secret: isSet(object.secret) ? Secret.fromJSON(object.secret) : undefined,
+      updateMask: isSet(object.updateMask) ? FieldMask.unwrap(FieldMask.fromJSON(object.updateMask)) : undefined,
+      allowMissing: isSet(object.allowMissing) ? Boolean(object.allowMissing) : false,
+    };
+  },
+
+  toJSON(message: UpdateSecretRequest): unknown {
+    const obj: any = {};
+    message.secret !== undefined && (obj.secret = message.secret ? Secret.toJSON(message.secret) : undefined);
+    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
+    message.allowMissing !== undefined && (obj.allowMissing = message.allowMissing);
+    return obj;
+  },
+
+  create(base?: DeepPartial<UpdateSecretRequest>): UpdateSecretRequest {
+    return UpdateSecretRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<UpdateSecretRequest>): UpdateSecretRequest {
+    const message = createBaseUpdateSecretRequest();
+    message.secret = (object.secret !== undefined && object.secret !== null)
+      ? Secret.fromPartial(object.secret)
+      : undefined;
+    message.updateMask = object.updateMask ?? undefined;
+    message.allowMissing = object.allowMissing ?? false;
+    return message;
+  },
+};
+
+function createBaseDeleteSecretRequest(): DeleteSecretRequest {
+  return { name: "" };
+}
+
+export const DeleteSecretRequest = {
+  encode(message: DeleteSecretRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): DeleteSecretRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDeleteSecretRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DeleteSecretRequest {
+    return { name: isSet(object.name) ? String(object.name) : "" };
+  },
+
+  toJSON(message: DeleteSecretRequest): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    return obj;
+  },
+
+  create(base?: DeepPartial<DeleteSecretRequest>): DeleteSecretRequest {
+    return DeleteSecretRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<DeleteSecretRequest>): DeleteSecretRequest {
+    const message = createBaseDeleteSecretRequest();
+    message.name = object.name ?? "";
+    return message;
+  },
+};
+
+function createBaseSecret(): Secret {
+  return { name: "", createdTime: undefined, updatedTime: undefined, value: "", description: "" };
+}
+
+export const Secret = {
+  encode(message: Secret, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.createdTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.createdTime), writer.uint32(18).fork()).ldelim();
+    }
+    if (message.updatedTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.updatedTime), writer.uint32(26).fork()).ldelim();
+    }
+    if (message.value !== "") {
+      writer.uint32(34).string(message.value);
+    }
+    if (message.description !== "") {
+      writer.uint32(42).string(message.description);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): Secret {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSecret();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.createdTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.updatedTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.value = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.description = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): Secret {
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      createdTime: isSet(object.createdTime) ? fromJsonTimestamp(object.createdTime) : undefined,
+      updatedTime: isSet(object.updatedTime) ? fromJsonTimestamp(object.updatedTime) : undefined,
+      value: isSet(object.value) ? String(object.value) : "",
+      description: isSet(object.description) ? String(object.description) : "",
+    };
+  },
+
+  toJSON(message: Secret): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    message.createdTime !== undefined && (obj.createdTime = message.createdTime.toISOString());
+    message.updatedTime !== undefined && (obj.updatedTime = message.updatedTime.toISOString());
+    message.value !== undefined && (obj.value = message.value);
+    message.description !== undefined && (obj.description = message.description);
+    return obj;
+  },
+
+  create(base?: DeepPartial<Secret>): Secret {
+    return Secret.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<Secret>): Secret {
+    const message = createBaseSecret();
+    message.name = object.name ?? "";
+    message.createdTime = object.createdTime ?? undefined;
+    message.updatedTime = object.updatedTime ?? undefined;
+    message.value = object.value ?? "";
+    message.description = object.description ?? "";
+    return message;
+  },
+};
+
+function createBaseAdviseIndexRequest(): AdviseIndexRequest {
+  return { parent: "", statement: "" };
+}
+
+export const AdviseIndexRequest = {
+  encode(message: AdviseIndexRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    if (message.statement !== "") {
+      writer.uint32(18).string(message.statement);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): AdviseIndexRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAdviseIndexRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.statement = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): AdviseIndexRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      statement: isSet(object.statement) ? String(object.statement) : "",
+    };
+  },
+
+  toJSON(message: AdviseIndexRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    message.statement !== undefined && (obj.statement = message.statement);
+    return obj;
+  },
+
+  create(base?: DeepPartial<AdviseIndexRequest>): AdviseIndexRequest {
+    return AdviseIndexRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<AdviseIndexRequest>): AdviseIndexRequest {
+    const message = createBaseAdviseIndexRequest();
+    message.parent = object.parent ?? "";
+    message.statement = object.statement ?? "";
+    return message;
+  },
+};
+
+function createBaseAdviseIndexResponse(): AdviseIndexResponse {
+  return { currentIndex: "", suggestion: "", createIndexStatement: "" };
+}
+
+export const AdviseIndexResponse = {
+  encode(message: AdviseIndexResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.currentIndex !== "") {
+      writer.uint32(10).string(message.currentIndex);
+    }
+    if (message.suggestion !== "") {
+      writer.uint32(18).string(message.suggestion);
+    }
+    if (message.createIndexStatement !== "") {
+      writer.uint32(26).string(message.createIndexStatement);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): AdviseIndexResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAdviseIndexResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.currentIndex = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.suggestion = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.createIndexStatement = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): AdviseIndexResponse {
+    return {
+      currentIndex: isSet(object.currentIndex) ? String(object.currentIndex) : "",
+      suggestion: isSet(object.suggestion) ? String(object.suggestion) : "",
+      createIndexStatement: isSet(object.createIndexStatement) ? String(object.createIndexStatement) : "",
+    };
+  },
+
+  toJSON(message: AdviseIndexResponse): unknown {
+    const obj: any = {};
+    message.currentIndex !== undefined && (obj.currentIndex = message.currentIndex);
+    message.suggestion !== undefined && (obj.suggestion = message.suggestion);
+    message.createIndexStatement !== undefined && (obj.createIndexStatement = message.createIndexStatement);
+    return obj;
+  },
+
+  create(base?: DeepPartial<AdviseIndexResponse>): AdviseIndexResponse {
+    return AdviseIndexResponse.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<AdviseIndexResponse>): AdviseIndexResponse {
+    const message = createBaseAdviseIndexResponse();
+    message.currentIndex = object.currentIndex ?? "";
+    message.suggestion = object.suggestion ?? "";
+    message.createIndexStatement = object.createIndexStatement ?? "";
+    return message;
+  },
+};
+
+function createBaseChangeHistory(): ChangeHistory {
+  return {
+    name: "",
+    uid: "",
+    creator: "",
+    updater: "",
+    createTime: undefined,
+    updateTime: undefined,
+    releaseVersion: "",
+    source: 0,
+    type: 0,
+    status: 0,
+    version: "",
+    description: "",
+    statement: "",
+    schema: "",
+    prevSchema: "",
+    executionDuration: undefined,
+    review: "",
+    pushEvent: undefined,
+  };
+}
+
+export const ChangeHistory = {
+  encode(message: ChangeHistory, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.uid !== "") {
+      writer.uint32(18).string(message.uid);
+    }
+    if (message.creator !== "") {
+      writer.uint32(26).string(message.creator);
+    }
+    if (message.updater !== "") {
+      writer.uint32(34).string(message.updater);
+    }
+    if (message.createTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.createTime), writer.uint32(42).fork()).ldelim();
+    }
+    if (message.updateTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.updateTime), writer.uint32(50).fork()).ldelim();
+    }
+    if (message.releaseVersion !== "") {
+      writer.uint32(58).string(message.releaseVersion);
+    }
+    if (message.source !== 0) {
+      writer.uint32(64).int32(message.source);
+    }
+    if (message.type !== 0) {
+      writer.uint32(72).int32(message.type);
+    }
+    if (message.status !== 0) {
+      writer.uint32(80).int32(message.status);
+    }
+    if (message.version !== "") {
+      writer.uint32(90).string(message.version);
+    }
+    if (message.description !== "") {
+      writer.uint32(98).string(message.description);
+    }
+    if (message.statement !== "") {
+      writer.uint32(106).string(message.statement);
+    }
+    if (message.schema !== "") {
+      writer.uint32(114).string(message.schema);
+    }
+    if (message.prevSchema !== "") {
+      writer.uint32(122).string(message.prevSchema);
+    }
+    if (message.executionDuration !== undefined) {
+      Duration.encode(message.executionDuration, writer.uint32(130).fork()).ldelim();
+    }
+    if (message.review !== "") {
+      writer.uint32(138).string(message.review);
+    }
+    if (message.pushEvent !== undefined) {
+      PushEvent.encode(message.pushEvent, writer.uint32(146).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ChangeHistory {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseChangeHistory();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.uid = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.creator = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.updater = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.createTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.updateTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        case 7:
+          if (tag !== 58) {
+            break;
+          }
+
+          message.releaseVersion = reader.string();
+          continue;
+        case 8:
+          if (tag !== 64) {
+            break;
+          }
+
+          message.source = reader.int32() as any;
+          continue;
+        case 9:
+          if (tag !== 72) {
+            break;
+          }
+
+          message.type = reader.int32() as any;
+          continue;
+        case 10:
+          if (tag !== 80) {
+            break;
+          }
+
+          message.status = reader.int32() as any;
+          continue;
+        case 11:
+          if (tag !== 90) {
+            break;
+          }
+
+          message.version = reader.string();
+          continue;
+        case 12:
+          if (tag !== 98) {
+            break;
+          }
+
+          message.description = reader.string();
+          continue;
+        case 13:
+          if (tag !== 106) {
+            break;
+          }
+
+          message.statement = reader.string();
+          continue;
+        case 14:
+          if (tag !== 114) {
+            break;
+          }
+
+          message.schema = reader.string();
+          continue;
+        case 15:
+          if (tag !== 122) {
+            break;
+          }
+
+          message.prevSchema = reader.string();
+          continue;
+        case 16:
+          if (tag !== 130) {
+            break;
+          }
+
+          message.executionDuration = Duration.decode(reader, reader.uint32());
+          continue;
+        case 17:
+          if (tag !== 138) {
+            break;
+          }
+
+          message.review = reader.string();
+          continue;
+        case 18:
+          if (tag !== 146) {
+            break;
+          }
+
+          message.pushEvent = PushEvent.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ChangeHistory {
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      uid: isSet(object.uid) ? String(object.uid) : "",
+      creator: isSet(object.creator) ? String(object.creator) : "",
+      updater: isSet(object.updater) ? String(object.updater) : "",
+      createTime: isSet(object.createTime) ? fromJsonTimestamp(object.createTime) : undefined,
+      updateTime: isSet(object.updateTime) ? fromJsonTimestamp(object.updateTime) : undefined,
+      releaseVersion: isSet(object.releaseVersion) ? String(object.releaseVersion) : "",
+      source: isSet(object.source) ? changeHistory_SourceFromJSON(object.source) : 0,
+      type: isSet(object.type) ? changeHistory_TypeFromJSON(object.type) : 0,
+      status: isSet(object.status) ? changeHistory_StatusFromJSON(object.status) : 0,
+      version: isSet(object.version) ? String(object.version) : "",
+      description: isSet(object.description) ? String(object.description) : "",
+      statement: isSet(object.statement) ? String(object.statement) : "",
+      schema: isSet(object.schema) ? String(object.schema) : "",
+      prevSchema: isSet(object.prevSchema) ? String(object.prevSchema) : "",
+      executionDuration: isSet(object.executionDuration) ? Duration.fromJSON(object.executionDuration) : undefined,
+      review: isSet(object.review) ? String(object.review) : "",
+      pushEvent: isSet(object.pushEvent) ? PushEvent.fromJSON(object.pushEvent) : undefined,
+    };
+  },
+
+  toJSON(message: ChangeHistory): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    message.uid !== undefined && (obj.uid = message.uid);
+    message.creator !== undefined && (obj.creator = message.creator);
+    message.updater !== undefined && (obj.updater = message.updater);
+    message.createTime !== undefined && (obj.createTime = message.createTime.toISOString());
+    message.updateTime !== undefined && (obj.updateTime = message.updateTime.toISOString());
+    message.releaseVersion !== undefined && (obj.releaseVersion = message.releaseVersion);
+    message.source !== undefined && (obj.source = changeHistory_SourceToJSON(message.source));
+    message.type !== undefined && (obj.type = changeHistory_TypeToJSON(message.type));
+    message.status !== undefined && (obj.status = changeHistory_StatusToJSON(message.status));
+    message.version !== undefined && (obj.version = message.version);
+    message.description !== undefined && (obj.description = message.description);
+    message.statement !== undefined && (obj.statement = message.statement);
+    message.schema !== undefined && (obj.schema = message.schema);
+    message.prevSchema !== undefined && (obj.prevSchema = message.prevSchema);
+    message.executionDuration !== undefined &&
+      (obj.executionDuration = message.executionDuration ? Duration.toJSON(message.executionDuration) : undefined);
+    message.review !== undefined && (obj.review = message.review);
+    message.pushEvent !== undefined &&
+      (obj.pushEvent = message.pushEvent ? PushEvent.toJSON(message.pushEvent) : undefined);
+    return obj;
+  },
+
+  create(base?: DeepPartial<ChangeHistory>): ChangeHistory {
+    return ChangeHistory.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<ChangeHistory>): ChangeHistory {
+    const message = createBaseChangeHistory();
+    message.name = object.name ?? "";
+    message.uid = object.uid ?? "";
+    message.creator = object.creator ?? "";
+    message.updater = object.updater ?? "";
+    message.createTime = object.createTime ?? undefined;
+    message.updateTime = object.updateTime ?? undefined;
+    message.releaseVersion = object.releaseVersion ?? "";
+    message.source = object.source ?? 0;
+    message.type = object.type ?? 0;
+    message.status = object.status ?? 0;
+    message.version = object.version ?? "";
+    message.description = object.description ?? "";
+    message.statement = object.statement ?? "";
+    message.schema = object.schema ?? "";
+    message.prevSchema = object.prevSchema ?? "";
+    message.executionDuration = (object.executionDuration !== undefined && object.executionDuration !== null)
+      ? Duration.fromPartial(object.executionDuration)
+      : undefined;
+    message.review = object.review ?? "";
+    message.pushEvent = (object.pushEvent !== undefined && object.pushEvent !== null)
+      ? PushEvent.fromPartial(object.pushEvent)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseListChangeHistoriesRequest(): ListChangeHistoriesRequest {
+  return { parent: "", pageSize: 0, pageToken: "", view: 0 };
+}
+
+export const ListChangeHistoriesRequest = {
+  encode(message: ListChangeHistoriesRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    if (message.pageSize !== 0) {
+      writer.uint32(16).int32(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      writer.uint32(26).string(message.pageToken);
+    }
+    if (message.view !== 0) {
+      writer.uint32(32).int32(message.view);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListChangeHistoriesRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListChangeHistoriesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.pageSize = reader.int32();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.pageToken = reader.string();
+          continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.view = reader.int32() as any;
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListChangeHistoriesRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+      view: isSet(object.view) ? changeHistoryViewFromJSON(object.view) : 0,
+    };
+  },
+
+  toJSON(message: ListChangeHistoriesRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
+    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
+    message.view !== undefined && (obj.view = changeHistoryViewToJSON(message.view));
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListChangeHistoriesRequest>): ListChangeHistoriesRequest {
+    return ListChangeHistoriesRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<ListChangeHistoriesRequest>): ListChangeHistoriesRequest {
+    const message = createBaseListChangeHistoriesRequest();
+    message.parent = object.parent ?? "";
+    message.pageSize = object.pageSize ?? 0;
+    message.pageToken = object.pageToken ?? "";
+    message.view = object.view ?? 0;
+    return message;
+  },
+};
+
+function createBaseListChangeHistoriesResponse(): ListChangeHistoriesResponse {
+  return { changeHistories: [], nextPageToken: "" };
+}
+
+export const ListChangeHistoriesResponse = {
+  encode(message: ListChangeHistoriesResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.changeHistories) {
+      ChangeHistory.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.nextPageToken !== "") {
+      writer.uint32(18).string(message.nextPageToken);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListChangeHistoriesResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListChangeHistoriesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.changeHistories.push(ChangeHistory.decode(reader, reader.uint32()));
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.nextPageToken = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListChangeHistoriesResponse {
+    return {
+      changeHistories: Array.isArray(object?.changeHistories)
+        ? object.changeHistories.map((e: any) => ChangeHistory.fromJSON(e))
+        : [],
+      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+    };
+  },
+
+  toJSON(message: ListChangeHistoriesResponse): unknown {
+    const obj: any = {};
+    if (message.changeHistories) {
+      obj.changeHistories = message.changeHistories.map((e) => e ? ChangeHistory.toJSON(e) : undefined);
+    } else {
+      obj.changeHistories = [];
+    }
+    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListChangeHistoriesResponse>): ListChangeHistoriesResponse {
+    return ListChangeHistoriesResponse.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<ListChangeHistoriesResponse>): ListChangeHistoriesResponse {
+    const message = createBaseListChangeHistoriesResponse();
+    message.changeHistories = object.changeHistories?.map((e) => ChangeHistory.fromPartial(e)) || [];
+    message.nextPageToken = object.nextPageToken ?? "";
+    return message;
+  },
+};
+
+function createBaseGetChangeHistoryRequest(): GetChangeHistoryRequest {
+  return { name: "", view: 0, sdlFormat: false };
+}
+
+export const GetChangeHistoryRequest = {
+  encode(message: GetChangeHistoryRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.view !== 0) {
+      writer.uint32(16).int32(message.view);
+    }
+    if (message.sdlFormat === true) {
+      writer.uint32(24).bool(message.sdlFormat);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): GetChangeHistoryRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetChangeHistoryRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.view = reader.int32() as any;
+          continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.sdlFormat = reader.bool();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GetChangeHistoryRequest {
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      view: isSet(object.view) ? changeHistoryViewFromJSON(object.view) : 0,
+      sdlFormat: isSet(object.sdlFormat) ? Boolean(object.sdlFormat) : false,
+    };
+  },
+
+  toJSON(message: GetChangeHistoryRequest): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    message.view !== undefined && (obj.view = changeHistoryViewToJSON(message.view));
+    message.sdlFormat !== undefined && (obj.sdlFormat = message.sdlFormat);
+    return obj;
+  },
+
+  create(base?: DeepPartial<GetChangeHistoryRequest>): GetChangeHistoryRequest {
+    return GetChangeHistoryRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<GetChangeHistoryRequest>): GetChangeHistoryRequest {
+    const message = createBaseGetChangeHistoryRequest();
+    message.name = object.name ?? "";
+    message.view = object.view ?? 0;
+    message.sdlFormat = object.sdlFormat ?? false;
+    return message;
+  },
+};
+
 export type DatabaseServiceDefinition = typeof DatabaseServiceDefinition;
 export const DatabaseServiceDefinition = {
   name: "DatabaseService",
@@ -3759,9 +5725,9 @@ export const DatabaseServiceDefinition = {
           8410: [new Uint8Array([4, 110, 97, 109, 101])],
           578365826: [
             new Uint8Array([
-              51,
+              36,
               18,
-              49,
+              34,
               47,
               118,
               49,
@@ -3772,21 +5738,6 @@ export const DatabaseServiceDefinition = {
               109,
               101,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -3827,9 +5778,9 @@ export const DatabaseServiceDefinition = {
           8410: [new Uint8Array([0])],
           578365826: [
             new Uint8Array([
-              51,
+              36,
               18,
-              49,
+              34,
               47,
               118,
               49,
@@ -3842,21 +5793,6 @@ export const DatabaseServiceDefinition = {
               110,
               116,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -3879,6 +5815,67 @@ export const DatabaseServiceDefinition = {
               115,
               101,
               115,
+            ]),
+          ],
+        },
+      },
+    },
+    /** Search for databases that the caller has both projects.get permission on, and also satisfy the specified query. */
+    searchDatabases: {
+      name: "SearchDatabases",
+      requestType: SearchDatabasesRequest,
+      requestStream: false,
+      responseType: SearchDatabasesResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([0])],
+          578365826: [
+            new Uint8Array([
+              43,
+              18,
+              41,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              47,
+              42,
+              125,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              58,
+              115,
+              101,
+              97,
+              114,
+              99,
+              104,
             ]),
           ],
         },
@@ -3919,7 +5916,7 @@ export const DatabaseServiceDefinition = {
           ],
           578365826: [
             new Uint8Array([
-              70,
+              55,
               58,
               8,
               100,
@@ -3931,7 +5928,7 @@ export const DatabaseServiceDefinition = {
               115,
               101,
               50,
-              58,
+              43,
               47,
               118,
               49,
@@ -3951,21 +5948,6 @@ export const DatabaseServiceDefinition = {
               109,
               101,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -4005,12 +5987,12 @@ export const DatabaseServiceDefinition = {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              66,
+              51,
               58,
               1,
               42,
               34,
-              61,
+              46,
               47,
               118,
               49,
@@ -4023,21 +6005,6 @@ export const DatabaseServiceDefinition = {
               110,
               116,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -4077,19 +6044,22 @@ export const DatabaseServiceDefinition = {
         },
       },
     },
-    getDatabaseMetadata: {
-      name: "GetDatabaseMetadata",
-      requestType: GetDatabaseMetadataRequest,
+    syncDatabase: {
+      name: "SyncDatabase",
+      requestType: SyncDatabaseRequest,
       requestStream: false,
-      responseType: DatabaseMetadata,
+      responseType: SyncDatabaseResponse,
       responseStream: false,
       options: {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              60,
-              18,
+              44,
               58,
+              1,
+              42,
+              34,
+              39,
               47,
               118,
               49,
@@ -4100,21 +6070,63 @@ export const DatabaseServiceDefinition = {
               109,
               101,
               61,
-              101,
-              110,
-              118,
               105,
-              114,
-              111,
               110,
-              109,
-              101,
-              110,
+              115,
               116,
+              97,
+              110,
+              99,
+              101,
               115,
               47,
               42,
               47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              47,
+              42,
+              125,
+              58,
+              115,
+              121,
+              110,
+              99,
+            ]),
+          ],
+        },
+      },
+    },
+    getDatabaseMetadata: {
+      name: "GetDatabaseMetadata",
+      requestType: GetDatabaseMetadataRequest,
+      requestStream: false,
+      responseType: DatabaseMetadata,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              45,
+              18,
+              43,
+              47,
+              118,
+              49,
+              47,
+              123,
+              110,
+              97,
+              109,
+              101,
+              61,
               105,
               110,
               115,
@@ -4163,9 +6175,9 @@ export const DatabaseServiceDefinition = {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              58,
+              43,
               18,
-              56,
+              41,
               47,
               118,
               49,
@@ -4176,21 +6188,6 @@ export const DatabaseServiceDefinition = {
               109,
               101,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -4237,9 +6234,9 @@ export const DatabaseServiceDefinition = {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              65,
+              50,
               18,
-              63,
+              48,
               47,
               118,
               49,
@@ -4250,21 +6247,6 @@ export const DatabaseServiceDefinition = {
               109,
               101,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -4318,7 +6300,7 @@ export const DatabaseServiceDefinition = {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              82,
+              67,
               58,
               7,
               115,
@@ -4329,7 +6311,7 @@ export const DatabaseServiceDefinition = {
               110,
               103,
               50,
-              71,
+              56,
               47,
               118,
               49,
@@ -4348,21 +6330,6 @@ export const DatabaseServiceDefinition = {
               109,
               101,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -4416,7 +6383,7 @@ export const DatabaseServiceDefinition = {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              69,
+              54,
               58,
               6,
               98,
@@ -4426,7 +6393,7 @@ export const DatabaseServiceDefinition = {
               117,
               112,
               34,
-              59,
+              44,
               47,
               118,
               49,
@@ -4439,21 +6406,6 @@ export const DatabaseServiceDefinition = {
               110,
               116,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -4491,20 +6443,20 @@ export const DatabaseServiceDefinition = {
         },
       },
     },
-    listBackup: {
-      name: "ListBackup",
-      requestType: ListBackupRequest,
+    listBackups: {
+      name: "ListBackups",
+      requestType: ListBackupsRequest,
       requestStream: false,
-      responseType: ListBackupResponse,
+      responseType: ListBackupsResponse,
       responseStream: false,
       options: {
         _unknownFields: {
           8410: [new Uint8Array([6, 112, 97, 114, 101, 110, 116])],
           578365826: [
             new Uint8Array([
-              61,
+              46,
               18,
-              59,
+              44,
               47,
               118,
               49,
@@ -4517,21 +6469,6 @@ export const DatabaseServiceDefinition = {
               110,
               116,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -4580,9 +6517,9 @@ export const DatabaseServiceDefinition = {
           8410: [new Uint8Array([6, 112, 97, 114, 101, 110, 116])],
           578365826: [
             new Uint8Array([
-              65,
+              50,
               18,
-              63,
+              48,
               47,
               118,
               49,
@@ -4595,21 +6532,6 @@ export const DatabaseServiceDefinition = {
               110,
               116,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -4651,6 +6573,417 @@ export const DatabaseServiceDefinition = {
         },
       },
     },
+    listSecrets: {
+      name: "ListSecrets",
+      requestType: ListSecretsRequest,
+      requestStream: false,
+      responseType: ListSecretsResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([6, 112, 97, 114, 101, 110, 116])],
+          578365826: [
+            new Uint8Array([
+              46,
+              18,
+              44,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              47,
+              42,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              47,
+              42,
+              125,
+              47,
+              115,
+              101,
+              99,
+              114,
+              101,
+              116,
+              115,
+            ]),
+          ],
+        },
+      },
+    },
+    updateSecret: {
+      name: "UpdateSecret",
+      requestType: UpdateSecretRequest,
+      requestStream: false,
+      responseType: Secret,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              61,
+              58,
+              6,
+              115,
+              101,
+              99,
+              114,
+              101,
+              116,
+              50,
+              51,
+              47,
+              118,
+              49,
+              47,
+              123,
+              115,
+              101,
+              99,
+              114,
+              101,
+              116,
+              46,
+              110,
+              97,
+              109,
+              101,
+              61,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              47,
+              42,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              47,
+              42,
+              47,
+              115,
+              101,
+              99,
+              114,
+              101,
+              116,
+              115,
+              47,
+              42,
+              125,
+            ]),
+          ],
+        },
+      },
+    },
+    deleteSecret: {
+      name: "DeleteSecret",
+      requestType: DeleteSecretRequest,
+      requestStream: false,
+      responseType: Empty,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              46,
+              42,
+              44,
+              47,
+              118,
+              49,
+              47,
+              123,
+              110,
+              97,
+              109,
+              101,
+              61,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              47,
+              42,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              47,
+              42,
+              47,
+              115,
+              101,
+              99,
+              114,
+              101,
+              116,
+              115,
+              47,
+              42,
+              125,
+            ]),
+          ],
+        },
+      },
+    },
+    adviseIndex: {
+      name: "AdviseIndex",
+      requestType: AdviseIndexRequest,
+      requestStream: false,
+      responseType: AdviseIndexResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([6, 112, 97, 114, 101, 110, 116])],
+          578365826: [
+            new Uint8Array([
+              50,
+              34,
+              48,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              47,
+              42,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              47,
+              42,
+              125,
+              58,
+              97,
+              100,
+              118,
+              105,
+              115,
+              101,
+              73,
+              110,
+              100,
+              101,
+              120,
+            ]),
+          ],
+        },
+      },
+    },
+    listChangeHistories: {
+      name: "ListChangeHistories",
+      requestType: ListChangeHistoriesRequest,
+      requestStream: false,
+      responseType: ListChangeHistoriesResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([6, 112, 97, 114, 101, 110, 116])],
+          578365826: [
+            new Uint8Array([
+              54,
+              18,
+              52,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              47,
+              42,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              47,
+              42,
+              125,
+              47,
+              99,
+              104,
+              97,
+              110,
+              103,
+              101,
+              72,
+              105,
+              115,
+              116,
+              111,
+              114,
+              105,
+              101,
+              115,
+            ]),
+          ],
+        },
+      },
+    },
+    getChangeHistory: {
+      name: "GetChangeHistory",
+      requestType: GetChangeHistoryRequest,
+      requestStream: false,
+      responseType: ChangeHistory,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([4, 110, 97, 109, 101])],
+          578365826: [
+            new Uint8Array([
+              54,
+              18,
+              52,
+              47,
+              118,
+              49,
+              47,
+              123,
+              110,
+              97,
+              109,
+              101,
+              61,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              47,
+              42,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              47,
+              42,
+              47,
+              99,
+              104,
+              97,
+              110,
+              103,
+              101,
+              72,
+              105,
+              115,
+              116,
+              111,
+              114,
+              105,
+              101,
+              115,
+              47,
+              42,
+              125,
+            ]),
+          ],
+        },
+      },
+    },
   },
 } as const;
 
@@ -4660,11 +6993,20 @@ export interface DatabaseServiceImplementation<CallContextExt = {}> {
     request: ListDatabasesRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<ListDatabasesResponse>>;
+  /** Search for databases that the caller has both projects.get permission on, and also satisfy the specified query. */
+  searchDatabases(
+    request: SearchDatabasesRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<SearchDatabasesResponse>>;
   updateDatabase(request: UpdateDatabaseRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Database>>;
   batchUpdateDatabases(
     request: BatchUpdateDatabasesRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<BatchUpdateDatabasesResponse>>;
+  syncDatabase(
+    request: SyncDatabaseRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<SyncDatabaseResponse>>;
   getDatabaseMetadata(
     request: GetDatabaseMetadataRequest,
     context: CallContext & CallContextExt,
@@ -4682,14 +7024,32 @@ export interface DatabaseServiceImplementation<CallContextExt = {}> {
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<BackupSetting>>;
   createBackup(request: CreateBackupRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Backup>>;
-  listBackup(
-    request: ListBackupRequest,
+  listBackups(
+    request: ListBackupsRequest,
     context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListBackupResponse>>;
+  ): Promise<DeepPartial<ListBackupsResponse>>;
   listSlowQueries(
     request: ListSlowQueriesRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<ListSlowQueriesResponse>>;
+  listSecrets(
+    request: ListSecretsRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<ListSecretsResponse>>;
+  updateSecret(request: UpdateSecretRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Secret>>;
+  deleteSecret(request: DeleteSecretRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Empty>>;
+  adviseIndex(
+    request: AdviseIndexRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<AdviseIndexResponse>>;
+  listChangeHistories(
+    request: ListChangeHistoriesRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<ListChangeHistoriesResponse>>;
+  getChangeHistory(
+    request: GetChangeHistoryRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<ChangeHistory>>;
 }
 
 export interface DatabaseServiceClient<CallOptionsExt = {}> {
@@ -4698,6 +7058,11 @@ export interface DatabaseServiceClient<CallOptionsExt = {}> {
     request: DeepPartial<ListDatabasesRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<ListDatabasesResponse>;
+  /** Search for databases that the caller has both projects.get permission on, and also satisfy the specified query. */
+  searchDatabases(
+    request: DeepPartial<SearchDatabasesRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<SearchDatabasesResponse>;
   updateDatabase(
     request: DeepPartial<UpdateDatabaseRequest>,
     options?: CallOptions & CallOptionsExt,
@@ -4706,6 +7071,10 @@ export interface DatabaseServiceClient<CallOptionsExt = {}> {
     request: DeepPartial<BatchUpdateDatabasesRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<BatchUpdateDatabasesResponse>;
+  syncDatabase(
+    request: DeepPartial<SyncDatabaseRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<SyncDatabaseResponse>;
   getDatabaseMetadata(
     request: DeepPartial<GetDatabaseMetadataRequest>,
     options?: CallOptions & CallOptionsExt,
@@ -4723,14 +7092,32 @@ export interface DatabaseServiceClient<CallOptionsExt = {}> {
     options?: CallOptions & CallOptionsExt,
   ): Promise<BackupSetting>;
   createBackup(request: DeepPartial<CreateBackupRequest>, options?: CallOptions & CallOptionsExt): Promise<Backup>;
-  listBackup(
-    request: DeepPartial<ListBackupRequest>,
+  listBackups(
+    request: DeepPartial<ListBackupsRequest>,
     options?: CallOptions & CallOptionsExt,
-  ): Promise<ListBackupResponse>;
+  ): Promise<ListBackupsResponse>;
   listSlowQueries(
     request: DeepPartial<ListSlowQueriesRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<ListSlowQueriesResponse>;
+  listSecrets(
+    request: DeepPartial<ListSecretsRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<ListSecretsResponse>;
+  updateSecret(request: DeepPartial<UpdateSecretRequest>, options?: CallOptions & CallOptionsExt): Promise<Secret>;
+  deleteSecret(request: DeepPartial<DeleteSecretRequest>, options?: CallOptions & CallOptionsExt): Promise<Empty>;
+  adviseIndex(
+    request: DeepPartial<AdviseIndexRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<AdviseIndexResponse>;
+  listChangeHistories(
+    request: DeepPartial<ListChangeHistoriesRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<ListChangeHistoriesResponse>;
+  getChangeHistory(
+    request: DeepPartial<GetChangeHistoryRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<ChangeHistory>;
 }
 
 declare var self: any | undefined;
@@ -4766,8 +7153,8 @@ function toTimestamp(date: Date): Timestamp {
 }
 
 function fromTimestamp(t: Timestamp): Date {
-  let millis = t.seconds * 1_000;
-  millis += t.nanos / 1_000_000;
+  let millis = (t.seconds || 0) * 1_000;
+  millis += (t.nanos || 0) / 1_000_000;
   return new Date(millis);
 }
 

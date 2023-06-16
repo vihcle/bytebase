@@ -16,6 +16,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/plugin/db"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -107,7 +108,7 @@ func (*Driver) GetType() db.Type {
 
 // GetDB gets the database.
 func (*Driver) GetDB() *sql.DB {
-	panic("not implemented")
+	return nil
 }
 
 // Execute executes a SQL statement.
@@ -493,4 +494,165 @@ func getDatabaseFromDSN(dsn string) (string, error) {
 		}
 	}
 	return matches["DATABASEGROUP"], nil
+}
+
+// QueryConn2 queries a SQL statement in a given connection.
+func (d *Driver) QueryConn2(ctx context.Context, _ *sql.Conn, statement string, queryContext *db.QueryContext) ([]*v1pb.QueryResult, error) {
+	stmts, err := sanitizeSQL(statement)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []*v1pb.QueryResult
+	for _, statement := range stmts {
+		statement = getStatementWithResultLimit(statement, queryContext.Limit)
+		result, err := d.querySingleSQL(ctx, statement)
+		if err != nil {
+			results = append(results, &v1pb.QueryResult{
+				Error: err.Error(),
+			})
+		} else {
+			results = append(results, result)
+		}
+	}
+
+	return results, nil
+}
+
+func (d *Driver) querySingleSQL(ctx context.Context, statement string) (*v1pb.QueryResult, error) {
+	iter := d.client.Single().Query(ctx, spanner.NewStatement(statement))
+	defer iter.Stop()
+
+	row, err := iter.Next()
+	if err == iterator.Done {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	data := []*v1pb.QueryRow{}
+	columnNames := getColumnNames(iter)
+	columnTypeNames, err := getColumnTypeNames(iter)
+	if err != nil {
+		return nil, err
+	}
+
+	for {
+		rowData, err := readRow2(row)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, rowData)
+
+		row, err = iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// spanner doesn't mask the sensitive fields.
+	// Return the all false boolean slice here as the placeholder.
+	sensitiveInfo := make([]bool, len(columnNames))
+
+	return &v1pb.QueryResult{
+		ColumnNames:     columnNames,
+		ColumnTypeNames: columnTypeNames,
+		Rows:            data,
+		Masked:          sensitiveInfo,
+	}, nil
+}
+
+func readRow2(row *spanner.Row) (*v1pb.QueryRow, error) {
+	result := &v1pb.QueryRow{}
+	for i := 0; i < row.Size(); i++ {
+		var col spanner.GenericColumnValue
+		if err := row.Column(i, &col); err != nil {
+			return nil, err
+		}
+		result.Values = append(result.Values, &v1pb.RowValue{Kind: &v1pb.RowValue_ValueValue{ValueValue: col.Value}})
+	}
+
+	return result, nil
+}
+
+// RunStatement executes a SQL statement.
+func (d *Driver) RunStatement(ctx context.Context, _ *sql.Conn, statement string) ([]*v1pb.QueryResult, error) {
+	stmts, err := sanitizeSQL(statement)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []*v1pb.QueryResult
+	for _, statement := range stmts {
+		if isSelect(statement) {
+			result, err := d.querySingleSQL(ctx, statement)
+			if err != nil {
+				results = append(results, &v1pb.QueryResult{
+					Error: err.Error(),
+				})
+				continue
+			}
+			results = append(results, result)
+			continue
+		}
+
+		if isDDL(statement) {
+			op, err := d.dbClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+				Database:   getDSN(d.config.Host, d.databaseName),
+				Statements: []string{statement},
+			})
+			if err != nil {
+				results = append(results, &v1pb.QueryResult{
+					Error: err.Error(),
+				})
+				continue
+			}
+			if err := op.Wait(ctx); err != nil {
+				results = append(results, &v1pb.QueryResult{
+					Error: err.Error(),
+				})
+				continue
+			}
+			results = append(results, &v1pb.QueryResult{})
+			continue
+		}
+
+		var rowCount int64
+		if _, err := d.client.ReadWriteTransaction(ctx, func(ctx context.Context, rwt *spanner.ReadWriteTransaction) error {
+			count, err := rwt.Update(ctx, spanner.NewStatement(statement))
+			if err != nil {
+				return err
+			}
+			rowCount = count
+			return nil
+		}); err != nil {
+			results = append(results, &v1pb.QueryResult{
+				Error: err.Error(),
+			})
+			continue
+		}
+
+		field := []string{"Affected Rows"}
+		types := []string{"INT64"}
+		rows := []*v1pb.QueryRow{
+			{
+				Values: []*v1pb.RowValue{
+					{
+						Kind: &v1pb.RowValue_Int64Value{Int64Value: rowCount},
+					},
+				},
+			},
+		}
+		results = append(results, &v1pb.QueryResult{
+			ColumnNames:     field,
+			ColumnTypeNames: types,
+			Rows:            rows,
+		})
+	}
+
+	return results, nil
 }

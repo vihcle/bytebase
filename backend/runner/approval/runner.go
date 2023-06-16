@@ -19,37 +19,19 @@ import (
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
+	"github.com/bytebase/bytebase/backend/component/activity"
 	"github.com/bytebase/bytebase/backend/component/dbfactory"
 	"github.com/bytebase/bytebase/backend/component/state"
 	enterpriseAPI "github.com/bytebase/bytebase/backend/enterprise/api"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
+	"github.com/bytebase/bytebase/backend/runner/relay"
+	"github.com/bytebase/bytebase/backend/utils"
 
 	"github.com/bytebase/bytebase/backend/store"
 
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
-
-// RiskFactors are the variables when evaluating the risk level.
-var RiskFactors = []cel.EnvOption{
-	// string factors
-	// use environment.resource_id
-	cel.Variable("environment_id", cel.StringType),
-	// use project.resource_id
-	cel.Variable("project_id", cel.StringType),
-	cel.Variable("database_name", cel.StringType),
-	cel.Variable("db_engine", cel.StringType),
-	cel.Variable("sql_type", cel.StringType),
-
-	// number factors
-	cel.Variable("affected_rows", cel.IntType),
-}
-
-// ApprovalFactors are the variables when finding the approval template.
-var ApprovalFactors = []cel.EnvOption{
-	cel.Variable("level", cel.IntType),
-	cel.Variable("source", cel.IntType),
-}
 
 var issueTypeToRiskSource = map[api.IssueType]store.RiskSource{
 	// RiskSourceDatabaseSchemaUpdate
@@ -59,6 +41,8 @@ var issueTypeToRiskSource = map[api.IssueType]store.RiskSource{
 	api.IssueDatabaseDataUpdate: store.RiskSourceDatabaseDataUpdate,
 	// RiskSourceDatabaseCreate
 	api.IssueDatabaseCreate: store.RiskSourceDatabaseCreate,
+	// RiskGrantRequest.
+	api.IssueGrantRequest: store.RiskGrantRequest,
 	// RiskSourceUnknown
 	api.IssueGeneral:             store.RiskSourceUnknown,
 	api.IssueDatabaseRestorePITR: store.RiskSourceUnknown,
@@ -66,20 +50,23 @@ var issueTypeToRiskSource = map[api.IssueType]store.RiskSource{
 
 // Runner is the runner for finding approval templates for issues.
 type Runner struct {
-	store     *store.Store
-	dbFactory *dbfactory.DBFactory
-	stateCfg  *state.State
-
-	licenseService enterpriseAPI.LicenseService
+	store           *store.Store
+	dbFactory       *dbfactory.DBFactory
+	stateCfg        *state.State
+	activityManager *activity.Manager
+	relayRunner     *relay.Runner
+	licenseService  enterpriseAPI.LicenseService
 }
 
 // NewRunner creates a new runner.
-func NewRunner(store *store.Store, dbFactory *dbfactory.DBFactory, stateCfg *state.State, licenseService enterpriseAPI.LicenseService) *Runner {
+func NewRunner(store *store.Store, dbFactory *dbfactory.DBFactory, stateCfg *state.State, activityManager *activity.Manager, relayRunner *relay.Runner, licenseService enterpriseAPI.LicenseService) *Runner {
 	return &Runner{
-		store:          store,
-		dbFactory:      dbFactory,
-		stateCfg:       stateCfg,
-		licenseService: licenseService,
+		store:           store,
+		dbFactory:       dbFactory,
+		stateCfg:        stateCfg,
+		activityManager: activityManager,
+		relayRunner:     relayRunner,
+		licenseService:  licenseService,
 	}
 }
 
@@ -162,7 +149,7 @@ func (r *Runner) findApprovalTemplateForIssue(ctx context.Context, issue *store.
 	// - feature is not enabled
 	// - risk source is RiskSourceUnknown
 	// - approval setting rules are empty
-	if !r.licenseService.IsFeatureEnabled(api.FeatureCustomApproval) || issueTypeToRiskSource[issue.Type] == store.RiskSourceUnknown || len(approvalSetting.Rules) == 0 {
+	if !r.licenseService.IsFeatureEnabled(api.FeatureCustomApproval) || ((issueTypeToRiskSource[issue.Type] == store.RiskSourceUnknown || len(approvalSetting.Rules) == 0) && issue.Type != api.IssueGrantRequest) {
 		if err := updateIssuePayload(ctx, r.store, issue.UID, &storepb.IssuePayload{
 			Approval: &storepb.IssuePayloadApproval{
 				ApprovalFindingDone: true,
@@ -174,57 +161,143 @@ func (r *Runner) findApprovalTemplateForIssue(ctx context.Context, issue *store.
 		}
 		return true, nil
 	}
-
-	riskLevel, done, err := getIssueRiskLevel(ctx, r.store, issue, risks)
-	if err != nil {
-		err = errors.Wrap(err, "failed to get issue risk level")
-		if updateErr := updateIssuePayload(ctx, r.store, issue.UID, &storepb.IssuePayload{
-			Approval: &storepb.IssuePayloadApproval{
-				ApprovalFindingDone:  true,
-				ApprovalFindingError: err.Error(),
+	var approvalTemplate *storepb.ApprovalTemplate
+	if issue.Type == api.IssueGrantRequest {
+		// TODO(d): sorry p0ny!
+		approvalTemplate = &storepb.ApprovalTemplate{
+			Flow: &storepb.ApprovalFlow{
+				Steps: []*storepb.ApprovalStep{
+					{
+						Type: storepb.ApprovalStep_ANY,
+						Nodes: []*storepb.ApprovalNode{
+							{
+								Type: storepb.ApprovalNode_ANY_IN_GROUP,
+								Payload: &storepb.ApprovalNode_GroupValue_{
+									GroupValue: storepb.ApprovalNode_PROJECT_OWNER,
+								},
+							},
+						},
+					},
+				},
 			},
-		}); updateErr != nil {
-			return false, multierr.Append(errors.Wrap(updateErr, "failed to update issue payload"), err)
 		}
-		return false, err
-	}
-	if !done {
-		return false, nil
+	} else {
+		riskLevel, done, err := getIssueRiskLevel(ctx, r.store, issue, risks)
+		if err != nil {
+			err = errors.Wrap(err, "failed to get issue risk level")
+			if updateErr := updateIssuePayload(ctx, r.store, issue.UID, &storepb.IssuePayload{
+				Approval: &storepb.IssuePayloadApproval{
+					ApprovalFindingDone:  true,
+					ApprovalFindingError: err.Error(),
+				},
+			}); updateErr != nil {
+				return false, multierr.Append(errors.Wrap(updateErr, "failed to update issue payload"), err)
+			}
+			return false, err
+		}
+		if !done {
+			return false, nil
+		}
+
+		approvalTemplate, err = getApprovalTemplate(approvalSetting, riskLevel, issueTypeToRiskSource[issue.Type])
+		if err != nil {
+			err = errors.Wrapf(err, "failed to get approval template, riskLevel: %v", riskLevel)
+			if updateErr := updateIssuePayload(ctx, r.store, issue.UID, &storepb.IssuePayload{
+				Approval: &storepb.IssuePayloadApproval{
+					ApprovalFindingDone:  true,
+					ApprovalFindingError: err.Error(),
+				},
+			}); updateErr != nil {
+				return false, multierr.Append(errors.Wrap(updateErr, "failed to update issue payload"), err)
+			}
+			return false, err
+		}
 	}
 
-	approvalTemplate, err := getApprovalTemplate(approvalSetting, riskLevel, issueTypeToRiskSource[issue.Type])
-	if err != nil {
-		err = errors.Wrapf(err, "failed to get approval template, riskLevel: %v", riskLevel)
-		if updateErr := updateIssuePayload(ctx, r.store, issue.UID, &storepb.IssuePayload{
-			Approval: &storepb.IssuePayloadApproval{
-				ApprovalFindingDone:  true,
-				ApprovalFindingError: err.Error(),
-			},
-		}); updateErr != nil {
-			return false, multierr.Append(errors.Wrap(updateErr, "failed to update issue payload"), err)
-		}
-		return false, err
-	}
-
-	payload = &storepb.IssuePayload{
-		Approval: &storepb.IssuePayloadApproval{
-			ApprovalFindingDone: true,
-			ApprovalTemplates:   nil,
-			Approvers:           nil,
-		},
+	payload.Approval = &storepb.IssuePayloadApproval{
+		ApprovalFindingDone: true,
+		ApprovalTemplates:   nil,
+		Approvers:           nil,
 	}
 	if approvalTemplate != nil {
-		payload.Approval.ApprovalTemplates = append(payload.Approval.ApprovalTemplates, approvalTemplate)
+		payload.Approval.ApprovalTemplates = []*storepb.ApprovalTemplate{approvalTemplate}
 	}
+
+	newApprovers, activityCreates, err := utils.HandleIncomingApprovalSteps(ctx, r.store, r.relayRunner.Client, issue, payload.Approval)
+	if err != nil {
+		err = errors.Wrapf(err, "failed to handle incoming approval steps")
+		if updateErr := updateIssuePayload(ctx, r.store, issue.UID, &storepb.IssuePayload{
+			Approval: &storepb.IssuePayloadApproval{
+				ApprovalFindingDone:  true,
+				ApprovalFindingError: err.Error(),
+			},
+		}); updateErr != nil {
+			return false, multierr.Append(errors.Wrap(updateErr, "failed to update issue payload"), err)
+		}
+		return false, err
+	}
+	payload.Approval.Approvers = append(payload.Approval.Approvers, newApprovers...)
 
 	if err := updateIssuePayload(ctx, r.store, issue.UID, payload); err != nil {
 		return false, errors.Wrap(err, "failed to update issue payload")
 	}
+
+	// It's ok to fail to create activity.
+	if err := func() error {
+		for _, create := range activityCreates {
+			if _, err := r.activityManager.CreateActivity(ctx, create, &activity.Metadata{}); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}(); err != nil {
+		log.Error("failed to create activity after approving review", zap.Error(err))
+	}
+
+	if err := func() error {
+		if len(payload.Approval.ApprovalTemplates) != 1 {
+			return nil
+		}
+		approvalStep := utils.FindNextPendingStep(payload.Approval.ApprovalTemplates[0], payload.Approval.Approvers)
+		if approvalStep == nil {
+			return nil
+		}
+		protoPayload, err := protojson.Marshal(&storepb.ActivityIssueApprovalNotifyPayload{
+			ApprovalStep: approvalStep,
+		})
+		if err != nil {
+			return err
+		}
+		activityPayload, err := json.Marshal(api.ActivityIssueApprovalNotifyPayload{
+			ProtoPayload: string(protoPayload),
+		})
+		if err != nil {
+			return err
+		}
+
+		create := &store.ActivityMessage{
+			CreatorUID:   api.SystemBotID,
+			ContainerUID: issue.UID,
+			Type:         api.ActivityIssueApprovalNotify,
+			Level:        api.ActivityInfo,
+			Comment:      "",
+			Payload:      string(activityPayload),
+		}
+		if _, err := r.activityManager.CreateActivity(ctx, create, &activity.Metadata{Issue: issue}); err != nil {
+			return err
+		}
+
+		return nil
+	}(); err != nil {
+		log.Error("failed to create approval step pending activity after creating review", zap.Error(err))
+	}
+
 	return true, nil
 }
 
 func getApprovalTemplate(approvalSetting *storepb.WorkspaceApprovalSetting, riskLevel int64, riskSource store.RiskSource) (*storepb.ApprovalTemplate, error) {
-	e, err := cel.NewEnv(ApprovalFactors...)
+	e, err := cel.NewEnv(common.ApprovalFactors...)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +332,7 @@ func getApprovalTemplate(approvalSetting *storepb.WorkspaceApprovalSetting, risk
 
 func getIssueRiskLevel(ctx context.Context, s *store.Store, issue *store.IssueMessage, risks []*store.RiskMessage) (int64, bool, error) {
 	tasks, err := s.ListTasks(ctx, &api.TaskFind{
-		PipelineID: &issue.PipelineUID,
+		PipelineID: issue.PipelineUID,
 		StatusList: &[]api.TaskStatus{api.TaskPendingApproval},
 	})
 	if err != nil {
@@ -366,7 +439,7 @@ func getTaskRiskLevel(ctx context.Context, s *store.Store, issue *store.IssueMes
 		databaseName = database.DatabaseName
 	}
 
-	e, err := cel.NewEnv(RiskFactors...)
+	e, err := cel.NewEnv(common.RiskFactors...)
 	if err != nil {
 		return 0, false, err
 	}
@@ -383,11 +456,14 @@ func getTaskRiskLevel(ctx context.Context, s *store.Store, issue *store.IssueMes
 		if risk.Source != issueTypeToRiskSource[issue.Type] {
 			continue
 		}
-		if risk.Expression == nil || risk.Expression.Expr == nil {
+		if risk.Expression == nil || risk.Expression.Expression == "" {
 			continue
 		}
 
-		ast := cel.ParsedExprToAst(risk.Expression)
+		ast, issues := e.Parse(risk.Expression.Expression)
+		if issues != nil && issues.Err() != nil {
+			return 0, false, errors.Errorf("failed to parse expression: %v", issues.Err())
+		}
 		prg, err := e.Program(ast)
 		if err != nil {
 			return 0, false, err

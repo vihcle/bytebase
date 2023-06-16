@@ -3,6 +3,7 @@ import type { CallContext, CallOptions } from "nice-grpc-common";
 import * as _m0 from "protobufjs/minimal";
 import { Empty } from "../google/protobuf/empty";
 import { FieldMask } from "../google/protobuf/field_mask";
+import { Timestamp } from "../google/protobuf/timestamp";
 
 export const protobufPackage = "bytebase.v1";
 
@@ -119,12 +120,12 @@ export interface ExternalVersionControl {
 
 export enum ExternalVersionControl_Type {
   TYPE_UNSPECIFIED = 0,
-  /** TYPE_GITHUB - GitHub type. Using for GitHub community edition(ce). */
-  TYPE_GITHUB = 1,
-  /** TYPE_GITLAB - GitLab type. Using for GitLab community edition(ce) and enterprise edition(ee). */
-  TYPE_GITLAB = 2,
-  /** TYPE_BITBUCKET - BitBucket type. Using for BitBucket cloud or BitBucket server. */
-  TYPE_BITBUCKET = 3,
+  /** GITHUB - GitHub type. Using for GitHub community edition(ce). */
+  GITHUB = 1,
+  /** GITLAB - GitLab type. Using for GitLab community edition(ce) and enterprise edition(ee). */
+  GITLAB = 2,
+  /** BITBUCKET - BitBucket type. Using for BitBucket cloud or BitBucket server. */
+  BITBUCKET = 3,
   UNRECOGNIZED = -1,
 }
 
@@ -134,14 +135,14 @@ export function externalVersionControl_TypeFromJSON(object: any): ExternalVersio
     case "TYPE_UNSPECIFIED":
       return ExternalVersionControl_Type.TYPE_UNSPECIFIED;
     case 1:
-    case "TYPE_GITHUB":
-      return ExternalVersionControl_Type.TYPE_GITHUB;
+    case "GITHUB":
+      return ExternalVersionControl_Type.GITHUB;
     case 2:
-    case "TYPE_GITLAB":
-      return ExternalVersionControl_Type.TYPE_GITLAB;
+    case "GITLAB":
+      return ExternalVersionControl_Type.GITLAB;
     case 3:
-    case "TYPE_BITBUCKET":
-      return ExternalVersionControl_Type.TYPE_BITBUCKET;
+    case "BITBUCKET":
+      return ExternalVersionControl_Type.BITBUCKET;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -153,12 +154,12 @@ export function externalVersionControl_TypeToJSON(object: ExternalVersionControl
   switch (object) {
     case ExternalVersionControl_Type.TYPE_UNSPECIFIED:
       return "TYPE_UNSPECIFIED";
-    case ExternalVersionControl_Type.TYPE_GITHUB:
-      return "TYPE_GITHUB";
-    case ExternalVersionControl_Type.TYPE_GITLAB:
-      return "TYPE_GITLAB";
-    case ExternalVersionControl_Type.TYPE_BITBUCKET:
-      return "TYPE_BITBUCKET";
+    case ExternalVersionControl_Type.GITHUB:
+      return "GITHUB";
+    case ExternalVersionControl_Type.GITLAB:
+      return "GITLAB";
+    case ExternalVersionControl_Type.BITBUCKET:
+      return "BITBUCKET";
     case ExternalVersionControl_Type.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -171,6 +172,8 @@ export interface ProjectGitOpsInfo {
    * Format: projects/{project}/gitOpsInfo
    */
   name: string;
+  /** The uid for related VCS. */
+  vcsUid: string;
   /** The title of the repository. For axample: sample. */
   title: string;
   /** The full_path of the repository. For example: bytebase/sample. */
@@ -199,10 +202,38 @@ export interface ProjectGitOpsInfo {
    * If specified, required Placeholder: {{NAME}}, optional Placeholder: {{ENV_ID}}, {{DB_NAME}}.
    */
   sheetPathTemplate: string;
+  /** The reposition external id in target VCS. */
+  externalId: string;
   /** Set to true to enable SQL review CI for all PR/MRs. */
   enableSqlReviewCi: boolean;
   /** The webhook endpoint ID of the repository. */
   webhookEndpointId: string;
+  accessToken: string;
+  expiresTime?: Date;
+  refreshToken: string;
+}
+
+export interface ExchangeTokenRequest {
+  exchangeToken?: ExchangeToken;
+}
+
+export interface ExchangeToken {
+  /**
+   * The name of the external version control to retrieve the linked projects.
+   * Format: externalVersionControls/{externalVersionControl}
+   */
+  name: string;
+  code: string;
+  type: ExternalVersionControl_Type;
+  instanceUrl: string;
+  clientId: string;
+  clientSecret: string;
+}
+
+export interface OAuthToken {
+  accessToken: string;
+  refreshToken: string;
+  expiresTime?: Date;
 }
 
 function createBaseCreateExternalVersionControlRequest(): CreateExternalVersionControlRequest {
@@ -225,14 +256,14 @@ export const CreateExternalVersionControlRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.externalVersionControl = ExternalVersionControl.decode(reader, reader.uint32());
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -290,14 +321,14 @@ export const GetExternalVersionControlRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -349,21 +380,21 @@ export const ListExternalVersionControlsRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 8) {
+          if (tag !== 8) {
             break;
           }
 
           message.pageSize = reader.int32();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.pageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -420,21 +451,21 @@ export const ListExternalVersionControlsResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.externalVersionControls.push(ExternalVersionControl.decode(reader, reader.uint32()));
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.nextPageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -500,21 +531,21 @@ export const UpdateExternalVersionControlRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.externalVersionControl = ExternalVersionControl.decode(reader, reader.uint32());
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.updateMask = FieldMask.unwrap(FieldMask.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -575,14 +606,14 @@ export const DeleteExternalVersionControlRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -637,28 +668,28 @@ export const SearchExternalVersionControlProjectsRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.accessToken = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.refreshToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -717,14 +748,14 @@ export const SearchExternalVersionControlProjectsResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.projects.push(SearchExternalVersionControlProjectsResponse_Project.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -800,35 +831,35 @@ export const SearchExternalVersionControlProjectsResponse_Project = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.id = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.title = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.fullpath = reader.string();
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.webUrl = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -892,14 +923,14 @@ export const ListProjectGitOpsInfoRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -948,14 +979,14 @@ export const ListProjectGitOpsInfoResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.projectGitopsInfo.push(ProjectGitOpsInfo.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1030,56 +1061,56 @@ export const ExternalVersionControl = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.title = reader.string();
           continue;
         case 3:
-          if (tag != 24) {
+          if (tag !== 24) {
             break;
           }
 
           message.type = reader.int32() as any;
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.url = reader.string();
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.apiUrl = reader.string();
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
           message.applicationId = reader.string();
           continue;
         case 7:
-          if (tag != 58) {
+          if (tag !== 58) {
             break;
           }
 
           message.secret = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1131,6 +1162,7 @@ export const ExternalVersionControl = {
 function createBaseProjectGitOpsInfo(): ProjectGitOpsInfo {
   return {
     name: "",
+    vcsUid: "",
     title: "",
     fullPath: "",
     webUrl: "",
@@ -1139,8 +1171,12 @@ function createBaseProjectGitOpsInfo(): ProjectGitOpsInfo {
     filePathTemplate: "",
     schemaPathTemplate: "",
     sheetPathTemplate: "",
+    externalId: "",
     enableSqlReviewCi: false,
     webhookEndpointId: "",
+    accessToken: "",
+    expiresTime: undefined,
+    refreshToken: "",
   };
 }
 
@@ -1149,35 +1185,50 @@ export const ProjectGitOpsInfo = {
     if (message.name !== "") {
       writer.uint32(10).string(message.name);
     }
+    if (message.vcsUid !== "") {
+      writer.uint32(18).string(message.vcsUid);
+    }
     if (message.title !== "") {
-      writer.uint32(18).string(message.title);
+      writer.uint32(26).string(message.title);
     }
     if (message.fullPath !== "") {
-      writer.uint32(26).string(message.fullPath);
+      writer.uint32(34).string(message.fullPath);
     }
     if (message.webUrl !== "") {
-      writer.uint32(34).string(message.webUrl);
+      writer.uint32(42).string(message.webUrl);
     }
     if (message.branchFilter !== "") {
-      writer.uint32(42).string(message.branchFilter);
+      writer.uint32(50).string(message.branchFilter);
     }
     if (message.baseDirectory !== "") {
-      writer.uint32(50).string(message.baseDirectory);
+      writer.uint32(58).string(message.baseDirectory);
     }
     if (message.filePathTemplate !== "") {
-      writer.uint32(58).string(message.filePathTemplate);
+      writer.uint32(66).string(message.filePathTemplate);
     }
     if (message.schemaPathTemplate !== "") {
-      writer.uint32(66).string(message.schemaPathTemplate);
+      writer.uint32(74).string(message.schemaPathTemplate);
     }
     if (message.sheetPathTemplate !== "") {
-      writer.uint32(74).string(message.sheetPathTemplate);
+      writer.uint32(82).string(message.sheetPathTemplate);
+    }
+    if (message.externalId !== "") {
+      writer.uint32(90).string(message.externalId);
     }
     if (message.enableSqlReviewCi === true) {
-      writer.uint32(80).bool(message.enableSqlReviewCi);
+      writer.uint32(96).bool(message.enableSqlReviewCi);
     }
     if (message.webhookEndpointId !== "") {
-      writer.uint32(90).string(message.webhookEndpointId);
+      writer.uint32(106).string(message.webhookEndpointId);
+    }
+    if (message.accessToken !== "") {
+      writer.uint32(114).string(message.accessToken);
+    }
+    if (message.expiresTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.expiresTime), writer.uint32(122).fork()).ldelim();
+    }
+    if (message.refreshToken !== "") {
+      writer.uint32(130).string(message.refreshToken);
     }
     return writer;
   },
@@ -1190,84 +1241,119 @@ export const ProjectGitOpsInfo = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.vcsUid = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
             break;
           }
 
           message.title = reader.string();
           continue;
-        case 3:
-          if (tag != 26) {
+        case 4:
+          if (tag !== 34) {
             break;
           }
 
           message.fullPath = reader.string();
           continue;
-        case 4:
-          if (tag != 34) {
+        case 5:
+          if (tag !== 42) {
             break;
           }
 
           message.webUrl = reader.string();
           continue;
-        case 5:
-          if (tag != 42) {
+        case 6:
+          if (tag !== 50) {
             break;
           }
 
           message.branchFilter = reader.string();
           continue;
-        case 6:
-          if (tag != 50) {
+        case 7:
+          if (tag !== 58) {
             break;
           }
 
           message.baseDirectory = reader.string();
           continue;
-        case 7:
-          if (tag != 58) {
+        case 8:
+          if (tag !== 66) {
             break;
           }
 
           message.filePathTemplate = reader.string();
           continue;
-        case 8:
-          if (tag != 66) {
+        case 9:
+          if (tag !== 74) {
             break;
           }
 
           message.schemaPathTemplate = reader.string();
           continue;
-        case 9:
-          if (tag != 74) {
+        case 10:
+          if (tag !== 82) {
             break;
           }
 
           message.sheetPathTemplate = reader.string();
           continue;
-        case 10:
-          if (tag != 80) {
+        case 11:
+          if (tag !== 90) {
+            break;
+          }
+
+          message.externalId = reader.string();
+          continue;
+        case 12:
+          if (tag !== 96) {
             break;
           }
 
           message.enableSqlReviewCi = reader.bool();
           continue;
-        case 11:
-          if (tag != 90) {
+        case 13:
+          if (tag !== 106) {
             break;
           }
 
           message.webhookEndpointId = reader.string();
           continue;
+        case 14:
+          if (tag !== 114) {
+            break;
+          }
+
+          message.accessToken = reader.string();
+          continue;
+        case 15:
+          if (tag !== 122) {
+            break;
+          }
+
+          message.expiresTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        case 16:
+          if (tag !== 130) {
+            break;
+          }
+
+          message.refreshToken = reader.string();
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -1278,6 +1364,7 @@ export const ProjectGitOpsInfo = {
   fromJSON(object: any): ProjectGitOpsInfo {
     return {
       name: isSet(object.name) ? String(object.name) : "",
+      vcsUid: isSet(object.vcsUid) ? String(object.vcsUid) : "",
       title: isSet(object.title) ? String(object.title) : "",
       fullPath: isSet(object.fullPath) ? String(object.fullPath) : "",
       webUrl: isSet(object.webUrl) ? String(object.webUrl) : "",
@@ -1286,14 +1373,19 @@ export const ProjectGitOpsInfo = {
       filePathTemplate: isSet(object.filePathTemplate) ? String(object.filePathTemplate) : "",
       schemaPathTemplate: isSet(object.schemaPathTemplate) ? String(object.schemaPathTemplate) : "",
       sheetPathTemplate: isSet(object.sheetPathTemplate) ? String(object.sheetPathTemplate) : "",
+      externalId: isSet(object.externalId) ? String(object.externalId) : "",
       enableSqlReviewCi: isSet(object.enableSqlReviewCi) ? Boolean(object.enableSqlReviewCi) : false,
       webhookEndpointId: isSet(object.webhookEndpointId) ? String(object.webhookEndpointId) : "",
+      accessToken: isSet(object.accessToken) ? String(object.accessToken) : "",
+      expiresTime: isSet(object.expiresTime) ? fromJsonTimestamp(object.expiresTime) : undefined,
+      refreshToken: isSet(object.refreshToken) ? String(object.refreshToken) : "",
     };
   },
 
   toJSON(message: ProjectGitOpsInfo): unknown {
     const obj: any = {};
     message.name !== undefined && (obj.name = message.name);
+    message.vcsUid !== undefined && (obj.vcsUid = message.vcsUid);
     message.title !== undefined && (obj.title = message.title);
     message.fullPath !== undefined && (obj.fullPath = message.fullPath);
     message.webUrl !== undefined && (obj.webUrl = message.webUrl);
@@ -1302,8 +1394,12 @@ export const ProjectGitOpsInfo = {
     message.filePathTemplate !== undefined && (obj.filePathTemplate = message.filePathTemplate);
     message.schemaPathTemplate !== undefined && (obj.schemaPathTemplate = message.schemaPathTemplate);
     message.sheetPathTemplate !== undefined && (obj.sheetPathTemplate = message.sheetPathTemplate);
+    message.externalId !== undefined && (obj.externalId = message.externalId);
     message.enableSqlReviewCi !== undefined && (obj.enableSqlReviewCi = message.enableSqlReviewCi);
     message.webhookEndpointId !== undefined && (obj.webhookEndpointId = message.webhookEndpointId);
+    message.accessToken !== undefined && (obj.accessToken = message.accessToken);
+    message.expiresTime !== undefined && (obj.expiresTime = message.expiresTime.toISOString());
+    message.refreshToken !== undefined && (obj.refreshToken = message.refreshToken);
     return obj;
   },
 
@@ -1314,6 +1410,7 @@ export const ProjectGitOpsInfo = {
   fromPartial(object: DeepPartial<ProjectGitOpsInfo>): ProjectGitOpsInfo {
     const message = createBaseProjectGitOpsInfo();
     message.name = object.name ?? "";
+    message.vcsUid = object.vcsUid ?? "";
     message.title = object.title ?? "";
     message.fullPath = object.fullPath ?? "";
     message.webUrl = object.webUrl ?? "";
@@ -1322,8 +1419,278 @@ export const ProjectGitOpsInfo = {
     message.filePathTemplate = object.filePathTemplate ?? "";
     message.schemaPathTemplate = object.schemaPathTemplate ?? "";
     message.sheetPathTemplate = object.sheetPathTemplate ?? "";
+    message.externalId = object.externalId ?? "";
     message.enableSqlReviewCi = object.enableSqlReviewCi ?? false;
     message.webhookEndpointId = object.webhookEndpointId ?? "";
+    message.accessToken = object.accessToken ?? "";
+    message.expiresTime = object.expiresTime ?? undefined;
+    message.refreshToken = object.refreshToken ?? "";
+    return message;
+  },
+};
+
+function createBaseExchangeTokenRequest(): ExchangeTokenRequest {
+  return { exchangeToken: undefined };
+}
+
+export const ExchangeTokenRequest = {
+  encode(message: ExchangeTokenRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.exchangeToken !== undefined) {
+      ExchangeToken.encode(message.exchangeToken, writer.uint32(10).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ExchangeTokenRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseExchangeTokenRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.exchangeToken = ExchangeToken.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ExchangeTokenRequest {
+    return { exchangeToken: isSet(object.exchangeToken) ? ExchangeToken.fromJSON(object.exchangeToken) : undefined };
+  },
+
+  toJSON(message: ExchangeTokenRequest): unknown {
+    const obj: any = {};
+    message.exchangeToken !== undefined &&
+      (obj.exchangeToken = message.exchangeToken ? ExchangeToken.toJSON(message.exchangeToken) : undefined);
+    return obj;
+  },
+
+  create(base?: DeepPartial<ExchangeTokenRequest>): ExchangeTokenRequest {
+    return ExchangeTokenRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<ExchangeTokenRequest>): ExchangeTokenRequest {
+    const message = createBaseExchangeTokenRequest();
+    message.exchangeToken = (object.exchangeToken !== undefined && object.exchangeToken !== null)
+      ? ExchangeToken.fromPartial(object.exchangeToken)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseExchangeToken(): ExchangeToken {
+  return { name: "", code: "", type: 0, instanceUrl: "", clientId: "", clientSecret: "" };
+}
+
+export const ExchangeToken = {
+  encode(message: ExchangeToken, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.code !== "") {
+      writer.uint32(18).string(message.code);
+    }
+    if (message.type !== 0) {
+      writer.uint32(24).int32(message.type);
+    }
+    if (message.instanceUrl !== "") {
+      writer.uint32(34).string(message.instanceUrl);
+    }
+    if (message.clientId !== "") {
+      writer.uint32(42).string(message.clientId);
+    }
+    if (message.clientSecret !== "") {
+      writer.uint32(50).string(message.clientSecret);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ExchangeToken {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseExchangeToken();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.code = reader.string();
+          continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.type = reader.int32() as any;
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.instanceUrl = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.clientId = reader.string();
+          continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.clientSecret = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ExchangeToken {
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      code: isSet(object.code) ? String(object.code) : "",
+      type: isSet(object.type) ? externalVersionControl_TypeFromJSON(object.type) : 0,
+      instanceUrl: isSet(object.instanceUrl) ? String(object.instanceUrl) : "",
+      clientId: isSet(object.clientId) ? String(object.clientId) : "",
+      clientSecret: isSet(object.clientSecret) ? String(object.clientSecret) : "",
+    };
+  },
+
+  toJSON(message: ExchangeToken): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    message.code !== undefined && (obj.code = message.code);
+    message.type !== undefined && (obj.type = externalVersionControl_TypeToJSON(message.type));
+    message.instanceUrl !== undefined && (obj.instanceUrl = message.instanceUrl);
+    message.clientId !== undefined && (obj.clientId = message.clientId);
+    message.clientSecret !== undefined && (obj.clientSecret = message.clientSecret);
+    return obj;
+  },
+
+  create(base?: DeepPartial<ExchangeToken>): ExchangeToken {
+    return ExchangeToken.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<ExchangeToken>): ExchangeToken {
+    const message = createBaseExchangeToken();
+    message.name = object.name ?? "";
+    message.code = object.code ?? "";
+    message.type = object.type ?? 0;
+    message.instanceUrl = object.instanceUrl ?? "";
+    message.clientId = object.clientId ?? "";
+    message.clientSecret = object.clientSecret ?? "";
+    return message;
+  },
+};
+
+function createBaseOAuthToken(): OAuthToken {
+  return { accessToken: "", refreshToken: "", expiresTime: undefined };
+}
+
+export const OAuthToken = {
+  encode(message: OAuthToken, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.accessToken !== "") {
+      writer.uint32(10).string(message.accessToken);
+    }
+    if (message.refreshToken !== "") {
+      writer.uint32(18).string(message.refreshToken);
+    }
+    if (message.expiresTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.expiresTime), writer.uint32(122).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): OAuthToken {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseOAuthToken();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.accessToken = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.refreshToken = reader.string();
+          continue;
+        case 15:
+          if (tag !== 122) {
+            break;
+          }
+
+          message.expiresTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): OAuthToken {
+    return {
+      accessToken: isSet(object.accessToken) ? String(object.accessToken) : "",
+      refreshToken: isSet(object.refreshToken) ? String(object.refreshToken) : "",
+      expiresTime: isSet(object.expiresTime) ? fromJsonTimestamp(object.expiresTime) : undefined,
+    };
+  },
+
+  toJSON(message: OAuthToken): unknown {
+    const obj: any = {};
+    message.accessToken !== undefined && (obj.accessToken = message.accessToken);
+    message.refreshToken !== undefined && (obj.refreshToken = message.refreshToken);
+    message.expiresTime !== undefined && (obj.expiresTime = message.expiresTime.toISOString());
+    return obj;
+  },
+
+  create(base?: DeepPartial<OAuthToken>): OAuthToken {
+    return OAuthToken.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<OAuthToken>): OAuthToken {
+    const message = createBaseOAuthToken();
+    message.accessToken = object.accessToken ?? "";
+    message.refreshToken = object.refreshToken ?? "";
+    message.expiresTime = object.expiresTime ?? undefined;
     return message;
   },
 };
@@ -1652,6 +2019,106 @@ export const ExternalVersionControlServiceDefinition = {
         },
       },
     },
+    exchangeToken: {
+      name: "ExchangeToken",
+      requestType: ExchangeTokenRequest,
+      requestStream: false,
+      responseType: OAuthToken,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([0])],
+          578365826: [
+            new Uint8Array([
+              83,
+              58,
+              14,
+              101,
+              120,
+              99,
+              104,
+              97,
+              110,
+              103,
+              101,
+              95,
+              116,
+              111,
+              107,
+              101,
+              110,
+              34,
+              65,
+              47,
+              118,
+              49,
+              47,
+              123,
+              101,
+              120,
+              99,
+              104,
+              97,
+              110,
+              103,
+              101,
+              95,
+              116,
+              111,
+              107,
+              101,
+              110,
+              46,
+              110,
+              97,
+              109,
+              101,
+              61,
+              101,
+              120,
+              116,
+              101,
+              114,
+              110,
+              97,
+              108,
+              86,
+              101,
+              114,
+              115,
+              105,
+              111,
+              110,
+              67,
+              111,
+              110,
+              116,
+              114,
+              111,
+              108,
+              115,
+              47,
+              42,
+              125,
+              58,
+              101,
+              120,
+              99,
+              104,
+              97,
+              110,
+              103,
+              101,
+              84,
+              111,
+              107,
+              101,
+              110,
+            ]),
+          ],
+        },
+      },
+    },
     deleteExternalVersionControl: {
       name: "DeleteExternalVersionControl",
       requestType: DeleteExternalVersionControlRequest,
@@ -1861,6 +2328,7 @@ export interface ExternalVersionControlServiceImplementation<CallContextExt = {}
     request: UpdateExternalVersionControlRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<ExternalVersionControl>>;
+  exchangeToken(request: ExchangeTokenRequest, context: CallContext & CallContextExt): Promise<DeepPartial<OAuthToken>>;
   deleteExternalVersionControl(
     request: DeleteExternalVersionControlRequest,
     context: CallContext & CallContextExt,
@@ -1892,6 +2360,10 @@ export interface ExternalVersionControlServiceClient<CallOptionsExt = {}> {
     request: DeepPartial<UpdateExternalVersionControlRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<ExternalVersionControl>;
+  exchangeToken(
+    request: DeepPartial<ExchangeTokenRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<OAuthToken>;
   deleteExternalVersionControl(
     request: DeepPartial<DeleteExternalVersionControlRequest>,
     options?: CallOptions & CallOptionsExt,
@@ -1912,6 +2384,28 @@ export type DeepPartial<T> = T extends Builtin ? T
   : T extends Array<infer U> ? Array<DeepPartial<U>> : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
+
+function toTimestamp(date: Date): Timestamp {
+  const seconds = date.getTime() / 1_000;
+  const nanos = (date.getTime() % 1_000) * 1_000_000;
+  return { seconds, nanos };
+}
+
+function fromTimestamp(t: Timestamp): Date {
+  let millis = (t.seconds || 0) * 1_000;
+  millis += (t.nanos || 0) / 1_000_000;
+  return new Date(millis);
+}
+
+function fromJsonTimestamp(o: any): Date {
+  if (o instanceof Date) {
+    return o;
+  } else if (typeof o === "string") {
+    return new Date(o);
+  } else {
+    return fromTimestamp(Timestamp.fromJSON(o));
+  }
+}
 
 function isSet(value: any): boolean {
   return value !== null && value !== undefined;

@@ -40,15 +40,15 @@ func (s *Store) FindIssueStripped(ctx context.Context, find *FindIssueMessage) (
 	}
 	var composedIssues []*api.Issue
 	for _, issue := range issues {
-		issue, err := s.composeIssueStripped(ctx, issue)
+		composedIssue, err := s.composeIssueStripped(ctx, issue)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compose issue %d", issue.ID)
+			return nil, errors.Wrapf(err, "failed to compose issue %d", issue.UID)
 		}
 		// If no specified project, filter out issues belonging to archived project
-		if issue == nil || issue.Project == nil || issue.Project.RowStatus == api.Archived {
+		if composedIssue == nil || composedIssue.Project == nil || composedIssue.Project.RowStatus == api.Archived {
 			continue
 		}
-		composedIssues = append(composedIssues, issue)
+		composedIssues = append(composedIssues, composedIssue)
 	}
 
 	return composedIssues, nil
@@ -72,7 +72,7 @@ func (s *Store) CreateIssueValidateOnly(ctx context.Context, pipelineCreate *api
 		Type:        create.Type,
 		Description: create.Description,
 		AssigneeID:  create.Assignee.ID,
-		PipelineID:  pipeline.ID,
+		PipelineID:  &pipeline.ID,
 		Pipeline:    pipeline,
 	}
 
@@ -164,6 +164,7 @@ func (s *Store) createPipelineValidateOnly(ctx context.Context, create *api.Pipe
 				InstanceID:        tc.InstanceID,
 				DatabaseID:        tc.DatabaseID,
 				BlockedBy:         blockedBy,
+				Statement:         tc.Statement,
 			}
 			instance, err := s.GetInstanceByID(ctx, task.InstanceID)
 			if err != nil {
@@ -245,18 +246,20 @@ func (s *Store) composeIssue(ctx context.Context, issue *IssueMessage) (*api.Iss
 	}
 	composedIssue.Project = composedProject
 
-	pipeline, err := s.GetPipelineV2ByID(ctx, issue.PipelineUID)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get pipeline with ID %d", issue.PipelineUID)
+	if issue.PipelineUID != nil {
+		pipeline, err := s.GetPipelineV2ByID(ctx, *issue.PipelineUID)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get pipeline with ID %d", *issue.PipelineUID)
+		}
+		if pipeline == nil {
+			return nil, nil
+		}
+		composedPipeline, err := s.composePipeline(ctx, pipeline)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to compose pipeline")
+		}
+		composedIssue.Pipeline = composedPipeline
 	}
-	if pipeline == nil {
-		return nil, nil
-	}
-	composedPipeline, err := s.composePipeline(ctx, pipeline)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to compose pipeline")
-	}
-	composedIssue.Pipeline = composedPipeline
 
 	return composedIssue, nil
 }
@@ -312,19 +315,20 @@ func (s *Store) composeIssueStripped(ctx context.Context, issue *IssueMessage) (
 	composedIssue.Project = composedProject
 
 	// Creating a stripped pipeline.
-	pipeline, err := s.GetPipelineV2ByID(ctx, issue.PipelineUID)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get Pipeline with ID %d", issue.PipelineUID)
+	if issue.PipelineUID != nil {
+		pipeline, err := s.GetPipelineV2ByID(ctx, *issue.PipelineUID)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get Pipeline with ID %d", issue.PipelineUID)
+		}
+		if pipeline == nil {
+			return nil, nil
+		}
+		composedPipeline, err := s.composeSimplePipeline(ctx, pipeline)
+		if err != nil {
+			return nil, err
+		}
+		composedIssue.Pipeline = composedPipeline
 	}
-	if pipeline == nil {
-		return nil, nil
-	}
-
-	composedPipeline, err := s.composeSimplePipeline(ctx, pipeline)
-	if err != nil {
-		return nil, err
-	}
-	composedIssue.Pipeline = composedPipeline
 
 	return composedIssue, nil
 }
@@ -339,7 +343,7 @@ func (s *Store) composePipeline(ctx context.Context, pipeline *PipelineMessage) 
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to find Task list for pipeline %v", pipeline.ID)
 	}
-	taskRuns, err := s.listTaskRun(ctx, &TaskRunFind{PipelineID: &pipeline.ID})
+	taskRuns, err := s.ListTaskRun(ctx, &TaskRunFind{PipelineID: &pipeline.ID})
 	if err != nil {
 		return nil, err
 	}
@@ -499,7 +503,7 @@ type IssueMessage struct {
 	NeedAttention bool
 	Payload       string
 	Subscribers   []*UserMessage
-	PipelineUID   int
+	PipelineUID   *int
 
 	// The following fields are output only and not used for create().
 	UID         int
@@ -873,6 +877,7 @@ func (s *Store) ListIssueV2(ctx context.Context, find *FindIssueMessage) ([]*Iss
 	for rows.Next() {
 		var issue IssueMessage
 		var subscribers []sql.NullInt32
+		var pipelineUID sql.NullInt32
 		if err := rows.Scan(
 			&issue.UID,
 			&issue.creatorUID,
@@ -880,7 +885,7 @@ func (s *Store) ListIssueV2(ctx context.Context, find *FindIssueMessage) ([]*Iss
 			&issue.updaterUID,
 			&issue.updatedTs,
 			&issue.projectUID,
-			&issue.PipelineUID,
+			&pipelineUID,
 			&issue.Title,
 			&issue.Status,
 			&issue.Type,
@@ -891,6 +896,10 @@ func (s *Store) ListIssueV2(ctx context.Context, find *FindIssueMessage) ([]*Iss
 			pq.Array(&subscribers),
 		); err != nil {
 			return nil, err
+		}
+		if pipelineUID.Valid {
+			v := int(pipelineUID.Int32)
+			issue.PipelineUID = &v
 		}
 		for _, subscriber := range subscribers {
 			if !subscriber.Valid {

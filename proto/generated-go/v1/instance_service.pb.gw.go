@@ -84,29 +84,12 @@ func local_request_InstanceService_GetInstance_0(ctx context.Context, marshaler 
 }
 
 var (
-	filter_InstanceService_ListInstances_0 = &utilities.DoubleArray{Encoding: map[string]int{"parent": 0}, Base: []int{1, 2, 0, 0}, Check: []int{0, 1, 2, 2}}
+	filter_InstanceService_ListInstances_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 )
 
 func request_InstanceService_ListInstances_0(ctx context.Context, marshaler runtime.Marshaler, client InstanceServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq ListInstancesRequest
 	var metadata runtime.ServerMetadata
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["parent"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "parent")
-	}
-
-	protoReq.Parent, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "parent", err)
-	}
 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
@@ -124,23 +107,6 @@ func local_request_InstanceService_ListInstances_0(ctx context.Context, marshale
 	var protoReq ListInstancesRequest
 	var metadata runtime.ServerMetadata
 
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["parent"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "parent")
-	}
-
-	protoReq.Parent, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "parent", err)
-	}
-
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
@@ -154,7 +120,7 @@ func local_request_InstanceService_ListInstances_0(ctx context.Context, marshale
 }
 
 var (
-	filter_InstanceService_CreateInstance_0 = &utilities.DoubleArray{Encoding: map[string]int{"instance": 0, "parent": 1}, Base: []int{1, 2, 4, 0, 0, 0, 0}, Check: []int{0, 1, 1, 2, 2, 3, 3}}
+	filter_InstanceService_CreateInstance_0 = &utilities.DoubleArray{Encoding: map[string]int{"instance": 0}, Base: []int{1, 2, 0, 0}, Check: []int{0, 1, 2, 2}}
 )
 
 func request_InstanceService_CreateInstance_0(ctx context.Context, marshaler runtime.Marshaler, client InstanceServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -167,23 +133,6 @@ func request_InstanceService_CreateInstance_0(ctx context.Context, marshaler run
 	}
 	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq.Instance); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["parent"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "parent")
-	}
-
-	protoReq.Parent, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "parent", err)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -208,23 +157,6 @@ func local_request_InstanceService_CreateInstance_0(ctx context.Context, marshal
 	}
 	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq.Instance); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-
-	var (
-		val string
-		ok  bool
-		err error
-		_   = err
-	)
-
-	val, ok = pathParams["parent"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "parent")
-	}
-
-	protoReq.Parent, err = runtime.String(val)
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "parent", err)
 	}
 
 	if err := req.ParseForm(); err != nil {
@@ -339,6 +271,10 @@ func local_request_InstanceService_UpdateInstance_0(ctx context.Context, marshal
 
 }
 
+var (
+	filter_InstanceService_DeleteInstance_0 = &utilities.DoubleArray{Encoding: map[string]int{"name": 0}, Base: []int{1, 2, 0, 0}, Check: []int{0, 1, 2, 2}}
+)
+
 func request_InstanceService_DeleteInstance_0(ctx context.Context, marshaler runtime.Marshaler, client InstanceServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq DeleteInstanceRequest
 	var metadata runtime.ServerMetadata
@@ -358,6 +294,13 @@ func request_InstanceService_DeleteInstance_0(ctx context.Context, marshaler run
 	protoReq.Name, err = runtime.String(val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "name", err)
+	}
+
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_InstanceService_DeleteInstance_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
 	msg, err := client.DeleteInstance(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
@@ -384,6 +327,13 @@ func local_request_InstanceService_DeleteInstance_0(ctx context.Context, marshal
 	protoReq.Name, err = runtime.String(val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "name", err)
+	}
+
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_InstanceService_DeleteInstance_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
 	msg, err := server.DeleteInstance(ctx, &protoReq)
@@ -455,6 +405,74 @@ func local_request_InstanceService_UndeleteInstance_0(ctx context.Context, marsh
 	}
 
 	msg, err := server.UndeleteInstance(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
+func request_InstanceService_SyncInstance_0(ctx context.Context, marshaler runtime.Marshaler, client InstanceServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq SyncInstanceRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["name"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "name")
+	}
+
+	protoReq.Name, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "name", err)
+	}
+
+	msg, err := client.SyncInstance(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_InstanceService_SyncInstance_0(ctx context.Context, marshaler runtime.Marshaler, server InstanceServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq SyncInstanceRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["name"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "name")
+	}
+
+	protoReq.Name, err = runtime.String(val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "name", err)
+	}
+
+	msg, err := server.SyncInstance(ctx, &protoReq)
 	return msg, metadata, err
 
 }
@@ -745,7 +763,7 @@ func RegisterInstanceServiceHandlerServer(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/GetInstance", runtime.WithHTTPPathPattern("/v1/{name=environments/*/instances/*}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/GetInstance", runtime.WithHTTPPathPattern("/v1/{name=instances/*}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -770,7 +788,7 @@ func RegisterInstanceServiceHandlerServer(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/ListInstances", runtime.WithHTTPPathPattern("/v1/{parent=environments/*}/instances"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/ListInstances", runtime.WithHTTPPathPattern("/v1/instances"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -795,7 +813,7 @@ func RegisterInstanceServiceHandlerServer(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/CreateInstance", runtime.WithHTTPPathPattern("/v1/{parent=environments/*}/instances"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/CreateInstance", runtime.WithHTTPPathPattern("/v1/instances"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -820,7 +838,7 @@ func RegisterInstanceServiceHandlerServer(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/UpdateInstance", runtime.WithHTTPPathPattern("/v1/{instance.name=environments/*/instances/*}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/UpdateInstance", runtime.WithHTTPPathPattern("/v1/{instance.name=instances/*}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -845,7 +863,7 @@ func RegisterInstanceServiceHandlerServer(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/DeleteInstance", runtime.WithHTTPPathPattern("/v1/{name=environments/*/instances/*}"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/DeleteInstance", runtime.WithHTTPPathPattern("/v1/{name=instances/*}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -870,7 +888,7 @@ func RegisterInstanceServiceHandlerServer(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/UndeleteInstance", runtime.WithHTTPPathPattern("/v1/{name=environments/*/instances/*}:undelete"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/UndeleteInstance", runtime.WithHTTPPathPattern("/v1/{name=instances/*}:undelete"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -887,6 +905,31 @@ func RegisterInstanceServiceHandlerServer(ctx context.Context, mux *runtime.Serv
 
 	})
 
+	mux.Handle("POST", pattern_InstanceService_SyncInstance_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/SyncInstance", runtime.WithHTTPPathPattern("/v1/{name=instances/*}:sync"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_InstanceService_SyncInstance_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_InstanceService_SyncInstance_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	mux.Handle("POST", pattern_InstanceService_AddDataSource_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -895,7 +938,7 @@ func RegisterInstanceServiceHandlerServer(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/AddDataSource", runtime.WithHTTPPathPattern("/v1/{instance=environments/*/instances/*}:addDataSource"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/AddDataSource", runtime.WithHTTPPathPattern("/v1/{instance=instances/*}:addDataSource"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -920,7 +963,7 @@ func RegisterInstanceServiceHandlerServer(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/RemoveDataSource", runtime.WithHTTPPathPattern("/v1/{instance=environments/*/instances/*}:removeDataSource"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/RemoveDataSource", runtime.WithHTTPPathPattern("/v1/{instance=instances/*}:removeDataSource"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -945,7 +988,7 @@ func RegisterInstanceServiceHandlerServer(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/UpdateDataSource", runtime.WithHTTPPathPattern("/v1/{instance=environments/*/instances/*}:updateDataSource"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/UpdateDataSource", runtime.WithHTTPPathPattern("/v1/{instance=instances/*}:updateDataSource"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -970,7 +1013,7 @@ func RegisterInstanceServiceHandlerServer(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/SyncSlowQueries", runtime.WithHTTPPathPattern("/v1/{instance=environments/*/instances/*}:syncSlowQueries"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/bytebase.v1.InstanceService/SyncSlowQueries", runtime.WithHTTPPathPattern("/v1/{instance=instances/*}:syncSlowQueries"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1034,7 +1077,7 @@ func RegisterInstanceServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/GetInstance", runtime.WithHTTPPathPattern("/v1/{name=environments/*/instances/*}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/GetInstance", runtime.WithHTTPPathPattern("/v1/{name=instances/*}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1056,7 +1099,7 @@ func RegisterInstanceServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/ListInstances", runtime.WithHTTPPathPattern("/v1/{parent=environments/*}/instances"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/ListInstances", runtime.WithHTTPPathPattern("/v1/instances"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1078,7 +1121,7 @@ func RegisterInstanceServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/CreateInstance", runtime.WithHTTPPathPattern("/v1/{parent=environments/*}/instances"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/CreateInstance", runtime.WithHTTPPathPattern("/v1/instances"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1100,7 +1143,7 @@ func RegisterInstanceServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/UpdateInstance", runtime.WithHTTPPathPattern("/v1/{instance.name=environments/*/instances/*}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/UpdateInstance", runtime.WithHTTPPathPattern("/v1/{instance.name=instances/*}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1122,7 +1165,7 @@ func RegisterInstanceServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/DeleteInstance", runtime.WithHTTPPathPattern("/v1/{name=environments/*/instances/*}"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/DeleteInstance", runtime.WithHTTPPathPattern("/v1/{name=instances/*}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1144,7 +1187,7 @@ func RegisterInstanceServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/UndeleteInstance", runtime.WithHTTPPathPattern("/v1/{name=environments/*/instances/*}:undelete"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/UndeleteInstance", runtime.WithHTTPPathPattern("/v1/{name=instances/*}:undelete"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1160,13 +1203,35 @@ func RegisterInstanceServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 
 	})
 
+	mux.Handle("POST", pattern_InstanceService_SyncInstance_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/SyncInstance", runtime.WithHTTPPathPattern("/v1/{name=instances/*}:sync"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_InstanceService_SyncInstance_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_InstanceService_SyncInstance_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	mux.Handle("POST", pattern_InstanceService_AddDataSource_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/AddDataSource", runtime.WithHTTPPathPattern("/v1/{instance=environments/*/instances/*}:addDataSource"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/AddDataSource", runtime.WithHTTPPathPattern("/v1/{instance=instances/*}:addDataSource"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1188,7 +1253,7 @@ func RegisterInstanceServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/RemoveDataSource", runtime.WithHTTPPathPattern("/v1/{instance=environments/*/instances/*}:removeDataSource"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/RemoveDataSource", runtime.WithHTTPPathPattern("/v1/{instance=instances/*}:removeDataSource"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1210,7 +1275,7 @@ func RegisterInstanceServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/UpdateDataSource", runtime.WithHTTPPathPattern("/v1/{instance=environments/*/instances/*}:updateDataSource"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/UpdateDataSource", runtime.WithHTTPPathPattern("/v1/{instance=instances/*}:updateDataSource"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1232,7 +1297,7 @@ func RegisterInstanceServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/SyncSlowQueries", runtime.WithHTTPPathPattern("/v1/{instance=environments/*/instances/*}:syncSlowQueries"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/bytebase.v1.InstanceService/SyncSlowQueries", runtime.WithHTTPPathPattern("/v1/{instance=instances/*}:syncSlowQueries"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
@@ -1252,25 +1317,27 @@ func RegisterInstanceServiceHandlerClient(ctx context.Context, mux *runtime.Serv
 }
 
 var (
-	pattern_InstanceService_GetInstance_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 2, 2, 1, 0, 4, 4, 5, 3}, []string{"v1", "environments", "instances", "name"}, ""))
+	pattern_InstanceService_GetInstance_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 2, 5, 2}, []string{"v1", "instances", "name"}, ""))
 
-	pattern_InstanceService_ListInstances_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 2, 5, 2, 2, 3}, []string{"v1", "environments", "parent", "instances"}, ""))
+	pattern_InstanceService_ListInstances_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "instances"}, ""))
 
-	pattern_InstanceService_CreateInstance_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 2, 5, 2, 2, 3}, []string{"v1", "environments", "parent", "instances"}, ""))
+	pattern_InstanceService_CreateInstance_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "instances"}, ""))
 
-	pattern_InstanceService_UpdateInstance_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 2, 2, 1, 0, 4, 4, 5, 3}, []string{"v1", "environments", "instances", "instance.name"}, ""))
+	pattern_InstanceService_UpdateInstance_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 2, 5, 2}, []string{"v1", "instances", "instance.name"}, ""))
 
-	pattern_InstanceService_DeleteInstance_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 2, 2, 1, 0, 4, 4, 5, 3}, []string{"v1", "environments", "instances", "name"}, ""))
+	pattern_InstanceService_DeleteInstance_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 2, 5, 2}, []string{"v1", "instances", "name"}, ""))
 
-	pattern_InstanceService_UndeleteInstance_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 2, 2, 1, 0, 4, 4, 5, 3}, []string{"v1", "environments", "instances", "name"}, "undelete"))
+	pattern_InstanceService_UndeleteInstance_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 2, 5, 2}, []string{"v1", "instances", "name"}, "undelete"))
 
-	pattern_InstanceService_AddDataSource_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 2, 2, 1, 0, 4, 4, 5, 3}, []string{"v1", "environments", "instances", "instance"}, "addDataSource"))
+	pattern_InstanceService_SyncInstance_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 2, 5, 2}, []string{"v1", "instances", "name"}, "sync"))
 
-	pattern_InstanceService_RemoveDataSource_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 2, 2, 1, 0, 4, 4, 5, 3}, []string{"v1", "environments", "instances", "instance"}, "removeDataSource"))
+	pattern_InstanceService_AddDataSource_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 2, 5, 2}, []string{"v1", "instances", "instance"}, "addDataSource"))
 
-	pattern_InstanceService_UpdateDataSource_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 2, 2, 1, 0, 4, 4, 5, 3}, []string{"v1", "environments", "instances", "instance"}, "updateDataSource"))
+	pattern_InstanceService_RemoveDataSource_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 2, 5, 2}, []string{"v1", "instances", "instance"}, "removeDataSource"))
 
-	pattern_InstanceService_SyncSlowQueries_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 2, 2, 1, 0, 4, 4, 5, 3}, []string{"v1", "environments", "instances", "instance"}, "syncSlowQueries"))
+	pattern_InstanceService_UpdateDataSource_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 2, 5, 2}, []string{"v1", "instances", "instance"}, "updateDataSource"))
+
+	pattern_InstanceService_SyncSlowQueries_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 2, 5, 2}, []string{"v1", "instances", "instance"}, "syncSlowQueries"))
 )
 
 var (
@@ -1285,6 +1352,8 @@ var (
 	forward_InstanceService_DeleteInstance_0 = runtime.ForwardResponseMessage
 
 	forward_InstanceService_UndeleteInstance_0 = runtime.ForwardResponseMessage
+
+	forward_InstanceService_SyncInstance_0 = runtime.ForwardResponseMessage
 
 	forward_InstanceService_AddDataSource_0 = runtime.ForwardResponseMessage
 

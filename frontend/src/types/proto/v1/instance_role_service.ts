@@ -9,7 +9,7 @@ export const protobufPackage = "bytebase.v1";
 export interface GetInstanceRoleRequest {
   /**
    * The name of the role to retrieve.
-   * Format: environments/{environment}/instances/{instance}/roles/{role name}
+   * Format: instances/{instance}/roles/{role name}
    * The role name is the unique name for the role.
    */
   name: string;
@@ -18,7 +18,7 @@ export interface GetInstanceRoleRequest {
 export interface ListInstanceRolesRequest {
   /**
    * The parent, which owns this collection of roles.
-   * Format: environments/{environment}/instances/{instance}
+   * Format: instances/{instance}
    */
   parent: string;
   /**
@@ -36,6 +36,8 @@ export interface ListInstanceRolesRequest {
    * the call that provided the page token.
    */
   pageToken: string;
+  /** Refresh will refresh and return the latest data. */
+  refresh: boolean;
 }
 
 export interface ListInstanceRolesResponse {
@@ -51,7 +53,7 @@ export interface ListInstanceRolesResponse {
 export interface CreateInstanceRoleRequest {
   /**
    * The parent resource where this role will be created.
-   * Format: environments/{environment}/instances/{instance}
+   * Format: instances/{instance}
    */
   parent: string;
   /** The role to create. */
@@ -62,8 +64,8 @@ export interface UpdateInstanceRoleRequest {
   /**
    * The role to update.
    *
-   * The role's `name`, `environment` and `instance` field is used to identify the role to update.
-   * Format: environments/{environment}/instances/{instance}/roles/{role name}
+   * The role's `name` and `instance` field is used to identify the role to update.
+   * Format: instances/{instance}/roles/{role name}
    */
   role?: InstanceRole;
   /** The list of fields to update. */
@@ -73,7 +75,7 @@ export interface UpdateInstanceRoleRequest {
 export interface DeleteInstanceRoleRequest {
   /**
    * The name of the role to delete.
-   * Format: environments/{environment}/instances/{instance}/roles/{role name}
+   * Format: instances/{instance}/roles/{role name}
    */
   name: string;
 }
@@ -81,7 +83,7 @@ export interface DeleteInstanceRoleRequest {
 export interface UndeleteInstanceRoleRequest {
   /**
    * The name of the deleted role.
-   * Format: environments/{environment}/instances/{instance}/roles/{role name}
+   * Format: instances/{instance}/roles/{role name}
    */
   name: string;
 }
@@ -90,7 +92,7 @@ export interface UndeleteInstanceRoleRequest {
 export interface InstanceRole {
   /**
    * The name of the role.
-   * Format: environments/{environment}/instances/{instance}/roles/{role name}
+   * Format: instances/{instance}/roles/{role name}
    * The role name is the unique name for the role.
    */
   name: string;
@@ -136,14 +138,14 @@ export const GetInstanceRoleRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -173,7 +175,7 @@ export const GetInstanceRoleRequest = {
 };
 
 function createBaseListInstanceRolesRequest(): ListInstanceRolesRequest {
-  return { parent: "", pageSize: 0, pageToken: "" };
+  return { parent: "", pageSize: 0, pageToken: "", refresh: false };
 }
 
 export const ListInstanceRolesRequest = {
@@ -187,6 +189,9 @@ export const ListInstanceRolesRequest = {
     if (message.pageToken !== "") {
       writer.uint32(26).string(message.pageToken);
     }
+    if (message.refresh === true) {
+      writer.uint32(32).bool(message.refresh);
+    }
     return writer;
   },
 
@@ -198,28 +203,35 @@ export const ListInstanceRolesRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.parent = reader.string();
           continue;
         case 2:
-          if (tag != 16) {
+          if (tag !== 16) {
             break;
           }
 
           message.pageSize = reader.int32();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.pageToken = reader.string();
           continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.refresh = reader.bool();
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -232,6 +244,7 @@ export const ListInstanceRolesRequest = {
       parent: isSet(object.parent) ? String(object.parent) : "",
       pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
       pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+      refresh: isSet(object.refresh) ? Boolean(object.refresh) : false,
     };
   },
 
@@ -240,6 +253,7 @@ export const ListInstanceRolesRequest = {
     message.parent !== undefined && (obj.parent = message.parent);
     message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
     message.pageToken !== undefined && (obj.pageToken = message.pageToken);
+    message.refresh !== undefined && (obj.refresh = message.refresh);
     return obj;
   },
 
@@ -252,6 +266,7 @@ export const ListInstanceRolesRequest = {
     message.parent = object.parent ?? "";
     message.pageSize = object.pageSize ?? 0;
     message.pageToken = object.pageToken ?? "";
+    message.refresh = object.refresh ?? false;
     return message;
   },
 };
@@ -279,21 +294,21 @@ export const ListInstanceRolesResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.roles.push(InstanceRole.decode(reader, reader.uint32()));
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.nextPageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -354,21 +369,21 @@ export const CreateInstanceRoleRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.parent = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.role = InstanceRole.decode(reader, reader.uint32());
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -427,21 +442,21 @@ export const UpdateInstanceRoleRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.role = InstanceRole.decode(reader, reader.uint32());
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.updateMask = FieldMask.unwrap(FieldMask.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -497,14 +512,14 @@ export const DeleteInstanceRoleRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -553,14 +568,14 @@ export const UndeleteInstanceRoleRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -631,49 +646,49 @@ export const InstanceRole = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.roleName = reader.string();
           continue;
         case 3:
-          if (tag != 26) {
+          if (tag !== 26) {
             break;
           }
 
           message.password = reader.string();
           continue;
         case 4:
-          if (tag != 32) {
+          if (tag !== 32) {
             break;
           }
 
           message.connectionLimit = reader.int32();
           continue;
         case 5:
-          if (tag != 42) {
+          if (tag !== 42) {
             break;
           }
 
           message.validUntil = reader.string();
           continue;
         case 6:
-          if (tag != 50) {
+          if (tag !== 50) {
             break;
           }
 
           message.attribute = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -735,9 +750,9 @@ export const InstanceRoleServiceDefinition = {
           8410: [new Uint8Array([4, 110, 97, 109, 101])],
           578365826: [
             new Uint8Array([
-              47,
+              32,
               18,
-              45,
+              30,
               47,
               118,
               49,
@@ -748,21 +763,6 @@ export const InstanceRoleServiceDefinition = {
               109,
               101,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -799,9 +799,9 @@ export const InstanceRoleServiceDefinition = {
           8410: [new Uint8Array([6, 112, 97, 114, 101, 110, 116])],
           578365826: [
             new Uint8Array([
-              47,
+              32,
               18,
-              45,
+              30,
               47,
               118,
               49,
@@ -814,21 +814,6 @@ export const InstanceRoleServiceDefinition = {
               110,
               116,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -863,7 +848,7 @@ export const InstanceRoleServiceDefinition = {
           8410: [new Uint8Array([11, 112, 97, 114, 101, 110, 116, 44, 114, 111, 108, 101])],
           578365826: [
             new Uint8Array([
-              53,
+              38,
               58,
               4,
               114,
@@ -871,7 +856,7 @@ export const InstanceRoleServiceDefinition = {
               108,
               101,
               34,
-              45,
+              30,
               47,
               118,
               49,
@@ -884,21 +869,6 @@ export const InstanceRoleServiceDefinition = {
               110,
               116,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -933,7 +903,7 @@ export const InstanceRoleServiceDefinition = {
           8410: [new Uint8Array([16, 114, 111, 108, 101, 44, 117, 112, 100, 97, 116, 101, 95, 109, 97, 115, 107])],
           578365826: [
             new Uint8Array([
-              58,
+              43,
               58,
               4,
               114,
@@ -941,7 +911,7 @@ export const InstanceRoleServiceDefinition = {
               108,
               101,
               50,
-              50,
+              35,
               47,
               118,
               49,
@@ -957,21 +927,6 @@ export const InstanceRoleServiceDefinition = {
               109,
               101,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -1008,9 +963,9 @@ export const InstanceRoleServiceDefinition = {
           8410: [new Uint8Array([4, 110, 97, 109, 101])],
           578365826: [
             new Uint8Array([
-              47,
+              32,
               42,
-              45,
+              30,
               47,
               118,
               49,
@@ -1021,21 +976,6 @@ export const InstanceRoleServiceDefinition = {
               109,
               101,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,
@@ -1071,12 +1011,12 @@ export const InstanceRoleServiceDefinition = {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              59,
+              44,
               58,
               1,
               42,
               34,
-              54,
+              39,
               47,
               118,
               49,
@@ -1087,21 +1027,6 @@ export const InstanceRoleServiceDefinition = {
               109,
               101,
               61,
-              101,
-              110,
-              118,
-              105,
-              114,
-              111,
-              110,
-              109,
-              101,
-              110,
-              116,
-              115,
-              47,
-              42,
-              47,
               105,
               110,
               115,

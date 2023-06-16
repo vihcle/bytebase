@@ -1,30 +1,20 @@
 import { defineStore } from "pinia";
-import axios from "axios";
-import { computed, unref, watch, markRaw } from "vue";
+import { markRaw } from "vue";
 import {
   Database,
-  DatabaseFind,
-  DatabaseId,
   DatabaseLabel,
   DatabaseState,
   DataSource,
-  empty,
-  EMPTY_ID,
-  EnvironmentId,
   Instance,
   InstanceId,
-  MaybeRef,
-  PrincipalId,
   Project,
-  ProjectId,
   ResourceIdentifier,
   ResourceObject,
   unknown,
-  UNKNOWN_ID,
 } from "@/types";
 import { useDataSourceStore } from "./dataSource";
-import { useInstanceStore } from "./instance";
-import { useProjectStore } from "./project";
+import { useLegacyInstanceStore } from "./instance";
+import { useLegacyProjectStore } from "./project";
 
 function convert(
   database: ResourceObject,
@@ -53,8 +43,8 @@ function convert(
     dataSourceList.push(dataSource);
   }
 
-  const instanceStore = useInstanceStore();
-  const projectStore = useProjectStore();
+  const instanceStore = useLegacyInstanceStore();
+  const projectStore = useLegacyProjectStore();
   for (const item of includedList || []) {
     if (item.type == "instance" && item.id == instanceId) {
       instance = instanceStore.convert(item, includedList);
@@ -118,28 +108,7 @@ function convert(
   });
 }
 
-const databaseSorter = (a: Database, b: Database): number => {
-  let result = a.instance.name.localeCompare(b.instance.name);
-  if (result != 0) {
-    return result;
-  }
-
-  result = a.instance.environment.name.localeCompare(
-    b.instance.environment.name
-  );
-  if (result != 0) {
-    return result;
-  }
-
-  result = a.project.name.localeCompare(b.project.name);
-  if (result != 0) {
-    return result;
-  }
-
-  return a.name.localeCompare(b.name);
-};
-
-export const useDatabaseStore = defineStore("database", {
+export const useLegacyDatabaseStore = defineStore("legacy_database", {
   state: (): DatabaseState => ({
     databaseListByInstanceId: new Map(),
     databaseListByProjectId: new Map(),
@@ -151,68 +120,6 @@ export const useDatabaseStore = defineStore("database", {
     ): Database {
       return convert(database, includedList);
     },
-    getDatabaseListByInstanceId(instanceId: InstanceId): Database[] {
-      return this.databaseListByInstanceId.get(instanceId) || [];
-    },
-    getDatabaseListByPrincipalId(userId: PrincipalId): Database[] {
-      const list: Database[] = [];
-      for (const [_, databaseList] of this.databaseListByInstanceId) {
-        databaseList.forEach((item: Database) => {
-          for (const member of item.project.memberList) {
-            if (member.principal.id == userId) {
-              list.push(item);
-              break;
-            }
-          }
-        });
-      }
-      return list;
-    },
-    getDatabaseListByEnvironmentId(environmentId: EnvironmentId): Database[] {
-      const list: Database[] = [];
-      for (const [_, databaseList] of this.databaseListByInstanceId) {
-        databaseList.forEach((item: Database) => {
-          if (item.instance.environment.id == environmentId) {
-            list.push(item);
-          }
-        });
-      }
-      return list;
-    },
-    getDatabaseListByProjectId(projectId: ProjectId): Database[] {
-      return this.databaseListByProjectId.get(projectId) || [];
-    },
-    getDatabaseById(databaseId: DatabaseId, instanceId?: InstanceId): Database {
-      if (databaseId == EMPTY_ID) {
-        return empty("DATABASE") as Database;
-      }
-
-      if (instanceId) {
-        const list = this.databaseListByInstanceId.get(instanceId) || [];
-        return (
-          list.find((item) => item.id == databaseId) ||
-          (unknown("DATABASE") as Database)
-        );
-      }
-
-      for (const [_, list] of this.databaseListByInstanceId) {
-        const database = list.find((item) => item.id == databaseId);
-        if (database) {
-          return database;
-        }
-      }
-
-      return unknown("DATABASE") as Database;
-    },
-    setDatabaseListByProjectId({
-      databaseList,
-      projectId,
-    }: {
-      databaseList: Database[];
-      projectId: ProjectId;
-    }) {
-      this.databaseListByProjectId.set(projectId, databaseList);
-    },
     upsertDatabaseList({
       databaseList,
       instanceId,
@@ -221,11 +128,11 @@ export const useDatabaseStore = defineStore("database", {
       instanceId?: InstanceId;
     }) {
       if (instanceId) {
-        this.databaseListByInstanceId.set(instanceId, databaseList);
+        this.databaseListByInstanceId.set(String(instanceId), databaseList);
       } else {
         for (const database of databaseList) {
           const listByInstance = this.databaseListByInstanceId.get(
-            database.instance.id
+            String(database.instance.id)
           );
           if (listByInstance) {
             const i = listByInstance.findIndex(
@@ -237,11 +144,13 @@ export const useDatabaseStore = defineStore("database", {
               listByInstance.push(database);
             }
           } else {
-            this.databaseListByInstanceId.set(database.instance.id, [database]);
+            this.databaseListByInstanceId.set(String(database.instance.id), [
+              database,
+            ]);
           }
 
           const listByProject = this.databaseListByProjectId.get(
-            database.project.id
+            String(database.project.id)
           );
           if (listByProject) {
             const i = listByProject.findIndex(
@@ -253,185 +162,12 @@ export const useDatabaseStore = defineStore("database", {
               listByProject.push(database);
             }
           } else {
-            this.databaseListByProjectId.set(database.project.id, [database]);
+            this.databaseListByProjectId.set(String(database.project.id), [
+              database,
+            ]);
           }
         }
       }
     },
-    async fetchDatabaseList(databaseFind?: DatabaseFind) {
-      const queryList = [];
-      if (databaseFind?.projectId) {
-        queryList.push(`project=${databaseFind.projectId}`);
-      }
-      if (databaseFind?.instanceId) {
-        queryList.push(`instance=${databaseFind.instanceId}`);
-      }
-      if (databaseFind?.name) {
-        queryList.push(`name=${databaseFind.name}`);
-      }
-      if (databaseFind?.syncStatus) {
-        queryList.push(`syncStatus=${databaseFind.syncStatus}`);
-      }
-      const data = (await axios.get(`/api/database?${queryList.join("&")}`))
-        .data;
-      const databaseList: Database[] = data.data.map(
-        (database: ResourceObject) => {
-          return convert(database, data.included);
-        }
-      );
-      databaseList.sort(databaseSorter);
-
-      this.upsertDatabaseList({ databaseList });
-
-      return databaseList;
-    },
-    async fetchDatabaseListByInstanceId(instanceId: InstanceId) {
-      const databaseList = await this.fetchDatabaseList({
-        instanceId,
-      });
-
-      return databaseList;
-    },
-    async fetchDatabaseByInstanceIdAndName({
-      instanceId,
-      name,
-    }: {
-      instanceId: InstanceId;
-      name: string;
-    }) {
-      const databaseList = await this.fetchDatabaseList({
-        instanceId,
-        name,
-      });
-
-      return databaseList[0];
-    },
-    async fetchDatabaseListByProjectId(projectId: ProjectId) {
-      const databaseList = await this.fetchDatabaseList({
-        projectId,
-      });
-
-      this.setDatabaseListByProjectId({ databaseList, projectId });
-
-      return databaseList;
-    },
-    async fetchDatabaseListByEnvironmentId(environmentId: EnvironmentId) {
-      // Don't fetch the data source info as the current user may not have access to the
-      // database of this particular environment.
-      const data = (
-        await axios.get(`/api/database?environment=${environmentId}`)
-      ).data;
-      const databaseList: Database[] = data.data.map(
-        (database: ResourceObject) => {
-          return convert(database, data.included);
-        }
-      );
-      databaseList.sort(databaseSorter);
-
-      this.upsertDatabaseList({ databaseList });
-
-      return databaseList;
-    },
-    async fetchDatabaseById(databaseId: DatabaseId) {
-      const url = `/api/database/${databaseId}`;
-      const data = (await axios.get(url)).data;
-      const database = convert(data.data, data.included);
-
-      this.upsertDatabaseList({
-        databaseList: [database],
-      });
-
-      return database;
-    },
-    async getOrFetchDatabaseById(databaseId: DatabaseId) {
-      const storedDatabase = this.getDatabaseById(databaseId);
-      if (storedDatabase.id !== UNKNOWN_ID) {
-        return storedDatabase;
-      }
-      return this.fetchDatabaseById(databaseId);
-    },
-    async fetchDatabaseSchemaById(
-      databaseId: DatabaseId,
-      sdl = false
-    ): Promise<string> {
-      let url = `/api/database/${databaseId}/schema`;
-      if (sdl) {
-        url += "?sdl=true";
-      }
-      const schema = (await axios.get(url)).data as string;
-      return schema;
-    },
-    async transferProject({
-      databaseId,
-      projectId,
-      labels,
-    }: {
-      databaseId: DatabaseId;
-      projectId: ProjectId;
-      labels?: DatabaseLabel[];
-    }) {
-      const attributes: any = { projectId };
-      if (labels) {
-        attributes.labels = JSON.stringify(labels);
-      }
-      const data = (
-        await axios.patch(`/api/database/${databaseId}`, {
-          data: {
-            type: "databasePatch",
-            attributes,
-          },
-        })
-      ).data;
-
-      const updatedDatabase = convert(data.data, data.included);
-
-      this.upsertDatabaseList({
-        databaseList: [updatedDatabase],
-      });
-
-      return updatedDatabase;
-    },
-    async patchDatabaseLabels({
-      databaseId,
-      labels,
-    }: {
-      databaseId: DatabaseId;
-      labels: DatabaseLabel[];
-    }) {
-      const data = (
-        await axios.patch(`/api/database/${databaseId}`, {
-          data: {
-            type: "databasePatch",
-            attributes: {
-              labels: JSON.stringify(labels),
-            },
-          },
-        })
-      ).data;
-      const updatedDatabase = convert(data.data, data.included);
-
-      this.upsertDatabaseList({
-        databaseList: [updatedDatabase],
-      });
-
-      return updatedDatabase;
-    },
   },
 });
-
-export const useDatabaseById = (databaseId: MaybeRef<DatabaseId>) => {
-  const store = useDatabaseStore();
-  watch(
-    () => unref(databaseId),
-    (id) => {
-      if (id !== UNKNOWN_ID) {
-        if (store.getDatabaseById(id).id === UNKNOWN_ID) {
-          store.fetchDatabaseById(id);
-        }
-      }
-    },
-    { immediate: true }
-  );
-
-  return computed(() => store.getDatabaseById(unref(databaseId)));
-};

@@ -43,10 +43,10 @@
               horizontal
               class="default-theme"
             >
-              <Pane :size="isDisconnected ? 100 : 60">
+              <Pane>
                 <EditorPanel />
               </Pane>
-              <Pane :size="isDisconnected ? 0 : 40">
+              <Pane v-if="!isDisconnected" :size="40">
                 <ResultPanel />
               </Pane>
             </Splitpanes>
@@ -61,14 +61,11 @@
               />
               <i18n-t
                 class="textinfolabel flex items-center"
-                keypath="sql-editor.read-only-mode-not-allowed"
+                keypath="sql-editor.allow-admin-mode-only"
                 tag="div"
               >
                 <template #instance>
-                  <span class="inline-flex items-center mx-1">
-                    <InstanceEngineIcon :instance="instance" class="mr-1" />
-                    <span>{{ instanceName(instance) }}</span>
-                  </span>
+                  <InstanceV1Name :instance="instance" :link="false" />
                 </template>
               </i18n-t>
               <AdminModeButton />
@@ -96,9 +93,11 @@
       </Pane>
     </Splitpanes>
 
+    <Quickstart />
+
     <SchemaEditorModal
       v-if="alterSchemaState.showModal"
-      :database-id-list="alterSchemaState.databaseIdList"
+      :database-id-list="alterSchemaState.databaseIdList.map((id) => `${id}`)"
       :new-window="true"
       alter-type="SINGLE_DB"
       @close="alterSchemaState.showModal = false"
@@ -115,10 +114,9 @@ import { NDrawer } from "naive-ui";
 import { DatabaseId, TabMode, UNKNOWN_ID } from "@/types";
 import {
   useConnectionTreeStore,
-  useCurrentUser,
-  useDatabaseStore,
-  useInstanceById,
-  useProjectStore,
+  useCurrentUserV1,
+  useDatabaseV1Store,
+  useInstanceV1ByUID,
   useSQLEditorStore,
   useTabStore,
 } from "@/store";
@@ -128,13 +126,14 @@ import TerminalPanel from "./TerminalPanel/TerminalPanel.vue";
 import TabList from "./TabList";
 import ResultPanel from "./ResultPanel";
 import {
-  allowUsingSchemaEditor,
-  instanceHasReadonlyMode,
-  isDatabaseAccessible,
+  allowUsingSchemaEditorV1,
+  instanceV1HasReadonlyMode,
+  isDatabaseV1Accessible,
 } from "@/utils";
 import AdminModeButton from "./EditorCommon/AdminModeButton.vue";
 import SchemaEditorModal from "@/components/AlterSchemaPrepForm/SchemaEditorModal.vue";
 import { useWindowSize } from "@vueuse/core";
+import { InstanceV1Name } from "@/components/v2";
 
 type LocalState = {
   sidebarExpanded: boolean;
@@ -150,10 +149,10 @@ const state = reactive<LocalState>({
 });
 
 const tabStore = useTabStore();
-const databaseStore = useDatabaseStore();
+const databaseStore = useDatabaseV1Store();
 const connectionTreeStore = useConnectionTreeStore();
 const sqlEditorStore = useSQLEditorStore();
-const currentUser = useCurrentUser();
+const currentUserV1 = useCurrentUserV1();
 
 const isDisconnected = computed(() => tabStore.isDisconnected);
 const isFetchingSheet = computed(() => sqlEditorStore.isFetchingSheet);
@@ -162,27 +161,27 @@ const { width: windowWidth } = useWindowSize();
 
 const allowAccess = computed(() => {
   const { databaseId } = tabStore.currentTab.connection;
-  const database = databaseStore.getDatabaseById(databaseId);
-  if (database.id === UNKNOWN_ID) {
+  const database = databaseStore.getDatabaseByUID(databaseId);
+  if (database.uid === String(UNKNOWN_ID)) {
     // Allowed if connected to an instance
     return true;
   }
   const { accessControlPolicyList } = connectionTreeStore;
-  return isDatabaseAccessible(
+  return isDatabaseV1Accessible(
     database,
     accessControlPolicyList,
-    currentUser.value
+    currentUserV1.value
   );
 });
 
-const instance = useInstanceById(
+const { instance } = useInstanceV1ByUID(
   computed(() => tabStore.currentTab.connection.instanceId)
 );
 
 const allowReadOnlyMode = computed(() => {
   if (isDisconnected.value) return true;
 
-  return instanceHasReadonlyMode(instance.value);
+  return instanceV1HasReadonlyMode(instance.value);
 });
 
 const alterSchemaState = reactive<AlterSchemaState>({
@@ -191,16 +190,18 @@ const alterSchemaState = reactive<AlterSchemaState>({
 });
 
 const handleAlterSchema = async (params: {
-  databaseId: DatabaseId;
+  databaseId: string;
   schema: string;
   table: string;
 }) => {
   const { databaseId, schema, table } = params;
-  const database = databaseStore.getDatabaseById(databaseId);
-  if (allowUsingSchemaEditor([database])) {
-    await useProjectStore().getOrFetchProjectById(database.project.id);
+  const database = databaseStore.getDatabaseByUID(databaseId);
+  if (allowUsingSchemaEditorV1([database])) {
+    // await useProjectV1Store().getOrFetchProjectByUID(
+    //   String(database.projectEntity.uid)
+    // );
     // TODO: support open selected database tab directly in Schema Editor.
-    alterSchemaState.databaseIdList = [databaseId];
+    alterSchemaState.databaseIdList = [databaseId].map((uid) => Number(uid));
     alterSchemaState.showModal = true;
   } else {
     const exampleSQL = ["ALTER TABLE"];
@@ -214,7 +215,7 @@ const handleAlterSchema = async (params: {
     const query = {
       template: "bb.issue.database.schema.update",
       name: `[${database.name}] Alter schema`,
-      project: database.project.id,
+      project: database.projectEntity.uid,
       databaseList: databaseId,
       sql: exampleSQL.join(" "),
     };

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,9 +22,11 @@ import (
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
+	"github.com/bytebase/bytebase/backend/plugin/app/relay"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/oracle"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
+	"github.com/bytebase/bytebase/backend/plugin/vcs"
 	"github.com/bytebase/bytebase/backend/store"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
@@ -218,7 +221,7 @@ func NewMigrationContext(config GhostConfig) (*base.MigrationContext, error) {
 	return migrationContext, nil
 }
 
-// GetActiveStage returns an active stage among all stages.
+// GetActiveStage returns the first active stage among all stages.
 func GetActiveStage(stages []*store.StageMessage) *store.StageMessage {
 	for _, stage := range stages {
 		if stage.Active {
@@ -320,15 +323,14 @@ func GetDatabaseMatrixFromDeploymentSchedule(schedule *api.DeploymentSchedule, d
 }
 
 // RefreshToken is a token refresher that stores the latest access token configuration to repository.
-func RefreshToken(ctx context.Context, store *store.Store, webURL string) common.TokenRefresher {
+func RefreshToken(ctx context.Context, s *store.Store, webURL string) common.TokenRefresher {
 	return func(token, refreshToken string, expiresTs int64) error {
-		_, err := store.PatchRepository(ctx, &api.RepositoryPatch{
+		_, err := s.PatchRepositoryV2(ctx, &store.PatchRepositoryMessage{
 			WebURL:       &webURL,
-			UpdaterID:    api.SystemBotID,
 			AccessToken:  &token,
 			ExpiresTs:    &expiresTs,
 			RefreshToken: &refreshToken,
-		})
+		}, api.SystemBotID)
 		return err
 	}
 }
@@ -342,6 +344,17 @@ func GetTaskStatement(taskPayload string) (string, error) {
 		return "", err
 	}
 	return taskStatement.Statement, nil
+}
+
+// GetTaskSheetID gets the sheetID of a task.
+func GetTaskSheetID(taskPayload string) (int, error) {
+	var taskSheetID struct {
+		SheetID int `json:"sheetId"`
+	}
+	if err := json.Unmarshal([]byte(taskPayload), &taskSheetID); err != nil {
+		return 0, err
+	}
+	return taskSheetID.SheetID, nil
 }
 
 // GetTaskSkippedAndReason gets skipped and skippedReason from a task.
@@ -475,17 +488,17 @@ func passCheck(taskCheckRunList []*store.TaskCheckRunMessage, checkType api.Task
 
 // ExecuteMigrationDefault executes migration.
 func ExecuteMigrationDefault(ctx context.Context, store *store.Store, driver db.Driver, mi *db.MigrationInfo, statement string, executeBeforeCommitTx func(tx *sql.Tx) error) (migrationHistoryID string, updatedSchema string, resErr error) {
-	execFunc := func() error {
+	execFunc := func(execStatement string) error {
 		if driver.GetType() == db.Oracle && executeBeforeCommitTx != nil {
 			oracleDriver, ok := driver.(*oracle.Driver)
 			if !ok {
 				return errors.New("failed to cast driver to oracle driver")
 			}
-			if _, _, err := oracleDriver.ExecuteMigrationWithBeforeCommitTxFunc(ctx, statement, executeBeforeCommitTx); err != nil {
+			if _, _, err := oracleDriver.ExecuteMigrationWithBeforeCommitTxFunc(ctx, execStatement, executeBeforeCommitTx); err != nil {
 				return err
 			}
 		} else {
-			if _, err := driver.Execute(ctx, statement, false /* createDatabase */); err != nil {
+			if _, err := driver.Execute(ctx, execStatement, false /* createDatabase */); err != nil {
 				return err
 			}
 		}
@@ -495,7 +508,7 @@ func ExecuteMigrationDefault(ctx context.Context, store *store.Store, driver db.
 }
 
 // ExecuteMigrationWithFunc executes the migration with custom migration function.
-func ExecuteMigrationWithFunc(ctx context.Context, store *store.Store, driver db.Driver, m *db.MigrationInfo, statement string, execFunc func() error) (migrationHistoryID string, updatedSchema string, resErr error) {
+func ExecuteMigrationWithFunc(ctx context.Context, s *store.Store, driver db.Driver, m *db.MigrationInfo, statement string, execFunc func(execStatement string) error) (migrationHistoryID string, updatedSchema string, resErr error) {
 	var prevSchemaBuf bytes.Buffer
 	// Don't record schema if the database hasn't existed yet or is schemaless, e.g. MongoDB.
 	// For baseline migration, we also record the live schema to detect the schema drift.
@@ -504,7 +517,7 @@ func ExecuteMigrationWithFunc(ctx context.Context, store *store.Store, driver db
 		return "", "", err
 	}
 
-	insertedID, err := BeginMigration(ctx, store, m, prevSchemaBuf.String(), statement)
+	insertedID, err := BeginMigration(ctx, s, m, prevSchemaBuf.String(), statement)
 	if err != nil {
 		if common.ErrorCode(err) == common.MigrationAlreadyApplied {
 			return insertedID, prevSchemaBuf.String(), nil
@@ -515,7 +528,7 @@ func ExecuteMigrationWithFunc(ctx context.Context, store *store.Store, driver db
 	startedNs := time.Now().UnixNano()
 
 	defer func() {
-		if err := EndMigration(ctx, store, startedNs, insertedID, updatedSchema, resErr == nil /* isDone */); err != nil {
+		if err := EndMigration(ctx, s, startedNs, insertedID, updatedSchema, resErr == nil /* isDone */); err != nil {
 			log.Error("Failed to update migration history record",
 				zap.Error(err),
 				zap.String("migration_id", migrationHistoryID),
@@ -532,7 +545,23 @@ func ExecuteMigrationWithFunc(ctx context.Context, store *store.Store, driver db
 		doMigrate = false
 	}
 	if doMigrate {
-		if err := execFunc(); err != nil {
+		var renderedStatement = statement
+		// The m.DatabaseID is nil means the migration is a instance level migration
+		if m.DatabaseID != nil {
+			database, err := s.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
+				UID: m.DatabaseID,
+			})
+			if err != nil {
+				return "", "", err
+			}
+			if database == nil {
+				return "", "", errors.Errorf("database %d not found", *m.DatabaseID)
+			}
+			materials := GetSecretMapFromDatabaseMessage(database)
+			// To avoid leak the rendered statement, the error message should use the original statement and not the rendered statement.
+			renderedStatement = RenderStatement(statement, materials)
+		}
+		if err := execFunc(renderedStatement); err != nil {
 			return "", "", err
 		}
 	}
@@ -630,10 +659,42 @@ func EndMigration(ctx context.Context, storeInstance *store.Store, startedNs int
 func FindNextPendingStep(template *storepb.ApprovalTemplate, approvers []*storepb.IssuePayloadApproval_Approver) *storepb.ApprovalStep {
 	// We can do the finding like this for now because we are presuming that
 	// one step is approved by one approver.
+	// and the approver status is either
+	// APPROVED or REJECTED.
 	if len(approvers) >= len(template.Flow.Steps) {
 		return nil
 	}
 	return template.Flow.Steps[len(approvers)]
+}
+
+// FindRejectedStep finds the rejected step in the approval flow.
+func FindRejectedStep(template *storepb.ApprovalTemplate, approvers []*storepb.IssuePayloadApproval_Approver) *storepb.ApprovalStep {
+	for i, approver := range approvers {
+		if i >= len(template.Flow.Steps) {
+			return nil
+		}
+		if approver.Status == storepb.IssuePayloadApproval_Approver_REJECTED {
+			return template.Flow.Steps[i]
+		}
+	}
+	return nil
+}
+
+// CheckApprovalApproved checks if the approval is approved.
+func CheckApprovalApproved(approval *storepb.IssuePayloadApproval) (bool, error) {
+	if approval == nil || !approval.ApprovalFindingDone {
+		return false, nil
+	}
+	if approval.ApprovalFindingError != "" {
+		return false, nil
+	}
+	if len(approval.ApprovalTemplates) == 0 {
+		return true, nil
+	}
+	if len(approval.ApprovalTemplates) != 1 {
+		return false, errors.Errorf("expecting one approval template but got %d", len(approval.ApprovalTemplates))
+	}
+	return FindRejectedStep(approval.ApprovalTemplates[0], approval.Approvers) == nil && FindNextPendingStep(approval.ApprovalTemplates[0], approval.Approvers) == nil, nil
 }
 
 // CheckIssueApproved checks if the issue is approved.
@@ -642,17 +703,313 @@ func CheckIssueApproved(issue *store.IssueMessage) (bool, error) {
 	if err := protojson.Unmarshal([]byte(issue.Payload), issuePayload); err != nil {
 		return false, errors.Wrap(err, "failed to unmarshal issue payload")
 	}
-	if issuePayload.Approval == nil || !issuePayload.Approval.ApprovalFindingDone {
-		return false, nil
+	return CheckApprovalApproved(issuePayload.Approval)
+}
+
+// HandleIncomingApprovalSteps handles incoming approval steps.
+// - skips approval steps if no user can approve the step
+// - creates external approvals for external approval nodes.
+func HandleIncomingApprovalSteps(ctx context.Context, s *store.Store, relayClient *relay.Client, issue *store.IssueMessage, approval *storepb.IssuePayloadApproval) ([]*storepb.IssuePayloadApproval_Approver, []*store.ActivityMessage, error) {
+	if len(approval.ApprovalTemplates) == 0 {
+		return nil, nil, nil
 	}
-	if issuePayload.Approval.ApprovalFindingError != "" {
-		return false, nil
+
+	getActivityCreate := func(status storepb.ActivityIssueCommentCreatePayload_ApprovalEvent_Status, comment string) (*store.ActivityMessage, error) {
+		activityPayload, err := protojson.Marshal(&storepb.ActivityIssueCommentCreatePayload{
+			Event: &storepb.ActivityIssueCommentCreatePayload_ApprovalEvent_{
+				ApprovalEvent: &storepb.ActivityIssueCommentCreatePayload_ApprovalEvent{
+					Status: status,
+				},
+			},
+			IssueName: issue.Title,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &store.ActivityMessage{
+			CreatorUID:   api.SystemBotID,
+			ContainerUID: issue.UID,
+			Type:         api.ActivityIssueCommentCreate,
+			Level:        api.ActivityInfo,
+			Comment:      comment,
+			Payload:      string(activityPayload),
+		}, nil
 	}
-	if len(issuePayload.Approval.ApprovalTemplates) == 0 {
+
+	var approvers []*storepb.IssuePayloadApproval_Approver
+	var activities []*store.ActivityMessage
+
+	policy, err := s.GetProjectPolicy(ctx, &store.GetProjectPolicyMessage{UID: &issue.Project.UID})
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "failed to get project policy for project %d", issue.Project.UID)
+	}
+
+	var users []*store.UserMessage
+	roles := []api.Role{api.Owner, api.DBA}
+	for _, role := range roles {
+		principalType := api.EndUser
+		limit := 1
+		role := role
+		userMessages, err := s.ListUsers(ctx, &store.FindUserMessage{
+			Role:  &role,
+			Type:  &principalType,
+			Limit: &limit,
+		})
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "failed to list users for role %s", role)
+		}
+		if len(userMessages) != 0 {
+			users = append(users, userMessages[0])
+		}
+	}
+	for {
+		step := FindNextPendingStep(approval.ApprovalTemplates[0], approval.Approvers)
+		if step == nil {
+			break
+		}
+		if len(step.Nodes) != 1 {
+			return nil, nil, errors.Errorf("expecting one node but got %v", len(step.Nodes))
+		}
+		if step.Type != storepb.ApprovalStep_ANY {
+			return nil, nil, errors.Errorf("expecting ANY step type but got %v", step.Type)
+		}
+		node := step.Nodes[0]
+		if v, ok := node.GetPayload().(*storepb.ApprovalNode_ExternalNodeId); ok {
+			if err := handleApprovalNodeExternalNode(ctx, s, relayClient, issue, v.ExternalNodeId); err != nil {
+				approvers = append(approvers, &storepb.IssuePayloadApproval_Approver{
+					Status:      storepb.IssuePayloadApproval_Approver_REJECTED,
+					PrincipalId: api.SystemBotID,
+				})
+				activity, err := getActivityCreate(storepb.ActivityIssueCommentCreatePayload_ApprovalEvent_REJECTED, fmt.Sprintf("failed to handle external node, err: %v", err))
+				if err != nil {
+					return nil, nil, err
+				}
+				activities = append(activities, activity)
+			}
+			break
+		}
+
+		hasApprover, err := userCanApprove(node, users, policy)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "failed to check if user can approve")
+		}
+		if hasApprover {
+			break
+		}
+
+		approvers = append(approvers, &storepb.IssuePayloadApproval_Approver{
+			Status:      storepb.IssuePayloadApproval_Approver_APPROVED,
+			PrincipalId: api.SystemBotID,
+		})
+		activity, err := getActivityCreate(storepb.ActivityIssueCommentCreatePayload_ApprovalEvent_APPROVED, "")
+		if err != nil {
+			return nil, nil, err
+		}
+		activities = append(activities, activity)
+	}
+	return approvers, activities, nil
+}
+
+func handleApprovalNodeExternalNode(ctx context.Context, s *store.Store, relayClient *relay.Client, issue *store.IssueMessage, externalNodeID string) error {
+	getExternalApprovalByID := func(ctx context.Context, s *store.Store, externalApprovalID string) (*storepb.ExternalApprovalSetting_Node, error) {
+		setting, err := s.GetWorkspaceExternalApprovalSetting(ctx)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get workspace external approval setting")
+		}
+		for _, node := range setting.Nodes {
+			if node.Id == externalApprovalID {
+				return node, nil
+			}
+		}
+		return nil, nil
+	}
+	node, err := getExternalApprovalByID(ctx, s, externalNodeID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get external approval node %s", externalNodeID)
+	}
+	if node == nil {
+		return errors.Errorf("external approval node %s not found", externalNodeID)
+	}
+	uri, err := relayClient.Create(node.Endpoint, relay.CreatePayload{})
+	if err != nil {
+		return errors.Wrapf(err, "failed to create external approval")
+	}
+	payload, err := json.Marshal(&api.ExternalApprovalPayloadRelay{
+		ExternalApprovalNodeID: node.Id,
+		URI:                    uri,
+	})
+	if err != nil {
+		return errors.Wrapf(err, "failed to marshal external approval payload")
+	}
+	if _, err := s.CreateExternalApprovalV2(ctx, &store.ExternalApprovalMessage{
+		IssueUID:     issue.UID,
+		ApproverUID:  api.SystemBotID,
+		Type:         api.ExternalApprovalTypeRelay,
+		Payload:      string(payload),
+		RequesterUID: api.SystemBotID,
+	}); err != nil {
+		return errors.Wrapf(err, "failed to create external approval")
+	}
+	return nil
+}
+
+func userCanApprove(node *storepb.ApprovalNode, users []*store.UserMessage, policy *store.IAMPolicyMessage) (bool, error) {
+	if node.Type != storepb.ApprovalNode_ANY_IN_GROUP {
+		return false, errors.Errorf("expecting ANY_IN_GROUP node type but got %v", node.Type)
+	}
+
+	hasOwner := false
+	hasDBA := false
+	for _, user := range users {
+		if user.Role == api.Owner {
+			hasOwner = true
+		}
+		if user.Role == api.DBA {
+			hasDBA = true
+		}
+		if hasOwner && hasDBA {
+			break
+		}
+	}
+
+	projectRoleExist := make(map[string]bool)
+	for _, binding := range policy.Bindings {
+		if len(binding.Members) > 0 {
+			projectRoleExist[convertToRoleName(binding.Role)] = true
+		}
+	}
+
+	switch val := node.Payload.(type) {
+	case *storepb.ApprovalNode_GroupValue_:
+		switch val.GroupValue {
+		case storepb.ApprovalNode_GROUP_VALUE_UNSPECIFILED:
+			return false, errors.Errorf("invalid group value")
+		case storepb.ApprovalNode_WORKSPACE_OWNER:
+			return hasOwner, nil
+		case storepb.ApprovalNode_WORKSPACE_DBA:
+			return hasDBA, nil
+		case storepb.ApprovalNode_PROJECT_OWNER:
+			return projectRoleExist[convertToRoleName(api.Owner)], nil
+		case storepb.ApprovalNode_PROJECT_MEMBER:
+			return projectRoleExist[convertToRoleName(api.Developer)], nil
+		default:
+			return false, errors.Errorf("invalid group value")
+		}
+	case *storepb.ApprovalNode_Role:
+		return projectRoleExist[val.Role], nil
+	case *storepb.ApprovalNode_ExternalNodeId:
 		return true, nil
+	default:
+		return false, errors.Errorf("invalid node payload type")
 	}
-	if len(issuePayload.Approval.ApprovalTemplates) != 1 {
-		return false, errors.Errorf("expecting one approval template but got %d", len(issuePayload.Approval.ApprovalTemplates))
+}
+
+func convertToRoleName(role api.Role) string {
+	return fmt.Sprintf("roles/%s", role)
+}
+
+// RenderStatement renders the given template statement with the given key-value map.
+func RenderStatement(templateStatement string, secrets map[string]string) string {
+	// Happy path for empty template statement.
+	if templateStatement == "" {
+		return ""
 	}
-	return FindNextPendingStep(issuePayload.Approval.ApprovalTemplates[0], issuePayload.Approval.Approvers) == nil, nil
+	// Optimizations for databases without secrets.
+	if len(secrets) == 0 {
+		return templateStatement
+	}
+	// Don't render statement larger than 1MB.
+	if len(templateStatement) > 1024*1024 {
+		return templateStatement
+	}
+
+	// The regular expression consists of:
+	// \${{: matches the string ${{, where $ is escaped with a backslash.
+	// \s*: matches zero or more whitespace characters.
+	// secrets\.: matches the string secrets., where . is escaped with a backslash.
+	// (?P<name>[A-Z0-9_]+): uses a named capture group name to match the secret name. The capture group is defined using the syntax (?P<name>) and matches one or more uppercase letters, digits, or underscores.
+	re := regexp.MustCompile(`\${{\s*secrets\.(?P<name>[A-Z0-9_]+)\s*}}`)
+	matches := re.FindAllStringSubmatch(templateStatement, -1)
+	for _, match := range matches {
+		name := match[1]
+		if value, ok := secrets[name]; ok {
+			templateStatement = strings.ReplaceAll(templateStatement, match[0], value)
+		}
+	}
+	return templateStatement
+}
+
+// GetSecretMapFromDatabaseMessage extracts the secret map from the given database message.
+func GetSecretMapFromDatabaseMessage(databaseMessage *store.DatabaseMessage) map[string]string {
+	materials := make(map[string]string)
+	if databaseMessage.Secrets == nil || len(databaseMessage.Secrets.Items) == 0 {
+		return materials
+	}
+
+	for _, item := range databaseMessage.Secrets.Items {
+		materials[item.Name] = item.Value
+	}
+	return materials
+}
+
+func convertVcsPushEventType(vcsType vcs.Type) storepb.VcsType {
+	switch vcsType {
+	case "GITLAB":
+		return storepb.VcsType_GITLAB
+	case "GITHUB":
+		return storepb.VcsType_GITHUB
+	case "BITBUCKET":
+		return storepb.VcsType_BITBUCKET
+	default:
+		return storepb.VcsType_VCS_TYPE_UNSPECIFIED
+	}
+}
+
+func convertVcsPushEventCommits(commits []vcs.Commit) []*storepb.Commit {
+	var result []*storepb.Commit
+	for i := range commits {
+		commit := &commits[i]
+		result = append(result, &storepb.Commit{
+			Id:           commit.ID,
+			Title:        commit.Title,
+			Message:      commit.Message,
+			CreatedTs:    commit.CreatedTs,
+			Url:          commit.URL,
+			AuthorName:   commit.AuthorName,
+			AuthorEmail:  commit.AuthorEmail,
+			AddedList:    commit.AddedList,
+			ModifiedList: commit.ModifiedList,
+		})
+	}
+	return result
+}
+
+func convertVcsPushEventFileCommit(c *vcs.FileCommit) *storepb.FileCommit {
+	return &storepb.FileCommit{
+		Id:          c.ID,
+		Title:       c.Title,
+		Message:     c.Message,
+		CreatedTs:   c.CreatedTs,
+		Url:         c.URL,
+		AuthorName:  c.AuthorName,
+		AuthorEmail: c.AuthorEmail,
+		Added:       c.Added,
+	}
+}
+
+// ConvertVcsPushEvent converts a vcs.pushEvent to a storepb.PushEvent.
+func ConvertVcsPushEvent(pushEvent *vcs.PushEvent) *storepb.PushEvent {
+	return &storepb.PushEvent{
+		VcsType:            convertVcsPushEventType(pushEvent.VCSType),
+		BaseDir:            pushEvent.BaseDirectory,
+		Ref:                pushEvent.Ref,
+		Before:             pushEvent.Before,
+		After:              pushEvent.After,
+		RepositoryId:       pushEvent.RepositoryID,
+		RepositoryUrl:      pushEvent.RepositoryURL,
+		RepositoryFullPath: pushEvent.RepositoryFullPath,
+		AuthorName:         pushEvent.AuthorName,
+		Commits:            convertVcsPushEventCommits(pushEvent.CommitList),
+		FileCommit:         convertVcsPushEventFileCommit(&pushEvent.FileCommit),
+	}
 }

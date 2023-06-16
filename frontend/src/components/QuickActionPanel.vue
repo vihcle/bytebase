@@ -1,115 +1,96 @@
 <template>
   <div
-    class="pt-1 overflow-hidden grid grid-cols-5 gap-x-2 gap-y-4 md:inline-flex items-center"
+    class="pt-1 overflow-hidden grid grid-cols-5 gap-x-2 gap-y-4 md:inline-flex items-stretch"
   >
     <template v-for="(quickAction, index) in quickActionList" :key="index">
       <div
         v-if="quickAction === 'quickaction.bb.instance.create'"
-        class="flex flex-col items-center w-24 py-1"
+        class="flex flex-col items-center w-24"
         data-label="bb-quick-action-add-instance"
       >
         <button class="btn-icon-primary p-3" @click.prevent="createInstance">
           <heroicons-outline:plus-sm class="w-5 h-5" />
         </button>
-        <h3 class="mt-1.5 text-sm font-normal text-main tracking-tight">
+        <h3
+          class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+        >
           {{ $t("quick-action.add-instance") }}
         </h3>
       </div>
 
       <div
         v-if="quickAction === 'quickaction.bb.user.manage'"
-        class="flex flex-col items-center w-24 py-1"
+        class="flex flex-col items-center w-24"
       >
         <router-link to="/setting/member" class="btn-icon-primary p-3">
           <heroicons-outline:users class="w-5 h-5" />
         </router-link>
         <h3
-          class="mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+          class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
         >
           {{ $t("quick-action.manage-user") }}
         </h3>
       </div>
 
-      <div
-        v-if="quickAction === 'quickaction.bb.database.create'"
-        class="flex flex-col items-center w-24 py-1"
-        data-label="bb-quick-action-new-db"
-      >
-        <button class="btn-icon-primary p-3" @click.prevent="createDatabase">
-          <heroicons-outline:database class="w-5 h-5" />
-        </button>
-        <h3
-          class="mt-1.5 text-sm text-center font-normal text-main tracking-tight"
+      <template v-if="shouldShowAlterDatabaseEntries">
+        <div
+          v-if="quickAction === 'quickaction.bb.database.create'"
+          class="flex flex-col items-center w-24"
+          data-label="bb-quick-action-new-db"
         >
-          {{ $t("quick-action.new-db") }}
-        </h3>
-      </div>
+          <button class="btn-icon-primary p-3" @click.prevent="createDatabase">
+            <heroicons-outline:database class="w-5 h-5" />
+          </button>
+          <h3
+            class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+          >
+            {{ $t("quick-action.new-db") }}
+          </h3>
+        </div>
+
+        <div
+          v-if="quickAction === 'quickaction.bb.database.schema.update'"
+          class="flex flex-col items-center w-24"
+        >
+          <button
+            class="btn-icon-primary p-3"
+            data-label="bb-alter-schema-button"
+            @click.prevent="alterSchema"
+          >
+            <heroicons-outline:pencil-alt class="w-5 h-5" />
+          </button>
+          <h3
+            class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+          >
+            {{ $t("database.alter-schema") }}
+          </h3>
+        </div>
+
+        <div
+          v-if="quickAction === 'quickaction.bb.database.data.update'"
+          class="flex flex-col items-center w-24"
+        >
+          <button class="btn-icon-primary p-3" @click.prevent="changeData">
+            <heroicons-outline:pencil class="w-5 h-5" />
+          </button>
+          <h3
+            class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+          >
+            {{ $t("database.change-data") }}
+          </h3>
+        </div>
+      </template>
 
       <div
-        v-if="quickAction === 'quickaction.bb.database.request'"
-        class="flex flex-col items-center w-24 py-1"
-      >
-        <button class="btn-icon-primary p-3" @click.prevent="requestDatabase">
-          <heroicons-outline:database class="w-5 h-5" />
-        </button>
-        <h3
-          class="mt-1.5 text-sm text-center font-normal text-main tracking-tight"
-        >
-          {{ $t("quick-action.request-db") }}
-        </h3>
-      </div>
-
-      <div
-        v-if="quickAction === 'quickaction.bb.database.schema.update'"
-        class="flex flex-col items-center w-24 py-1"
-      >
-        <button
-          class="btn-icon-primary p-3"
-          data-label="bb-alter-schema-button"
-          @click.prevent="alterSchema"
-        >
-          <heroicons-outline:pencil-alt class="w-5 h-5" />
-        </button>
-        <h3 class="mt-1.5 text-center text-sm font-normal text-main">
-          {{ $t("database.alter-schema") }}
-        </h3>
-      </div>
-
-      <div
-        v-if="quickAction === 'quickaction.bb.database.data.update'"
-        class="flex flex-col items-center w-24 py-1"
-      >
-        <button class="btn-icon-primary p-3" @click.prevent="changeData">
-          <heroicons-outline:pencil class="w-5 h-5" />
-        </button>
-        <h3 class="mt-1.5 text-center text-sm font-normal text-main">
-          {{ $t("database.change-data") }}
-        </h3>
-      </div>
-
-      <div
-        v-if="quickAction === 'quickaction.bb.database.schema.sync'"
-        class="flex flex-col items-center w-24 py-1"
-      >
-        <button
-          class="btn-icon-primary p-3 relative"
-          @click.prevent="syncDatabaseSchema"
-        >
-          <heroicons-outline:refresh class="w-5 h-5" />
-          <BBBetaBadge :corner="true" class="top-1" />
-        </button>
-        <h3 class="mt-1.5 text-center text-sm font-normal text-main">
-          {{ $t("quick-action.sync-schema") }}
-        </h3>
-      </div>
-      <div
-        v-if="isDev && quickAction === 'quickaction.bb.database.troubleshoot'"
-        class="flex flex-col items-center w-24 py-1"
+        v-if="isDev() && quickAction === 'quickaction.bb.database.troubleshoot'"
+        class="flex flex-col items-center w-24"
       >
         <router-link to="/issue/new" class="btn-icon-primary p-3">
           <heroicons-outline:hand class="w-5 h-5" />
         </router-link>
-        <h3 class="mt-1.5 text-center text-sm font-normal text-main">
+        <h3
+          class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+        >
           {{ $t("quick-action.troubleshoot") }}
         </h3>
       </div>
@@ -121,14 +102,16 @@
         <button class="btn-icon-primary p-3" @click.prevent="createEnvironment">
           <heroicons-outline:plus-sm class="w-5 h-5" />
         </button>
-        <h3 class="mt-1.5 text-center text-sm font-normal text-main">
+        <h3
+          class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+        >
           {{ $t("environment.create") }}
         </h3>
       </div>
 
       <div
         v-if="quickAction === 'quickaction.bb.environment.reorder'"
-        class="flex flex-col items-center w-24 py-1"
+        class="flex flex-col items-center w-24"
       >
         <button
           class="btn-icon-primary p-3"
@@ -136,142 +119,193 @@
         >
           <heroicons-outline:selector class="transform rotate-90 w-5 h-5" />
         </button>
-        <h3 class="mt-1.5 text-center text-sm font-normal text-main">
+        <h3
+          class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+        >
           {{ $t("common.reorder") }}
         </h3>
       </div>
 
       <div
         v-if="quickAction === 'quickaction.bb.project.create'"
-        class="flex flex-col items-center w-24 py-1"
+        class="flex flex-col items-center w-24"
         data-label="bb-quick-action-new-project"
       >
         <button class="btn-icon-primary p-3" @click.prevent="createProject">
           <heroicons-outline:template class="w-5 h-5" />
         </button>
-        <h3 class="mt-1.5 text-center text-sm font-normal text-main">
+        <h3
+          class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+        >
           {{ $t("quick-action.new-project") }}
         </h3>
       </div>
 
       <div
         v-if="quickAction === 'quickaction.bb.project.database.transfer'"
-        class="flex flex-col items-center w-24 py-1"
+        class="flex flex-col items-center w-24"
       >
         <button class="btn-icon-primary p-3" @click.prevent="transferDatabase">
           <heroicons-outline:chevron-double-down class="w-5 h-5" />
         </button>
-        <h3 class="mt-1.5 text-center text-sm font-normal text-main">
+        <h3
+          class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+        >
           {{ $t("quick-action.transfer-in-db") }}
         </h3>
       </div>
+
+      <div
+        v-if="quickAction === 'quickaction.bb.project.database.transfer'"
+        class="flex flex-col items-center w-24"
+      >
+        <button
+          class="btn-icon-primary p-3"
+          @click.prevent="transferOutDatabase"
+        >
+          <heroicons-outline:chevron-double-up class="w-5 h-5" />
+        </button>
+        <h3
+          class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+        >
+          {{ $t("quick-action.transfer-out-db") }}
+        </h3>
+      </div>
+
+      <template v-if="hasCustomRoleFeature">
+        <div
+          v-if="quickAction === 'quickaction.bb.issue.grant.request.querier'"
+          class="flex flex-col items-center w-24"
+        >
+          <button
+            class="btn-icon-primary p-3"
+            @click.prevent="state.showRequestQueryPanel = true"
+          >
+            <heroicons-outline:document-search class="w-5 h-5" />
+          </button>
+          <h3
+            class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+          >
+            {{ $t("quick-action.request-query") }}
+          </h3>
+        </div>
+
+        <div
+          v-if="quickAction === 'quickaction.bb.issue.grant.request.exporter'"
+          class="flex flex-col items-center w-24"
+        >
+          <button
+            class="btn-icon-primary p-3"
+            @click.prevent="state.showRequestExportPanel = true"
+          >
+            <heroicons-outline:document-download class="w-5 h-5" />
+          </button>
+          <h3
+            class="flex-1 mt-1.5 text-center text-sm font-normal text-main tracking-tight"
+          >
+            {{ $t("quick-action.request-export") }}
+          </h3>
+        </div>
+      </template>
     </template>
   </div>
-  <BBModal
-    v-if="state.showModal"
-    class="relative overflow-hidden"
-    :title="state.modalTitle"
-    :subtitle="state.modalSubtitle"
-    :data-label="`bb-${kebabCase(state.modalTitle)}-modal`"
-    @close="state.showModal = false"
+
+  <Drawer
+    :show="state.quickActionType !== undefined"
+    @close="state.quickActionType = undefined"
   >
-    <template v-if="state.quickActionType == 'quickaction.bb.project.create'">
-      <ProjectCreate @dismiss="state.showModal = false" />
-    </template>
-    <template
-      v-else-if="state.quickActionType == 'quickaction.bb.instance.create'"
-    >
-      <InstanceForm @dismiss="state.showModal = false" />
-    </template>
-    <template
-      v-else-if="
-        state.quickActionType == 'quickaction.bb.database.schema.update'
+    <ProjectCreatePanel
+      v-if="state.quickActionType === 'quickaction.bb.project.create'"
+      @dismiss="state.quickActionType = undefined"
+    />
+    <InstanceForm
+      v-if="state.quickActionType === 'quickaction.bb.instance.create'"
+      :drawer="true"
+      @dismiss="state.quickActionType = undefined"
+    />
+    <CreateDatabasePrepPanel
+      v-if="state.quickActionType === 'quickaction.bb.database.create'"
+      :project-id="projectId"
+      @dismiss="state.quickActionType = undefined"
+    />
+    <AlterSchemaPrepForm
+      v-if="state.quickActionType === 'quickaction.bb.database.schema.update'"
+      :project-id="projectId"
+      :type="'bb.issue.database.schema.update'"
+      @dismiss="state.quickActionType = undefined"
+    />
+    <AlterSchemaPrepForm
+      v-if="state.quickActionType === 'quickaction.bb.database.data.update'"
+      :project-id="projectId"
+      :type="'bb.issue.database.data.update'"
+      @dismiss="state.quickActionType = undefined"
+    />
+    <TransferDatabaseForm
+      v-if="
+        projectId &&
+        state.quickActionType === 'quickaction.bb.project.database.transfer'
       "
-    >
-      <AlterSchemaPrepForm
-        :project-id="projectId"
-        :type="'bb.issue.database.schema.update'"
-        @dismiss="state.showModal = false"
-      />
-    </template>
-    <template
-      v-else-if="state.quickActionType == 'quickaction.bb.database.data.update'"
-    >
-      <AlterSchemaPrepForm
-        :project-id="projectId"
-        :type="'bb.issue.database.data.update'"
-        @dismiss="state.showModal = false"
-      />
-    </template>
-    <template
-      v-else-if="state.quickActionType == 'quickaction.bb.database.create'"
-    >
-      <CreateDatabasePrepForm
-        :project-id="projectId"
-        @dismiss="state.showModal = false"
-      />
-    </template>
-    <template
-      v-else-if="state.quickActionType == 'quickaction.bb.database.request'"
-    >
-      <RequestDatabasePrepForm @dismiss="state.showModal = false" />
-    </template>
-    <template
-      v-else-if="
-        state.quickActionType == 'quickaction.bb.project.database.transfer'
+      :project-id="projectId"
+      @dismiss="state.quickActionType = undefined"
+    />
+    <TransferOutDatabaseForm
+      v-if="
+        projectId &&
+        state.quickActionType === 'quickaction.bb.project.database.transfer-out'
       "
-    >
-      <TransferDatabaseForm
-        v-if="projectId"
-        :project-id="projectId"
-        @dismiss="state.showModal = false"
-      />
-    </template>
-    <template
-      v-else-if="state.quickActionType == 'quickaction.bb.database.schema.sync'"
-    >
-      <SyncDatabaseSchemaPrepForm
-        :project-id="projectId"
-        @dismiss="state.showModal = false"
-      />
-    </template>
-  </BBModal>
+      :project-id="projectId"
+      @dismiss="state.quickActionType = undefined"
+    />
+  </Drawer>
+
   <FeatureModal
     v-if="state.showFeatureModal && state.featureName !== ''"
     :feature="state.featureName"
     @cancel="state.showFeatureModal = false"
   />
+
+  <RequestQueryPanel
+    v-if="state.showRequestQueryPanel"
+    @close="state.showRequestQueryPanel = false"
+  />
+
+  <RequestExportPanel
+    v-if="state.showRequestExportPanel"
+    @close="state.showRequestExportPanel = false"
+  />
 </template>
 
 <script lang="ts" setup>
 import { Action, defineAction, useRegisterActions } from "@bytebase/vue-kbar";
-import { kebabCase } from "lodash-es";
 import { reactive, PropType, computed, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
-import { ProjectId, QuickActionType } from "../types";
-import { idFromSlug } from "../utils";
+
+import { QuickActionType } from "@/types";
+import { idFromSlug, isDev } from "@/utils";
 import {
   useCommandStore,
-  useInstanceStore,
-  useSubscriptionStore,
+  useCurrentUserIamPolicy,
+  useInstanceV1Store,
+  useProjectV1ListByCurrentUser,
+  useSubscriptionV1Store,
 } from "@/store";
-import ProjectCreate from "../components/ProjectCreate.vue";
-import BBBetaBadge from "@/bbkit/BBBetaBadge.vue";
-import InstanceForm from "../components/InstanceForm.vue";
-import AlterSchemaPrepForm from "./AlterSchemaPrepForm/";
-import CreateDatabasePrepForm from "../components/CreateDatabasePrepForm.vue";
-import RequestDatabasePrepForm from "../components/RequestDatabasePrepForm.vue";
-import TransferDatabaseForm from "../components/TransferDatabaseForm.vue";
-import SyncDatabaseSchemaPrepForm from "./SyncDatabaseSchemaPrepForm.vue";
+import { Drawer } from "@/components/v2";
+import ProjectCreatePanel from "@/components/Project/ProjectCreatePanel.vue";
+import InstanceForm from "@/components/InstanceForm/";
+import AlterSchemaPrepForm from "@/components/AlterSchemaPrepForm/";
+import { CreateDatabasePrepPanel } from "@/components/CreateDatabasePrepForm";
+import TransferDatabaseForm from "@/components/TransferDatabaseForm.vue";
+import TransferOutDatabaseForm from "@/components/TransferOutDatabaseForm";
+import RequestExportPanel from "@/components/Issue/panel/RequestExportPanel/index.vue";
+import RequestQueryPanel from "@/components/Issue/panel/RequestQueryPanel/index.vue";
 
 interface LocalState {
-  showModal: boolean;
   featureName: string;
   showFeatureModal: boolean;
-  modalTitle: string;
-  modalSubtitle: string;
-  quickActionType: QuickActionType;
+  quickActionType: QuickActionType | undefined;
+  showRequestQueryPanel: boolean;
+  showRequestExportPanel: boolean;
 }
 
 const props = defineProps({
@@ -285,86 +319,75 @@ const { t } = useI18n();
 const router = useRouter();
 const route = useRoute();
 const commandStore = useCommandStore();
-const subscriptionStore = useSubscriptionStore();
+const subscriptionStore = useSubscriptionV1Store();
 
-const state = reactive<LocalState>({
-  showModal: false,
-  featureName: "",
-  showFeatureModal: false,
-  modalTitle: "",
-  modalSubtitle: "",
-  quickActionType: "quickaction.bb.instance.create",
+const hasCustomRoleFeature = computed(() => {
+  return subscriptionStore.hasFeature("bb.feature.custom-role");
 });
 
-const projectId = computed((): ProjectId | undefined => {
+const state = reactive<LocalState>({
+  featureName: "",
+  showFeatureModal: false,
+  quickActionType: undefined,
+  showRequestQueryPanel: false,
+  showRequestExportPanel: false,
+});
+
+const projectId = computed((): string | undefined => {
   if (router.currentRoute.value.name == "workspace.project.detail") {
     const parts = router.currentRoute.value.path.split("/");
-    return idFromSlug(parts[parts.length - 1]);
+    return String(idFromSlug(parts[parts.length - 1]));
   }
   return undefined;
 });
 
+// Only show alter schema and change data if the user has permission to alter schema of at least one project.
+const shouldShowAlterDatabaseEntries = computed(() => {
+  const { projectList } = useProjectV1ListByCurrentUser();
+  const currentUserIamPolicy = useCurrentUserIamPolicy();
+  return projectList.value
+    .map((project) => {
+      return currentUserIamPolicy.allowToChangeDatabaseOfProject(project.name);
+    })
+    .includes(true);
+});
+
 watch(route, () => {
-  state.showModal = false;
+  state.quickActionType = undefined;
 });
 
 const createProject = () => {
-  state.modalTitle = t("quick-action.create-project");
-  state.modalSubtitle = "";
   state.quickActionType = "quickaction.bb.project.create";
-  state.showModal = true;
 };
 
 const transferDatabase = () => {
-  state.modalTitle = t("quick-action.transfer-in-db-title");
-  state.modalSubtitle = "";
   state.quickActionType = "quickaction.bb.project.database.transfer";
-  state.showModal = true;
+};
+
+const transferOutDatabase = () => {
+  state.quickActionType = "quickaction.bb.project.database.transfer-out";
 };
 
 const createInstance = () => {
-  const instanceList = useInstanceStore().getInstanceList();
+  const instanceList = useInstanceV1Store().instanceList;
   if (subscriptionStore.instanceCount <= instanceList.length) {
     state.featureName = "bb.feature.instance-count";
     state.showFeatureModal = true;
     return;
   }
-  state.modalTitle = t("quick-action.create-instance");
-  state.modalSubtitle = "";
   state.quickActionType = "quickaction.bb.instance.create";
-  state.showModal = true;
 };
 
 const alterSchema = () => {
-  state.modalTitle = t("database.alter-schema");
   state.quickActionType = "quickaction.bb.database.schema.update";
-  state.showModal = true;
-};
-
-const syncDatabaseSchema = () => {
-  state.modalTitle = t("database.sync-schema.title");
-  state.quickActionType = "quickaction.bb.database.schema.sync";
-  state.showModal = true;
 };
 
 const changeData = () => {
-  state.modalTitle = t("database.change-data");
   state.quickActionType = "quickaction.bb.database.data.update";
-  state.showModal = true;
 };
 
 const createDatabase = () => {
-  state.modalTitle = t("quick-action.create-db");
-  state.modalSubtitle = "";
   state.quickActionType = "quickaction.bb.database.create";
-  state.showModal = true;
-};
-
-const requestDatabase = () => {
-  state.modalTitle = "Request database";
-  state.modalSubtitle = "";
-  state.quickActionType = "quickaction.bb.database.request";
-  state.showModal = true;
 };
 
 const createEnvironment = () => {
@@ -388,10 +411,6 @@ const QuickActionMap: Record<string, Partial<Action>> = {
     name: t("quick-action.new-db"),
     perform: () => createDatabase(),
   },
-  "quickaction.bb.database.request": {
-    name: t("quick-action.request-db"),
-    perform: () => requestDatabase(),
-  },
   "quickaction.bb.database.schema.update": {
     name: t("database.alter-schema"),
     perform: () => alterSchema(),
@@ -399,10 +418,6 @@ const QuickActionMap: Record<string, Partial<Action>> = {
   "quickaction.bb.database.troubleshoot": {
     name: t("quick-action.troubleshoot"),
     perform: () => router.push({ path: "/issue/new" }),
-  },
-  "quickaction.bb.database.schema.sync": {
-    name: t("quick-action.sync-schema"),
-    perform: () => syncDatabaseSchema(),
   },
   "quickaction.bb.environment.create": {
     name: t("quick-action.add-environment"),

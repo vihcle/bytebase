@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,7 +21,7 @@ import (
 	"github.com/casbin/casbin/v2/model"
 	"github.com/google/uuid"
 	"github.com/gosimple/slug"
-	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	grpcRuntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	"github.com/labstack/echo-contrib/pprof"
 	"github.com/labstack/echo-contrib/prometheus"
@@ -29,7 +30,6 @@ import (
 	"github.com/pkg/errors"
 	scas "github.com/qiangmzsx/string-adapter/v2"
 	echoSwagger "github.com/swaggo/echo-swagger"
-	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -39,6 +39,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 
 	"github.com/bytebase/bytebase/backend/api/auth"
 	v1 "github.com/bytebase/bytebase/backend/api/v1"
@@ -67,7 +69,9 @@ import (
 	"github.com/bytebase/bytebase/backend/runner/approval"
 	"github.com/bytebase/bytebase/backend/runner/apprun"
 	"github.com/bytebase/bytebase/backend/runner/backuprun"
+	"github.com/bytebase/bytebase/backend/runner/mail"
 	"github.com/bytebase/bytebase/backend/runner/metricreport"
+	"github.com/bytebase/bytebase/backend/runner/relay"
 	"github.com/bytebase/bytebase/backend/runner/rollbackrun"
 	"github.com/bytebase/bytebase/backend/runner/schemasync"
 	"github.com/bytebase/bytebase/backend/runner/slowquerysync"
@@ -78,13 +82,11 @@ import (
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 
 	// Register clickhouse driver.
-	"github.com/bytebase/bytebase/backend/plugin/db/clickhouse"
-	"github.com/bytebase/bytebase/backend/plugin/db/util"
 
 	// Register mysql driver.
-	"github.com/bytebase/bytebase/backend/plugin/db/mysql"
+
 	// Register postgres driver.
-	"github.com/bytebase/bytebase/backend/plugin/db/pg"
+
 	// Register snowflake driver.
 	_ "github.com/bytebase/bytebase/backend/plugin/db/snowflake"
 	// Register sqlite driver.
@@ -109,19 +111,23 @@ import (
 	_ "github.com/bytebase/bytebase/backend/plugin/advisor/mysql"
 	// Register postgresql advisor.
 	_ "github.com/bytebase/bytebase/backend/plugin/advisor/pg"
+	// Register oracle advisor.
+	_ "github.com/bytebase/bytebase/backend/plugin/advisor/oracle"
+	// Register clickhouse driver.
+	_ "github.com/bytebase/bytebase/backend/plugin/db/clickhouse"
 
 	// Register mysql differ driver.
-	_ "github.com/bytebase/bytebase/backend/plugin/parser/differ/mysql"
+	_ "github.com/bytebase/bytebase/backend/plugin/parser/sql/differ/mysql"
 	// Register postgres differ driver.
-	_ "github.com/bytebase/bytebase/backend/plugin/parser/differ/pg"
+	_ "github.com/bytebase/bytebase/backend/plugin/parser/sql/differ/pg"
 	// Register mysql edit driver.
-	_ "github.com/bytebase/bytebase/backend/plugin/parser/edit/mysql"
+	_ "github.com/bytebase/bytebase/backend/plugin/parser/sql/edit/mysql"
 	// Register postgres edit driver.
-	_ "github.com/bytebase/bytebase/backend/plugin/parser/edit/pg"
+	_ "github.com/bytebase/bytebase/backend/plugin/parser/sql/edit/pg"
 	// Register postgres parser driver.
-	_ "github.com/bytebase/bytebase/backend/plugin/parser/engine/pg"
+	_ "github.com/bytebase/bytebase/backend/plugin/parser/sql/engine/pg"
 	// Register mysql transform driver.
-	_ "github.com/bytebase/bytebase/backend/plugin/parser/transform/mysql"
+	_ "github.com/bytebase/bytebase/backend/plugin/parser/sql/transform/mysql"
 )
 
 const (
@@ -130,7 +136,9 @@ const (
 	// webhookAPIPrefix is the API prefix for Bytebase webhook.
 	webhookAPIPrefix = "/hook"
 	// openAPIPrefix is the API prefix for Bytebase OpenAPI.
-	openAPIPrefix = "/v1"
+	openAPIPrefix          = "/v1"
+	maxStacksize           = 8 * 1024
+	gracefulShutdownPeriod = 10 * time.Second
 )
 
 // Server is the Bytebase server.
@@ -141,11 +149,13 @@ type Server struct {
 	MetricReporter     *metricreport.Reporter
 	SchemaSyncer       *schemasync.Syncer
 	SlowQuerySyncer    *slowquerysync.Syncer
+	MailSender         *mail.SlowQueryWeeklyMailSender
 	BackupRunner       *backuprun.Runner
 	AnomalyScanner     *anomaly.Scanner
 	ApplicationRunner  *apprun.Runner
 	RollbackRunner     *rollbackrun.Runner
 	ApprovalRunner     *approval.Runner
+	RelayRunner        *relay.Runner
 	runnerWG           sync.WaitGroup
 
 	ActivityManager *activity.Manager
@@ -263,14 +273,16 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 
 	// Start a Postgres sample server. This is used for onboarding users without requiring them to
 	// configure an external instance.
-	log.Info("-----Sample Postgres Instance BEGIN-----")
-	sampleDataDir := common.GetPostgresSampleDataDir(profile.DataDir)
-	log.Info(fmt.Sprintf("sampleDatabasePort=%d", profile.SampleDatabasePort))
-	log.Info(fmt.Sprintf("sampleDataDir=%s", sampleDataDir))
-	if err := postgres.StartSampleInstance(ctx, s.pgBinDir, sampleDataDir, profile.SampleDatabasePort, profile.Mode); err != nil {
-		return nil, err
+	if profile.SampleDatabasePort != 0 {
+		log.Info("-----Sample Postgres Instance BEGIN-----")
+		sampleDataDir := common.GetPostgresSampleDataDir(profile.DataDir)
+		log.Info(fmt.Sprintf("sampleDatabasePort=%d", profile.SampleDatabasePort))
+		log.Info(fmt.Sprintf("sampleDataDir=%s", sampleDataDir))
+		if err := postgres.StartSampleInstance(ctx, s.pgBinDir, sampleDataDir, profile.SampleDatabasePort, profile.Mode); err != nil {
+			return nil, err
+		}
+		log.Info("-----Sample Postgres Instance END-----")
 	}
-	log.Info("-----Sample Postgres Instance END-----")
 
 	// New MetadataDB instance.
 	if profile.UseEmbedDB() {
@@ -306,12 +318,19 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 			return nil, err
 		}
 		s.SchemaVersion = metadataVersion
+		if err := storeInstance.BackfillRiskExpression(ctx); err != nil {
+			return nil, err
+		}
+		if err := storeInstance.BackfillWorkspaceApprovalSetting(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	s.stateCfg = &state.State{
-		InstanceDatabaseSyncChan:       make(chan *api.Instance, 100),
-		InstanceSlowQuerySyncChan:      make(chan *api.Instance, 100),
-		InstanceOutstandingConnections: make(map[int]int),
+		InstanceDatabaseSyncChan:             make(chan *store.InstanceMessage, 100),
+		InstanceSlowQuerySyncChan:            make(chan *api.Instance, 100),
+		InstanceOutstandingConnections:       make(map[int]int),
+		IssueExternalApprovalRelayCancelChan: make(chan int, 1),
 	}
 	s.store = storeInstance
 	s.licenseService, err = enterpriseService.NewLicenseService(profile.Mode, storeInstance)
@@ -410,9 +429,14 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 		// TODO(p0ny): enable Feishu provider only when it is needed.
 		s.feishuProvider = feishu.NewProvider(profile.FeishuAPIURL)
 		s.ApplicationRunner = apprun.NewRunner(storeInstance, s.ActivityManager, s.feishuProvider, profile)
+
+		s.RelayRunner = relay.NewRunner(storeInstance, s.ActivityManager, s.TaskScheduler, s.stateCfg)
+
 		s.BackupRunner = backuprun.NewRunner(storeInstance, s.dbFactory, s.s3Client, s.stateCfg, &profile)
 		s.RollbackRunner = rollbackrun.NewRunner(storeInstance, s.dbFactory, s.stateCfg)
-		s.ApprovalRunner = approval.NewRunner(storeInstance, s.dbFactory, s.stateCfg, s.licenseService)
+		s.ApprovalRunner = approval.NewRunner(storeInstance, s.dbFactory, s.stateCfg, s.ActivityManager, s.RelayRunner, s.licenseService)
+
+		s.MailSender = mail.NewSender(s.store, s.stateCfg)
 
 		s.TaskScheduler = taskrun.NewScheduler(storeInstance, s.ApplicationRunner, s.SchemaSyncer, s.ActivityManager, s.licenseService, s.stateCfg, profile, s.MetricReporter)
 		s.TaskScheduler.Register(api.TaskGeneral, taskrun.NewDefaultExecutor())
@@ -455,10 +479,6 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 
 	// Middleware
 	//
-	// Error recorder middleware.
-	e.HTTPErrorHandler = func(err error, c echo.Context) {
-		errorRecorderMiddleware(err, s, c, e)
-	}
 	// API logger middleware.
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Skipper: func(c echo.Context) bool {
@@ -496,31 +516,12 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 	apiGroup.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return aclMiddleware(s, internalAPIPrefix, ce, next, profile.Readonly)
 	})
-	s.registerDebugRoutes(apiGroup)
-	s.registerSettingRoutes(apiGroup)
-	s.registerOAuthRoutes(apiGroup)
-	s.registerPrincipalRoutes(apiGroup)
-	s.registerMemberRoutes(apiGroup)
-	s.registerPolicyRoutes(apiGroup)
-	s.registerProjectRoutes(apiGroup)
-	s.registerProjectWebhookRoutes(apiGroup)
-	s.registerProjectMemberRoutes(apiGroup)
-	s.registerEnvironmentRoutes(apiGroup)
-	s.registerInstanceRoutes(apiGroup)
 	s.registerDatabaseRoutes(apiGroup)
 	s.registerIssueRoutes(apiGroup)
 	s.registerIssueSubscriberRoutes(apiGroup)
 	s.registerTaskRoutes(apiGroup)
 	s.registerStageRoutes(apiGroup)
-	s.registerActivityRoutes(apiGroup)
-	s.registerInboxRoutes(apiGroup)
-	s.registerBookmarkRoutes(apiGroup)
 	s.registerSQLRoutes(apiGroup)
-	s.registerVCSRoutes(apiGroup)
-	s.registerPlanRoutes(apiGroup)
-	s.registerSheetRoutes(apiGroup)
-	s.registerSheetOrganizerRoutes(apiGroup)
-	s.registerAnomalyRoutes(apiGroup)
 
 	// Register healthz endpoint.
 	e.GET("/healthz", func(c echo.Context) error {
@@ -530,8 +531,31 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 	// Setup the gRPC and grpc-gateway.
 	authProvider := auth.New(s.store, s.secret, s.licenseService, profile.Mode)
 	aclProvider := v1.NewACLInterceptor(s.store, s.secret, s.licenseService, profile.Mode)
+	debugProvider := v1.NewDebugInterceptor(&s.errorRecordRing)
+	onPanic := func(p any) error {
+		stack := make([]byte, maxStacksize)
+		stack = stack[:runtime.Stack(stack, true)]
+		// keep a multiline stack
+		log.Error("v1 server panic error", zap.Error(errors.Errorf("error: %v\n%s", p, stack)))
+		return status.Errorf(codes.Unknown, "error: %v", p)
+	}
+	recoveryUnaryInterceptor := recovery.UnaryServerInterceptor(recovery.WithRecoveryHandler(onPanic))
+	recoveryStreamInterceptor := recovery.StreamServerInterceptor(recovery.WithRecoveryHandler(onPanic))
 	s.grpcServer = grpc.NewServer(
-		grpc.ChainUnaryInterceptor(authProvider.AuthenticationInterceptor, aclProvider.ACLInterceptor),
+		// Override the maximum receiving message size to 100M for uploading large sheets.
+		grpc.MaxRecvMsgSize(100*1024*1024),
+		grpc.ChainUnaryInterceptor(
+			debugProvider.DebugInterceptor,
+			authProvider.AuthenticationInterceptor,
+			aclProvider.ACLInterceptor,
+			recoveryUnaryInterceptor,
+		),
+		grpc.ChainStreamInterceptor(
+			debugProvider.DebugStreamInterceptor,
+			authProvider.AuthenticationStreamInterceptor,
+			aclProvider.ACLStreamInterceptor,
+			recoveryStreamInterceptor,
+		),
 	)
 	v1pb.RegisterAuthServiceServer(s.grpcServer, v1.NewAuthService(s.store, s.secret, s.licenseService, s.MetricReporter, &profile,
 		func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error {
@@ -540,13 +564,15 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 			}
 			// Only generate onboarding data after the first enduser signup.
 			if firstEndUser {
-				if err := s.generateOnboardingData(ctx, user.ID); err != nil {
-					return status.Errorf(codes.Internal, "failed to prepare onboarding data, error: %v", err)
+				if profile.SampleDatabasePort != 0 {
+					if err := s.generateOnboardingData(ctx, user.ID); err != nil {
+						return status.Errorf(codes.Internal, "failed to prepare onboarding data, error: %v", err)
+					}
 				}
 			}
 			return nil
 		}))
-	v1pb.RegisterActuatorServiceServer(s.grpcServer, v1.NewActuatorService(s.store, &s.profile))
+	v1pb.RegisterActuatorServiceServer(s.grpcServer, v1.NewActuatorService(s.store, &s.profile, &s.errorRecordRing))
 	v1pb.RegisterSubscriptionServiceServer(s.grpcServer, v1.NewSubscriptionService(
 		s.store,
 		&s.profile,
@@ -559,18 +585,26 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 		s.MetricReporter,
 		s.secret,
 		s.stateCfg,
-		s.dbFactory))
-	v1pb.RegisterProjectServiceServer(s.grpcServer, v1.NewProjectService(s.store))
-	v1pb.RegisterDatabaseServiceServer(s.grpcServer, v1.NewDatabaseService(s.store, s.BackupRunner))
+		s.dbFactory,
+		s.SchemaSyncer))
+	v1pb.RegisterProjectServiceServer(s.grpcServer, v1.NewProjectService(s.store, s.ActivityManager, s.licenseService))
+	v1pb.RegisterDatabaseServiceServer(s.grpcServer, v1.NewDatabaseService(s.store, s.BackupRunner, s.SchemaSyncer, s.licenseService))
 	v1pb.RegisterInstanceRoleServiceServer(s.grpcServer, v1.NewInstanceRoleService(s.store, s.dbFactory))
 	v1pb.RegisterOrgPolicyServiceServer(s.grpcServer, v1.NewOrgPolicyService(s.store, s.licenseService))
 	v1pb.RegisterIdentityProviderServiceServer(s.grpcServer, v1.NewIdentityProviderService(s.store, s.licenseService))
-	v1pb.RegisterSettingServiceServer(s.grpcServer, v1.NewSettingService(s.store, &s.profile, s.licenseService))
+	v1pb.RegisterSettingServiceServer(s.grpcServer, v1.NewSettingService(s.store, &s.profile, s.licenseService, s.stateCfg, s.feishuProvider))
 	v1pb.RegisterAnomalyServiceServer(s.grpcServer, v1.NewAnomalyService(s.store))
-	v1pb.RegisterSQLServiceServer(s.grpcServer, v1.NewSQLService())
+	v1pb.RegisterSQLServiceServer(s.grpcServer, v1.NewSQLService(s.store, s.SchemaSyncer, s.dbFactory, s.ActivityManager))
 	v1pb.RegisterExternalVersionControlServiceServer(s.grpcServer, v1.NewExternalVersionControlService(s.store))
 	v1pb.RegisterRiskServiceServer(s.grpcServer, v1.NewRiskService(s.store, s.licenseService))
-	v1pb.RegisterReviewServiceServer(s.grpcServer, v1.NewReviewService(s.store, s.ActivityManager, s.stateCfg))
+	v1pb.RegisterReviewServiceServer(s.grpcServer, v1.NewReviewService(s.store, s.ActivityManager, s.TaskScheduler, s.TaskCheckScheduler, s.RelayRunner, s.stateCfg))
+	v1pb.RegisterRolloutServiceServer(s.grpcServer, v1.NewRolloutService(s.store, s.licenseService, s.dbFactory, s.TaskScheduler, s.TaskCheckScheduler, s.stateCfg, s.ActivityManager))
+	v1pb.RegisterRoleServiceServer(s.grpcServer, v1.NewRoleService(s.store, s.licenseService))
+	v1pb.RegisterSheetServiceServer(s.grpcServer, v1.NewSheetService(s.store, s.licenseService))
+	v1pb.RegisterCelServiceServer(s.grpcServer, v1.NewCelService())
+	v1pb.RegisterLoggingServiceServer(s.grpcServer, v1.NewLoggingService(s.store))
+	v1pb.RegisterBookmarkServiceServer(s.grpcServer, v1.NewBookmarkService(s.store))
+	v1pb.RegisterInboxServiceServer(s.grpcServer, v1.NewInboxService(s.store))
 	reflection.Register(s.grpcServer)
 
 	// REST gateway proxy.
@@ -579,7 +613,7 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	mux := runtime.NewServeMux(runtime.WithForwardResponseOption(auth.GatewayResponseModifier))
+	mux := grpcRuntime.NewServeMux(grpcRuntime.WithForwardResponseOption(auth.GatewayResponseModifier))
 	if err := v1pb.RegisterAuthServiceHandler(ctx, mux, grpcConn); err != nil {
 		return nil, err
 	}
@@ -622,6 +656,24 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 	if err := v1pb.RegisterExternalVersionControlServiceHandler(ctx, mux, grpcConn); err != nil {
 		return nil, err
 	}
+	if err := v1pb.RegisterRoleServiceHandler(ctx, mux, grpcConn); err != nil {
+		return nil, err
+	}
+	if err := v1pb.RegisterSheetServiceHandler(ctx, mux, grpcConn); err != nil {
+		return nil, err
+	}
+	if err := v1pb.RegisterRolloutServiceHandler(ctx, mux, grpcConn); err != nil {
+		return nil, err
+	}
+	if err := v1pb.RegisterLoggingServiceHandler(ctx, mux, grpcConn); err != nil {
+		return nil, err
+	}
+	if err := v1pb.RegisterBookmarkServiceHandler(ctx, mux, grpcConn); err != nil {
+		return nil, err
+	}
+	if err := v1pb.RegisterInboxServiceHandler(ctx, mux, grpcConn); err != nil {
+		return nil, err
+	}
 	e.Any("/v1/*", echo.WrapHandler(mux))
 	// GRPC web proxy.
 	options := []grpcweb.Option{
@@ -629,12 +681,16 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 		grpcweb.WithOriginFunc(func(origin string) bool {
 			return true
 		}),
+		grpcweb.WithWebsockets(true),
+		grpcweb.WithWebsocketOriginFunc(func(req *http.Request) bool {
+			return true
+		}),
 	}
 	wrappedGrpc := grpcweb.WrapServer(s.grpcServer, options...)
 	e.Any("/bytebase.v1.*", echo.WrapHandler(wrappedGrpc))
 
 	// Register open API routes
-	s.registerOpenAPIRoutes(e, ce, profile)
+	s.registerOpenAPIRoutes(e)
 
 	// Register pprof endpoints.
 	pprof.Register(e)
@@ -642,27 +698,13 @@ func NewServer(ctx context.Context, profile config.Profile) (*Server, error) {
 	p := prometheus.NewPrometheus("api", nil)
 	p.Use(e)
 
-	// TODO: remove this on May 2023
-	go s.backfillInstanceChangeHistory(ctx)
-
 	serverStarted = true
 	return s, nil
 }
 
-func (s *Server) registerOpenAPIRoutes(e *echo.Echo, ce *casbin.Enforcer, prof config.Profile) {
-	jwtMiddlewareFunc := func(next echo.HandlerFunc) echo.HandlerFunc {
-		return JWTMiddleware(openAPIPrefix, s.store, next, prof.Mode, s.secret)
-	}
-	aclMiddlewareFunc := func(next echo.HandlerFunc) echo.HandlerFunc {
-		return aclMiddleware(s, openAPIPrefix, ce, next, prof.Readonly)
-	}
-	metricMiddlewareFunc := func(next echo.HandlerFunc) echo.HandlerFunc {
-		return openAPIMetricMiddleware(s, next)
-	}
+func (s *Server) registerOpenAPIRoutes(e *echo.Echo) {
 	e.POST("/v1/sql/advise", s.sqlCheckController)
 	e.POST("/v1/sql/schema/diff", schemaDiff)
-	e.PATCH("/v1/instances/:instanceName/databases/:database", s.updateInstanceDatabase, jwtMiddlewareFunc, aclMiddlewareFunc, metricMiddlewareFunc)
-	e.POST("/v1/issues", s.createIssueByOpenAPI, jwtMiddlewareFunc, aclMiddlewareFunc, metricMiddlewareFunc)
 }
 
 // initMetricReporter will initial the metric scheduler.
@@ -740,7 +782,7 @@ func (s *Server) getInitSetting(ctx context.Context, datastore *store.Store) (*w
 	// initial feishu app
 	if _, _, err := datastore.CreateSettingIfNotExistV2(ctx, &store.SettingMessage{
 		Name:        api.SettingAppIM,
-		Value:       "",
+		Value:       "{}",
 		Description: "",
 	}, api.SystemBotID); err != nil {
 		return nil, err
@@ -767,6 +809,19 @@ func (s *Server) getInitSetting(ctx context.Context, datastore *store.Store) (*w
 		Name:        api.SettingPluginOpenAIEndpoint,
 		Value:       "",
 		Description: "API Endpoint for OpenAI",
+	}, api.SystemBotID); err != nil {
+		return nil, err
+	}
+
+	// initial external approval setting
+	externalApprovalSettingValue, err := protojson.Marshal(&storepb.ExternalApprovalSetting{})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal initial external approval setting")
+	}
+	if _, _, err := datastore.CreateSettingIfNotExistV2(ctx, &store.SettingMessage{
+		Name:        api.SettingWorkspaceExternalApproval,
+		Value:       string(externalApprovalSettingValue),
+		Description: "The external approval setting",
 	}, api.SystemBotID); err != nil {
 		return nil, err
 	}
@@ -841,6 +896,8 @@ func (s *Server) Run(ctx context.Context, port int) error {
 		s.runnerWG.Add(1)
 		go s.SlowQuerySyncer.Run(ctx, &s.runnerWG)
 		s.runnerWG.Add(1)
+		go s.MailSender.Run(ctx, &s.runnerWG)
+		s.runnerWG.Add(1)
 		go s.BackupRunner.Run(ctx, &s.runnerWG)
 		s.runnerWG.Add(1)
 		go s.AnomalyScanner.Run(ctx, &s.runnerWG)
@@ -850,6 +907,8 @@ func (s *Server) Run(ctx context.Context, port int) error {
 		go s.RollbackRunner.Run(ctx, &s.runnerWG)
 		s.runnerWG.Add(1)
 		go s.ApprovalRunner.Run(ctx, &s.runnerWG)
+		s.runnerWG.Add(1)
+		go s.RelayRunner.Run(ctx, &s.runnerWG)
 
 		s.runnerWG.Add(1)
 		go s.MetricReporter.Run(ctx, &s.runnerWG)
@@ -877,7 +936,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.MetricReporter.Close()
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, gracefulShutdownPeriod)
 	defer cancel()
 
 	// Cancel the worker
@@ -892,7 +951,19 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		}
 	}
 	if s.grpcServer != nil {
-		s.grpcServer.GracefulStop()
+		stopped := make(chan struct{})
+		go func() {
+			s.grpcServer.GracefulStop()
+			close(stopped)
+		}()
+
+		t := time.NewTimer(gracefulShutdownPeriod)
+		select {
+		case <-t.C:
+			s.grpcServer.Stop()
+		case <-stopped:
+			t.Stop()
+		}
 	}
 
 	// Wait for all runners to exit.
@@ -906,8 +977,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	// Shutdown postgres sample instance.
-	if err := postgres.Stop(s.pgBinDir, common.GetPostgresSampleDataDir(s.profile.DataDir)); err != nil {
-		log.Error("Failed to stop postgres sample instance", zap.Error(err))
+	if s.profile.SampleDatabasePort != 0 {
+		if err := postgres.Stop(s.pgBinDir, common.GetPostgresSampleDataDir(s.profile.DataDir)); err != nil {
+			log.Error("Failed to stop postgres sample instance", zap.Error(err))
+		}
 	}
 
 	// Shutdown postgres server if embed.
@@ -980,7 +1053,7 @@ func (s *Server) generateOnboardingData(ctx context.Context, userID int) error {
 		return errors.Wrapf(err, "failed to create onboarding project")
 	}
 
-	instance, err := s.store.CreateInstanceV2(ctx, api.DefaultProdEnvironmentID, &store.InstanceMessage{
+	instance, err := s.store.CreateInstanceV2(ctx, &store.InstanceMessage{
 		ResourceID:   postgres.SampleInstanceResourceID,
 		Title:        "Postgres Sample Instance",
 		Engine:       db.Postgres,
@@ -996,6 +1069,7 @@ func (s *Server) generateOnboardingData(ctx context.Context, userID int) error {
 				Database:           postgres.SampleDatabase,
 			},
 		},
+		EnvironmentID: api.DefaultProdEnvironmentID,
 	}, userID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create onboarding instance")
@@ -1008,10 +1082,9 @@ func (s *Server) generateOnboardingData(ctx context.Context, userID int) error {
 
 	// Transfer sample database to the just created project.
 	transferDatabaseMessage := &store.UpdateDatabaseMessage{
-		EnvironmentID: api.DefaultProdEnvironmentID,
-		InstanceID:    instance.ResourceID,
-		DatabaseName:  postgres.SampleDatabase,
-		ProjectID:     &project.ResourceID,
+		InstanceID:   instance.ResourceID,
+		DatabaseName: postgres.SampleDatabase,
+		ProjectID:    &project.ResourceID,
 	}
 	_, err = s.store.UpdateDatabase(ctx, transferDatabaseMessage, userID)
 	if err != nil {
@@ -1019,11 +1092,9 @@ func (s *Server) generateOnboardingData(ctx context.Context, userID int) error {
 	}
 
 	dbName := postgres.SampleDatabase
-	envID := api.DefaultProdEnvironmentID
 	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-		EnvironmentID: &envID,
-		InstanceID:    &instance.ResourceID,
-		DatabaseName:  &dbName,
+		InstanceID:   &instance.ResourceID,
+		DatabaseName: &dbName,
 	})
 	if err != nil {
 		return errors.Wrapf(err, "failed to find onboarding instance")
@@ -1055,7 +1126,42 @@ func (s *Server) generateOnboardingData(ctx context.Context, userID int) error {
 		return errors.Wrapf(err, "failed to create onboarding SQL Review policy")
 	}
 
-	// Create a schema update issue.
+	// Create a standalone sample SQL sheet.
+	// This is different from another sample SQL sheet created below, which is created as part of
+	// creating a schema change issue.
+	sheetCreate := &store.SheetMessage{
+		CreatorID:   userID,
+		ProjectUID:  project.UID,
+		DatabaseUID: &database.UID,
+		Name:        "Sample Sheet",
+		Statement:   "SELECT * FROM salary;",
+		Visibility:  api.ProjectSheet,
+		Source:      api.SheetFromBytebase,
+		Type:        api.SheetForSQL,
+	}
+	_, err = s.store.CreateSheetV2(ctx, sheetCreate)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create sample sheet")
+	}
+
+	// Create a schema update issue and start with creating the sheet for the schema update.
+	sheet, err := s.store.CreateSheetV2(ctx, &store.SheetMessage{
+		CreatorID: api.SystemBotID,
+
+		ProjectUID:  project.UID,
+		DatabaseUID: &database.UID,
+
+		Name:       "Alter table sheet for Sample Issue",
+		Statement:  "ALTER TABLE employee ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';",
+		Visibility: api.ProjectSheet,
+		Source:     api.SheetFromBytebaseArtifact,
+		Type:       api.SheetForSQL,
+		Payload:    "{}",
+	})
+	if err != nil {
+		return errors.Wrapf(err, "failed to create sheet for sample project")
+	}
+
 	createContext, err := json.Marshal(
 		&api.MigrationContext{
 			DetailList: []*api.MigrationDetail{
@@ -1064,7 +1170,7 @@ func (s *Server) generateOnboardingData(ctx context.Context, userID int) error {
 					DatabaseID:    database.UID,
 					// This will violate the NOT NULL SQL Review policy configured above and emit a
 					// warning. Thus to demonstrate the SQL Review capability.
-					Statement: "ALTER TABLE employee ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';",
+					SheetID: sheet.UID,
 				},
 			},
 		})
@@ -1128,198 +1234,5 @@ Click "Approve" button to apply the schema update.`,
 		return errors.Wrapf(err, "failed to create onboarding sensitive data policy")
 	}
 
-	// Create a SQL sheet with sample queries.
-	sheetCreate := &api.SheetCreate{
-		CreatorID:  userID,
-		ProjectID:  project.UID,
-		DatabaseID: &database.UID,
-		Name:       "Sample Sheet",
-		Statement:  "SELECT * FROM salary;",
-		Visibility: api.ProjectSheet,
-		Source:     api.SheetFromBytebase,
-		Type:       api.SheetForSQL,
-	}
-	_, err = s.store.CreateSheet(ctx, sheetCreate)
-	if err != nil {
-		return errors.Wrapf(err, "failed to create sample sheet")
-	}
-
 	return nil
-}
-
-func (s *Server) backfillInstanceChangeHistory(ctx context.Context) {
-	err := func() error {
-		migratedInstanceList, err := s.store.ListInstanceHavingInstanceChangeHistory(ctx)
-		if err != nil {
-			return err
-		}
-		instanceMigrated := make(map[int]bool)
-		for _, id := range migratedInstanceList {
-			instanceMigrated[id] = true
-		}
-
-		instanceList, err := s.store.ListInstancesV2(ctx, &store.FindInstanceMessage{})
-		if err != nil {
-			return err
-		}
-
-		issueList, err := s.store.ListIssueV2(ctx, &store.FindIssueMessage{})
-		if err != nil {
-			return err
-		}
-		hasIssueID := make(map[int]bool)
-		for _, issue := range issueList {
-			hasIssueID[issue.UID] = true
-		}
-
-		principalList, err := s.store.GetPrincipalList(ctx)
-		if err != nil {
-			return err
-		}
-		nameToPrincipal := make(map[string]*api.Principal)
-		for _, principal := range principalList {
-			nameToPrincipal[principal.Name] = principal
-		}
-
-		var errList error
-		for _, instance := range instanceList {
-			err := func(instance *store.InstanceMessage) error {
-				limit := 10
-				offset := 0
-
-				if !(instance.Engine == db.MySQL || instance.Engine == db.Postgres || instance.Engine == db.ClickHouse) {
-					return nil
-				}
-				if instanceMigrated[instance.UID] {
-					return nil
-				}
-
-				databaseList, err := s.store.ListDatabases(ctx, &store.FindDatabaseMessage{InstanceID: &instance.ResourceID, ShowDeleted: true})
-				if err != nil {
-					return err
-				}
-				nameToDatabase := make(map[string]*store.DatabaseMessage)
-				for i, db := range databaseList {
-					nameToDatabase[db.DatabaseName] = databaseList[i]
-				}
-
-				driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, "bytebase")
-				if err != nil {
-					return err
-				}
-				defer driver.Close(ctx)
-
-				for {
-					var history []*db.MigrationHistory
-					if instance.Engine == db.MySQL {
-						myDriver := driver.(*mysql.Driver)
-						history, err = myDriver.FindMigrationHistoryList(ctx, &db.MigrationHistoryFind{
-							InstanceID: &instance.UID,
-							Limit:      &limit,
-							Offset:     &offset,
-						})
-						if err != nil {
-							return err
-						}
-					} else if instance.Engine == db.Postgres {
-						pgDriver := driver.(*pg.Driver)
-						history, err = pgDriver.FindMigrationHistoryList(ctx, &db.MigrationHistoryFind{
-							InstanceID: &instance.UID,
-							Limit:      &limit,
-							Offset:     &offset,
-						})
-						if err != nil {
-							return err
-						}
-					} else if instance.Engine == db.ClickHouse {
-						cDriver := driver.(*clickhouse.Driver)
-						history, err = cDriver.FindMigrationHistoryList(ctx, &db.MigrationHistoryFind{
-							InstanceID: &instance.UID,
-							Limit:      &limit,
-							Offset:     &offset,
-						})
-						if err != nil {
-							return err
-						}
-					}
-					if len(history) == 0 {
-						break
-					}
-					offset += limit
-
-					var creates []*store.InstanceChangeHistoryMessage
-					for _, h := range history {
-						var databaseID *int
-						if database, ok := nameToDatabase[h.Namespace]; ok {
-							databaseID = &database.UID
-						}
-
-						var issueID *int
-						if id, err := strconv.Atoi(h.IssueID); err != nil {
-							errList = multierr.Append(errList, err)
-						} else if hasIssueID[id] {
-							// Has FK constraint on issue_id.
-							// Set to id if issue exists.
-							issueID = &id
-						}
-
-						creatorID := api.SystemBotID
-						updaterID := api.SystemBotID
-						if principal, ok := nameToPrincipal[h.Creator]; ok {
-							creatorID = principal.ID
-						}
-						if principal, ok := nameToPrincipal[h.Updater]; ok {
-							updaterID = principal.ID
-						}
-
-						storedVersion, err := util.ToStoredVersion(h.UseSemanticVersion, h.Version, h.SemanticVersionSuffix)
-						if err != nil {
-							return err
-						}
-
-						changeHistory := store.InstanceChangeHistoryMessage{
-							CreatorID:           creatorID,
-							CreatedTs:           h.CreatedTs,
-							UpdaterID:           updaterID,
-							UpdatedTs:           h.UpdatedTs,
-							InstanceID:          &instance.UID,
-							DatabaseID:          databaseID,
-							IssueID:             issueID,
-							ReleaseVersion:      h.ReleaseVersion,
-							Sequence:            int64(h.Sequence),
-							Source:              h.Source,
-							Type:                h.Type,
-							Status:              h.Status,
-							Version:             storedVersion,
-							Description:         h.Description,
-							Statement:           h.Statement,
-							Schema:              h.Schema,
-							SchemaPrev:          h.SchemaPrev,
-							ExecutionDurationNs: h.ExecutionDurationNs,
-							Payload:             h.Payload,
-						}
-
-						creates = append(creates, &changeHistory)
-					}
-
-					if _, err := s.store.CreateInstanceChangeHistory(ctx, creates...); err != nil {
-						return err
-					}
-				}
-				return nil
-			}(instance)
-			if err != nil {
-				// New instances may not have the "bytebase" database.
-				if strings.Contains(err.Error(), "database \"bytebase\" does not exist") {
-					return nil
-				}
-				errList = multierr.Append(errList, err)
-			}
-		}
-		return errList
-	}()
-
-	if err != nil {
-		log.Warn("failed to backfill migration history", zap.Error(err))
-	}
 }

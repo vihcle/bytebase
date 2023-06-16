@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -54,6 +55,12 @@ const (
 	SchemaRuleIDXNaming SQLReviewRuleType = "naming.index.idx"
 	// SchemaRuleAutoIncrementColumnNaming enforce the auto_increment column name format.
 	SchemaRuleAutoIncrementColumnNaming SQLReviewRuleType = "naming.column.auto-increment"
+	// SchemaRuleTableNameNoKeyword enforce the table name not to use keyword.
+	SchemaRuleTableNameNoKeyword SQLReviewRuleType = "naming.table.no-keyword"
+	// SchemaRuleIdentifierNoKeyword enforce the identifier not to use keyword.
+	SchemaRuleIdentifierNoKeyword SQLReviewRuleType = "naming.identifier.no-keyword"
+	// SchemaRuleIdentifierCase enforce the identifier case.
+	SchemaRuleIdentifierCase SQLReviewRuleType = "naming.identifier.case"
 
 	// SchemaRuleStatementNoSelectAll disallow 'SELECT *'.
 	SchemaRuleStatementNoSelectAll SQLReviewRuleType = "statement.select.no-select-all"
@@ -119,6 +126,8 @@ const (
 	SchemaRuleColumnDisallowSetCharset SQLReviewRuleType = "column.disallow-set-charset"
 	// SchemaRuleColumnMaximumCharacterLength enforce the maximum character length.
 	SchemaRuleColumnMaximumCharacterLength SQLReviewRuleType = "column.maximum-character-length"
+	// SchemaRuleColumnMaximumVarcharLength enforce the maximum varchar length.
+	SchemaRuleColumnMaximumVarcharLength SQLReviewRuleType = "column.maximum-varchar-length"
 	// SchemaRuleColumnAutoIncrementInitialValue enforce the initial auto-increment value.
 	SchemaRuleColumnAutoIncrementInitialValue SQLReviewRuleType = "column.auto-increment-initial-value"
 	// SchemaRuleColumnAutoIncrementMustUnsigned enforce the auto-increment column to be unsigned.
@@ -127,6 +136,8 @@ const (
 	SchemaRuleCurrentTimeColumnCountLimit SQLReviewRuleType = "column.current-time-count-limit"
 	// SchemaRuleColumnRequireDefault enforce the column default.
 	SchemaRuleColumnRequireDefault SQLReviewRuleType = "column.require-default"
+	// SchemaRuleAddNotNullColumnRequireDefault enforce the adding not null column requires default.
+	SchemaRuleAddNotNullColumnRequireDefault SQLReviewRuleType = "column.add-not-null-require-default"
 
 	// SchemaRuleSchemaBackwardCompatibility enforce the MySQL and TiDB support check whether the schema change is backward compatible.
 	SchemaRuleSchemaBackwardCompatibility SQLReviewRuleType = "schema.backward-compatibility"
@@ -246,7 +257,7 @@ func (rule *SQLReviewRule) Validate() error {
 	// TODO(rebelice): add other SQL review rule validation.
 	switch rule.Type {
 	case SchemaRuleTableNaming, SchemaRuleColumnNaming, SchemaRuleAutoIncrementColumnNaming:
-		if _, _, err := UnamrshalNamingRulePayloadAsRegexp(rule.Payload); err != nil {
+		if _, _, err := UnmarshalNamingRulePayloadAsRegexp(rule.Payload); err != nil {
 			return err
 		}
 	case SchemaRuleFKNaming, SchemaRuleIDXNaming, SchemaRuleUKNaming:
@@ -262,12 +273,16 @@ func (rule *SQLReviewRule) Validate() error {
 			return err
 		}
 	case SchemaRuleIndexKeyNumberLimit, SchemaRuleStatementInsertRowLimit, SchemaRuleIndexTotalNumberLimit,
-		SchemaRuleColumnMaximumCharacterLength, SchemaRuleColumnAutoIncrementInitialValue, SchemaRuleStatementAffectedRowLimit:
+		SchemaRuleColumnMaximumCharacterLength, SchemaRuleColumnMaximumVarcharLength, SchemaRuleColumnAutoIncrementInitialValue, SchemaRuleStatementAffectedRowLimit:
 		if _, err := UnmarshalNumberTypeRulePayload(rule.Payload); err != nil {
 			return err
 		}
 	case SchemaRuleColumnTypeDisallowList, SchemaRuleCharsetAllowlist, SchemaRuleCollationAllowlist, SchemaRuleIndexPrimaryKeyTypeAllowlist:
 		if _, err := UnmarshalStringArrayTypeRulePayload(rule.Payload); err != nil {
+			return err
+		}
+	case SchemaRuleIdentifierCase:
+		if _, err := UnmarshalNamingCaseRulePayload(rule.Payload); err != nil {
 			return err
 		}
 	}
@@ -301,8 +316,14 @@ type NumberTypeRulePayload struct {
 	Number int `json:"number"`
 }
 
-// UnamrshalNamingRulePayloadAsRegexp will unmarshal payload to NamingRulePayload and compile it as regular expression.
-func UnamrshalNamingRulePayloadAsRegexp(payload string) (*regexp.Regexp, int, error) {
+// NamingCaseRulePayload is the payload for naming case rule.
+type NamingCaseRulePayload struct {
+	// Upper is true means the case should be upper case, otherwise lower case.
+	Upper bool `json:"upper"`
+}
+
+// UnmarshalNamingRulePayloadAsRegexp will unmarshal payload to NamingRulePayload and compile it as regular expression.
+func UnmarshalNamingRulePayloadAsRegexp(payload string) (*regexp.Regexp, int, error) {
 	var nr NamingRulePayload
 	if err := json.Unmarshal([]byte(payload), &nr); err != nil {
 		return nil, 0, errors.Wrapf(err, "failed to unmarshal naming rule payload %q", payload)
@@ -429,6 +450,15 @@ func UnmarshalStringArrayTypeRulePayload(payload string) (*StringArrayTypeRulePa
 	return &trr, nil
 }
 
+// UnmarshalNamingCaseRulePayload will unmarshal payload to NamingCaseRulePayload.
+func UnmarshalNamingCaseRulePayload(payload string) (*NamingCaseRulePayload, error) {
+	var ncr NamingCaseRulePayload
+	if err := json.Unmarshal([]byte(payload), &ncr); err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal naming case rule payload %q", payload)
+	}
+	return &ncr, nil
+}
+
 // SQLReviewCheckContext is the context for SQL review check.
 type SQLReviewCheckContext struct {
 	Charset   string
@@ -437,6 +467,9 @@ type SQLReviewCheckContext struct {
 	Catalog   catalog.Catalog
 	Driver    *sql.DB
 	Context   context.Context
+
+	// Oracle specific fields
+	CurrentSchema string
 }
 
 // SQLReviewCheck checks the statements with sql review rules.
@@ -445,7 +478,7 @@ func SQLReviewCheck(statements string, ruleList []*SQLReviewRule, checkContext S
 
 	finder := checkContext.Catalog.GetFinder()
 	switch checkContext.DbType {
-	case db.TiDB, db.MySQL, db.MariaDB, db.Postgres:
+	case db.TiDB, db.MySQL, db.MariaDB, db.Postgres, db.OceanBase:
 		if err := finder.WalkThrough(statements); err != nil {
 			return convertWalkThroughErrorToAdvice(checkContext, err)
 		}
@@ -471,12 +504,13 @@ func SQLReviewCheck(statements string, ruleList []*SQLReviewRule, checkContext S
 			checkContext.DbType,
 			advisorType,
 			Context{
-				Charset:   checkContext.Charset,
-				Collation: checkContext.Collation,
-				Rule:      rule,
-				Catalog:   finder,
-				Driver:    checkContext.Driver,
-				Context:   checkContext.Context,
+				Charset:       checkContext.Charset,
+				Collation:     checkContext.Collation,
+				Rule:          rule,
+				Catalog:       finder,
+				Driver:        checkContext.Driver,
+				Context:       checkContext.Context,
+				CurrentSchema: checkContext.CurrentSchema,
 			},
 			statements,
 		)
@@ -491,6 +525,10 @@ func SQLReviewCheck(statements string, ruleList []*SQLReviewRule, checkContext S
 	if len(result) > 0 && result[0].Title == SyntaxErrorTitle {
 		return result[:1], nil
 	}
+	sort.SliceStable(result, func(i, j int) bool {
+		// Error is 2, warning is 1. So the error (value 2) should come first.
+		return result[i].Status.GetPriority() > result[j].Status.GetPriority()
+	})
 	if len(result) == 0 {
 		result = append(result, Advice{
 			Status:  Success,
@@ -755,42 +793,54 @@ func getAdvisorTypeByRule(ruleType SQLReviewRuleType, engine db.Type) (Type, err
 	switch ruleType {
 	case SchemaRuleStatementRequireWhere:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLWhereRequirement, nil
 		case db.Postgres:
 			return PostgreSQLWhereRequirement, nil
+		case db.Oracle:
+			return OracleWhereRequirement, nil
+		case db.Snowflake:
+			return SnowflakeWhereRequirement, nil
 		}
 	case SchemaRuleStatementNoLeadingWildcardLike:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLNoLeadingWildcardLike, nil
 		case db.Postgres:
 			return PostgreSQLNoLeadingWildcardLike, nil
+		case db.Oracle:
+			return OracleNoLeadingWildcardLike, nil
 		}
 	case SchemaRuleStatementNoSelectAll:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLNoSelectAll, nil
 		case db.Postgres:
 			return PostgreSQLNoSelectAll, nil
+		case db.Oracle:
+			return OracleNoSelectAll, nil
 		}
 	case SchemaRuleSchemaBackwardCompatibility:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLMigrationCompatibility, nil
 		case db.Postgres:
 			return PostgreSQLMigrationCompatibility, nil
 		}
 	case SchemaRuleTableNaming:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLNamingTableConvention, nil
 		case db.Postgres:
 			return PostgreSQLNamingTableConvention, nil
+		case db.Oracle:
+			return OracleNamingTableConvention, nil
+		case db.Snowflake:
+			return SnowflakeNamingTableConvention, nil
 		}
 	case SchemaRuleIDXNaming:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLNamingIndexConvention, nil
 		case db.Postgres:
 			return PostgreSQLNamingIndexConvention, nil
@@ -801,146 +851,198 @@ func getAdvisorTypeByRule(ruleType SQLReviewRuleType, engine db.Type) (Type, err
 		}
 	case SchemaRuleUKNaming:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLNamingUKConvention, nil
 		case db.Postgres:
 			return PostgreSQLNamingUKConvention, nil
 		}
 	case SchemaRuleFKNaming:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLNamingFKConvention, nil
 		case db.Postgres:
 			return PostgreSQLNamingFKConvention, nil
 		}
 	case SchemaRuleColumnNaming:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLNamingColumnConvention, nil
 		case db.Postgres:
 			return PostgreSQLNamingColumnConvention, nil
 		}
 	case SchemaRuleAutoIncrementColumnNaming:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLNamingAutoIncrementColumnConvention, nil
+		}
+	case SchemaRuleTableNameNoKeyword:
+		switch engine {
+		case db.Oracle:
+			return OracleTableNamingNoKeyword, nil
+		case db.Snowflake:
+			return SnowflakeTableNamingNoKeyword, nil
+		}
+	case SchemaRuleIdentifierNoKeyword:
+		switch engine {
+		case db.Oracle:
+			return OracleIdentifierNamingNoKeyword, nil
+		case db.Snowflake:
+			return SnowflakeIdentifierNamingNoKeyword, nil
+		}
+	case SchemaRuleIdentifierCase:
+		switch engine {
+		case db.Oracle:
+			return OracleIdentifierCase, nil
+		case db.Snowflake:
+			return SnowflakeIdentifierCase, nil
 		}
 	case SchemaRuleRequiredColumn:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLColumnRequirement, nil
 		case db.Postgres:
 			return PostgreSQLColumnRequirement, nil
+		case db.Oracle:
+			return OracleColumnRequirement, nil
+		case db.Snowflake:
+			return SnowflakeColumnRequirement, nil
 		}
 	case SchemaRuleColumnNotNull:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLColumnNoNull, nil
 		case db.Postgres:
 			return PostgreSQLColumnNoNull, nil
+		case db.Oracle:
+			return OracleColumnNoNull, nil
 		}
 	case SchemaRuleColumnDisallowChangeType:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLColumnDisallowChangingType, nil
 		case db.Postgres:
 			return PostgreSQLColumnDisallowChangingType, nil
 		}
 	case SchemaRuleColumnSetDefaultForNotNull:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLColumnSetDefaultForNotNull, nil
 		}
 	case SchemaRuleColumnDisallowChange:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLColumnDisallowChanging, nil
 		}
 	case SchemaRuleColumnDisallowChangingOrder:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLColumnDisallowChangingOrder, nil
 		}
 	case SchemaRuleColumnCommentConvention:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLColumnCommentConvention, nil
 		}
 	case SchemaRuleColumnAutoIncrementMustInteger:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLAutoIncrementColumnMustInteger, nil
 		}
 	case SchemaRuleColumnTypeDisallowList:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLColumnTypeRestriction, nil
 		case db.Postgres:
 			return PostgreSQLColumnTypeDisallowList, nil
+		case db.Oracle:
+			return OracleColumnTypeDisallowList, nil
 		}
 	case SchemaRuleColumnDisallowSetCharset:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLDisallowSetColumnCharset, nil
 		}
 	case SchemaRuleColumnMaximumCharacterLength:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLColumnMaximumCharacterLength, nil
 		case db.Postgres:
 			return PostgreSQLColumnMaximumCharacterLength, nil
+		case db.Oracle:
+			return OracleColumnMaximumCharacterLength, nil
+		}
+	case SchemaRuleColumnMaximumVarcharLength:
+		switch engine {
+		case db.Oracle:
+			return OracleColumnMaximumVarcharLength, nil
+		case db.Snowflake:
+			return SnowflakeColumnMaximumVarcharLength, nil
 		}
 	case SchemaRuleColumnAutoIncrementInitialValue:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLAutoIncrementColumnInitialValue, nil
 		}
 	case SchemaRuleColumnAutoIncrementMustUnsigned:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLAutoIncrementColumnMustUnsigned, nil
 		}
 	case SchemaRuleCurrentTimeColumnCountLimit:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLCurrentTimeColumnCountLimit, nil
 		}
 	case SchemaRuleColumnRequireDefault:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLRequireColumnDefault, nil
 		case db.Postgres:
 			return PostgreSQLRequireColumnDefault, nil
+		case db.Oracle:
+			return OracleRequireColumnDefault, nil
+		}
+	case SchemaRuleAddNotNullColumnRequireDefault:
+		if engine == db.Oracle {
+			return OracleAddNotNullColumnRequireDefault, nil
 		}
 	case SchemaRuleTableRequirePK:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLTableRequirePK, nil
 		case db.Postgres:
 			return PostgreSQLTableRequirePK, nil
+		case db.Oracle:
+			return OracleTableRequirePK, nil
+		case db.Snowflake:
+			return SnowflakeTableRequirePK, nil
 		}
 	case SchemaRuleTableNoFK:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLTableNoFK, nil
 		case db.Postgres:
 			return PostgreSQLTableNoFK, nil
+		case db.Oracle:
+			return OracleTableNoFK, nil
+		case db.Snowflake:
+			return SnowflakeTableNoFK, nil
 		}
 	case SchemaRuleTableDropNamingConvention:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLTableDropNamingConvention, nil
 		case db.Postgres:
 			return PostgreSQLTableDropNamingConvention, nil
 		}
 	case SchemaRuleTableCommentConvention:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLTableCommentConvention, nil
 		}
 	case SchemaRuleTableDisallowPartition:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLTableDisallowPartition, nil
 		case db.Postgres:
 			return PostgreSQLTableDisallowPartition, nil
@@ -952,64 +1054,66 @@ func getAdvisorTypeByRule(ruleType SQLReviewRuleType, engine db.Type) (Type, err
 		}
 	case SchemaRuleDropEmptyDatabase:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLDatabaseAllowDropIfEmpty, nil
 		}
 	case SchemaRuleIndexNoDuplicateColumn:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLIndexNoDuplicateColumn, nil
 		case db.Postgres:
 			return PostgreSQLIndexNoDuplicateColumn, nil
 		}
 	case SchemaRuleIndexKeyNumberLimit:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLIndexKeyNumberLimit, nil
 		case db.Postgres:
 			return PostgreSQLIndexKeyNumberLimit, nil
+		case db.Oracle:
+			return OracleIndexKeyNumberLimit, nil
 		}
 	case SchemaRuleIndexTotalNumberLimit:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLIndexTotalNumberLimit, nil
 		case db.Postgres:
 			return PostgreSQLIndexTotalNumberLimit, nil
 		}
 	case SchemaRuleStatementDisallowCommit:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLStatementDisallowCommit, nil
 		case db.Postgres:
 			return PostgreSQLStatementDisallowCommit, nil
 		}
 	case SchemaRuleCharsetAllowlist:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLCharsetAllowlist, nil
 		case db.Postgres:
 			return PostgreSQLEncodingAllowlist, nil
 		}
 	case SchemaRuleCollationAllowlist:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLCollationAllowlist, nil
 		case db.Postgres:
 			return PostgreSQLCollationAllowlist, nil
 		}
 	case SchemaRuleIndexPKTypeLimit:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLIndexPKType, nil
 		}
 	case SchemaRuleIndexTypeNoBlob:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLIndexTypeNoBlob, nil
 		}
 	case SchemaRuleIndexPrimaryKeyTypeAllowlist:
 		switch engine {
-		case db.MySQL, db.TiDB:
+		case db.MySQL, db.TiDB, db.OceanBase:
 			return MySQLPrimaryKeyTypeAllowlist, nil
 		case db.Postgres:
 			return PostgreSQLPrimaryKeyTypeAllowlist, nil
@@ -1020,52 +1124,54 @@ func getAdvisorTypeByRule(ruleType SQLReviewRuleType, engine db.Type) (Type, err
 		}
 	case SchemaRuleStatementInsertRowLimit:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLInsertRowLimit, nil
 		case db.Postgres:
 			return PostgreSQLInsertRowLimit, nil
 		}
 	case SchemaRuleStatementInsertMustSpecifyColumn:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLInsertMustSpecifyColumn, nil
 		case db.Postgres:
 			return PostgreSQLInsertMustSpecifyColumn, nil
+		case db.Oracle:
+			return OracleInsertMustSpecifyColumn, nil
 		}
 	case SchemaRuleStatementInsertDisallowOrderByRand:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLInsertDisallowOrderByRand, nil
 		case db.Postgres:
 			return PostgreSQLInsertDisallowOrderByRand, nil
 		}
 	case SchemaRuleStatementDisallowLimit:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLDisallowLimit, nil
 		}
 	case SchemaRuleStatementDisallowOrderBy:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLDisallowOrderBy, nil
 		}
 	case SchemaRuleStatementMergeAlterTable:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLMergeAlterTable, nil
 		case db.Postgres:
 			return PostgreSQLMergeAlterTable, nil
 		}
 	case SchemaRuleStatementAffectedRowLimit:
 		switch engine {
-		case db.MySQL, db.MariaDB:
+		case db.MySQL, db.MariaDB, db.OceanBase:
 			return MySQLStatementAffectedRowLimit, nil
 		case db.Postgres:
 			return PostgreSQLStatementAffectedRowLimit, nil
 		}
 	case SchemaRuleStatementDMLDryRun:
 		switch engine {
-		case db.MySQL, db.TiDB, db.MariaDB:
+		case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 			return MySQLStatementDMLDryRun, nil
 		case db.Postgres:
 			return PostgreSQLStatementDMLDryRun, nil

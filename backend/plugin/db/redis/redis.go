@@ -6,15 +6,21 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
+	"github.com/bytebase/bytebase/backend/plugin/db/util"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 var (
@@ -28,6 +34,7 @@ func init() {
 // Driver is the redis driver.
 type Driver struct {
 	rdb          redis.UniversalClient
+	sshClient    *ssh.Client
 	databaseName string
 }
 
@@ -37,11 +44,7 @@ func newDriver(_ db.DriverConfig) db.Driver {
 
 // Open opens the redis driver.
 func (d *Driver) Open(ctx context.Context, _ db.Type, config db.ConnectionConfig, _ db.ConnectionContext) (db.Driver, error) {
-	port := config.Port
-	if port == "" {
-		port = "6379"
-	}
-	addr := fmt.Sprintf("%s:%s", config.Host, port)
+	addr := fmt.Sprintf("%s:%s", config.Host, config.Port)
 	tlsConfig, err := config.TLSConfig.GetSslConfig()
 	if err != nil {
 		return nil, errors.Wrap(err, "redis: failed to get tls config")
@@ -58,14 +61,30 @@ func (d *Driver) Open(ctx context.Context, _ db.Type, config db.ConnectionConfig
 	}
 	d.databaseName = fmt.Sprintf("%d", db)
 
-	d.rdb = redis.NewUniversalClient(&redis.UniversalOptions{
+	options := &redis.UniversalOptions{
 		Addrs:     []string{addr},
 		Username:  config.Username,
 		Password:  config.Password,
 		TLSConfig: tlsConfig,
 		ReadOnly:  config.ReadOnly,
 		DB:        db,
-	})
+	}
+	if config.SSHConfig.Host != "" {
+		sshClient, err := util.GetSSHClient(config.SSHConfig)
+		if err != nil {
+			return nil, err
+		}
+		d.sshClient = sshClient
+
+		options.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := sshClient.Dial(network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return &noDeadlineConn{Conn: conn}, nil
+		}
+	}
+	d.rdb = redis.NewUniversalClient(options)
 
 	clusterEnabled, err := d.getClusterEnabled(ctx)
 	if err != nil {
@@ -89,9 +108,20 @@ func (d *Driver) Open(ctx context.Context, _ db.Type, config db.ConnectionConfig
 	return d, nil
 }
 
+type noDeadlineConn struct{ net.Conn }
+
+func (*noDeadlineConn) SetDeadline(time.Time) error      { return nil }
+func (*noDeadlineConn) SetReadDeadline(time.Time) error  { return nil }
+func (*noDeadlineConn) SetWriteDeadline(time.Time) error { return nil }
+
 // Close closes the redis driver.
 func (d *Driver) Close(context.Context) error {
-	return d.rdb.Close()
+	var err error
+	err = multierr.Append(err, d.rdb.Close())
+	if d.sshClient != nil {
+		err = multierr.Append(err, d.sshClient.Close())
+	}
+	return err
 }
 
 // Ping pings the redis server.
@@ -106,7 +136,7 @@ func (*Driver) GetType() db.Type {
 
 // GetDB gets the database.
 func (*Driver) GetDB() *sql.DB {
-	panic("redis: not supported")
+	return nil
 }
 
 // Execute will execute the statement. For CREATE DATABASE statement, some types of databases such as Postgres
@@ -198,4 +228,54 @@ func (*Driver) Dump(_ context.Context, _ io.Writer, schemaOnly bool) (string, er
 // Restore the database from src, which is a full backup.
 func (*Driver) Restore(context.Context, io.Reader) error {
 	return errors.New("redis: not supported")
+}
+
+// QueryConn2 queries a SQL statement in a given connection.
+func (d *Driver) QueryConn2(ctx context.Context, _ *sql.Conn, statement string, _ *db.QueryContext) ([]*v1pb.QueryResult, error) {
+	lines := strings.Split(statement, "\n")
+	for i := range lines {
+		lines[i] = strings.Trim(lines[i], " \n\t\r")
+	}
+
+	var data []*v1pb.QueryRow
+	var cmds []*redis.Cmd
+
+	if _, err := d.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			var input []any
+			for _, s := range strings.Split(line, " ") {
+				input = append(input, s)
+			}
+			cmd := p.Do(ctx, input...)
+			cmds = append(cmds, cmd)
+		}
+		return nil
+	}); err != nil && err != redis.Nil {
+		return nil, err
+	}
+
+	for _, cmd := range cmds {
+		if cmd.Err() == redis.Nil {
+			data = append(data, &v1pb.QueryRow{Values: []*v1pb.RowValue{{Kind: &v1pb.RowValue_StringValue{StringValue: "redis: nil"}}}})
+			continue
+		}
+
+		// RowValue cannot handle interface{} type
+		val := cmd.String()
+		data = append(data, &v1pb.QueryRow{Values: []*v1pb.RowValue{{Kind: &v1pb.RowValue_StringValue{StringValue: val}}}})
+	}
+
+	return []*v1pb.QueryResult{{
+		ColumnNames:     []string{"result"},
+		ColumnTypeNames: []string{"TEXT"},
+		Rows:            data,
+	}}, nil
+}
+
+// RunStatement runs a SQL statement in a given connection.
+func (d *Driver) RunStatement(ctx context.Context, _ *sql.Conn, statement string) ([]*v1pb.QueryResult, error) {
+	return d.QueryConn2(ctx, nil, statement, nil)
 }

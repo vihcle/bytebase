@@ -9,50 +9,12 @@ import (
 
 	"github.com/lib/pq"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/bytebase/bytebase/backend/common"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
-
-// FindDatabase finds a list of Database instances.
-func (s *Store) FindDatabase(ctx context.Context, find *api.DatabaseFind) ([]*api.Database, error) {
-	// We don't have caller for searching IncludeAllDatabase.
-	v2Find := &FindDatabaseMessage{}
-	if find.InstanceID != nil {
-		instance, err := s.GetInstanceV2(ctx, &FindInstanceMessage{UID: find.InstanceID})
-		if err != nil {
-			return nil, err
-		}
-		v2Find.InstanceID = &instance.ResourceID
-	}
-	if find.ProjectID != nil {
-		project, err := s.GetProjectV2(ctx, &FindProjectMessage{UID: find.ProjectID})
-		if err != nil {
-			return nil, err
-		}
-		v2Find.ProjectID = &project.ResourceID
-	}
-	if find.Name != nil {
-		v2Find.DatabaseName = find.Name
-	}
-
-	databases, err := s.ListDatabases(ctx, v2Find)
-	if err != nil {
-		return nil, err
-	}
-	var databaseList []*api.Database
-	for _, database := range databases {
-		composedDatabase, err := s.composeDatabase(ctx, database)
-		if err != nil {
-			return nil, err
-		}
-		if find.SyncStatus != nil && composedDatabase.SyncStatus != *find.SyncStatus {
-			continue
-		}
-		databaseList = append(databaseList, composedDatabase)
-	}
-	return databaseList, nil
-}
 
 // GetDatabase gets an instance of Database.
 func (s *Store) GetDatabase(ctx context.Context, find *api.DatabaseFind) (*api.Database, error) {
@@ -97,10 +59,7 @@ func (s *Store) GetDatabase(ctx context.Context, find *api.DatabaseFind) (*api.D
 
 // private functions.
 func (s *Store) composeDatabase(ctx context.Context, database *DatabaseMessage) (*api.Database, error) {
-	instance, err := s.GetInstanceV2(ctx, &FindInstanceMessage{
-		EnvironmentID: &database.EnvironmentID,
-		ResourceID:    &database.InstanceID,
-	})
+	instance, err := s.GetInstanceV2(ctx, &FindInstanceMessage{ResourceID: &database.InstanceID})
 	if err != nil {
 		return nil, err
 	}
@@ -151,23 +110,24 @@ func (s *Store) composeDatabase(ctx context.Context, database *DatabaseMessage) 
 
 // DatabaseMessage is the message for database.
 type DatabaseMessage struct {
-	UID           int
-	ProjectID     string
-	EnvironmentID string
-	InstanceID    string
+	UID        int
+	ProjectID  string
+	InstanceID string
 
 	DatabaseName         string
 	SyncState            api.SyncStatus
 	SuccessfulSyncTimeTs int64
 	SchemaVersion        string
 	Labels               map[string]string
+	Secrets              *storepb.Secrets
+	DataShare            bool
+	EnvironmentID        string
 }
 
 // UpdateDatabaseMessage is the mssage for updating a database.
 type UpdateDatabaseMessage struct {
-	EnvironmentID string
-	InstanceID    string
-	DatabaseName  string
+	InstanceID   string
+	DatabaseName string
 
 	ProjectID            *string
 	SyncState            *api.SyncStatus
@@ -175,6 +135,10 @@ type UpdateDatabaseMessage struct {
 	SchemaVersion        *string
 	Labels               *map[string]string
 	SourceBackupID       *int
+	Secrets              *storepb.Secrets
+	DataShare            *bool
+	// TODO(d): allow database environment updates.
+	EnvironmentID *string
 }
 
 // FindDatabaseMessage is the message for finding databases.
@@ -194,8 +158,8 @@ type FindDatabaseMessage struct {
 
 // GetDatabaseV2 gets a database.
 func (s *Store) GetDatabaseV2(ctx context.Context, find *FindDatabaseMessage) (*DatabaseMessage, error) {
-	if find.EnvironmentID != nil && find.InstanceID != nil && find.DatabaseName != nil {
-		if database, ok := s.databaseCache.Load(getDatabaseCacheKey(*find.EnvironmentID, *find.InstanceID, *find.DatabaseName)); ok {
+	if find.InstanceID != nil && find.DatabaseName != nil {
+		if database, ok := s.databaseCache.Load(getDatabaseCacheKey(*find.InstanceID, *find.DatabaseName)); ok {
 			return database.(*DatabaseMessage), nil
 		}
 	}
@@ -227,7 +191,7 @@ func (s *Store) GetDatabaseV2(ctx context.Context, find *FindDatabaseMessage) (*
 		return nil, err
 	}
 
-	s.databaseCache.Store(getDatabaseCacheKey(database.EnvironmentID, database.InstanceID, database.DatabaseName), database)
+	s.databaseCache.Store(getDatabaseCacheKey(database.InstanceID, database.DatabaseName), database)
 	s.databaseIDCache.Store(database.UID, database)
 	return database, nil
 }
@@ -250,7 +214,7 @@ func (s *Store) ListDatabases(ctx context.Context, find *FindDatabaseMessage) ([
 	}
 
 	for _, database := range databases {
-		s.databaseCache.Store(getDatabaseCacheKey(database.EnvironmentID, database.InstanceID, database.DatabaseName), database)
+		s.databaseCache.Store(getDatabaseCacheKey(database.InstanceID, database.DatabaseName), database)
 		s.databaseIDCache.Store(database.UID, database)
 	}
 	return databases, nil
@@ -258,7 +222,7 @@ func (s *Store) ListDatabases(ctx context.Context, find *FindDatabaseMessage) ([
 
 // CreateDatabaseDefault creates a new database in the default project.
 func (s *Store) CreateDatabaseDefault(ctx context.Context, create *DatabaseMessage) error {
-	instance, err := s.GetInstanceV2(ctx, &FindInstanceMessage{EnvironmentID: &create.EnvironmentID, ResourceID: &create.InstanceID})
+	instance, err := s.GetInstanceV2(ctx, &FindInstanceMessage{ResourceID: &create.InstanceID})
 	if err != nil {
 		return err
 	}
@@ -282,7 +246,7 @@ func (s *Store) CreateDatabaseDefault(ctx context.Context, create *DatabaseMessa
 	}
 
 	// Invalidate an update the cache.
-	s.databaseCache.Delete(getDatabaseCacheKey(instance.EnvironmentID, instance.ResourceID, create.DatabaseName))
+	s.databaseCache.Delete(getDatabaseCacheKey(instance.ResourceID, create.DatabaseName))
 	s.databaseIDCache.Delete(databaseUID)
 	if _, err = s.GetDatabaseV2(ctx, &FindDatabaseMessage{UID: &databaseUID}); err != nil {
 		return err
@@ -292,7 +256,16 @@ func (s *Store) CreateDatabaseDefault(ctx context.Context, create *DatabaseMessa
 
 // createDatabaseDefault only creates a default database with charset, collation only in the default project.
 func (*Store) createDatabaseDefaultImpl(ctx context.Context, tx *Tx, instanceUID int, create *DatabaseMessage) (int, error) {
+	emptySecret := &storepb.Secrets{
+		Items: []*storepb.SecretItem{},
+	}
+	secretsString, err := protojson.Marshal(emptySecret)
+	if err != nil {
+		return 0, err
+	}
+
 	// We will do on conflict update the column updater_id for returning the ID because on conflict do nothing will not return anything.
+	// We will also move the deleted database into default project.
 	query := `
 		INSERT INTO db (
 			creator_id,
@@ -302,11 +275,15 @@ func (*Store) createDatabaseDefaultImpl(ctx context.Context, tx *Tx, instanceUID
 			name,
 			sync_status,
 			last_successful_sync_ts,
-			schema_version
+			schema_version,
+			secrets
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (instance_id, name) DO UPDATE SET
-			updater_id = EXCLUDED.updater_id
+			updater_id = EXCLUDED.updater_id,
+			project_id = EXCLUDED.project_id,
+			sync_status = EXCLUDED.sync_status,
+			last_successful_sync_ts = EXCLUDED.last_successful_sync_ts
 		RETURNING id`
 	var databaseUID int
 	if err := tx.QueryRowContext(ctx, query,
@@ -316,8 +293,9 @@ func (*Store) createDatabaseDefaultImpl(ctx context.Context, tx *Tx, instanceUID
 		api.DefaultProjectUID,
 		create.DatabaseName,
 		api.OK,
-		0,  /* last_successful_sync_ts */
-		"", /* schema_version */
+		0,             /* last_successful_sync_ts */
+		"",            /* schema_version */
+		secretsString, /* secrets */
 	).Scan(
 		&databaseUID,
 	); err != nil {
@@ -335,12 +313,17 @@ func (s *Store) UpsertDatabase(ctx context.Context, create *DatabaseMessage) (*D
 	if project == nil {
 		return nil, errors.Errorf("project %q not found", create.ProjectID)
 	}
-	instance, err := s.GetInstanceV2(ctx, &FindInstanceMessage{EnvironmentID: &create.EnvironmentID, ResourceID: &create.InstanceID})
+	instance, err := s.GetInstanceV2(ctx, &FindInstanceMessage{ResourceID: &create.InstanceID})
 	if err != nil {
 		return nil, err
 	}
 	if instance == nil {
 		return nil, errors.Errorf("instance %q not found", create.InstanceID)
+	}
+
+	secretsString, err := protojson.Marshal(create.Secrets)
+	if err != nil {
+		return nil, err
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -359,9 +342,11 @@ func (s *Store) UpsertDatabase(ctx context.Context, create *DatabaseMessage) (*D
 			name,
 			sync_status,
 			last_successful_sync_ts,
-			schema_version
+			schema_version,
+			secrets,
+			datashare
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (instance_id, name) DO UPDATE SET
 			project_id = EXCLUDED.project_id,
 			name = EXCLUDED.name,
@@ -377,6 +362,8 @@ func (s *Store) UpsertDatabase(ctx context.Context, create *DatabaseMessage) (*D
 		api.OK,
 		create.SuccessfulSyncTimeTs,
 		create.SchemaVersion,
+		secretsString,
+		create.DataShare,
 	).Scan(
 		&databaseUID,
 	); err != nil {
@@ -390,14 +377,14 @@ func (s *Store) UpsertDatabase(ctx context.Context, create *DatabaseMessage) (*D
 	}
 
 	// Invalidate and update the cache.
-	s.databaseCache.Delete(getDatabaseCacheKey(instance.EnvironmentID, instance.ResourceID, create.DatabaseName))
+	s.databaseCache.Delete(getDatabaseCacheKey(instance.ResourceID, create.DatabaseName))
 	s.databaseIDCache.Delete(databaseUID)
 	return s.GetDatabaseV2(ctx, &FindDatabaseMessage{UID: &databaseUID})
 }
 
 // UpdateDatabase updates a database.
 func (s *Store) UpdateDatabase(ctx context.Context, patch *UpdateDatabaseMessage, updaterID int) (*DatabaseMessage, error) {
-	instance, err := s.GetInstanceV2(ctx, &FindInstanceMessage{EnvironmentID: &patch.EnvironmentID, ResourceID: &patch.InstanceID})
+	instance, err := s.GetInstanceV2(ctx, &FindInstanceMessage{ResourceID: &patch.InstanceID})
 	if err != nil {
 		return nil, err
 	}
@@ -418,6 +405,16 @@ func (s *Store) UpdateDatabase(ctx context.Context, patch *UpdateDatabaseMessage
 	}
 	if v := patch.SchemaVersion; v != nil {
 		set, args = append(set, fmt.Sprintf("schema_version = $%d", len(args)+1)), append(args, *v)
+	}
+	if v := patch.Secrets; v != nil {
+		secretsString, err := protojson.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		set, args = append(set, fmt.Sprintf("secrets = $%d", len(args)+1)), append(args, secretsString)
+	}
+	if v := patch.DataShare; v != nil {
+		set, args = append(set, fmt.Sprintf("datashare = $%d", len(args)+1)), append(args, *v)
 	}
 	args = append(args, instance.UID, patch.DatabaseName)
 
@@ -446,7 +443,7 @@ func (s *Store) UpdateDatabase(ctx context.Context, patch *UpdateDatabaseMessage
 	}
 	// When we update the project ID of the database, we should update the project ID of the related sheets in the same transaction.
 	if patch.ProjectID != nil {
-		sheetList, err := s.FindSheet(ctx, &api.SheetFind{DatabaseID: &databaseUID}, updaterID)
+		sheetList, err := s.ListSheetsV2(ctx, &FindSheetMessage{DatabaseUID: &databaseUID}, updaterID)
 		if err != nil {
 			return nil, err
 		}
@@ -456,7 +453,7 @@ func (s *Store) UpdateDatabase(ctx context.Context, patch *UpdateDatabaseMessage
 				return nil, err
 			}
 			for _, sheet := range sheetList {
-				if _, err := patchSheetImpl(ctx, tx, &api.SheetPatch{ID: sheet.ID, ProjectID: &project.UID, UpdaterID: updaterID}); err != nil {
+				if _, err := patchSheetImplV2(ctx, tx, &PatchSheetMessage{UID: sheet.UID, ProjectUID: &project.UID, UpdaterID: updaterID}); err != nil {
 					return nil, err
 				}
 			}
@@ -467,7 +464,7 @@ func (s *Store) UpdateDatabase(ctx context.Context, patch *UpdateDatabaseMessage
 	}
 
 	// Invalidate and update the cache.
-	s.databaseCache.Delete(getDatabaseCacheKey(patch.EnvironmentID, patch.InstanceID, patch.DatabaseName))
+	s.databaseCache.Delete(getDatabaseCacheKey(patch.InstanceID, patch.DatabaseName))
 	s.databaseIDCache.Delete(databaseUID)
 	return s.GetDatabaseV2(ctx, &FindDatabaseMessage{UID: &databaseUID})
 }
@@ -491,11 +488,15 @@ func (s *Store) BatchUpdateDatabaseProject(ctx context.Context, databases []*Dat
 		wheres = append(wheres, fmt.Sprintf("(environment.resource_id = $%d AND instance.resource_id = $%d AND db.name = $%d)", 3*i+3, 3*i+4, 3*i+5))
 		args = append(args, database.EnvironmentID, database.InstanceID, database.DatabaseName)
 	}
+	databaseClause := ""
+	if len(wheres) > 0 {
+		databaseClause = fmt.Sprintf(" AND (%s)", strings.Join(wheres, " OR "))
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
 			UPDATE db
 			SET project_id = $1, updater_id = $2
 			FROM instance JOIN environment ON instance.environment_id = environment.id
-			WHERE db.instance_id = instance.id AND (%s);`, strings.Join(wheres, " OR ")),
+			WHERE db.instance_id = instance.id %s;`, databaseClause),
 		args...,
 	); err != nil {
 		return nil, err
@@ -509,7 +510,7 @@ func (s *Store) BatchUpdateDatabaseProject(ctx context.Context, databases []*Dat
 	for _, database := range databases {
 		updatedDatabase := *database
 		updatedDatabase.ProjectID = project.ResourceID
-		s.databaseCache.Store(getDatabaseCacheKey(database.EnvironmentID, database.InstanceID, database.DatabaseName), &updatedDatabase)
+		s.databaseCache.Store(getDatabaseCacheKey(database.InstanceID, database.DatabaseName), &updatedDatabase)
 		s.databaseIDCache.Store(database.UID, &updatedDatabase)
 		updatedDatabases = append(updatedDatabases, &updatedDatabase)
 	}
@@ -554,6 +555,8 @@ func (*Store) listDatabaseImplV2(ctx context.Context, tx *Tx, find *FindDatabase
 	if !find.ShowDeleted {
 		where, args = append(where, fmt.Sprintf("environment.row_status = $%d", len(args)+1)), append(args, api.Normal)
 		where, args = append(where, fmt.Sprintf("instance.row_status = $%d", len(args)+1)), append(args, api.Normal)
+		// We don't show databases that are deleted by users already.
+		where, args = append(where, fmt.Sprintf("db.sync_status = $%d", len(args)+1)), append(args, api.OK)
 	}
 
 	var databaseMessages []*DatabaseMessage
@@ -572,7 +575,9 @@ func (*Store) listDatabaseImplV2(ctx context.Context, tx *Tx, find *FindDatabase
 			) keys,
 			ARRAY_AGG (
 				db_label.value
-			) label_values
+			) label_values,
+			db.secrets,
+			db.datashare
 		FROM db
 		LEFT JOIN project ON db.project_id = project.id
 		LEFT JOIN instance ON db.instance_id = instance.id
@@ -591,6 +596,7 @@ func (*Store) listDatabaseImplV2(ctx context.Context, tx *Tx, find *FindDatabase
 			Labels: make(map[string]string),
 		}
 		var keys, values []sql.NullString
+		var secretsString string
 		if err := rows.Scan(
 			&databaseMessage.UID,
 			&databaseMessage.ProjectID,
@@ -602,9 +608,16 @@ func (*Store) listDatabaseImplV2(ctx context.Context, tx *Tx, find *FindDatabase
 			&databaseMessage.SchemaVersion,
 			pq.Array(&keys),
 			pq.Array(&values),
+			&secretsString,
+			&databaseMessage.DataShare,
 		); err != nil {
 			return nil, err
 		}
+		var secret storepb.Secrets
+		if err := protojson.Unmarshal([]byte(secretsString), &secret); err != nil {
+			return nil, err
+		}
+		databaseMessage.Secrets = &secret
 		if len(keys) != len(values) {
 			return nil, errors.Errorf("invalid length of database label keys and values")
 		}

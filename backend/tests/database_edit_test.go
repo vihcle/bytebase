@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	api "github.com/bytebase/bytebase/backend/legacyapi"
-	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/resources/mysql"
 	"github.com/bytebase/bytebase/backend/tests/fake"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 func TestDatabaseEdit(t *testing.T) {
@@ -25,7 +25,7 @@ func TestDatabaseEdit(t *testing.T) {
 	ctx := context.Background()
 	ctl := &controller{}
 	dataDir := t.TempDir()
-	err := ctl.StartServerWithExternalPg(ctx, &config{
+	ctx, err := ctl.StartServerWithExternalPg(ctx, &config{
 		dataDir:            dataDir,
 		vcsProviderCreator: fake.NewGitLab,
 	})
@@ -53,55 +53,37 @@ func TestDatabaseEdit(t *testing.T) {
 	a.NoError(err)
 
 	// Create a project.
-	project, err := ctl.createProject(api.ProjectCreate{
-		ResourceID: generateRandomString("project", 10),
-		Name:       "Test Schema Editor Data Project",
-		Key:        "TestSchemaEditor",
+	project, err := ctl.createProject(ctx)
+	a.NoError(err)
+	projectUID, err := strconv.Atoi(project.Uid)
+	a.NoError(err)
+
+	prodEnvironment, err := ctl.getEnvironment(ctx, "prod")
+	a.NoError(err)
+
+	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
+		InstanceId: generateRandomString("instance", 10),
+		Instance: &v1pb.Instance{
+			Title:       "mysqlSchemaEditorInstance",
+			Engine:      v1pb.Engine_MYSQL,
+			Environment: prodEnvironment.Name,
+			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: "127.0.0.1", Port: strconv.Itoa(mysqlPort), Username: "bytebase", Password: "bytebase"}},
+		},
 	})
 	a.NoError(err)
 
-	environments, err := ctl.getEnvironments()
-	a.NoError(err)
-	prodEnvironment, err := findEnvironment(environments, "Prod")
+	err = ctl.createDatabase(ctx, projectUID, instance, databaseName, "bytebase", nil)
 	a.NoError(err)
 
-	instance, err := ctl.addInstance(api.InstanceCreate{
-		ResourceID:    generateRandomString("instance", 10),
-		EnvironmentID: prodEnvironment.ID,
-		Name:          "mysqlSchemaEditorInstance",
-		Engine:        db.MySQL,
-		Host:          "127.0.0.1",
-		Port:          strconv.Itoa(mysqlPort),
-		Username:      "bytebase",
-		Password:      "bytebase",
+	database, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
+		Name: fmt.Sprintf("%s/databases/%s", instance.Name, databaseName),
 	})
 	a.NoError(err)
-
-	databases, err := ctl.getDatabases(api.DatabaseFind{
-		ProjectID: &project.ID,
-	})
+	databaseUID, err := strconv.Atoi(database.Uid)
 	a.NoError(err)
-	a.Nil(databases)
-	databases, err = ctl.getDatabases(api.DatabaseFind{
-		InstanceID: &instance.ID,
-	})
-	a.NoError(err)
-	a.Nil(databases)
-
-	err = ctl.createDatabase(project, instance, databaseName, "bytebase", nil)
-	a.NoError(err)
-
-	databases, err = ctl.getDatabases(api.DatabaseFind{
-		ProjectID: &project.ID,
-	})
-	a.NoError(err)
-	a.Equal(1, len(databases))
-
-	database := databases[0]
-	a.Equal(instance.ID, database.Instance.ID)
 
 	databaseEdit := api.DatabaseEdit{
-		DatabaseID: database.ID,
+		DatabaseID: databaseUID,
 		CreateTableList: []*api.CreateTableContext{
 			{
 				Name: "student",

@@ -1,11 +1,19 @@
 import { RowStatus } from "./common";
-import { MemberId, PrincipalId, ProjectId, ResourceId } from "./id";
-import { OAuthToken } from "./oauth";
+import { ProjectId } from "./id";
 import { Principal } from "./principal";
 import { ExternalRepositoryInfo, RepositoryConfig } from "./repository";
-import { VCS } from "./vcs";
+import { SchemaChange } from "@/types/proto/v1/project_service";
+import {
+  OAuthToken,
+  ExternalVersionControl,
+} from "@/types/proto/v1/externalvs_service";
 
-export type ProjectRoleType = "OWNER" | "DEVELOPER";
+export type ProjectRoleType =
+  | "OWNER"
+  | "DEVELOPER"
+  | "EXPORTER"
+  | "QUERIER"
+  | string;
 
 export type ProjectWorkflowType = "UI" | "VCS";
 
@@ -34,17 +42,6 @@ export type Project = {
   schemaChangeType: SchemaChangeType;
 };
 
-export type ProjectCreate = {
-  resourceId: ResourceId;
-
-  // Domain specific fields
-  name: string;
-  key: string;
-  tenantMode: ProjectTenantMode;
-  dbNameTemplate: string;
-  schemaChangeType: SchemaChangeType;
-};
-
 export type ProjectPatch = {
   // Standard fields
   rowStatus?: RowStatus;
@@ -60,7 +57,7 @@ export type ProjectPatch = {
 
 // Project Member
 export type ProjectMember = {
-  id: MemberId;
+  id: string; // projects/%s/roles/%s/principals/%d
 
   // Related fields
   project: Project;
@@ -70,23 +67,12 @@ export type ProjectMember = {
   principal: Principal;
 };
 
-export type ProjectMemberCreate = {
-  // Domain specific fields
-  principalId: PrincipalId;
-  role: ProjectRoleType;
-};
-
-export type ProjectMemberPatch = {
-  // Domain specific fields
-  role: ProjectRoleType;
-};
-
 export type ProjectRepositoryConfig = {
-  vcs: VCS;
+  vcs: ExternalVersionControl;
   // TODO(zilong): get rid of the token in the frontend.
   token: OAuthToken;
   code: string;
   repositoryInfo: ExternalRepositoryInfo;
   repositoryConfig: RepositoryConfig;
-  schemaChangeType: SchemaChangeType;
+  schemaChangeType: SchemaChange;
 };

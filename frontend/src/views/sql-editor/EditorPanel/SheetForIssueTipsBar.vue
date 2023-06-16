@@ -1,14 +1,10 @@
 <template>
-  <div v-if="payload" class="w-full p-4 flex bg-yellow-50">
+  <div v-if="payload || isSheetOversize" class="w-full p-4 flex bg-yellow-50">
     <div class="flex-shrink-0">
       <heroicons-solid:information-circle class="h-5 w-5 text-yellow-400" />
     </div>
-    <div class="ml-3">
-      <i18n-t
-        tag="h3"
-        keypath="sheet.from-sheet-warning"
-        class="text-sm font-medium text-yellow-800"
-      >
+    <div class="ml-3 text-sm font-medium text-yellow-800">
+      <i18n-t v-if="payload" tag="h3" keypath="sheet.from-issue-warning">
         <template #issue>
           <NTooltip :disabled="loading || !issue">
             <template #trigger>
@@ -27,35 +23,41 @@
             </div>
           </NTooltip>
         </template>
+        <template v-if="isSheetOversize" #oversize>
+          {{ $t("sheet.content-oversize-warning") }}
+        </template>
       </i18n-t>
+      <div v-else-if="isSheetOversize">
+        {{ $t("sheet.content-oversize-warning") }}
+      </div>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { useIssueStore, useSheetStore, useTabStore } from "@/store";
+import { useIssueStore, useSheetV1Store, useTabStore } from "@/store";
 import { Issue } from "@/types";
-import { getSheetIssueBacktracePayload } from "@/utils";
+import { getSheetIssueBacktracePayloadV1 } from "@/utils";
 import { NTooltip } from "naive-ui";
 import { shallowRef } from "vue";
 import { computed, ref, watch } from "vue";
 
 const tabStore = useTabStore();
-const sheetStore = useSheetStore();
+const sheetV1Store = useSheetV1Store();
 const issueStore = useIssueStore();
 const tab = computed(() => tabStore.currentTab);
 const loading = ref(true);
 const issue = shallowRef<Issue>();
 
 const sheet = computed(() => {
-  const { sheetId } = tab.value;
-  if (!sheetId) return undefined;
-  return sheetStore.getSheetById(sheetId);
+  const { sheetName } = tab.value;
+  if (!sheetName) return undefined;
+  return sheetV1Store.getSheetByName(sheetName);
 });
 
 const payload = computed(() => {
   if (!sheet.value) return undefined;
-  return getSheetIssueBacktracePayload(sheet.value);
+  return getSheetIssueBacktracePayloadV1(sheet.value);
 });
 
 watch(
@@ -79,4 +81,15 @@ watch(
   },
   { immediate: true }
 );
+
+const isSheetOversize = computed(() => {
+  if (!sheet.value) {
+    return false;
+  }
+
+  return (
+    new TextDecoder().decode(sheet.value.content).length <
+    sheet.value.contentSize
+  );
+});
 </script>

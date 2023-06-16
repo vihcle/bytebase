@@ -15,6 +15,7 @@ var ownerAndDBAMethods = map[string]bool{
 	"EnvironmentService/UpdateEnvironment":   true,
 	"EnvironmentService/DeleteEnvironment":   true,
 	"EnvironmentService/UndeleteEnvironment": true,
+	"EnvironmentService/UpdateBackupSetting": true,
 	"InstanceService/CreateInstance":         true,
 	"InstanceService/UpdateInstance":         true,
 	"InstanceService/DeleteInstance":         true,
@@ -26,12 +27,19 @@ var ownerAndDBAMethods = map[string]bool{
 	"RiskService/CreateRisk":                 true,
 	"RiskService/UpdateRisk":                 true,
 	"RiskService/DeleteRisk":                 true,
+	"SettingService/SetSetting":              true,
+	"RoleService/CreateRole":                 true,
+	"RoleService/UpdateRole":                 true,
+	"RoleService/DeleteRole":                 true,
+	"ActuatorService/UpdateActuatorInfo":     true,
+	"ActuatorService/ListDebugLog":           true,
 }
 
 var projectOwnerMethods = map[string]bool{
 	"ProjectService/UpdateProject":           true,
 	"ProjectService/DeleteProject":           true,
 	"ProjectService/UndeleteProject":         true,
+	"ProjectService/SetIamPolicy":            true,
 	"SubscriptionService/UpdateSubscription": true,
 }
 

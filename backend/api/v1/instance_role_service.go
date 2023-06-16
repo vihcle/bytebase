@@ -34,18 +34,18 @@ func NewInstanceRoleService(store *store.Store, dbFactory *dbfactory.DBFactory) 
 
 // GetInstanceRole gets an role.
 func (s *InstanceRoleService) GetInstanceRole(ctx context.Context, request *v1pb.GetInstanceRoleRequest) (*v1pb.InstanceRole, error) {
-	environmentID, instanceID, roleName, err := getEnvironmentInstanceRoleID(request.Name)
+	instanceID, roleName, err := getInstanceRoleID(request.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
-	instance, err := s.getInstanceMessage(ctx, environmentID, instanceID)
+	instance, err := s.getInstanceMessage(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
 
 	role, err := func() (*db.DatabaseRoleMessage, error) {
-		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, "" /* database name */)
+		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, nil /* database */)
 		if err != nil {
 			return nil, err
 		}
@@ -70,18 +70,34 @@ func (s *InstanceRoleService) GetInstanceRole(ctx context.Context, request *v1pb
 
 // ListInstanceRoles lists all roles in an instance.
 func (s *InstanceRoleService) ListInstanceRoles(ctx context.Context, request *v1pb.ListInstanceRolesRequest) (*v1pb.ListInstanceRolesResponse, error) {
-	environmentID, instanceID, err := getEnvironmentInstanceID(request.Parent)
+	instanceID, err := getInstanceID(request.Parent)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
-	instance, err := s.getInstanceMessage(ctx, environmentID, instanceID)
+	instance, err := s.getInstanceMessage(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
 
+	if !request.Refresh {
+		instanceUsers, err := s.store.ListInstanceUsers(ctx, &store.FindInstanceUserMessage{InstanceUID: instance.UID})
+		if err != nil {
+			return nil, err
+		}
+		response := &v1pb.ListInstanceRolesResponse{}
+		for _, u := range instanceUsers {
+			response.Roles = append(response.Roles, &v1pb.InstanceRole{
+				Name:      fmt.Sprintf("instances/%s/roles/%s", instance.ResourceID, u.Name),
+				RoleName:  u.Name,
+				Attribute: &u.Grant,
+			})
+		}
+		return response, nil
+	}
+
 	roleList, err := func() ([]*db.DatabaseRoleMessage, error) {
-		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, "" /* database name */)
+		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, nil /* database */)
 		if err != nil {
 			return nil, err
 		}
@@ -110,11 +126,11 @@ func (s *InstanceRoleService) CreateInstanceRole(ctx context.Context, request *v
 	if request.Role == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "role must be set")
 	}
-	environmentID, instanceID, err := getEnvironmentInstanceID(request.Parent)
+	instanceID, err := getInstanceID(request.Parent)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
-	instance, err := s.getInstanceMessage(ctx, environmentID, instanceID)
+	instance, err := s.getInstanceMessage(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +147,7 @@ func (s *InstanceRoleService) CreateInstanceRole(ctx context.Context, request *v
 	}
 
 	role, err := func() (*db.DatabaseRoleMessage, error) {
-		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, "" /* database name */)
+		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, nil /* database */)
 		if err != nil {
 			return nil, err
 		}
@@ -160,12 +176,12 @@ func (s *InstanceRoleService) UpdateInstanceRole(ctx context.Context, request *v
 		return nil, status.Errorf(codes.InvalidArgument, "update_mask must be set")
 	}
 
-	environmentID, instanceID, roleName, err := getEnvironmentInstanceRoleID(request.Role.Name)
+	instanceID, roleName, err := getInstanceRoleID(request.Role.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
-	instance, err := s.getInstanceMessage(ctx, environmentID, instanceID)
+	instance, err := s.getInstanceMessage(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +208,7 @@ func (s *InstanceRoleService) UpdateInstanceRole(ctx context.Context, request *v
 	}
 
 	role, err := func() (*db.DatabaseRoleMessage, error) {
-		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, "" /* database name */)
+		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, nil /* database */)
 		if err != nil {
 			return nil, err
 		}
@@ -217,18 +233,18 @@ func (s *InstanceRoleService) UpdateInstanceRole(ctx context.Context, request *v
 
 // DeleteInstanceRole deletes an role.
 func (s *InstanceRoleService) DeleteInstanceRole(ctx context.Context, request *v1pb.DeleteInstanceRoleRequest) (*emptypb.Empty, error) {
-	environmentID, instanceID, roleName, err := getEnvironmentInstanceRoleID(request.Name)
+	instanceID, roleName, err := getInstanceRoleID(request.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
-	instance, err := s.getInstanceMessage(ctx, environmentID, instanceID)
+	instance, err := s.getInstanceMessage(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
 
 	if err := func() error {
-		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, "" /* database name */)
+		driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, nil /* database */)
 		if err != nil {
 			return err
 		}
@@ -247,10 +263,9 @@ func (*InstanceRoleService) UndeleteInstanceRole(_ context.Context, _ *v1pb.Unde
 	return nil, status.Errorf(codes.Unimplemented, "Undelete role is not supported")
 }
 
-func (s *InstanceRoleService) getInstanceMessage(ctx context.Context, environmentID, instanceID string) (*store.InstanceMessage, error) {
+func (s *InstanceRoleService) getInstanceMessage(ctx context.Context, instanceID string) (*store.InstanceMessage, error) {
 	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
-		EnvironmentID: &environmentID,
-		ResourceID:    &instanceID,
+		ResourceID: &instanceID,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
@@ -267,7 +282,7 @@ func (s *InstanceRoleService) getInstanceMessage(ctx context.Context, environmen
 
 func convertToInstanceRole(role *db.DatabaseRoleMessage, instance *store.InstanceMessage) *v1pb.InstanceRole {
 	return &v1pb.InstanceRole{
-		Name:            fmt.Sprintf("environments/%s/instances/%s/roles/%s", instance.EnvironmentID, instance.ResourceID, role.Name),
+		Name:            fmt.Sprintf("instances/%s/roles/%s", instance.ResourceID, role.Name),
 		RoleName:        role.Name,
 		ConnectionLimit: &role.ConnectionLimit,
 		ValidUntil:      role.ValidUntil,
@@ -289,7 +304,7 @@ func validateRole(dbType db.Type, upsert *db.DatabaseRoleUpsertMessage) error {
 				return status.Errorf(codes.InvalidArgument, "Invalid timestamp for valid_until, timestamp should in '2006-01-02T15:04:05+08:00' format.")
 			}
 		}
-	case db.MySQL, db.TiDB, db.MariaDB:
+	case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 		if v := upsert.ConnectionLimit; v != nil && *v < int32(0) {
 			return status.Errorf(codes.InvalidArgument, "Invalid connection limit, it should greater than or equal to -1")
 		}

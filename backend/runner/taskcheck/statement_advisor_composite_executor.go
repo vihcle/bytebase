@@ -12,6 +12,7 @@ import (
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	advisorDB "github.com/bytebase/bytebase/backend/plugin/advisor/db"
 	"github.com/bytebase/bytebase/backend/store"
+	"github.com/bytebase/bytebase/backend/utils"
 )
 
 // SQL review policy consists of a list of SQL review rules.
@@ -66,7 +67,15 @@ func (e *StatementAdvisorCompositeExecutor) Run(ctx context.Context, taskCheckRu
 	if err := json.Unmarshal([]byte(task.Payload), payload); err != nil {
 		return nil, err
 	}
-	if payload.SheetID > 0 {
+
+	sheet, err := e.store.GetSheetV2(ctx, &store.FindSheetMessage{UID: &payload.SheetID}, api.SystemBotID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get sheet %d", payload.SheetID)
+	}
+	if sheet == nil {
+		return nil, errors.Errorf("sheet %d not found", payload.SheetID)
+	}
+	if sheet.Size > common.MaxSheetSizeForTaskCheck {
 		return []api.TaskCheckResult{
 			{
 				Status:    api.TaskCheckStatusSuccess,
@@ -76,6 +85,10 @@ func (e *StatementAdvisorCompositeExecutor) Run(ctx context.Context, taskCheckRu
 				Content:   "",
 			},
 		}, nil
+	}
+	statement, err := e.store.GetSheetStatementByID(ctx, payload.SheetID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get sheet statement %d", payload.SheetID)
 	}
 
 	policy, err := e.store.GetSQLReviewPolicy(ctx, environment.UID)
@@ -104,14 +117,17 @@ func (e *StatementAdvisorCompositeExecutor) Run(ctx context.Context, taskCheckRu
 		return nil, err
 	}
 
-	driver, err := e.dbFactory.GetReadOnlyDatabaseDriver(ctx, instance, database.DatabaseName)
+	driver, err := e.dbFactory.GetReadOnlyDatabaseDriver(ctx, instance, database)
 	if err != nil {
 		return nil, err
 	}
 	defer driver.Close(ctx)
 	connection := driver.GetDB()
 
-	adviceList, err := advisor.SQLReviewCheck(payload.Statement, policy.RuleList, advisor.SQLReviewCheckContext{
+	materials := utils.GetSecretMapFromDatabaseMessage(database)
+	// To avoid leaking the rendered statement, the error message should use the original statement and not the rendered statement.
+	renderedStatement := utils.RenderStatement(statement, materials)
+	adviceList, err := advisor.SQLReviewCheck(renderedStatement, policy.RuleList, advisor.SQLReviewCheckContext{
 		Charset:   dbSchema.Metadata.CharacterSet,
 		Collation: dbSchema.Metadata.Collation,
 		DbType:    dbType,

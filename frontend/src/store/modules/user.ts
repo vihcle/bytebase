@@ -7,8 +7,14 @@ import {
   UserType,
 } from "@/types/proto/v1/auth_service";
 import { isEqual, isUndefined } from "lodash-es";
-import { getUserId, userNamePrefix } from "./v1/common";
+import {
+  getUserId,
+  userNamePrefix,
+  getUserEmailFromIdentifier,
+} from "./v1/common";
 import { Principal, PrincipalType, RoleType } from "@/types";
+import { State } from "@/types/proto/v1/common";
+import { extractUserUID } from "@/utils";
 
 interface UserState {
   userMapByName: Map<string, User>;
@@ -22,10 +28,24 @@ export const useUserStore = defineStore("user", {
     userList(state) {
       return Array.from(state.userMapByName.values());
     },
+    activeUserList(state) {
+      const list = Array.from(state.userMapByName.values()).filter(
+        (user) => user.state === State.ACTIVE
+      );
+      list.sort((a, b) => {
+        return (
+          parseInt(extractUserUID(a.name), 10) -
+          parseInt(extractUserUID(b.name), 10)
+        );
+      });
+      return list;
+    },
   },
   actions: {
     async fetchUserList() {
-      const { users } = await authServiceClient.listUsers({});
+      const { users } = await authServiceClient.listUsers({
+        showDeleted: true,
+      });
       for (const user of users) {
         this.userMapByName.set(user.name, user);
       }
@@ -38,12 +58,12 @@ export const useUserStore = defineStore("user", {
       this.userMapByName.set(user.name, user);
       return user;
     },
-    async createUser(create: User) {
-      const user = await authServiceClient.createUser({
-        user: create,
+    async createUser(user: User) {
+      const createdUser = await authServiceClient.createUser({
+        user,
       });
-      this.userMapByName.set(user.name, user);
-      return user;
+      this.userMapByName.set(createdUser.name, createdUser);
+      return createdUser;
     },
     async updateUser(updateUserRequest: UpdateUserRequest) {
       const name = updateUserRequest.user?.name || "";
@@ -51,7 +71,6 @@ export const useUserStore = defineStore("user", {
       if (!originData) {
         throw new Error(`user with name ${name} not found`);
       }
-
       const user = await authServiceClient.updateUser(updateUserRequest);
       this.userMapByName.set(user.name, user);
       return user;
@@ -70,16 +89,33 @@ export const useUserStore = defineStore("user", {
     getUserByName(name: string) {
       return this.userMapByName.get(name);
     },
-    async getOrFetchUserById(id: number) {
-      return await this.getOrFetchUserByName(getUserNameWithUserId(id));
+    async getOrFetchUserById(uid: string) {
+      return await this.getOrFetchUserByName(getUserNameWithUserId(uid));
     },
-    getUserById(id: number) {
-      return this.userMapByName.get(getUserNameWithUserId(id));
+    getUserById(uid: string) {
+      return this.userMapByName.get(getUserNameWithUserId(uid));
+    },
+    getUserByIdentifier(identifier: string) {
+      return this.getUserByEmail(getUserEmailFromIdentifier(identifier));
     },
     getUserByEmail(email: string) {
       return [...this.userMapByName.values()].find(
         (user) => user.email === email
       );
+    },
+    async archiveUser(user: User) {
+      await authServiceClient.deleteUser({
+        name: user.name,
+      });
+      user.state = State.DELETED;
+      return user;
+    },
+    async restoreUser(user: User) {
+      const restoredUser = await authServiceClient.undeleteUser({
+        name: user.name,
+      });
+      this.userMapByName.set(restoredUser.name, restoredUser);
+      return restoredUser;
     },
   },
 });
@@ -89,8 +125,8 @@ export const extractUserEmail = (emailResource: string) => {
   return matches?.[1] ?? "";
 };
 
-export const getUserNameWithUserId = (userId: number) => {
-  return `${userNamePrefix}${userId}`;
+export const getUserNameWithUserId = (userUID: string) => {
+  return `${userNamePrefix}${userUID}`;
 };
 
 export const getUpdateMaskFromUsers = (

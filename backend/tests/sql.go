@@ -1,88 +1,41 @@
 package tests
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"strings"
 	"time"
 
-	"github.com/google/jsonapi"
 	"github.com/pkg/errors"
 
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	"github.com/bytebase/bytebase/backend/plugin/parser"
+	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
-// executeSQL executes a SQL query on the database.
-func (ctl *controller) executeSQL(sqlExecute api.SQLExecute) (*api.SQLResultSet, error) {
-	buf := new(bytes.Buffer)
-	if err := jsonapi.MarshalPayload(buf, &sqlExecute); err != nil {
-		return nil, errors.Wrap(err, "failed to marshal sqlExecute")
-	}
-
-	body, err := ctl.post("/sql/execute", buf)
+func (ctl *controller) adminQuery(ctx context.Context, instance *v1pb.Instance, databaseName, query string) ([]*v1pb.QueryResult, error) {
+	c, err := ctl.sqlServiceClient.AdminExecute(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	sqlResultSet := new(api.SQLResultSet)
-	if err = jsonapi.UnmarshalPayload(body, sqlResultSet); err != nil {
-		return nil, errors.Wrap(err, "fail to unmarshal sqlResultSet response")
+	if err := c.Send(&v1pb.AdminExecuteRequest{
+		Name:               instance.Name,
+		ConnectionDatabase: databaseName,
+		Statement:          query,
+	}); err != nil {
+		return nil, err
 	}
-	return sqlResultSet, nil
-}
-
-func (ctl *controller) query(instance *api.Instance, databaseName, query string) (string, error) {
-	sqlResultSet, err := ctl.executeSQL(api.SQLExecute{
-		InstanceID:   instance.ID,
-		DatabaseName: databaseName,
-		Statement:    query,
-		Readonly:     true,
-	})
-	if err != nil {
-		return "", errors.Wrap(err, "failed to execute SQL")
-	}
-	if sqlResultSet.Error != "" {
-		return "", errors.Errorf("expect SQL result has no error, got %q", sqlResultSet.Error)
-	}
-	// TODO(zp): optimize here
-	return sqlResultSet.SingleSQLResultList[0].Data, nil
-}
-
-// adminExecuteSQL executes a SQL query on the database.
-func (ctl *controller) adminExecuteSQL(sqlExecute api.SQLExecute) (*api.SQLResultSet, error) {
-	buf := new(bytes.Buffer)
-	if err := jsonapi.MarshalPayload(buf, &sqlExecute); err != nil {
-		return nil, errors.Wrap(err, "failed to marshal sqlExecute")
-	}
-
-	body, err := ctl.post("/sql/execute/admin", buf)
+	resp, err := c.Recv()
 	if err != nil {
 		return nil, err
 	}
-
-	sqlResultSet := new(api.SQLResultSet)
-	if err = jsonapi.UnmarshalPayload(body, sqlResultSet); err != nil {
-		return nil, errors.Wrap(err, "fail to unmarshal sqlResultSet response")
+	if err := c.CloseSend(); err != nil {
+		return nil, err
 	}
-	return sqlResultSet, nil
-}
-
-func (ctl *controller) adminQuery(instance *api.Instance, databaseName, query string) ([]api.SingleSQLResult, error) {
-	sqlResultSet, err := ctl.adminExecuteSQL(api.SQLExecute{
-		InstanceID:   instance.ID,
-		DatabaseName: databaseName,
-		Statement:    query,
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to execute SQL")
-	}
-	if sqlResultSet.Error != "" {
-		return nil, errors.Errorf("expect SQL result has no error, got %q", sqlResultSet.Error)
-	}
-	return sqlResultSet.SingleSQLResultList, nil
+	return resp.Results, nil
 }
 
 // sqlReviewTaskCheckRunFinished will return SQL review task check result for next task.
@@ -149,414 +102,411 @@ func (ctl *controller) GetSQLReviewResult(id int) ([]api.TaskCheckResult, error)
 	return nil, nil
 }
 
-func prodTemplateSQLReviewPolicyForPostgreSQL() (string, error) {
-	policy := advisor.SQLReviewPolicy{
+func prodTemplateSQLReviewPolicyForPostgreSQL() (*v1pb.SQLReviewPolicy, error) {
+	policy := &v1pb.SQLReviewPolicy{
 		Name: "Prod",
-		RuleList: []*advisor.SQLReviewRule{
+		Rules: []*v1pb.SQLReviewRule{
 			// Naming
 			{
-				Type:  advisor.SchemaRuleTableNaming,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleTableNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnNaming,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleColumnNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleIDXNaming,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleIDXNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRulePKNaming,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRulePKNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleUKNaming,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleUKNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleFKNaming,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleFKNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			// Statement
 			{
-				Type:  advisor.SchemaRuleStatementNoSelectAll,
-				Level: advisor.SchemaRuleLevelError,
+				Type:  string(advisor.SchemaRuleStatementNoSelectAll),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
 			},
 			{
-				Type:  advisor.SchemaRuleStatementRequireWhere,
-				Level: advisor.SchemaRuleLevelError,
+				Type:  string(advisor.SchemaRuleStatementRequireWhere),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
 			},
 			{
-				Type:  advisor.SchemaRuleStatementNoLeadingWildcardLike,
-				Level: advisor.SchemaRuleLevelError,
+				Type:  string(advisor.SchemaRuleStatementNoLeadingWildcardLike),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
 			},
 			{
-				Type:  advisor.SchemaRuleStatementDisallowCommit,
-				Level: advisor.SchemaRuleLevelError,
+				Type:  string(advisor.SchemaRuleStatementDisallowCommit),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
 			},
 			{
-				Type:  advisor.SchemaRuleStatementDisallowOrderBy,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleStatementDisallowOrderBy),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleStatementMergeAlterTable,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleStatementMergeAlterTable),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleStatementInsertDisallowOrderByRand,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleStatementInsertDisallowOrderByRand),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			// TABLE
 			{
-				Type:  advisor.SchemaRuleTableRequirePK,
-				Level: advisor.SchemaRuleLevelError,
+				Type:  string(advisor.SchemaRuleTableRequirePK),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
 			},
 			{
-				Type:  advisor.SchemaRuleTableNoFK,
-				Level: advisor.SchemaRuleLevelError,
+				Type:  string(advisor.SchemaRuleTableNoFK),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
 			},
 			{
-				Type:  advisor.SchemaRuleTableDropNamingConvention,
-				Level: advisor.SchemaRuleLevelError,
+				Type:  string(advisor.SchemaRuleTableDropNamingConvention),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
 			},
 			{
-				Type:  advisor.SchemaRuleTableCommentConvention,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleTableCommentConvention),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleTableDisallowPartition,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleTableDisallowPartition),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			// COLUMN
 			{
-				Type:  advisor.SchemaRuleRequiredColumn,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleRequiredColumn),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnNotNull,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleColumnNotNull),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnDisallowChangeType,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleColumnDisallowChangeType),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnDisallowChange,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleColumnDisallowChange),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnDisallowChangingOrder,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleColumnDisallowChangingOrder),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnCommentConvention,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleColumnCommentConvention),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnAutoIncrementMustInteger,
-				Level: advisor.SchemaRuleLevelError,
+				Type:  string(advisor.SchemaRuleColumnAutoIncrementMustInteger),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnTypeDisallowList,
-				Level: advisor.SchemaRuleLevelError,
+				Type:  string(advisor.SchemaRuleColumnTypeDisallowList),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnDisallowSetCharset,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleColumnDisallowSetCharset),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnMaximumCharacterLength,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleColumnMaximumCharacterLength),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnAutoIncrementInitialValue,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleColumnAutoIncrementInitialValue),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleColumnAutoIncrementMustUnsigned,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleColumnAutoIncrementMustUnsigned),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleCurrentTimeColumnCountLimit,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleCurrentTimeColumnCountLimit),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			// SCHEMA
 			{
-				Type:  advisor.SchemaRuleSchemaBackwardCompatibility,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleSchemaBackwardCompatibility),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			// DATABASE
 			{
-				Type:  advisor.SchemaRuleDropEmptyDatabase,
-				Level: advisor.SchemaRuleLevelError,
+				Type:  string(advisor.SchemaRuleDropEmptyDatabase),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
 			},
 			// INDEX
 			{
-				Type:  advisor.SchemaRuleIndexNoDuplicateColumn,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleIndexNoDuplicateColumn),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleIndexKeyNumberLimit,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleIndexKeyNumberLimit),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleIndexPKTypeLimit,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleIndexPKTypeLimit),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleIndexTypeNoBlob,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleIndexTypeNoBlob),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleIndexTotalNumberLimit,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleIndexTotalNumberLimit),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			// SYSTEM
 			{
-				Type:  advisor.SchemaRuleCharsetAllowlist,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleCharsetAllowlist),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 			{
-				Type:  advisor.SchemaRuleCollationAllowlist,
-				Level: advisor.SchemaRuleLevelWarning,
+				Type:  string(advisor.SchemaRuleCollationAllowlist),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
 			},
 		},
 	}
 
-	return templateSQLReviewPolicy(policy)
-}
-
-func prodTemplateSQLReviewPolicyForMySQL() (string, error) {
-	policy := advisor.SQLReviewPolicy{
-		Name: "Prod",
-		RuleList: []*advisor.SQLReviewRule{
-			// Engine
-			{
-				Type:  advisor.SchemaRuleMySQLEngine,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			// Naming
-			{
-				Type:  advisor.SchemaRuleTableNaming,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnNaming,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleIDXNaming,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRulePKNaming,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleUKNaming,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleFKNaming,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleAutoIncrementColumnNaming,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			// Statement
-			{
-				Type:  advisor.SchemaRuleStatementNoSelectAll,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			{
-				Type:  advisor.SchemaRuleStatementRequireWhere,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			{
-				Type:  advisor.SchemaRuleStatementNoLeadingWildcardLike,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			{
-				Type:  advisor.SchemaRuleStatementDisallowCommit,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			{
-				Type:  advisor.SchemaRuleStatementDisallowLimit,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleStatementDisallowOrderBy,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleStatementMergeAlterTable,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleStatementInsertRowLimit,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleStatementInsertMustSpecifyColumn,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleStatementInsertDisallowOrderByRand,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleStatementAffectedRowLimit,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleStatementDMLDryRun,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			// TABLE
-			{
-				Type:  advisor.SchemaRuleTableRequirePK,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			{
-				Type:  advisor.SchemaRuleTableNoFK,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			{
-				Type:  advisor.SchemaRuleTableDropNamingConvention,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			{
-				Type:  advisor.SchemaRuleTableCommentConvention,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleTableDisallowPartition,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			// COLUMN
-			{
-				Type:  advisor.SchemaRuleRequiredColumn,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnNotNull,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnDisallowChangeType,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnSetDefaultForNotNull,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnDisallowChange,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnDisallowChangingOrder,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnCommentConvention,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnAutoIncrementMustInteger,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnTypeDisallowList,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnDisallowSetCharset,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnMaximumCharacterLength,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnAutoIncrementInitialValue,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnAutoIncrementMustUnsigned,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleCurrentTimeColumnCountLimit,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleColumnRequireDefault,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			// SCHEMA
-			{
-				Type:  advisor.SchemaRuleSchemaBackwardCompatibility,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			// DATABASE
-			{
-				Type:  advisor.SchemaRuleDropEmptyDatabase,
-				Level: advisor.SchemaRuleLevelError,
-			},
-			// INDEX
-			{
-				Type:  advisor.SchemaRuleIndexNoDuplicateColumn,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleIndexKeyNumberLimit,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleIndexPKTypeLimit,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleIndexTypeNoBlob,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleIndexTotalNumberLimit,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			// SYSTEM
-			{
-				Type:  advisor.SchemaRuleCharsetAllowlist,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-			{
-				Type:  advisor.SchemaRuleCollationAllowlist,
-				Level: advisor.SchemaRuleLevelWarning,
-			},
-		},
-	}
-
-	return templateSQLReviewPolicy(policy)
-}
-
-// templateSQLReviewPolicy returns the default SQL review policy.
-func templateSQLReviewPolicy(policy advisor.SQLReviewPolicy) (string, error) {
-	for _, rule := range policy.RuleList {
-		payload, err := advisor.SetDefaultSQLReviewRulePayload(rule.Type)
+	for _, rule := range policy.Rules {
+		payload, err := advisor.SetDefaultSQLReviewRulePayload(advisor.SQLReviewRuleType(rule.Type), db.Postgres)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		rule.Payload = payload
 	}
+	return policy, nil
+}
 
-	s, err := json.Marshal(policy)
-	if err != nil {
-		return "", err
+func prodTemplateSQLReviewPolicyForMySQL() (*v1pb.SQLReviewPolicy, error) {
+	policy := &v1pb.SQLReviewPolicy{
+		Name: "Prod",
+		Rules: []*v1pb.SQLReviewRule{
+			// Engine
+			{
+				Type:  string(advisor.SchemaRuleMySQLEngine),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			// Naming
+			{
+				Type:  string(advisor.SchemaRuleTableNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleIDXNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRulePKNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleUKNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleFKNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleAutoIncrementColumnNaming),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			// Statement
+			{
+				Type:  string(advisor.SchemaRuleStatementNoSelectAll),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			{
+				Type:  string(advisor.SchemaRuleStatementRequireWhere),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			{
+				Type:  string(advisor.SchemaRuleStatementNoLeadingWildcardLike),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			{
+				Type:  string(advisor.SchemaRuleStatementDisallowCommit),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			{
+				Type:  string(advisor.SchemaRuleStatementDisallowLimit),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleStatementDisallowOrderBy),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleStatementMergeAlterTable),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleStatementInsertRowLimit),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleStatementInsertMustSpecifyColumn),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleStatementInsertDisallowOrderByRand),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleStatementAffectedRowLimit),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleStatementDMLDryRun),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			// TABLE
+			{
+				Type:  string(advisor.SchemaRuleTableRequirePK),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			{
+				Type:  string(advisor.SchemaRuleTableNoFK),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			{
+				Type:  string(advisor.SchemaRuleTableDropNamingConvention),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			{
+				Type:  string(advisor.SchemaRuleTableCommentConvention),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleTableDisallowPartition),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			// COLUMN
+			{
+				Type:  string(advisor.SchemaRuleRequiredColumn),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnNotNull),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnDisallowChangeType),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnSetDefaultForNotNull),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnDisallowChange),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnDisallowChangingOrder),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnCommentConvention),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnAutoIncrementMustInteger),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnTypeDisallowList),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnDisallowSetCharset),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnMaximumCharacterLength),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnAutoIncrementInitialValue),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnAutoIncrementMustUnsigned),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleCurrentTimeColumnCountLimit),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleColumnRequireDefault),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			// SCHEMA
+			{
+				Type:  string(advisor.SchemaRuleSchemaBackwardCompatibility),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			// DATABASE
+			{
+				Type:  string(advisor.SchemaRuleDropEmptyDatabase),
+				Level: v1pb.SQLReviewRuleLevel_ERROR,
+			},
+			// INDEX
+			{
+				Type:  string(advisor.SchemaRuleIndexNoDuplicateColumn),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleIndexKeyNumberLimit),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleIndexPKTypeLimit),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleIndexTypeNoBlob),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleIndexTotalNumberLimit),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			// SYSTEM
+			{
+				Type:  string(advisor.SchemaRuleCharsetAllowlist),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+			{
+				Type:  string(advisor.SchemaRuleCollationAllowlist),
+				Level: v1pb.SQLReviewRuleLevel_WARNING,
+			},
+		},
 	}
-	return string(s), nil
+
+	for _, rule := range policy.Rules {
+		payload, err := advisor.SetDefaultSQLReviewRulePayload(advisor.SQLReviewRuleType(rule.Type), db.Postgres)
+		if err != nil {
+			return nil, err
+		}
+		rule.Payload = payload
+	}
+	return policy, nil
 }
 
 type schemaDiffRequest struct {

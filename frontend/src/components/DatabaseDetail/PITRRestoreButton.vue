@@ -32,146 +32,107 @@
     <BBBetaBadge corner />
   </div>
 
-  <BBModal
-    v-if="state.showDatabasePITRModal"
-    :title="$t('database.pitr.restore')"
-    @close="state.showDatabasePITRModal = false"
-  >
-    <div class="w-112 flex flex-col items-center gap-4">
-      <div class="w-full textinfolabel">
-        <i18n-t
-          :keypath="
-            state.mode === 'LAST_MIGRATION'
-              ? 'database.pitr.restore-before-last-migration-help-info'
-              : 'database.pitr.help-info'
-          "
-          tag="p"
+  <Drawer v-model:show="state.showDatabasePITRModal">
+    <DrawerContent :title="$t('database.pitr.restore')">
+      <div class="w-72 flex flex-col items-center gap-4">
+        <div class="w-full textinfolabel">
+          <i18n-t
+            :keypath="
+              state.mode === 'LAST_MIGRATION'
+                ? 'database.pitr.restore-before-last-migration-help-info'
+                : 'database.pitr.help-info'
+            "
+            tag="p"
+          >
+            <template #link>
+              <a
+                class="normal-link inline-flex items-center"
+                href="https://www.bytebase.com/docs/disaster-recovery/point-in-time-recovery-for-mysql"
+                target="__BLANK"
+              >
+                {{ $t("common.learn-more") }}
+                <heroicons-outline:external-link class="w-4 h-4" />
+              </a>
+            </template>
+          </i18n-t>
+        </div>
+
+        <template
+          v-if="state.step === 'LAST_MIGRATION_INFO' && lastChangeHistory"
         >
-          <template #link>
-            <a
-              class="normal-link inline-flex items-center"
-              href="https://www.bytebase.com/docs/disaster-recovery/point-in-time-recovery-for-mysql"
-              target="__BLANK"
-            >
-              {{ $t("common.learn-more") }}
-              <heroicons-outline:external-link class="w-4 h-4" />
-            </a>
-          </template>
-        </i18n-t>
+          <ChangeHistoryBrief
+            :database="database"
+            :change-history="lastChangeHistory"
+          />
+        </template>
+
+        <template v-else>
+          <div class="w-72 space-y-4">
+            <div class="space-y-2">
+              <label class="textlabel w-full flex items-baseline">
+                <span>{{ $t("database.pitr.point-in-time") }}</span>
+                <span class="text-gray-400 text-xs ml-2">{{ timezone }}</span>
+                <span class="text-red-600 ml-1">*</span>
+              </label>
+              <NDatePicker
+                v-model:value="state.pitrTimestampMS"
+                type="datetime"
+                :disabled="state.mode === 'LAST_MIGRATION'"
+              />
+              <div v-if="pitrTimestampError" class="text-sm text-red-600">
+                {{ pitrTimestampError }}
+              </div>
+            </div>
+
+            <RestoreTargetForm
+              :target="state.target"
+              @change="state.target = $event"
+            />
+
+            <CreatePITRDatabaseForm
+              v-if="state.target === 'NEW'"
+              ref="createDatabaseForm"
+              :database="database"
+              :context="state.createContext"
+              @update="state.createContext = $event"
+            />
+          </div>
+        </template>
+
+        <div
+          v-if="state.loading"
+          class="absolute inset-0 z-10 bg-white/70 flex items-center justify-center"
+        >
+          <BBSpin />
+        </div>
       </div>
 
-      <template
-        v-if="state.step === 'LAST_MIGRATION_INFO' && lastMigrationHistory"
-      >
-        <MigrationHistoryBrief
-          :database="database"
-          :migration-history="lastMigrationHistory"
-        />
-      </template>
+      <template #footer>
+        <div class="flex justify-end gap-x-3">
+          <NButton @click.prevent="resetUI">
+            {{ $t("common.cancel") }}
+          </NButton>
 
-      <template v-else>
-        <div class="w-72 space-y-4">
-          <div class="space-y-2">
-            <label class="textlabel w-full flex items-baseline">
-              <span>{{ $t("database.pitr.point-in-time") }}</span>
-              <span class="text-gray-400 text-xs ml-2">{{ timezone }}</span>
-              <span class="text-red-600 ml-1">*</span>
-            </label>
-            <NDatePicker
-              v-model:value="state.pitrTimestampMS"
-              type="datetime"
-              :disabled="state.mode === 'LAST_MIGRATION'"
-            />
-            <div v-if="pitrTimestampError" class="text-sm text-red-600">
-              {{ pitrTimestampError }}
-            </div>
-          </div>
+          <NButton
+            v-if="state.step === 'LAST_MIGRATION_INFO'"
+            type="primary"
+            @click.prevent="initLastChangeParams"
+          >
+            {{ $t("common.next") }}
+          </NButton>
 
-          <div class="space-y-2">
-            <label class="textlabel w-full flex flex-col gap-1">
-              {{ $t("database.pitr.restore-to") }}
-            </label>
-            <div class="flex items-center gap-3 textlabel">
-              <label class="flex items-center">
-                <input
-                  type="radio"
-                  :checked="state.target === 'IN-PLACE'"
-                  @input="state.target = 'IN-PLACE'"
-                />
-                <span class="ml-2">
-                  {{ $t("database.pitr.restore-to-in-place") }}
-                </span>
-              </label>
-              <label class="flex items-center gap-2">
-                <input
-                  type="radio"
-                  :checked="state.target === 'NEW'"
-                  @input="state.target = 'NEW'"
-                />
-                <span>{{ $t("database.pitr.restore-to-new-db") }}</span>
-              </label>
-            </div>
-
-            <div
-              v-if="state.target === 'IN-PLACE'"
-              class="flex items-center gap-2 text-error mt-2"
-            >
-              <heroicons-outline:exclamation-circle class="w-4 h-4" />
-              <span class="whitespace-nowrap text-sm">
-                {{ $t("database.pitr.will-overwrite-current-database") }}
-              </span>
-            </div>
-          </div>
-
-          <CreatePITRDatabaseForm
-            v-if="state.target === 'NEW'"
-            ref="createDatabaseForm"
-            :database="database"
-            :context="state.createContext"
-            @update="state.createContext = $event"
-          />
+          <NButton
+            v-if="state.step === 'PITR_FORM'"
+            type="primary"
+            :disabled="!!pitrTimestampError"
+            @click.prevent="onConfirm"
+          >
+            {{ $t("common.confirm") }}
+          </NButton>
         </div>
       </template>
-
-      <div
-        class="w-full pt-6 mt-6 flex justify-end gap-x-3 border-t border-block-border"
-      >
-        <button
-          type="button"
-          class="btn-normal py-2 px-4"
-          @click.prevent="resetUI"
-        >
-          {{ $t("common.cancel") }}
-        </button>
-
-        <button
-          v-if="state.step === 'LAST_MIGRATION_INFO'"
-          type="button"
-          class="btn-primary py-2 px-4"
-          @click.prevent="initLastMigrationParams"
-        >
-          {{ $t("common.next") }}
-        </button>
-
-        <button
-          v-if="state.step === 'PITR_FORM'"
-          type="button"
-          class="btn-primary py-2 px-4"
-          :disabled="!!pitrTimestampError"
-          @click.prevent="onConfirm"
-        >
-          {{ $t("common.confirm") }}
-        </button>
-      </div>
-
-      <div
-        v-if="state.loading"
-        class="absolute inset-0 z-10 bg-white/70 flex items-center justify-center"
-      >
-        <BBSpin />
-      </div>
-    </div>
-  </BBModal>
+    </DrawerContent>
+  </Drawer>
 
   <FeatureModal
     v-if="state.showFeatureModal"
@@ -181,18 +142,24 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, PropType, reactive, ref } from "vue";
+import { computed, PropType, reactive, ref, toRef } from "vue";
 import { useRouter } from "vue-router";
-import { NDatePicker } from "naive-ui";
+import { NButton, NDatePicker } from "naive-ui";
 import dayjs from "dayjs";
 import { useI18n } from "vue-i18n";
-import { CreateDatabaseContext, Database } from "@/types";
+
+import { CreateDatabaseContext, ComposedDatabase } from "@/types";
 import { usePITRLogic } from "@/plugins";
 import { issueSlug } from "@/utils";
 import { featureToRef } from "@/store";
+import { Drawer, DrawerContent } from "@/components/v2";
 import CreatePITRDatabaseForm from "./CreatePITRDatabaseForm.vue";
+import RestoreTargetForm from "../DatabaseBackup/RestoreTargetForm.vue";
 import { CreatePITRDatabaseContext } from "./utils";
-import type { ButtonAction } from "@/bbkit/BBContextMenuButton.vue";
+import BBContextMenuButton, {
+  type ButtonAction,
+} from "@/bbkit/BBContextMenuButton.vue";
+import ChangeHistoryBrief from "./ChangeHistoryBrief.vue";
 
 type PITRTarget = "IN-PLACE" | "NEW";
 
@@ -217,7 +184,7 @@ const props = defineProps({
     require: true,
   },
   database: {
-    type: Object as PropType<Database>,
+    type: Object as PropType<ComposedDatabase>,
     required: true,
   },
 });
@@ -242,8 +209,8 @@ const hasPITRFeature = featureToRef("bb.feature.pitr");
 
 const timezone = computed(() => "UTC" + dayjs().format("ZZ"));
 
-const { pitrAvailable, doneBackupList, lastMigrationHistory, createPITRIssue } =
-  usePITRLogic(computed(() => props.database));
+const { pitrAvailable, doneBackupList, lastChangeHistory, createPITRIssue } =
+  usePITRLogic(toRef(props, "database"));
 
 const pitrButtonDisabled = computed((): boolean => {
   return !props.allowAdmin || !pitrAvailable.value.result;
@@ -275,9 +242,11 @@ const earliest = computed((): number => {
   if (!pitrAvailable.value) {
     return Infinity;
   }
-  const timestamps = doneBackupList.value.map((backup) => backup.createdTs);
+  const timestamps = doneBackupList.value.map(
+    (backup) => backup.createTime?.getTime() ?? 0
+  );
   const earliestAllowedRestoreTS = Math.min(...timestamps);
-  return earliestAllowedRestoreTS * 1000;
+  return earliestAllowedRestoreTS;
 });
 
 // Returns error message (string) if error occurs.
@@ -335,9 +304,12 @@ const openDialog = (step: Step = "PITR_FORM", mode: Mode = "CUSTOM") => {
   state.mode = mode;
 };
 
-const initLastMigrationParams = () => {
-  if (lastMigrationHistory.value) {
-    state.pitrTimestampMS = (lastMigrationHistory.value.createdTs - 1) * 1000;
+const initLastChangeParams = () => {
+  if (lastChangeHistory.value) {
+    const timestampMS = (
+      lastChangeHistory.value.createTime ?? new Date(0)
+    ).getTime();
+    state.pitrTimestampMS = timestampMS - 1000;
   }
 
   state.step = "PITR_FORM";
@@ -360,18 +332,24 @@ const onConfirm = async () => {
     const { target, createContext: context } = state;
     if (target === "NEW" && context) {
       createDatabaseContext = {
-        projectId: context.projectId,
-        environmentId: context.environmentId,
-        instanceId: context.instanceId,
+        projectId: Number(context.projectId),
+        environmentId: Number(context.environmentId),
+        instanceId: Number(context.instanceId),
         databaseName: context.databaseName,
+        tableName: "",
         characterSet: context.characterSet,
         collation: context.collation,
         owner: "",
         cluster: "",
       } as CreateDatabaseContext;
       // Do not submit non-selected optional labels
-      const labelList = context.labelList.filter((label) => !!label.value);
-      createDatabaseContext.labels = JSON.stringify(labelList);
+      const labels = Object.keys(context.labels)
+        .map((key) => {
+          const value = context.labels[key];
+          return { key, value };
+        })
+        .filter((kv) => !!kv.value);
+      createDatabaseContext.labels = JSON.stringify(labels);
     }
 
     const issueNameParts: string[] = [
@@ -384,7 +362,7 @@ const onConfirm = async () => {
       issueNameParts.push(`to [${datetime} ${timezone.value}]`);
     } else {
       issueNameParts.push(
-        `before migration version [${lastMigrationHistory.value!.version}]`
+        `before migration version [${lastChangeHistory.value!.version}]`
       );
     }
     const issue = await createPITRIssue(

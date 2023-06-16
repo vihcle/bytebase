@@ -12,17 +12,17 @@
       <div class="bb-grid-cell">
         <RoleSelect
           v-if="editable"
-          v-model:value="step.nodes[0].groupValue"
+          v-model:value="step.nodes[0]"
           style="width: 80%"
           @update:value="
-            (role) => {
-              step.nodes[0].groupValue = role;
+            (node) => {
+              step.nodes[0] = node;
               $emit('update');
             }
           "
         />
-        <template v-else-if="step.nodes[0].groupValue">
-          {{ approvalNodeGroupValueText(step.nodes[0].groupValue) }}
+        <template v-else>
+          {{ approvalNodeText(step.nodes[0]) }}
         </template>
       </div>
       <div v-if="editable" class="bb-grid-cell gap-x-1">
@@ -74,10 +74,10 @@ import {
   ApprovalNode_Type,
   ApprovalStep,
   ApprovalStep_Type,
-} from "@/types/proto/store/approval";
+} from "@/types/proto/v1/review_service";
 import { useCustomApprovalContext } from "../context";
 import { SpinnerButton } from "../../common";
-import { approvalNodeGroupValueText } from "@/utils";
+import { approvalNodeText } from "@/utils";
 
 const props = defineProps<{
   flow: ApprovalFlow;

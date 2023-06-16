@@ -21,6 +21,7 @@ func init() {
 	advisor.Register(db.MySQL, advisor.MySQLNamingAutoIncrementColumnConvention, &NamingAutoIncrementColumnAdvisor{})
 	advisor.Register(db.TiDB, advisor.MySQLNamingAutoIncrementColumnConvention, &NamingAutoIncrementColumnAdvisor{})
 	advisor.Register(db.MariaDB, advisor.MySQLNamingAutoIncrementColumnConvention, &NamingAutoIncrementColumnAdvisor{})
+	advisor.Register(db.OceanBase, advisor.MySQLNamingAutoIncrementColumnConvention, &NamingAutoIncrementColumnAdvisor{})
 }
 
 // NamingAutoIncrementColumnAdvisor is the advisor checking for auto-increment naming convention.
@@ -38,7 +39,7 @@ func (*NamingAutoIncrementColumnAdvisor) Check(ctx advisor.Context, statement st
 	if err != nil {
 		return nil, err
 	}
-	format, maxLength, err := advisor.UnamrshalNamingRulePayloadAsRegexp(ctx.Rule.Payload)
+	format, maxLength, err := advisor.UnmarshalNamingRulePayloadAsRegexp(ctx.Rule.Payload)
 	if err != nil {
 		return nil, err
 	}

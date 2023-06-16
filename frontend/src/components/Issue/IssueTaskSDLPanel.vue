@@ -29,7 +29,7 @@
               <div class="whitespace-nowrap">
                 <span>{{ $t("issue.sdl.left-schema-may-change") }}</span>
                 <LearnMoreLink
-                  url="https://www.bytebase.com/docs/change-database/state-based-migration?source=console#caveats"
+                  url="https://www.bytebase.com/docs/change-database/state-based-migration/#caveats?source=console"
                   color="light"
                   class="ml-1"
                 />
@@ -94,16 +94,16 @@ import LearnMoreLink from "@/components/LearnMoreLink.vue";
 import {
   hasFeature,
   pushNotification,
-  useDatabaseStore,
-  useInstanceStore,
+  useChangeHistoryStore,
+  useDatabaseV1Store,
 } from "@/store";
 import { useIssueLogic } from "./logic";
-import { Task, TaskDatabaseSchemaUpdateSDLPayload, TaskId } from "@/types";
+import { Task, TaskId } from "@/types";
 import MonacoEditor from "../MonacoEditor";
-import { sqlClient } from "@/grpcweb";
-import { convertEngineType } from "@/types";
+import { sqlServiceClient } from "@/grpcweb";
 import { useSQLAdviceMarkers } from "./logic/useSQLAdviceMarkers";
 import { useSilentRequest } from "@/plugins/silent-request";
+import { engineToJSON } from "@/types/proto/v1/common";
 
 type TabView = "diff" | "statement" | "schema";
 
@@ -126,7 +126,8 @@ interface LocalState {
   tab: TabView;
 }
 
-const { selectedTask } = useIssueLogic();
+const databaseStore = useDatabaseV1Store();
+const { selectedTask, selectedStatement } = useIssueLogic();
 
 const state = reactive<LocalState>({
   showFeatureModal: false,
@@ -145,7 +146,7 @@ const useSDLState = () => {
 
   const map = reactive(new Map<TaskId, SDLState>());
 
-  const findLatestMigrationId = (task: Task) => {
+  const findLatestChangeHistoryId = (task: Task) => {
     if (task.status !== "DONE") return undefined;
     const list = task.taskRunList;
     for (let i = list.length - 1; i >= 0; i--) {
@@ -157,27 +158,30 @@ const useSDLState = () => {
     return undefined;
   };
 
-  const migrationId = computed(() => {
+  const changeHistoryId = computed(() => {
     const task = selectedTask.value as Task;
-    return findLatestMigrationId(task);
+    return findLatestChangeHistoryId(task);
   });
 
   const fetchOngoingSDLDetail = async (
-    task: Task
+    task: Task,
+    statement: string
   ): Promise<SDLDetail | undefined> => {
-    const database = task.database;
-    if (!database) return undefined;
-    const previousSDL = await useDatabaseStore().fetchDatabaseSchemaById(
-      task.database!.id,
-      true // fetch SDL format
+    if (!task.database) return undefined;
+    const database = await databaseStore.getOrFetchDatabaseByUID(
+      String(task.database.id)
     );
-    const payload = task.payload as TaskDatabaseSchemaUpdateSDLPayload;
-    if (!payload) return undefined;
-    const expectedSDL = payload.statement;
+    const previousSDL = (
+      await databaseStore.fetchDatabaseSchema(
+        `${database.name}/schema`,
+        true // fetch SDL format
+      )
+    ).schema;
+    const expectedSDL = statement;
 
     const getSchemaDiff = async () => {
       const { data } = await axios.post("/v1/sql/schema/diff", {
-        engineType: database.instance.engine,
+        engineType: engineToJSON(database.instanceEntity.engine),
         sourceSchema: previousSDL ?? "",
         targetSchema: expectedSDL ?? "",
       });
@@ -185,8 +189,8 @@ const useSDLState = () => {
     };
     const diffDDL = await useSilentRequest(getSchemaDiff);
 
-    const { currentSchema, expectedSchema } = await sqlClient.pretty({
-      engine: convertEngineType(database.instance.engine),
+    const { currentSchema, expectedSchema } = await sqlServiceClient.pretty({
+      engine: database.instanceEntity.engine,
       currentSchema: previousSDL ?? "",
       expectedSchema: expectedSDL ?? "",
     });
@@ -204,30 +208,31 @@ const useSDLState = () => {
     };
   };
 
-  const fetchSDLDetailFromMigrationHistory = async (
+  const fetchSDLDetailFromChangeHistory = async (
     task: Task,
-    migrationId: string | undefined
+    changeHistoryId: string | undefined
   ): Promise<SDLDetail | undefined> => {
-    if (!migrationId) {
+    if (!changeHistoryId) {
       return undefined;
     }
-    const history = await useSilentRequest(() =>
-      useInstanceStore().fetchMigrationHistoryById({
-        instanceId: task.instance.id,
-        migrationHistoryId: migrationId,
-        sdl: true,
-      })
+    if (!task.database) return undefined;
+    const database = await databaseStore.getOrFetchDatabaseByUID(
+      String(task.database.id)
     );
-    // The latestMigrationId might change during fetching the
-    // migrationHistory.
+    const history = await useChangeHistoryStore().fetchChangeHistory({
+      name: `${database.name}/changeHistories/${changeHistoryId}`,
+      sdlFormat: true,
+    });
+    // The latestChangeHistoryId might change during fetching the
+    // ChangeHistory.
     // Should give up the result.
-    const latestMigrationId = findLatestMigrationId(task);
-    if (history.id !== latestMigrationId) {
+    const latestChangeHistoryId = findLatestChangeHistoryId(task);
+    if (history.uid !== latestChangeHistoryId) {
       throw new Error();
     }
     return {
       error: "",
-      previousSDL: history.schemaPrev,
+      previousSDL: history.prevSchema,
       prettyExpectedSDL: history.schema,
       expectedSDL: history.schema,
       diffDDL: history.statement,
@@ -236,36 +241,34 @@ const useSDLState = () => {
 
   watch(
     [
-      () => (selectedTask.value as Task).id,
-      () => (selectedTask.value as Task).status,
-      migrationId,
+      () => selectedTask.value as Task,
+      () => selectedStatement.value,
+      changeHistoryId,
     ],
-    async ([taskId, taskStatus, migrationId]) => {
-      const task = selectedTask.value as Task;
-      if (!map.has(taskId)) {
-        map.set(taskId, emptyState(task));
+    async ([task, statement, changeHistoryId]) => {
+      if (!map.has(task.id)) {
+        map.set(task.id, emptyState(task));
       }
       const finish = (detail?: SDLState["detail"]) => {
-        const state = map.get(taskId)!;
+        const state = map.get(task.id)!;
         state.loading = false;
         state.detail = detail;
       };
       try {
-        if (taskStatus === "DONE") {
-          const detail = await fetchSDLDetailFromMigrationHistory(
+        if (task.status === "DONE") {
+          const detail = await fetchSDLDetailFromChangeHistory(
             task,
-            migrationId
+            changeHistoryId
           );
           finish(detail);
         } else {
-          const detail = await fetchOngoingSDLDetail(task);
+          const detail = await fetchOngoingSDLDetail(task, statement);
           finish(detail);
         }
       } catch (err: any) {
         // The task has been changed during the fetch
         // The result is meaningless.
         state.tab = "schema";
-        const payload = task.payload as TaskDatabaseSchemaUpdateSDLPayload;
         const message =
           err.response?.data?.message ?? err.details ?? "Internal server error";
 
@@ -277,7 +280,7 @@ const useSDLState = () => {
         finish({
           error: message,
           diffDDL: "",
-          expectedSDL: payload?.statement,
+          expectedSDL: statement,
           previousSDL: "",
           prettyExpectedSDL: "",
         });

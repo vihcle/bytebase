@@ -9,7 +9,7 @@ import { useI18n } from "vue-i18n";
 import { escape } from "lodash-es";
 
 import { ConnectionAtom, DEFAULT_PROJECT_ID } from "@/types";
-import { getHighlightHTMLByKeyWords } from "@/utils";
+import { getHighlightHTMLByRegExp } from "@/utils";
 
 const props = defineProps<{
   atom: ConnectionAtom;
@@ -26,13 +26,17 @@ const id = computed(() => {
 
 const text = computed(() => {
   const { atom } = props;
-  if (atom.type === "project" && atom.id === DEFAULT_PROJECT_ID) {
+  if (atom.type === "project" && atom.id === String(DEFAULT_PROJECT_ID)) {
     return t("database.unassigned-databases");
   }
   return atom.label;
 });
 
 const html = computed(() => {
-  return getHighlightHTMLByKeyWords(escape(text.value), escape(props.keyword));
+  return getHighlightHTMLByRegExp(
+    escape(text.value),
+    escape(props.keyword.trim()),
+    false /* !caseSensitive */
+  );
 });
 </script>

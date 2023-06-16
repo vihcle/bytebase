@@ -13,8 +13,7 @@
       />
     </template>
     <template v-else>
-      <!-- Use the persistent workflowType here -->
-      <template v-if="project.workflowType == 'UI'">
+      <template v-if="project.workflow === Workflow.UI">
         <div class="text-lg leading-6 font-medium text-main">
           {{ $t("workflow.current-workflow") }}
         </div>
@@ -27,7 +26,7 @@
               tabindex="-1"
               type="radio"
               class="text-accent disabled:text-accent-disabled focus:ring-accent"
-              value="UI"
+              :value="Workflow.UI"
               :disabled="!allowEdit"
             />
             <div class="-mt-1">
@@ -47,7 +46,7 @@
               tabindex="-1"
               type="radio"
               class="text-accent disabled:text-accent-disabled focus:ring-accent"
-              value="VCS"
+              :value="Workflow.VCS"
               :disabled="!allowEdit"
             />
             <div class="-mt-1">
@@ -60,7 +59,7 @@
             </div>
           </div>
         </div>
-        <template v-if="allowEdit && state.workflowType == 'VCS'">
+        <template v-if="allowEdit && state.workflowType == Workflow.VCS">
           <div class="mt-4 flex items-center justify-end">
             <button
               type="button"
@@ -73,115 +72,112 @@
           </div>
         </template>
       </template>
-      <template v-else-if="project.workflowType == 'VCS'">
+      <template v-else-if="project.workflow === Workflow.VCS && repository">
         <RepositoryPanel
           :project="project"
+          :vcs="vcs"
           :repository="repository"
           :allow-edit="allowEdit"
           @change-repository="enterWizard(false)"
+          @restore="cancelWizard"
         />
       </template>
     </template>
   </div>
 </template>
 
-<script lang="ts">
-import { reactive, watchEffect, watch, defineComponent } from "vue";
+<script lang="ts" setup>
+import { reactive, watchEffect, watch } from "vue";
 import { computed, PropType } from "vue";
-import RepositorySetupWizard from "./RepositorySetupWizard.vue";
-import RepositoryPanel from "./RepositoryPanel.vue";
-import { Project, ProjectWorkflowType, UNKNOWN_ID } from "../types";
 import { useI18n } from "vue-i18n";
-import { pushNotification, useRepositoryStore } from "@/store";
+import { pushNotification, useRepositoryV1Store, useVCSV1Store } from "@/store";
+import { Project, Workflow } from "@/types/proto/v1/project_service";
+import { ExternalVersionControl } from "@/types/proto/v1/externalvs_service";
 
 interface LocalState {
-  workflowType: ProjectWorkflowType;
+  workflowType: Workflow;
   showWizardForCreate: boolean;
   showWizardForChange: boolean;
 }
 
-export default defineComponent({
-  name: "ProjectVersionControlPanel",
-  components: {
-    RepositorySetupWizard,
-    RepositoryPanel,
+const props = defineProps({
+  allowEdit: {
+    default: true,
+    type: Boolean,
   },
-  props: {
-    project: {
-      required: true,
-      type: Object as PropType<Project>,
-    },
-    allowEdit: {
-      default: true,
-      type: Boolean,
-    },
-  },
-  async setup(props) {
-    const { t } = useI18n();
-
-    const repositoryStore = useRepositoryStore();
-
-    const state = reactive<LocalState>({
-      workflowType: props.project.workflowType,
-      showWizardForCreate: false,
-      showWizardForChange: false,
-    });
-
-    const prepareRepository = () => {
-      repositoryStore.fetchRepositoryByProjectId(props.project.id);
-    };
-
-    watchEffect(prepareRepository);
-
-    watch(
-      () => props.project.workflowType,
-      (type) => {
-        state.workflowType = type;
-      }
-    );
-
-    const repository = computed(() => {
-      return repositoryStore.getRepositoryByProjectId(props.project.id);
-    });
-
-    const enterWizard = (create: boolean) => {
-      if (create) {
-        state.showWizardForCreate = true;
-      } else {
-        state.showWizardForChange = true;
-      }
-    };
-
-    const cancelWizard = () => {
-      state.workflowType = "UI";
-      state.showWizardForCreate = false;
-      state.showWizardForChange = false;
-    };
-
-    const finishWizard = () => {
-      pushNotification({
-        module: "bytebase",
-        style: "SUCCESS",
-        title: state.showWizardForCreate
-          ? t("workflow.configure-gitops-success", {
-              project: props.project.name,
-            })
-          : t("workflow.change-gitops-success", {
-              project: props.project.name,
-            }),
-      });
-      state.showWizardForCreate = false;
-      state.showWizardForChange = false;
-    };
-
-    return {
-      state,
-      UNKNOWN_ID,
-      repository,
-      enterWizard,
-      cancelWizard,
-      finishWizard,
-    };
+  project: {
+    required: true,
+    type: Object as PropType<Project>,
   },
 });
+
+const { t } = useI18n();
+
+const repositoryV1Store = useRepositoryV1Store();
+const vcsV1Store = useVCSV1Store();
+
+const state = reactive<LocalState>({
+  workflowType: props.project.workflow,
+  showWizardForCreate: false,
+  showWizardForChange: false,
+});
+
+watchEffect(async () => {
+  const repo = await repositoryV1Store.getOrFetchRepositoryByProject(
+    props.project.name,
+    true /* silent */
+  );
+  if (repo) {
+    await vcsV1Store.fetchVCSByUid(repo.vcsUid);
+  }
+});
+
+watch(
+  () => props.project.workflow,
+  (type) => {
+    state.workflowType = type;
+  }
+);
+
+const repository = computed(() => {
+  return repositoryV1Store.getRepositoryByProject(props.project.name);
+});
+
+const vcs = computed(() => {
+  return (
+    vcsV1Store.getVCSByUid(repository.value?.vcsUid ?? "") ??
+    ({} as ExternalVersionControl)
+  );
+});
+
+const enterWizard = (create: boolean) => {
+  if (create) {
+    state.showWizardForCreate = true;
+  } else {
+    state.showWizardForChange = true;
+  }
+};
+
+const cancelWizard = () => {
+  state.workflowType = Workflow.UI;
+  state.showWizardForCreate = false;
+  state.showWizardForChange = false;
+};
+
+const finishWizard = () => {
+  pushNotification({
+    module: "bytebase",
+    style: "SUCCESS",
+    title: state.showWizardForCreate
+      ? t("workflow.configure-gitops-success", {
+          project: props.project.title,
+        })
+      : t("workflow.change-gitops-success", {
+          project: props.project.title,
+        }),
+  });
+  state.workflowType = Workflow.VCS;
+  state.showWizardForCreate = false;
+  state.showWizardForChange = false;
+};
 </script>

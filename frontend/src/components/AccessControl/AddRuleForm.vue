@@ -1,112 +1,116 @@
 <template>
-  <div class="w-160 space-y-2 relative">
-    <div>
-      <BBTableSearch
-        class="w-60"
-        :placeholder="$t('database.search-database')"
-        @change-text="(text: string) => (state.searchText = text)"
-      />
-    </div>
+  <DrawerContent :title="$t('settings.access-control.add-rule')">
+    <div class="w-[calc(100vw-8rem)] max-w-[60rem] space-y-2 relative">
+      <div>
+        <SearchBox
+          v-model:value="state.searchText"
+          style="width: 15rem"
+          :placeholder="$t('database.search-database')"
+        />
+      </div>
 
-    <DatabaseTable
-      mode="ALL_TINY"
-      class="overflow-y-auto"
-      style="max-height: calc(100vh - 320px)"
-      table-class="border"
-      :custom-click="true"
-      :database-list="databaseList"
-      :show-selection-column="true"
-      @select-database="
-          (db: Database) => toggleDatabaseSelection(db, !isDatabaseSelected(db))
+      <DatabaseV1Table
+        mode="ALL_TINY"
+        table-class="border"
+        :custom-click="true"
+        :database-list="databaseList"
+        :show-selection-column="true"
+        @select-database="
+          (db: ComposedDatabase) => toggleDatabaseSelection(db, !isDatabaseSelected(db))
         "
-    >
-      <template #selection-all="{ databaseList: renderedDatabaseList }">
-        <input
-          v-if="renderedDatabaseList.length > 0"
-          type="checkbox"
-          class="h-4 w-4 text-accent rounded disabled:cursor-not-allowed border-control-border focus:ring-accent"
-          v-bind="getAllSelectionState(renderedDatabaseList)"
-          @input="
-            toggleAllDatabasesSelection(
-              renderedDatabaseList,
-              ($event.target as HTMLInputElement).checked
-            )
-          "
-        />
-      </template>
-      <template #selection="{ database }">
-        <input
-          type="checkbox"
-          class="h-4 w-4 text-accent rounded disabled:cursor-not-allowed border-control-border focus:ring-accent"
-          :checked="isDatabaseSelected(database)"
-          @input="(e: any) => toggleDatabaseSelection(database, e.target.checked)"
-        />
-      </template>
-    </DatabaseTable>
-
-    <div
-      v-if="!state.isLoading && databaseList.length === 0"
-      class="w-full flex flex-col py-6 justify-start items-center"
-    >
-      <i18n-t
-        keypath="settings.access-control.no-database-in-production-environment"
-        tag="div"
-        class="text-sm leading-6 text-gray-500 max-w-[15rem] whitespace-pre-wrap text-center"
       >
-        <template #production_environment>
-          <a
-            href="https://www.bytebase.com/docs/administration/database-access-control"
-            class="normal-link lowercase"
-            target="_BLANK"
-          >
-            {{ $t("environment.production-environment") }}
-            <heroicons-outline:external-link
-              class="inline-block w-4 h-4 -mt-0.5 mr-0.5"
-            />
-          </a>
+        <template #selection-all="{ databaseList: renderedDatabaseList }">
+          <input
+            v-if="renderedDatabaseList.length > 0"
+            type="checkbox"
+            class="h-4 w-4 text-accent rounded disabled:cursor-not-allowed border-control-border focus:ring-accent"
+            v-bind="getAllSelectionState(renderedDatabaseList)"
+            @input="
+              toggleAllDatabasesSelection(
+                renderedDatabaseList,
+                ($event.target as HTMLInputElement).checked
+              )
+            "
+          />
         </template>
-      </i18n-t>
+        <template #selection="{ database }">
+          <input
+            type="checkbox"
+            class="h-4 w-4 text-accent rounded disabled:cursor-not-allowed border-control-border focus:ring-accent"
+            :checked="isDatabaseSelected(database)"
+            @input="(e: any) => toggleDatabaseSelection(database, e.target.checked)"
+          />
+        </template>
+      </DatabaseV1Table>
+
+      <div
+        v-if="!state.isLoading && databaseList.length === 0"
+        class="w-full flex flex-col py-6 justify-start items-center"
+      >
+        <i18n-t
+          keypath="settings.access-control.no-database-in-production-environment"
+          tag="div"
+          class="text-sm leading-6 text-gray-500 max-w-[15rem] whitespace-pre-wrap text-center"
+        >
+          <template #production_environment>
+            <a
+              href="https://www.bytebase.com/docs/security/database-access-control"
+              class="normal-link lowercase"
+              target="_BLANK"
+            >
+              {{ $t("environment.production-environment") }}
+              <heroicons-outline:external-link
+                class="inline-block w-4 h-4 -mt-0.5 mr-0.5"
+              />
+            </a>
+          </template>
+        </i18n-t>
+      </div>
+
+      <div
+        v-if="state.isLoading"
+        class="absolute w-full h-full inset-0 bg-white/50 flex flex-col items-center justify-center"
+      >
+        <BBSpin />
+      </div>
     </div>
 
-    <div class="flex items-center justify-between">
-      <div class="textinfolabel">
-        <template v-if="state.selectedDatabaseIdList.size > 0">
-          {{
-            $t("database.selected-n-databases", {
-              n: state.selectedDatabaseIdList.size,
-            })
-          }}
-        </template>
+    <template #footer>
+      <div class="flex items-center justify-between">
+        <div class="textinfolabel">
+          <template v-if="state.selectedDatabaseIdList.size > 0">
+            {{
+              $t("database.selected-n-databases", {
+                n: state.selectedDatabaseIdList.size,
+              })
+            }}
+          </template>
+        </div>
+        <div class="flex items-center gap-x-2">
+          <button class="btn-normal" @click="$emit('cancel')">
+            {{ $t("common.cancel") }}
+          </button>
+          <button class="btn-primary" :disabled="!allowAdd" @click="tryAdd">
+            {{ $t("common.add") }}
+          </button>
+        </div>
       </div>
-      <div class="flex items-center gap-x-2">
-        <button class="btn-normal" @click="$emit('cancel')">
-          {{ $t("common.cancel") }}
-        </button>
-        <button class="btn-primary" :disabled="!allowAdd" @click="tryAdd">
-          {{ $t("common.add") }}
-        </button>
-      </div>
-    </div>
-
-    <div
-      v-if="state.isLoading"
-      class="absolute w-full h-full inset-0 bg-white/50 flex flex-col items-center justify-center"
-    >
-      <BBSpin />
-    </div>
-  </div>
+    </template>
+  </DrawerContent>
 </template>
 
 <script lang="ts" setup>
 import { computed, PropType, reactive } from "vue";
 
-import type { Database, DatabaseId, Policy } from "@/types";
-import { filterDatabaseByKeyword } from "@/utils";
+import type { ComposedDatabase } from "@/types";
+import { filterDatabaseV1ByKeyword } from "@/utils";
+import { Policy } from "@/types/proto/v1/org_policy_service";
+import { SearchBox, DrawerContent } from "@/components/v2";
 
 type LocalState = {
   isLoading: boolean;
   searchText: string;
-  selectedDatabaseIdList: Set<DatabaseId>;
+  selectedDatabaseIdList: Set<string>;
 };
 
 const props = defineProps({
@@ -115,14 +119,14 @@ const props = defineProps({
     default: () => [],
   },
   databaseList: {
-    type: Array as PropType<Database[]>,
+    type: Array as PropType<ComposedDatabase[]>,
     default: () => [],
   },
 });
 
 const emit = defineEmits<{
   (e: "cancel"): void;
-  (e: "add", databaseList: Database[]): void;
+  (e: "add", databaseList: ComposedDatabase[]): void;
 }>();
 
 const state = reactive<LocalState>({
@@ -133,7 +137,7 @@ const state = reactive<LocalState>({
 
 const presetDatabaseIdList = computed(() => {
   const databaseIdList = props.policyList.map(
-    (policy) => policy.resourceId as DatabaseId
+    (policy) => policy.resourceUid as string
   );
   return new Set(databaseIdList);
 });
@@ -141,12 +145,12 @@ const presetDatabaseIdList = computed(() => {
 const databaseList = computed(() => {
   // Don't show the databases already have access control policy.
   let list = props.databaseList.filter(
-    (db) => !presetDatabaseIdList.value.has(db.id)
+    (db) => !presetDatabaseIdList.value.has(db.uid)
   );
 
   const keyword = state.searchText.trim();
   list = list.filter((db) =>
-    filterDatabaseByKeyword(db, keyword, [
+    filterDatabaseV1ByKeyword(db, keyword, [
       "name",
       "project",
       "instance",
@@ -167,20 +171,20 @@ const tryAdd = () => {
   emit("add", selectedDatabaseList);
 };
 
-const toggleDatabaseSelection = (database: Database, on: boolean) => {
+const toggleDatabaseSelection = (database: ComposedDatabase, on: boolean) => {
   if (on) {
-    state.selectedDatabaseIdList.add(database.id);
+    state.selectedDatabaseIdList.add(database.uid);
   } else {
-    state.selectedDatabaseIdList.delete(database.id);
+    state.selectedDatabaseIdList.delete(database.uid);
   }
 };
 
-const isDatabaseSelected = (database: Database) => {
-  return state.selectedDatabaseIdList.has(database.id);
+const isDatabaseSelected = (database: ComposedDatabase) => {
+  return state.selectedDatabaseIdList.has(database.uid);
 };
 
 const getAllSelectionState = (
-  databaseList: Database[]
+  databaseList: ComposedDatabase[]
 ): { checked: boolean; indeterminate: boolean } => {
   const checked = databaseList.every((db) => isDatabaseSelected(db));
   const indeterminate =
@@ -193,17 +197,17 @@ const getAllSelectionState = (
 };
 
 const toggleAllDatabasesSelection = (
-  databaseList: Database[],
+  databaseList: ComposedDatabase[],
   on: boolean
 ): void => {
   const set = state.selectedDatabaseIdList;
   if (on) {
     databaseList.forEach((db) => {
-      set.add(db.id);
+      set.add(db.uid);
     });
   } else {
     databaseList.forEach((db) => {
-      set.delete(db.id);
+      set.delete(db.uid);
     });
   }
 };

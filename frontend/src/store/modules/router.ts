@@ -115,20 +115,6 @@ export const useRouterStore = defineStore("router", {
       }
 
       {
-        // /db/:databaseSlug/history/:migrationHistorySlug
-        // Total 3 elements, 2nd element is the database slug, 3rd element is the migration history slug
-        const migrationHistoryComponents = currentRoute.path.match(
-          "/db/([0-9a-zA-Z_-]+)/history/([0-9a-zA-Z_-]+)"
-        ) || ["/", undefined, undefined];
-        if (migrationHistoryComponents[1] && migrationHistoryComponents[2]) {
-          return {
-            databaseSlug: migrationHistoryComponents[1],
-            migrationHistorySlug: migrationHistoryComponents[2],
-          };
-        }
-      }
-
-      {
         // /db/:databaseSlug
         // Total 2 elements, 2nd element is the database slug
         const databaseComponents = currentRoute.path.match(
@@ -217,6 +203,21 @@ export const useRouterStore = defineStore("router", {
         if (ssoComponents[1]) {
           return {
             ssoName: ssoComponents[1],
+          };
+        }
+      }
+
+      {
+        // /projects/proj-nt-iq3z/database-groups/test/table-groups/asd123
+        const schemaGroupDetailComponents = currentRoute.path.match(
+          "/projects/([0-9a-zA-Z_-]+)/database-groups/([0-9a-zA-Z_-]+)/table-groups/([0-9a-zA-Z_-]+)"
+        ) || ["/", undefined];
+
+        if (schemaGroupDetailComponents.length === 4) {
+          return {
+            projectName: schemaGroupDetailComponents[1],
+            databaseGroupName: schemaGroupDetailComponents[2],
+            schemaGroupName: schemaGroupDetailComponents[3],
           };
         }
       }

@@ -46,6 +46,7 @@ func TestValidateMembers(t *testing.T) {
 func TestValidateBindings(t *testing.T) {
 	tests := []struct {
 		bindings []*v1pb.Binding
+		roles    []*v1pb.Role
 		wantErr  bool
 	}{
 		// Empty binding list.
@@ -57,7 +58,12 @@ func TestValidateBindings(t *testing.T) {
 		{
 			bindings: []*v1pb.Binding{
 				{
-					Role: v1pb.ProjectRole_PROJECT_ROLE_UNSPECIFIED,
+					Role: "roles/haha",
+				},
+			},
+			roles: []*v1pb.Role{
+				{
+					Name: "roles/OWNER",
 				},
 			},
 			wantErr: true,
@@ -66,12 +72,20 @@ func TestValidateBindings(t *testing.T) {
 		{
 			bindings: []*v1pb.Binding{
 				{
-					Role:    v1pb.ProjectRole_PROJECT_ROLE_OWNER,
+					Role:    "roles/OWNER",
 					Members: []string{"user:bytebase"},
 				},
 				{
-					Role:    v1pb.ProjectRole_PROJECT_ROLE_DEVELOPER,
+					Role:    "roles/DEVELOPER",
 					Members: []string{},
+				},
+			},
+			roles: []*v1pb.Role{
+				{
+					Name: "roles/OWNER",
+				},
+				{
+					Name: "roles/DEVELOPER",
 				},
 			},
 			wantErr: true,
@@ -80,32 +94,56 @@ func TestValidateBindings(t *testing.T) {
 		{
 			bindings: []*v1pb.Binding{
 				{
-					Role:    v1pb.ProjectRole_PROJECT_ROLE_DEVELOPER,
+					Role:    "roles/DEVELOPER",
 					Members: []string{"user:bytebase"},
+				},
+			},
+			roles: []*v1pb.Role{
+				{
+					Name: "roles/OWNER",
+				},
+				{
+					Name: "roles/DEVELOPER",
 				},
 			},
 			wantErr: true,
 		},
-		// We have not merge the binding by the same role yet, so the roles in each binding must be unique.
 		{
 			bindings: []*v1pb.Binding{
 				{
-					Role:    v1pb.ProjectRole_PROJECT_ROLE_OWNER,
+
+					Role:    "roles/OWNER",
 					Members: []string{"user:bytebase"},
 				},
 				{
-					Role:    v1pb.ProjectRole_PROJECT_ROLE_OWNER,
+					Role:    "roles/OWNER",
 					Members: []string{"user:foo"},
 				},
 			},
-			wantErr: true,
+			roles: []*v1pb.Role{
+				{
+					Name: "roles/OWNER",
+				},
+				{
+					Name: "roles/DEVELOPER",
+				},
+			},
+			wantErr: false,
 		},
 		// Valid case.
 		{
 			bindings: []*v1pb.Binding{
 				{
-					Role:    v1pb.ProjectRole_PROJECT_ROLE_OWNER,
+					Role:    "roles/OWNER",
 					Members: []string{"user:bytebase"},
+				},
+			},
+			roles: []*v1pb.Role{
+				{
+					Name: "roles/OWNER",
+				},
+				{
+					Name: "roles/DEVELOPER",
 				},
 			},
 			wantErr: false,
@@ -113,12 +151,20 @@ func TestValidateBindings(t *testing.T) {
 		{
 			bindings: []*v1pb.Binding{
 				{
-					Role:    v1pb.ProjectRole_PROJECT_ROLE_OWNER,
+					Role:    "roles/OWNER",
 					Members: []string{"user:bytebase"},
 				},
 				{
-					Role:    v1pb.ProjectRole_PROJECT_ROLE_DEVELOPER,
+					Role:    "roles/DEVELOPER",
 					Members: []string{"user:foo"},
+				},
+			},
+			roles: []*v1pb.Role{
+				{
+					Name: "roles/OWNER",
+				},
+				{
+					Name: "roles/DEVELOPER",
 				},
 			},
 			wantErr: false,
@@ -127,7 +173,7 @@ func TestValidateBindings(t *testing.T) {
 
 	a := require.New(t)
 	for _, tt := range tests {
-		err := validateBindings(tt.bindings)
+		err := validateBindings(tt.bindings, tt.roles)
 		if tt.wantErr {
 			a.Error(err)
 		} else {

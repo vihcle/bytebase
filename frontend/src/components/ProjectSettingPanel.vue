@@ -2,12 +2,9 @@
   <div class="max-w-3xl mx-auto space-y-4">
     <div class="divide-y divide-block-border space-y-6">
       <ProjectGeneralSettingPanel :project="project" :allow-edit="allowEdit" />
-      <div class="pt-4">
-        <ProjectMemberPanel :project="project" />
-      </div>
     </div>
     <template v-if="allowArchiveOrRestore">
-      <template v-if="project.rowStatus == 'NORMAL'">
+      <template v-if="project.state === State.ACTIVE">
         <BBButtonConfirm
           :style="'ARCHIVE'"
           :button-text="$t('project.settings.archive.btn-text')"
@@ -20,7 +17,7 @@
           @confirm="archiveOrRestoreProject(true)"
         />
       </template>
-      <template v-else-if="project.rowStatus == 'ARCHIVED'">
+      <template v-else-if="project.state === State.DELETED">
         <BBButtonConfirm
           :style="'RESTORE'"
           :button-text="$t('project.settings.restore.btn-text')"
@@ -37,73 +34,61 @@
   </div>
 </template>
 
-<script lang="ts">
-import { computed, defineComponent, PropType } from "vue";
-import { hasProjectPermission, hasWorkspacePermission } from "../utils";
-import { ProjectGeneralSettingPanel } from "../components/Project/ProjectSetting";
-import ProjectMemberPanel from "../components/ProjectMemberPanel.vue";
-import { ProjectPatch, Project } from "../types";
-import { useCurrentUser, useProjectStore } from "@/store";
+<script lang="ts" setup>
+import { computed, PropType } from "vue";
+import { hasPermissionInProjectV1, hasWorkspacePermissionV1 } from "../utils";
+import ProjectGeneralSettingPanel from "../components/Project/ProjectGeneralSettingPanel.vue";
+import {
+  useCurrentUserV1,
+  useGracefulRequest,
+  useProjectV1Store,
+} from "@/store";
+import { ComposedProject } from "@/types";
+import { State } from "@/types/proto/v1/common";
 
-export default defineComponent({
-  name: "ProjectSettingPanel",
-  components: {
-    ProjectGeneralSettingPanel,
-    ProjectMemberPanel,
+const props = defineProps({
+  project: {
+    required: true,
+    type: Object as PropType<ComposedProject>,
   },
-  props: {
-    project: {
-      required: true,
-      type: Object as PropType<Project>,
-    },
-    allowEdit: {
-      default: true,
-      type: Boolean,
-    },
-  },
-  setup(props) {
-    const currentUser = useCurrentUser();
-    const projectStore = useProjectStore();
-
-    const allowArchiveOrRestore = computed(() => {
-      if (
-        hasWorkspacePermission(
-          "bb.permission.workspace.manage-project",
-          currentUser.value.role
-        )
-      ) {
-        return true;
-      }
-
-      for (const member of props.project.memberList) {
-        if (member.principal.id == currentUser.value.id) {
-          if (
-            hasProjectPermission(
-              "bb.permission.project.manage-general",
-              member.role
-            )
-          ) {
-            return true;
-          }
-        }
-      }
-      return false;
-    });
-
-    const archiveOrRestoreProject = (archive: boolean) => {
-      const projectPatch: ProjectPatch = {
-        rowStatus: archive ? "ARCHIVED" : "NORMAL",
-      };
-      projectStore.patchProject({
-        projectId: props.project.id,
-        projectPatch,
-      });
-    };
-
-    return {
-      allowArchiveOrRestore,
-      archiveOrRestoreProject,
-    };
+  allowEdit: {
+    default: true,
+    type: Boolean,
   },
 });
+
+const currentUserV1 = useCurrentUserV1();
+const projectV1Store = useProjectV1Store();
+
+const allowArchiveOrRestore = computed(() => {
+  if (
+    hasWorkspacePermissionV1(
+      "bb.permission.workspace.manage-project",
+      currentUserV1.value.userRole
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    hasPermissionInProjectV1(
+      props.project.iamPolicy,
+      currentUserV1.value,
+      "bb.permission.project.manage-general"
+    )
+  ) {
+    return true;
+  }
+  return false;
+});
+
+const archiveOrRestoreProject = (archive: boolean) => {
+  useGracefulRequest(async () => {
+    if (archive) {
+      await projectV1Store.archiveProject(props.project);
+    } else {
+      await projectV1Store.restoreProject(props.project);
+    }
+  });
+};
 </script>

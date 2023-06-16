@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gosimple/slug"
+	"github.com/nyaruka/phonenumbers"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
@@ -17,6 +20,7 @@ import (
 	"github.com/bytebase/bytebase/backend/plugin/webhook"
 	"github.com/bytebase/bytebase/backend/store"
 	"github.com/bytebase/bytebase/backend/utils"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -41,7 +45,7 @@ func NewManager(store *store.Store) *Manager {
 
 // BatchCreateTaskStatusUpdateApprovalActivity creates a batch task status update activities for task approvals.
 func (m *Manager) BatchCreateTaskStatusUpdateApprovalActivity(ctx context.Context, taskList []*store.TaskMessage, updaterID int, issue *store.IssueMessage, stageName string) error {
-	var createList []*api.ActivityCreate
+	var createList []*store.ActivityMessage
 	for _, task := range taskList {
 		payload, err := json.Marshal(api.ActivityPipelineTaskStatusUpdatePayload{
 			TaskID:    task.ID,
@@ -54,17 +58,17 @@ func (m *Manager) BatchCreateTaskStatusUpdateApprovalActivity(ctx context.Contex
 			return errors.Wrapf(err, "failed to marshal activity after changing the task status: %v", task.Name)
 		}
 
-		activityCreate := &api.ActivityCreate{
-			CreatorID:   updaterID,
-			ContainerID: task.PipelineID,
-			Type:        api.ActivityPipelineTaskStatusUpdate,
-			Level:       api.ActivityInfo,
-			Payload:     string(payload),
+		activityCreate := &store.ActivityMessage{
+			CreatorUID:   updaterID,
+			ContainerUID: task.PipelineID,
+			Type:         api.ActivityPipelineTaskStatusUpdate,
+			Level:        api.ActivityInfo,
+			Payload:      string(payload),
 		}
 		createList = append(createList, activityCreate)
 	}
 
-	activityList, err := m.store.BatchCreateActivity(ctx, createList)
+	activityList, err := m.store.BatchCreateActivityV2(ctx, createList)
 	if err != nil {
 		return err
 	}
@@ -90,6 +94,11 @@ func (m *Manager) BatchCreateTaskStatusUpdateApprovalActivity(ctx context.Contex
 		return errors.Wrapf(err, "failed to get workspace setting")
 	}
 
+	user, err := m.store.GetUserByID(ctx, anyActivity.CreatorUID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get principal %d", anyActivity.CreatorUID)
+	}
+
 	// Send one webhook post for all activities.
 	webhookCtx := webhook.Context{
 		Level:        webhook.WebhookInfo,
@@ -108,19 +117,19 @@ func (m *Manager) BatchCreateTaskStatusUpdateApprovalActivity(ctx context.Contex
 		},
 		Description:  anyActivity.Comment,
 		Link:         fmt.Sprintf("%s/issue/%s-%d", setting.ExternalUrl, slug.Make(issue.Title), issue.UID),
-		CreatorID:    anyActivity.CreatorID,
-		CreatorName:  anyActivity.Creator.Name,
-		CreatorEmail: anyActivity.Creator.Email,
+		CreatorID:    anyActivity.CreatorUID,
+		CreatorName:  user.Name,
+		CreatorEmail: user.Email,
 	}
 	// Call external webhook endpoint in Go routine to avoid blocking web serving thread.
-	go postWebhookList(webhookCtx, webhookList)
+	go postWebhookList(ctx, &webhookCtx, webhookList)
 
 	return nil
 }
 
 // CreateActivity creates an activity.
-func (m *Manager) CreateActivity(ctx context.Context, create *api.ActivityCreate, meta *Metadata) (*api.Activity, error) {
-	activity, err := m.store.CreateActivity(ctx, create)
+func (m *Manager) CreateActivity(ctx context.Context, create *store.ActivityMessage, meta *Metadata) (*store.ActivityMessage, error) {
+	activity, err := m.store.CreateActivityV2(ctx, create)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +142,7 @@ func (m *Manager) CreateActivity(ctx context.Context, create *api.ActivityCreate
 		return nil, errors.Wrapf(err, "failed to post webhook event after changing the issue task status: %s", meta.Issue.Title)
 	}
 	if postInbox {
-		if err := m.postInboxIssueActivity(ctx, meta.Issue, activity.ID); err != nil {
+		if err := m.postInboxIssueActivity(ctx, meta.Issue, activity.UID); err != nil {
 			return nil, err
 		}
 	}
@@ -149,12 +158,12 @@ func (m *Manager) CreateActivity(ctx context.Context, create *api.ActivityCreate
 		return activity, nil
 	}
 
-	updater, err := m.store.GetUserByID(ctx, create.CreatorID)
+	updater, err := m.store.GetUserByID(ctx, create.CreatorUID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to find updater for posting webhook event after changing the issue status: %v", meta.Issue.Title)
 	}
 	if updater == nil {
-		return nil, errors.Errorf("updater user not found for ID %v", create.CreatorID)
+		return nil, errors.Errorf("updater user not found for ID %v", create.CreatorUID)
 	}
 
 	webhookCtx, err := m.getWebhookContext(ctx, activity, meta, updater)
@@ -165,37 +174,41 @@ func (m *Manager) CreateActivity(ctx context.Context, create *api.ActivityCreate
 		return activity, nil
 	}
 	// Call external webhook endpoint in Go routine to avoid blocking web serving thread.
-	go postWebhookList(webhookCtx, webhookList)
+	go postWebhookList(ctx, webhookCtx, webhookList)
 
 	return activity, nil
 }
 
-func postWebhookList(webhookCtx webhook.Context, webhookList []*store.ProjectWebhookMessage) {
+func postWebhookList(ctx context.Context, webhookCtx *webhook.Context, webhookList []*store.ProjectWebhookMessage) {
 	for _, hook := range webhookList {
+		webhookCtx := *webhookCtx
 		webhookCtx.URL = hook.URL
 		webhookCtx.CreatedTs = time.Now().Unix()
-		if err := common.Retry(func() error {
-			return webhook.Post(hook.Type, webhookCtx)
-		}); err != nil {
-			// The external webhook endpoint might be invalid which is out of our code control, so we just emit a warning
-			log.Warn("Failed to post webhook event on activity",
-				zap.String("webhook type", hook.Type),
-				zap.String("webhook name", hook.Title),
-				zap.String("activity type", webhookCtx.ActivityType),
-				zap.String("title", webhookCtx.Title),
-				zap.Error(err))
-			return
-		}
+		go func(webhookCtx *webhook.Context, hook *store.ProjectWebhookMessage) {
+			if err := common.Retry(ctx, func() error {
+				return webhook.Post(hook.Type, *webhookCtx)
+			}); err != nil {
+				// The external webhook endpoint might be invalid which is out of our code control, so we just emit a warning
+				log.Warn("Failed to post webhook event on activity",
+					zap.String("webhook type", hook.Type),
+					zap.String("webhook name", hook.Title),
+					zap.String("activity type", webhookCtx.ActivityType),
+					zap.String("title", webhookCtx.Title),
+					zap.Error(err))
+				return
+			}
+		}(&webhookCtx, hook)
 	}
 }
 
-func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity, meta *Metadata, updater *store.UserMessage) (webhook.Context, error) {
+func (m *Manager) getWebhookContext(ctx context.Context, activity *store.ActivityMessage, meta *Metadata, updater *store.UserMessage) (*webhook.Context, error) {
 	var webhookCtx webhook.Context
 	var webhookTaskResult *webhook.TaskResult
+	var webhookApproval webhook.Approval
 
 	setting, err := m.store.GetWorkspaceGeneralSetting(ctx)
 	if err != nil {
-		return webhookCtx, errors.Wrapf(err, "failed to get workspace setting")
+		return nil, errors.Wrapf(err, "failed to get workspace setting")
 	}
 
 	level := webhook.WebhookInfo
@@ -216,14 +229,14 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 		}
 	case api.ActivityIssueCommentCreate:
 		title = fmt.Sprintf("Comment created - %s", meta.Issue.Title)
-		link += fmt.Sprintf("#activity%d", activity.ID)
+		link += fmt.Sprintf("#activity%d", activity.UID)
 	case api.ActivityIssueFieldUpdate:
 		update := new(api.ActivityIssueFieldUpdatePayload)
 		if err := json.Unmarshal([]byte(activity.Payload), update); err != nil {
 			log.Warn("Failed to post webhook event after changing the issue field, failed to unmarshal payload",
 				zap.String("issue_name", meta.Issue.Title),
 				zap.Error(err))
-			return webhookCtx, err
+			return nil, err
 		}
 		switch update.FieldID {
 		case api.IssueFieldAssignee:
@@ -236,7 +249,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 							zap.String("issue_name", meta.Issue.Title),
 							zap.String("old_assignee_id", update.OldValue),
 							zap.Error(err))
-						return webhookCtx, err
+						return nil, err
 					}
 					oldAssignee, err = m.store.GetUserByID(ctx, oldID)
 					if err != nil {
@@ -244,7 +257,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 							zap.String("issue_name", meta.Issue.Title),
 							zap.String("old_assignee_id", update.OldValue),
 							zap.Error(err))
-						return webhookCtx, err
+						return nil, err
 					}
 					if oldAssignee == nil {
 						err := errors.Errorf("failed to post webhook event after changing the issue assignee, old assignee not found for ID %v", oldID)
@@ -252,7 +265,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 							zap.String("issue_name", meta.Issue.Title),
 							zap.String("old_assignee_id", update.OldValue),
 							zap.Error(err))
-						return webhookCtx, err
+						return nil, err
 					}
 				}
 
@@ -263,7 +276,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 							zap.String("issue_name", meta.Issue.Title),
 							zap.String("new_assignee_id", update.NewValue),
 							zap.Error(err))
-						return webhookCtx, err
+						return nil, err
 					}
 					newAssignee, err = m.store.GetUserByID(ctx, newID)
 					if err != nil {
@@ -271,7 +284,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 							zap.String("issue_name", meta.Issue.Title),
 							zap.String("new_assignee_id", update.NewValue),
 							zap.Error(err))
-						return webhookCtx, err
+						return nil, err
 					}
 					if newAssignee == nil {
 						err := errors.Errorf("failed to post webhook event after changing the issue assignee, new assignee not found for ID %v", newID)
@@ -279,7 +292,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 							zap.String("issue_name", meta.Issue.Title),
 							zap.String("new_assignee_id", update.NewValue),
 							zap.Error(err))
-						return webhookCtx, err
+						return nil, err
 					}
 
 					if oldAssignee != nil && newAssignee != nil {
@@ -305,7 +318,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 				"failed to post webhook event after stage status updating, failed to unmarshal payload",
 				zap.String("issue_name", meta.Issue.Title),
 				zap.Error(err))
-			return webhookCtx, err
+			return nil, err
 		}
 		link += fmt.Sprintf("?stage=%d", payload.StageID)
 		switch payload.StageStatusUpdateType {
@@ -321,7 +334,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 			log.Warn("Failed to post webhook event after changing the issue task status, failed to unmarshal payload",
 				zap.String("issue_name", meta.Issue.Title),
 				zap.Error(err))
-			return webhookCtx, err
+			return nil, err
 		}
 
 		task, err := m.store.GetTaskByID(ctx, update.TaskID)
@@ -330,7 +343,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 				zap.String("issue_name", meta.Issue.Title),
 				zap.Int("task_id", update.TaskID),
 				zap.Error(err))
-			return webhookCtx, err
+			return nil, err
 		}
 		if task == nil {
 			err := errors.Errorf("failed to post webhook event after changing the issue task status, task not found for ID %v", update.TaskID)
@@ -338,7 +351,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 				zap.String("issue_name", meta.Issue.Title),
 				zap.Int("task_id", update.TaskID),
 				zap.Error(err))
-			return webhookCtx, err
+			return nil, err
 		}
 
 		webhookTaskResult = &webhook.TaskResult{
@@ -365,7 +378,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 			if err != nil {
 				err := errors.Wrap(err, "failed to get skipped and skippedReason from the task")
 				log.Warn(err.Error(), zap.String("task.Payload", task.Payload), zap.Error(err))
-				return webhookCtx, err
+				return nil, err
 			}
 			if skipped {
 				title = "Task skipped - " + task.Name
@@ -381,7 +394,7 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 				log.Warn(err.Error(),
 					zap.Any("task", task),
 					zap.Error(err))
-				return webhookCtx, err
+				return nil, err
 			}
 
 			// sort TaskRunList to get the most recent task run result.
@@ -395,9 +408,79 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 				log.Warn(err.Error(),
 					zap.Any("TaskRun", task.TaskRunList[0]),
 					zap.Error(err))
-				return webhookCtx, err
+				return nil, err
 			}
 			webhookTaskResult.Detail = result.Detail
+		}
+	case api.ActivityIssueApprovalNotify:
+		payload := &api.ActivityIssueApprovalNotifyPayload{}
+		if err := json.Unmarshal([]byte(activity.Payload), payload); err != nil {
+			log.Warn("Failed to post webhook event after changing the issue approval node status, failed to unmarshal payload",
+				zap.String("issue_name", meta.Issue.Title),
+				zap.Error(err))
+			return nil, err
+		}
+		protoPayload := &storepb.ActivityIssueApprovalNotifyPayload{}
+		if err := protojson.Unmarshal([]byte(payload.ProtoPayload), protoPayload); err != nil {
+			log.Warn("Failed to post webhook event")
+		}
+		pendingStep := protoPayload.ApprovalStep
+
+		title = "Issue approval needed - " + meta.Issue.Title
+
+		if len(pendingStep.Nodes) != 1 {
+			log.Warn("Failed to post webhook event after changing the issue approval node status, pending step nodes length is not 1")
+			return nil, errors.Errorf("pending step nodes length is not 1, got %v", len(pendingStep.Nodes))
+		}
+
+		node := pendingStep.Nodes[0]
+
+		var usersGetter func(ctx context.Context) ([]*store.UserMessage, error)
+
+		switch val := node.Payload.(type) {
+		case *storepb.ApprovalNode_GroupValue_:
+			switch val.GroupValue {
+			case storepb.ApprovalNode_GROUP_VALUE_UNSPECIFILED:
+				return nil, errors.Errorf("invalid group value")
+			case storepb.ApprovalNode_WORKSPACE_OWNER:
+				usersGetter = getUsersFromWorkspaceRole(m.store, api.Owner)
+			case storepb.ApprovalNode_WORKSPACE_DBA:
+				usersGetter = getUsersFromWorkspaceRole(m.store, api.DBA)
+			case storepb.ApprovalNode_PROJECT_OWNER:
+				usersGetter = getUsersFromProjectRole(m.store, api.Owner, meta.Issue.Project.ResourceID)
+			case storepb.ApprovalNode_PROJECT_MEMBER:
+				usersGetter = getUsersFromProjectRole(m.store, api.Developer, meta.Issue.Project.ResourceID)
+			default:
+				return nil, errors.Errorf("invalid group value")
+			}
+		case *storepb.ApprovalNode_Role:
+			role := api.Role(strings.TrimPrefix(val.Role, "roles/"))
+			usersGetter = getUsersFromProjectRole(m.store, role, meta.Issue.Project.ResourceID)
+		case *storepb.ApprovalNode_ExternalNodeId:
+			usersGetter = func(ctx context.Context) ([]*store.UserMessage, error) {
+				return nil, nil
+			}
+		default:
+			return nil, errors.Errorf("invalid node payload type")
+		}
+
+		users, err := usersGetter(ctx)
+		if err != nil {
+			log.Warn("Failed to post webhook event after changing the issue approval node status, failed to get users",
+				zap.String("issue_name", meta.Issue.Title),
+				zap.Error(err))
+			return nil, err
+		}
+		for _, user := range users {
+			phoneNumber, err := phonenumbers.Parse(user.Phone, "")
+			if err != nil {
+				log.Warn("Failed to post webhook event after changing the issue approval node status, failed to parse phone number",
+					zap.String("issue_name", meta.Issue.Title),
+					zap.Error(err))
+				continue
+			}
+			phone := strconv.FormatInt(int64(*phoneNumber.NationalNumber), 10)
+			webhookApproval.MentionUsersByPhone = append(webhookApproval.MentionUsersByPhone, phone)
 		}
 	}
 
@@ -422,38 +505,36 @@ func (m *Manager) getWebhookContext(ctx context.Context, activity *api.Activity,
 		CreatorID:    updater.ID,
 		CreatorName:  updater.Name,
 		CreatorEmail: updater.Email,
+		Approval:     &webhookApproval,
 	}
-	return webhookCtx, nil
+	return &webhookCtx, nil
 }
 
 func (m *Manager) postInboxIssueActivity(ctx context.Context, issue *store.IssueMessage, activityID int) error {
 	if issue.Creator.ID != api.SystemBotID {
-		inboxCreate := &api.InboxCreate{
-			ReceiverID: issue.Creator.ID,
-			ActivityID: activityID,
-		}
-		if _, err := m.store.CreateInbox(ctx, inboxCreate); err != nil {
+		if _, err := m.store.CreateInbox(ctx, &store.InboxMessage{
+			ReceiverUID: issue.Creator.ID,
+			ActivityUID: activityID,
+		}); err != nil {
 			return errors.Wrapf(err, "failed to post activity to creator inbox: %d", issue.Creator.ID)
 		}
 	}
 
 	if issue.Assignee.ID != api.SystemBotID && issue.Assignee.ID != issue.Creator.ID {
-		inboxCreate := &api.InboxCreate{
-			ReceiverID: issue.Assignee.ID,
-			ActivityID: activityID,
-		}
-		if _, err := m.store.CreateInbox(ctx, inboxCreate); err != nil {
+		if _, err := m.store.CreateInbox(ctx, &store.InboxMessage{
+			ReceiverUID: issue.Assignee.ID,
+			ActivityUID: activityID,
+		}); err != nil {
 			return errors.Wrapf(err, "failed to post activity to assignee inbox: %d", issue.Assignee.ID)
 		}
 	}
 
 	for _, subscriber := range issue.Subscribers {
 		if subscriber.ID != api.SystemBotID && subscriber.ID != issue.Creator.ID && subscriber.ID != issue.Assignee.ID {
-			inboxCreate := &api.InboxCreate{
-				ReceiverID: subscriber.ID,
-				ActivityID: activityID,
-			}
-			if _, err := m.store.CreateInbox(ctx, inboxCreate); err != nil {
+			if _, err := m.store.CreateInbox(ctx, &store.InboxMessage{
+				ReceiverUID: subscriber.ID,
+				ActivityUID: activityID,
+			}); err != nil {
 				return errors.Wrapf(err, "failed to post activity to subscriber inbox: %d", subscriber.ID)
 			}
 		}
@@ -462,7 +543,7 @@ func (m *Manager) postInboxIssueActivity(ctx context.Context, issue *store.Issue
 	return nil
 }
 
-func shouldPostInbox(activity *api.Activity, createType api.ActivityType) (bool, error) {
+func shouldPostInbox(activity *store.ActivityMessage, createType api.ActivityType) (bool, error) {
 	switch createType {
 	case api.ActivityIssueCreate:
 		return true, nil
@@ -489,4 +570,30 @@ func shouldPostInbox(activity *api.Activity, createType api.ActivityType) (bool,
 		}
 	}
 	return false, nil
+}
+
+func getUsersFromWorkspaceRole(s *store.Store, role api.Role) func(context.Context) ([]*store.UserMessage, error) {
+	return func(ctx context.Context) ([]*store.UserMessage, error) {
+		return s.ListUsers(ctx, &store.FindUserMessage{
+			Role: &role,
+		})
+	}
+}
+
+func getUsersFromProjectRole(s *store.Store, role api.Role, projectID string) func(context.Context) ([]*store.UserMessage, error) {
+	return func(ctx context.Context) ([]*store.UserMessage, error) {
+		projectIAM, err := s.GetProjectPolicy(ctx, &store.GetProjectPolicyMessage{
+			ProjectID: &projectID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		var users []*store.UserMessage
+		for _, binding := range projectIAM.Bindings {
+			if binding.Role == role {
+				users = append(users, binding.Members...)
+			}
+		}
+		return users, nil
+	}
 }

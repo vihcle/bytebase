@@ -2,13 +2,14 @@
   <div
     class="w-[calc(100vw-8rem)] lg:max-w-[35vw] max-h-[calc(100vh-10rem)] flex flex-col gap-y-4 text-sm"
   >
-    <div class="flex-1 flex flex-col overflow-hidden space-y-4">
+    <div class="flex-1 flex flex-col px-0.5 overflow-hidden space-y-4">
       <div class="space-y-1">
         <label class="block font-medium text-control space-x-1">
           <RequiredStar />
           {{ $t("common.name") }}
         </label>
         <NInput
+          ref="nameInputRef"
           v-model:value="state.rule.template.title"
           :show-count="true"
           :maxlength="64"
@@ -68,11 +69,11 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { NInput } from "naive-ui";
 import { cloneDeep } from "lodash-es";
 
-import { LocalApprovalRule, SYSTEM_BOT_ID } from "@/types";
+import { LocalApprovalRule, SYSTEM_BOT_USER_NAME } from "@/types";
 import { RequiredStar } from "../../common";
 import { StepsTable } from "../common";
 import { validateApprovalTemplate } from "../logic";
@@ -97,6 +98,7 @@ const emit = defineEmits<{
   ): void;
 }>();
 
+const nameInputRef = ref<InstanceType<typeof NInput>>();
 const context = useCustomApprovalContext();
 const { allowAdmin, dialog } = context;
 
@@ -113,7 +115,7 @@ const state = ref(resolveLocalState());
 
 const allowEditRule = computed(() => {
   if (!allowAdmin.value) return false;
-  return creatorOfRule(rule.value).id !== SYSTEM_BOT_ID;
+  return creatorOfRule(rule.value).name !== SYSTEM_BOT_USER_NAME;
 });
 
 const allowCreateOrUpdate = computed(() => {
@@ -136,4 +138,12 @@ const handleUpsert = () => {
   const newRule = cloneDeep(state.value.rule);
   emit("save", newRule, oldRule);
 };
+
+onMounted(() => {
+  if (allowEditRule.value) {
+    nextTick(() => {
+      nameInputRef.value?.inputElRef?.focus();
+    });
+  }
+});
 </script>

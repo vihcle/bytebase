@@ -26,7 +26,15 @@
                 v-bind="tableResize.getColumnProps(header.index)"
               >
                 <div class="flex items-center overflow-hidden">
-                  <span> {{ header.column.columnDef.header }}</span>
+                  <span>
+                    <template
+                      v-if="String(header.column.columnDef.header).length > 0"
+                    >
+                      {{ header.column.columnDef.header }}
+                    </template>
+                    <br v-else class="min-h-[1rem] inline-flex" />
+                  </span>
+
                   <SensitiveDataIcon
                     v-if="isSensitiveColumn(header.index)"
                     class="ml-0.5 shrink-0"
@@ -51,12 +59,9 @@
               <td
                 v-for="(cell, cellIndex) of row.getVisibleCells()"
                 :key="cellIndex"
-                class="px-2 py-1 text-sm dark:text-gray-100 leading-5 whitespace-pre-wrap break-all border border-block-border group-last:border-b-0 group-even:bg-gray-50/50 dark:group-even:bg-gray-700/50"
+                class="px-2 py-1 text-sm dark:text-gray-100 leading-5 whitespace-nowrap break-all border border-block-border group-last:border-b-0 group-even:bg-gray-50/50 dark:group-even:bg-gray-700/50"
               >
-                <template v-if="cell.getValue()">{{
-                  cell.getValue()
-                }}</template>
-                <br v-else class="min-h-[1rem] inline-flex" />
+                <TableCell :html="renderCellValue(cell.getValue())" />
               </td>
             </tr>
           </tbody>
@@ -75,8 +80,12 @@
 <script lang="ts" setup>
 import { computed, nextTick, PropType, ref, watch } from "vue";
 import { ColumnDef, Table } from "@tanstack/vue-table";
+import { escape } from "lodash-es";
+
 import useTableColumnWidthLogic from "./useTableResize";
 import SensitiveDataIcon from "./SensitiveDataIcon.vue";
+import TableCell from "./TableCell.vue";
+import { getHighlightHTMLByRegExp } from "@/utils";
 
 export type DataTableColumn = {
   key: string;
@@ -100,6 +109,10 @@ const props = defineProps({
     type: Object as PropType<Table<string[]>>,
     required: true,
   },
+  keyword: {
+    type: String,
+    default: "",
+  },
 });
 
 const scrollerRef = ref<HTMLDivElement>();
@@ -116,6 +129,24 @@ const data = computed(() => props.data);
 
 const isSensitiveColumn = (index: number): boolean => {
   return props.sensitive[index] ?? false;
+};
+
+const renderCellValue = (value: any) => {
+  const str = String(value);
+  if (str.length === 0) {
+    return `<br style="min-width: 1rem; display: inline-flex;" />`;
+  }
+
+  const { keyword } = props;
+  if (!keyword) {
+    return escape(str);
+  }
+
+  return getHighlightHTMLByRegExp(
+    escape(str),
+    escape(keyword),
+    false /* !caseSensitive */
+  );
 };
 
 const scrollTo = (x: number, y: number) => {

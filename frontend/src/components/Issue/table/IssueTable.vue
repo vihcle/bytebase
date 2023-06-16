@@ -50,7 +50,7 @@
       <BBTableCell class="table-cell w-12">
         <IssueStatusIcon
           :issue-status="issue.status"
-          :task-status="activeTask(issue.pipeline).status"
+          :task-status="issueTaskStatus(issue)"
         />
       </BBTableCell>
       <BBTableCell v-if="mode == 'ALL'" class="table-cell text-gray-500 w-12">
@@ -82,13 +82,17 @@
         </div>
       </BBTableCell>
       <BBTableCell class="table-cell w-36">
-        <div class="flex items-center">
+        <div
+          v-if="isDatabaseRelatedIssueType(issue.type)"
+          class="flex items-center"
+        >
           {{ activeEnvironmentName(issue) }}
           <ProductionEnvironmentIcon
             class="ml-1"
             :environment="activeEnvironment(issue.pipeline)"
           />
         </div>
+        <div v-else>-</div>
       </BBTableCell>
       <BBTableCell class="hidden sm:table-cell w-36">
         <BBStepBar
@@ -116,6 +120,14 @@
           />
           <span class="ml-2">
             {{ issue.assignee ? issue.assignee.name : $t("common.unassigned") }}
+          </span>
+        </div>
+      </BBTableCell>
+      <BBTableCell class="hidden sm:table-cell w-36">
+        <div class="flex flex-row items-center">
+          <BBAvatar :size="'SMALL'" :username="issue.creator.name" />
+          <span class="ml-2">
+            {{ issue.creator.name }}
           </span>
         </div>
       </BBTableCell>
@@ -149,10 +161,12 @@ import {
   activeTask,
   stageSlug,
   activeTaskInStage,
+  isDatabaseRelatedIssueType,
+  extractUserUID,
 } from "@/utils";
 import ProductionEnvironmentIcon from "@/components/Environment/ProductionEnvironmentIcon.vue";
 import { useElementVisibilityInScrollParent } from "@/composables/useElementVisibilityInScrollParent";
-import { useCurrentUser } from "@/store";
+import { useCurrentUserV1 } from "@/store";
 import { CurrentApprover } from "../review";
 
 type Mode = "ALL" | "PROJECT";
@@ -185,6 +199,9 @@ const columnListMap: Map<Mode, BBTableColumn[]> = new Map([
       {
         title: "issue.table.assignee",
       },
+      {
+        title: "issue.table.creator",
+      },
     ],
   ],
   [
@@ -210,6 +227,9 @@ const columnListMap: Map<Mode, BBTableColumn[]> = new Map([
       },
       {
         title: "issue.table.assignee",
+      },
+      {
+        title: "issue.table.creator",
       },
     ],
   ],
@@ -256,7 +276,7 @@ const state = reactive<LocalState>({
   dataSource: [],
   selectedIssueIdList: new Set(),
 });
-const currentUser = useCurrentUser();
+const currentUserV1 = useCurrentUserV1();
 
 const tableRef = ref<HTMLTableElement>();
 const isTableInViewport = useElementVisibilityInScrollParent(tableRef);
@@ -280,16 +300,35 @@ const selectedIssueList = computed(() => {
   );
 });
 
+const issueTaskStatus = (issue: Issue) => {
+  // For grant request issue, we always show the status as "PENDING_APPROVAL" as task status.
+  if (!isDatabaseRelatedIssueType(issue.type)) {
+    return "PENDING_APPROVAL";
+  }
+
+  return activeTask(issue.pipeline!).status;
+};
+
 const activeEnvironmentName = function (issue: Issue) {
   return activeEnvironment(issue.pipeline).name;
 };
 
 const taskStepList = function (issue: Issue): BBStep[] {
-  return issue.pipeline.stageList.map((stage) => {
+  if (!isDatabaseRelatedIssueType(issue.type)) {
+    return [
+      {
+        status:
+          issue.status === "OPEN" ? "PENDING_APPROVAL_ACTIVE" : issue.status,
+        payload: undefined,
+      },
+    ];
+  }
+
+  return issue.pipeline!.stageList.map((stage) => {
     const task = activeTaskInStage(stage);
     let status: BBStepStatus = task.status;
     if (status == "PENDING" || status == "PENDING_APPROVAL") {
-      if (activeTask(issue.pipeline).id == task.id) {
+      if (activeTask(issue.pipeline!).id == task.id) {
         status =
           status == "PENDING" ? "PENDING_ACTIVE" : "PENDING_APPROVAL_ACTIVE";
       }
@@ -346,7 +385,7 @@ const isAssigneeAttentionOn = (issue: Issue) => {
   if (issue.status !== "OPEN") {
     return false;
   }
-  if (currentUser.value.id === issue.assignee.id) {
+  if (extractUserUID(currentUserV1.value.name) === String(issue.assignee.id)) {
     // True if current user is the assignee
     return issue.assigneeNeedAttention;
   }
@@ -366,7 +405,7 @@ const clickIssue = (_: number, row: number, e: MouseEvent) => {
 
 const clickIssueStep = (issue: Issue, step: BBStep) => {
   const task = step.payload as Task;
-  const stageIndex = issue.pipeline.stageList.findIndex((item) => {
+  const stageIndex = issue.pipeline!.stageList.findIndex((item) => {
     return item.id == task.stage.id;
   });
 

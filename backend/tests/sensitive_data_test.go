@@ -6,14 +6,76 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/testing/protocmp"
 
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/resources/mysql"
 	"github.com/bytebase/bytebase/backend/tests/fake"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+)
+
+var (
+	maskedData = &v1pb.QueryResult{
+		ColumnNames:     []string{"id", "name", "author"},
+		ColumnTypeNames: []string{"INT", "VARCHAR", "VARCHAR"},
+		Masked:          []bool{true, false, true},
+		Rows: []*v1pb.QueryRow{
+			{
+				Values: []*v1pb.RowValue{
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "******"}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "bytebase"}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "******"}},
+				},
+			},
+			{
+				Values: []*v1pb.RowValue{
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "******"}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "PostgreSQL 14 Internals"}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "******"}},
+				},
+			},
+			{
+				Values: []*v1pb.RowValue{
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "******"}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "Designing Data-Intensive Applications"}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "******"}},
+				},
+			},
+		},
+	}
+	originData = &v1pb.QueryResult{
+		ColumnNames:     []string{"id", "name", "author"},
+		ColumnTypeNames: []string{"INT", "VARCHAR", "VARCHAR"},
+		Rows: []*v1pb.QueryRow{
+			{
+				Values: []*v1pb.RowValue{
+					{Kind: &v1pb.RowValue_Int64Value{Int64Value: 1}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "bytebase"}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "bber"}},
+				},
+			},
+			{
+				Values: []*v1pb.RowValue{
+					{Kind: &v1pb.RowValue_Int64Value{Int64Value: 2}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "PostgreSQL 14 Internals"}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "Egor Rogov"}},
+				},
+			},
+			{
+				Values: []*v1pb.RowValue{
+					{Kind: &v1pb.RowValue_Int64Value{Int64Value: 3}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "Designing Data-Intensive Applications"}},
+					{Kind: &v1pb.RowValue_StringValue{StringValue: "Martin Kleppmann"}},
+				},
+			},
+		},
+	}
 )
 
 func TestSensitiveData(t *testing.T) {
@@ -34,15 +96,13 @@ func TestSensitiveData(t *testing.T) {
 				(3, 'Designing Data-Intensive Applications', 'Martin Kleppmann');
 		`
 		queryTable = `SELECT * FROM tech_book`
-		maskedData = "[[\"id\",\"name\",\"author\"],[\"INT\",\"VARCHAR\",\"VARCHAR\"],[[\"******\",\"bytebase\",\"******\"],[\"******\",\"PostgreSQL 14 Internals\",\"******\"],[\"******\",\"Designing Data-Intensive Applications\",\"******\"]],[true,false,true]]"
-		originData = "[[\"id\",\"name\",\"author\"],[\"INT\",\"VARCHAR\",\"VARCHAR\"],[[1,\"bytebase\",\"bber\"],[2,\"PostgreSQL 14 Internals\",\"Egor Rogov\"],[3,\"Designing Data-Intensive Applications\",\"Martin Kleppmann\"]],[false,false,false]]"
 	)
 	t.Parallel()
 	a := require.New(t)
 	ctx := context.Background()
 	ctl := &controller{}
 	dataDir := t.TempDir()
-	err := ctl.StartServerWithExternalPg(ctx, &config{
+	ctx, err := ctl.StartServerWithExternalPg(ctx, &config{
 		dataDir:            dataDir,
 		vcsProviderCreator: fake.NewGitLab,
 	})
@@ -70,101 +130,113 @@ func TestSensitiveData(t *testing.T) {
 	a.NoError(err)
 
 	// Create a project.
-	project, err := ctl.createProject(api.ProjectCreate{
-		ResourceID: generateRandomString("project", 10),
-		Name:       "Test Sensitive Data Project",
-		Key:        "TestSensitiveData",
-	})
+	project, err := ctl.createProject(ctx)
+	a.NoError(err)
+	projectUID, err := strconv.Atoi(project.Uid)
 	a.NoError(err)
 
-	environments, err := ctl.getEnvironments()
-	a.NoError(err)
-	prodEnvironment, err := findEnvironment(environments, "Prod")
+	prodEnvironment, err := ctl.getEnvironment(ctx, "prod")
 	a.NoError(err)
 
 	err = ctl.setLicense()
 	a.NoError(err)
 
-	instance, err := ctl.addInstance(api.InstanceCreate{
-		ResourceID:    generateRandomString("instance", 10),
-		EnvironmentID: prodEnvironment.ID,
-		Name:          "mysqlSensitiveDataInstance",
-		Engine:        db.MySQL,
-		Host:          "127.0.0.1",
-		Port:          strconv.Itoa(mysqlPort),
-		Username:      "bytebase",
-		Password:      "bytebase",
+	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
+		InstanceId: generateRandomString("instance", 10),
+		Instance: &v1pb.Instance{
+			Title:       "mysqlInstance",
+			Engine:      v1pb.Engine_MYSQL,
+			Environment: prodEnvironment.Name,
+			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: "127.0.0.1", Port: strconv.Itoa(mysqlPort), Username: "bytebase", Password: "bytebase"}},
+		},
 	})
 	a.NoError(err)
 
-	databases, err := ctl.getDatabases(api.DatabaseFind{
-		ProjectID: &project.ID,
-	})
-	a.NoError(err)
-	a.Nil(databases)
-	databases, err = ctl.getDatabases(api.DatabaseFind{
-		InstanceID: &instance.ID,
-	})
-	a.NoError(err)
-	a.Nil(databases)
-
-	err = ctl.createDatabase(project, instance, databaseName, "", nil)
+	err = ctl.createDatabase(ctx, projectUID, instance, databaseName, "", nil)
 	a.NoError(err)
 
-	databases, err = ctl.getDatabases(api.DatabaseFind{
-		ProjectID: &project.ID,
+	database, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
+		Name: fmt.Sprintf("%s/databases/%s", instance.Name, databaseName),
 	})
 	a.NoError(err)
-	a.Equal(1, len(databases))
+	databaseUID, err := strconv.Atoi(database.Uid)
+	a.NoError(err)
 
-	database := databases[0]
-	a.Equal(instance.ID, database.Instance.ID)
+	sheet, err := ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
+		Parent: project.Name,
+		Sheet: &v1pb.Sheet{
+			Title:      "createTable",
+			Content:    []byte(createTable),
+			Visibility: v1pb.Sheet_VISIBILITY_PROJECT,
+			Source:     v1pb.Sheet_SOURCE_BYTEBASE_ARTIFACT,
+			Type:       v1pb.Sheet_TYPE_SQL,
+		},
+	})
+	a.NoError(err)
+	sheetUID, err := strconv.Atoi(strings.TrimPrefix(sheet.Name, fmt.Sprintf("%s/sheets/", project.Name)))
+	a.NoError(err)
 
 	// Create an issue that updates database schema.
 	createContext, err := json.Marshal(&api.MigrationContext{
 		DetailList: []*api.MigrationDetail{
 			{
 				MigrationType: db.Migrate,
-				DatabaseID:    database.ID,
-				Statement:     createTable,
+				DatabaseID:    databaseUID,
+				SheetID:       sheetUID,
 			},
 		},
 	})
 	a.NoError(err)
 	issue, err := ctl.createIssue(api.IssueCreate{
-		ProjectID:     project.ID,
+		ProjectID:     projectUID,
 		Name:          fmt.Sprintf("Create table for database %q", databaseName),
 		Type:          api.IssueDatabaseSchemaUpdate,
 		Description:   fmt.Sprintf("Create table of database %q.", databaseName),
-		AssigneeID:    ownerID,
+		AssigneeID:    api.SystemBotID,
 		CreateContext: string(createContext),
 	})
 	a.NoError(err)
-	status, err := ctl.waitIssuePipeline(issue.ID)
+	status, err := ctl.waitIssuePipeline(ctx, issue.ID)
 	a.NoError(err)
 	a.Equal(api.TaskDone, status)
 
 	// Create sensitive data policy.
-	policyPayload, err := json.Marshal(api.SensitiveDataPolicy{
-		SensitiveDataList: []api.SensitiveData{
-			{
-				Table:  tableName,
-				Column: "id",
-				Type:   api.SensitiveDataMaskTypeDefault,
-			},
-			{
-				Table:  tableName,
-				Column: "author",
-				Type:   api.SensitiveDataMaskTypeDefault,
+	_, err = ctl.orgPolicyServiceClient.CreatePolicy(ctx, &v1pb.CreatePolicyRequest{
+		Parent: database.Name,
+		Policy: &v1pb.Policy{
+			Type: v1pb.PolicyType_SENSITIVE_DATA,
+			Policy: &v1pb.Policy_SensitiveDataPolicy{
+				SensitiveDataPolicy: &v1pb.SensitiveDataPolicy{
+					SensitiveData: []*v1pb.SensitiveData{
+						{
+							Table:    tableName,
+							Column:   "id",
+							MaskType: v1pb.SensitiveDataMaskType_DEFAULT,
+						},
+						{
+							Table:    tableName,
+							Column:   "author",
+							MaskType: v1pb.SensitiveDataMaskType_DEFAULT,
+						},
+					},
+				},
 			},
 		},
 	})
 	a.NoError(err)
-	payloadString := string(policyPayload)
 
-	_, err = ctl.upsertPolicy(api.PolicyResourceTypeDatabase, database.ID, api.PolicyTypeSensitiveData, api.PolicyUpsert{
-		Payload: &payloadString,
+	insertDataSheet, err := ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
+		Parent: project.Name,
+		Sheet: &v1pb.Sheet{
+			Title:      "insertData",
+			Content:    []byte(insertData),
+			Visibility: v1pb.Sheet_VISIBILITY_PROJECT,
+			Source:     v1pb.Sheet_SOURCE_BYTEBASE_ARTIFACT,
+			Type:       v1pb.Sheet_TYPE_SQL,
+		},
 	})
+	a.NoError(err)
+	insertDataSheetUID, err := strconv.Atoi(strings.TrimPrefix(insertDataSheet.Name, fmt.Sprintf("%s/sheets/", project.Name)))
 	a.NoError(err)
 
 	// Insert data into table tech_book.
@@ -172,35 +244,40 @@ func TestSensitiveData(t *testing.T) {
 		DetailList: []*api.MigrationDetail{
 			{
 				MigrationType: db.Data,
-				DatabaseID:    database.ID,
-				Statement:     insertData,
+				DatabaseID:    databaseUID,
+				SheetID:       insertDataSheetUID,
 			},
 		},
 	})
 	a.NoError(err)
 	issue, err = ctl.createIssue(api.IssueCreate{
-		ProjectID:     project.ID,
+		ProjectID:     projectUID,
 		Name:          fmt.Sprintf("update data for database %q", databaseName),
 		Type:          api.IssueDatabaseDataUpdate,
 		Description:   fmt.Sprintf("This updates the data of database %q.", databaseName),
-		AssigneeID:    ownerID,
+		AssigneeID:    api.SystemBotID,
 		CreateContext: string(createContext),
 	})
 	a.NoError(err)
-	status, err = ctl.waitIssuePipeline(issue.ID)
+	status, err = ctl.waitIssuePipeline(ctx, issue.ID)
 	a.NoError(err)
 	a.Equal(api.TaskDone, status)
 
 	// Query masked data.
-	result, err := ctl.query(instance, databaseName, queryTable)
+	queryResp, err := ctl.sqlServiceClient.Query(ctx, &v1pb.QueryRequest{
+		Name: instance.Name, ConnectionDatabase: databaseName, Statement: queryTable,
+	})
 	a.NoError(err)
-	a.Equal(maskedData, result)
+	a.Equal(1, len(queryResp.Results))
+	diff := cmp.Diff(maskedData, queryResp.Results[0], protocmp.Transform())
+	a.Equal("", diff)
 
 	// Query origin data.
-	singleSQLResults, err := ctl.adminQuery(instance, databaseName, queryTable)
+	singleSQLResults, err := ctl.adminQuery(ctx, instance, databaseName, queryTable)
 	a.NoError(err)
-	for _, singleSQLResult := range singleSQLResults {
-		a.Equal("", singleSQLResult.Error)
-		a.Equal(originData, singleSQLResult.Data)
-	}
+	a.Len(singleSQLResults, 1)
+	result := singleSQLResults[0]
+	a.Equal("", result.Error)
+	diff = cmp.Diff(originData, result, protocmp.Transform())
+	a.Equal("", diff)
 }

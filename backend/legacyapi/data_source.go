@@ -42,8 +42,13 @@ type DataSourceOptions struct {
 	// AuthenticationDatabase is used for MongoDB only.
 	AuthenticationDatabase string `json:"authenticationDatabase" jsonapi:"attr,authenticationDatabase"`
 	// SID and ServiceName are used for Oracle.
-	SID         string `json:"sid" jsonapi:"attr,sid"`
-	ServiceName string `json:"serviceName" jsonapi:"attr,serviceName"`
+	SID           string `json:"sid" jsonapi:"attr,sid"`
+	ServiceName   string `json:"serviceName" jsonapi:"attr,serviceName"`
+	SSHHost       string `json:"sshHost" jsonapi:"attr,sshHost"`
+	SSHPort       string `json:"sshPort" jsonapi:"attr,sshPort"`
+	SSHUser       string `json:"sshUser" jsonapi:"attr,sshUser"`
+	SSHPassword   string `json:"sshPassword" jsonapi:"attr,sshPassword"`
+	SSHPrivateKey string `json:"sshPrivateKey" jsonapi:"attr,sshPrivateKey"`
 }
 
 // getDefaultDataSourceOptions returns the default data source options.
@@ -81,33 +86,4 @@ type DataSource struct {
 	Port     string            `jsonapi:"attr,port"`
 	Options  DataSourceOptions `jsonapi:"attr,options"`
 	Database string            `jsonapi:"attr,database"`
-}
-
-// DataSourceCreate is the API message for creating a data source.
-type DataSourceCreate struct {
-	Name     string            `jsonapi:"attr,name"`
-	Type     DataSourceType    `jsonapi:"attr,type"`
-	Username string            `jsonapi:"attr,username"`
-	Password string            `jsonapi:"attr,password"`
-	SslCa    string            `jsonapi:"attr,sslCa"`
-	SslCert  string            `jsonapi:"attr,sslCert"`
-	SslKey   string            `jsonapi:"attr,sslKey"`
-	Host     string            `jsonapi:"attr,host"`
-	Port     string            `jsonapi:"attr,port"`
-	Options  DataSourceOptions `jsonapi:"attr,options"`
-	Database string            `jsonapi:"attr,database"`
-}
-
-// DataSourcePatch is the API message for data source.
-type DataSourcePatch struct {
-	Username         *string            `jsonapi:"attr,username"`
-	Password         *string            `jsonapi:"attr,password"`
-	UseEmptyPassword *bool              `jsonapi:"attr,useEmptyPassword"`
-	SslCa            *string            `jsonapi:"attr,sslCa"`
-	SslCert          *string            `jsonapi:"attr,sslCert"`
-	SslKey           *string            `jsonapi:"attr,sslKey"`
-	Host             *string            `jsonapi:"attr,host"`
-	Port             *string            `jsonapi:"attr,port"`
-	Options          *DataSourceOptions `jsonapi:"attr,options"`
-	Database         *string            `jsonapi:"attr,database"`
 }

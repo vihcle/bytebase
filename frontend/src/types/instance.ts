@@ -1,12 +1,7 @@
 import { DataSource } from ".";
 import { RowStatus } from "./common";
 import { Environment } from "./environment";
-import {
-  EnvironmentId,
-  InstanceId,
-  MigrationHistoryId,
-  ResourceId,
-} from "./id";
+import { InstanceId, MigrationHistoryId, ResourceId } from "./id";
 import { Engine } from "./proto/v1/common";
 import { VCSPushEvent } from "./vcs";
 
@@ -23,6 +18,7 @@ export const EngineTypeList = [
   "MSSQL",
   "REDSHIFT",
   "MARIADB",
+  "OCEANBASE",
 ] as const;
 
 export type EngineType = typeof EngineTypeList[number];
@@ -53,6 +49,8 @@ export function convertEngineType(type: EngineType): Engine {
       return Engine.REDSHIFT;
     case "MARIADB":
       return Engine.MARIADB;
+    case "OCEANBASE":
+      return Engine.OCEANBASE;
   }
   return Engine.ENGINE_UNSPECIFIED;
 }
@@ -65,6 +63,7 @@ export function defaultCharset(type: EngineType): string {
     case "MYSQL":
     case "TIDB":
     case "MARIADB":
+    case "OCEANBASE":
       return "utf8mb4";
     case "POSTGRES":
       return "UTF8";
@@ -109,6 +108,8 @@ export function engineName(type: EngineType): string {
       return "Redshift";
     case "MARIADB":
       return "MariaDB";
+    case "OCEANBASE":
+      return "OceanBase";
   }
 }
 
@@ -120,6 +121,7 @@ export function defaultCollation(type: EngineType): string {
     case "MYSQL":
     case "TIDB":
     case "MARIADB":
+    case "OCEANBASE":
       return "utf8mb4_general_ci";
     // For postgres, we don't explicitly specify a default since the default might be UNSET (denoted by "C").
     // If that's the case, setting an explicit default such as "en_US.UTF-8" might fail if the instance doesn't
@@ -164,7 +166,7 @@ export type InstanceCreate = {
   resourceId: ResourceId;
 
   // Related fields
-  environmentId: EnvironmentId;
+  environmentId: number;
 
   // Domain specific fields
   name: string;
@@ -186,6 +188,12 @@ export type InstanceCreate = {
   // sid and serviceName are used for Oracle database. Required one of them.
   sid: string;
   serviceName: string;
+  // Connection over SSH.
+  sshHost: string;
+  sshPort: string;
+  sshUser: string;
+  sshPassword: string;
+  sshPrivateKey: string;
 };
 
 export type InstancePatch = {

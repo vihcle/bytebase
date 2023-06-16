@@ -307,50 +307,6 @@ func (s *Scheduler) Run(ctx context.Context, wg *sync.WaitGroup) {
 								)
 								return
 							}
-
-							issue, err := s.store.GetIssueV2(ctx, &store.FindIssueMessage{PipelineID: &task.PipelineID})
-							if err != nil {
-								log.Error("failed to getIssueByPipelineID", zap.Int("pipelineID", task.PipelineID), zap.Error(err))
-								return
-							}
-							// The task has finished, and we may move to a new stage.
-							// if the current assignee doesn't fit in the new assignee group, we will reassign a new one based on the new assignee group.
-							if issue != nil {
-								stages, err := s.store.ListStageV2(ctx, issue.PipelineUID)
-								if err != nil {
-									return
-								}
-								activeStage := utils.GetActiveStage(stages)
-								if activeStage != nil && activeStage.ID != task.StageID {
-									environmentID := activeStage.EnvironmentID
-									ok, err := s.CanPrincipalBeAssignee(ctx, issue.Assignee.ID, environmentID, issue.Project.UID, issue.Type)
-									if err != nil {
-										log.Error("failed to check if the current assignee still fits in the new assignee group", zap.Error(err))
-										return
-									}
-									if !ok {
-										// reassign the issue to a new assignee if the current one doesn't fit.
-										assignee, err := s.GetDefaultAssignee(ctx, environmentID, issue.Project.UID, issue.Type)
-										if err != nil {
-											log.Error("failed to get a default assignee", zap.Error(err))
-											return
-										}
-										if _, err := s.store.UpdateIssueV2(ctx, issue.UID, &store.UpdateIssueMessage{Assignee: assignee}, api.SystemBotID); err != nil {
-											log.Error("failed to update the issue assignee", zap.Error(err))
-											return
-										}
-									}
-								}
-
-								s.metricReporter.Report(ctx, &metric.Metric{
-									Name:  metricAPI.TaskStatusMetricName,
-									Value: 1,
-									Labels: map[string]any{
-										"type":  task.Type,
-										"value": taskStatusPatch.Status,
-									},
-								})
-							}
 							return
 						}
 					}(ctx, task, executor)
@@ -364,23 +320,62 @@ func (s *Scheduler) Run(ctx context.Context, wg *sync.WaitGroup) {
 
 // PatchTask patches the statement, earliest allowed time and rollbackEnabled for a task.
 func (s *Scheduler) PatchTask(ctx context.Context, task *store.TaskMessage, taskPatch *api.TaskPatch, issue *store.IssueMessage) error {
-	if taskPatch.Statement != nil {
+	if taskPatch.SheetID != nil {
 		if err := canUpdateTaskStatement(task); err != nil {
 			return err
 		}
-		if issue.Project.Workflow == api.UIWorkflow {
+		// If task created in UI mode in VCS Project, we should give it a new migration version.
+		// https://linear.app/bytebase/issue/BYT-3311/the-executed-sql-is-not-expected
+		isUICreatedInVCSProject := false
+		if issue.Project.Workflow == api.VCSWorkflow {
+			switch task.Type {
+			case api.TaskDatabaseSchemaUpdate:
+				var payload api.TaskDatabaseSchemaUpdatePayload
+				if err := json.Unmarshal([]byte(task.Payload), &payload); err != nil {
+					return errors.Wrapf(err, "failed to unmarshal task payload")
+				}
+				if payload.VCSPushEvent == nil {
+					isUICreatedInVCSProject = true
+				}
+			case api.TaskDatabaseSchemaUpdateSDL:
+				var payload api.TaskDatabaseSchemaUpdateSDLPayload
+				if err := json.Unmarshal([]byte(task.Payload), &payload); err != nil {
+					return errors.Wrapf(err, "failed to unmarshal task payload")
+				}
+				if payload.VCSPushEvent == nil {
+					isUICreatedInVCSProject = true
+				}
+			case api.TaskDatabaseSchemaUpdateGhostSync:
+				var payload api.TaskDatabaseSchemaUpdateGhostSyncPayload
+				if err := json.Unmarshal([]byte(task.Payload), &payload); err != nil {
+					return errors.Wrapf(err, "failed to unmarshal task payload")
+				}
+				if payload.VCSPushEvent == nil {
+					isUICreatedInVCSProject = true
+				}
+			case api.TaskDatabaseDataUpdate:
+				var payload api.TaskDatabaseDataUpdatePayload
+				if err := json.Unmarshal([]byte(task.Payload), &payload); err != nil {
+					return errors.Wrapf(err, "failed to unmarshal task payload")
+				}
+				if payload.VCSPushEvent == nil {
+					isUICreatedInVCSProject = true
+				}
+			}
+		}
+		if issue.Project.Workflow == api.UIWorkflow || isUICreatedInVCSProject {
 			schemaVersion := common.DefaultMigrationVersion()
 			taskPatch.SchemaVersion = &schemaVersion
 		}
 	}
 
 	// Reset because we are trying to build
-	// the rollbackStatement again and there could be previous runs.
+	// the RollbackSheetID again and there could be previous runs.
 	if taskPatch.RollbackEnabled != nil && *taskPatch.RollbackEnabled {
 		empty := ""
 		pending := api.RollbackSQLStatusPending
 		taskPatch.RollbackSQLStatus = &pending
-		taskPatch.RollbackStatement = &empty
+		taskPatch.RollbackSheetID = nil
 		taskPatch.RollbackError = &empty
 	}
 	// if *taskPatch.RollbackEnabled == false, we don't reset
@@ -416,7 +411,7 @@ func (s *Scheduler) PatchTask(ctx context.Context, task *store.TaskMessage, task
 	}
 
 	// Trigger task checks.
-	if taskPatch.Statement != nil {
+	if taskPatch.SheetID != nil {
 		dbSchema, err := s.store.GetDBSchema(ctx, *task.DatabaseID)
 		if err != nil {
 			return err
@@ -428,6 +423,7 @@ func (s *Scheduler) PatchTask(ctx context.Context, task *store.TaskMessage, task
 		if err := s.applicationRunner.CancelExternalApproval(ctx, issue.UID, api.ExternalApprovalCancelReasonSQLModified); err != nil {
 			log.Error("failed to cancel external approval on SQL modified", zap.Int("issue_id", issue.UID), zap.Error(err))
 		}
+		s.stateCfg.IssueExternalApprovalRelayCancelChan <- issue.UID
 		if taskPatched.Type == api.TaskDatabaseSchemaUpdateGhostSync {
 			if err := s.store.CreateTaskCheckRun(ctx, &store.TaskCheckRunMessage{
 				CreatorID: taskPatched.CreatorID,
@@ -502,37 +498,37 @@ func (s *Scheduler) PatchTask(ctx context.Context, task *store.TaskMessage, task
 		}
 	}
 
-	// Update statement activity.
-	if taskPatch.Statement != nil {
-		oldStatement, err := utils.GetTaskStatement(task.Payload)
+	if taskPatch.SheetID != nil {
+		oldSheetID, err := utils.GetTaskSheetID(task.Payload)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "failed to get old sheet ID")
 		}
-		newStatement := *taskPatch.Statement
+		newSheetID := *taskPatch.SheetID
 
-		// create a task statement update activity
+		// create a task sheet update activity
 		payload, err := json.Marshal(api.ActivityPipelineTaskStatementUpdatePayload{
-			TaskID:       taskPatched.ID,
-			OldStatement: oldStatement,
-			NewStatement: newStatement,
-			TaskName:     task.Name,
-			IssueName:    issue.Title,
+			TaskID:     taskPatched.ID,
+			OldSheetID: oldSheetID,
+			NewSheetID: newSheetID,
+			TaskName:   task.Name,
+			IssueName:  issue.Title,
 		})
 		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create activity after updating task statement: %v", taskPatched.Name).SetInternal(err)
+			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create activity after updating task sheet: %v", taskPatched.Name).SetInternal(err)
 		}
-		if _, err := s.activityManager.CreateActivity(ctx, &api.ActivityCreate{
-			CreatorID:   taskPatch.UpdaterID,
-			ContainerID: taskPatched.PipelineID,
-			Type:        api.ActivityPipelineTaskStatementUpdate,
-			Payload:     string(payload),
-			Level:       api.ActivityInfo,
+		if _, err := s.activityManager.CreateActivity(ctx, &store.ActivityMessage{
+			CreatorUID:   taskPatch.UpdaterID,
+			ContainerUID: taskPatched.PipelineID,
+			Type:         api.ActivityPipelineTaskStatementUpdate,
+			Payload:      string(payload),
+			Level:        api.ActivityInfo,
 		}, &activity.Metadata{
 			Issue: issue,
 		}); err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to create activity after updating task statement: %v", taskPatched.Name)).SetInternal(err)
 		}
 	}
+
 	// Earliest allowed time update activity.
 	if taskPatch.EarliestAllowedTs != nil {
 		// create an activity
@@ -546,12 +542,12 @@ func (s *Scheduler) PatchTask(ctx context.Context, task *store.TaskMessage, task
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, errors.Wrapf(err, "failed to marshal earliest allowed time activity payload: %v", task.Name))
 		}
-		activityCreate := &api.ActivityCreate{
-			CreatorID:   taskPatch.UpdaterID,
-			ContainerID: taskPatched.PipelineID,
-			Type:        api.ActivityPipelineTaskEarliestAllowedTimeUpdate,
-			Payload:     string(payload),
-			Level:       api.ActivityInfo,
+		activityCreate := &store.ActivityMessage{
+			CreatorUID:   taskPatch.UpdaterID,
+			ContainerUID: taskPatched.PipelineID,
+			Type:         api.ActivityPipelineTaskEarliestAllowedTimeUpdate,
+			Payload:      string(payload),
+			Level:        api.ActivityInfo,
 		}
 		if _, err := s.activityManager.CreateActivity(ctx, activityCreate, &activity.Metadata{
 			Issue: issue,
@@ -587,32 +583,122 @@ func (s *Scheduler) triggerDatabaseStatementAdviseTask(ctx context.Context, task
 	return nil
 }
 
-// CanPrincipalChangeTaskStatus validates if the principal has the privilege to update task status.
-// Only the assignee is allowed to update task status.
-func (*Scheduler) CanPrincipalChangeTaskStatus(principalID int, issue *store.IssueMessage) bool {
-	return principalID == issue.Assignee.ID
+// CanPrincipalChangeTaskStatus validates if the principal has the privilege to update task status, judging from the principal role and the environment policy.
+func (s *Scheduler) CanPrincipalChangeTaskStatus(ctx context.Context, principalID int, task *store.TaskMessage, toStatus api.TaskStatus) (bool, error) {
+	// The creator can cancel task.
+	if toStatus == api.TaskCanceled {
+		if principalID == task.CreatorID {
+			return true, nil
+		}
+	}
+	// the workspace owner and DBA roles can always change task status.
+	user, err := s.store.GetUserByID(ctx, principalID)
+	if err != nil {
+		return false, common.Wrapf(err, common.Internal, "failed to get principal by ID %d", principalID)
+	}
+	if user == nil {
+		return false, common.Errorf(common.NotFound, "principal not found by ID %d", principalID)
+	}
+	if user.Role == api.Owner || user.Role == api.DBA {
+		return true, nil
+	}
+
+	issue, err := s.store.GetIssueV2(ctx, &store.FindIssueMessage{PipelineID: &task.PipelineID})
+	if err != nil {
+		return false, common.Wrapf(err, common.Internal, "failed to find issue")
+	}
+	if issue == nil {
+		return false, common.Errorf(common.NotFound, "issue not found by pipeline ID: %d", task.PipelineID)
+	}
+	groupValue, err := s.getGroupValueForTask(ctx, issue, task)
+	if err != nil {
+		return false, common.Wrapf(err, common.Internal, "failed to get assignee group value for taskID %d", task.ID)
+	}
+	if groupValue == nil {
+		return false, nil
+	}
+	// as the policy says, the project owner has the privilege to change task status.
+	if *groupValue == api.AssigneeGroupValueProjectOwner {
+		policy, err := s.store.GetProjectPolicy(ctx, &store.GetProjectPolicyMessage{UID: &issue.Project.UID})
+		if err != nil {
+			return false, common.Wrapf(err, common.Internal, "failed to get project %d policy", issue.Project.UID)
+		}
+		for _, binding := range policy.Bindings {
+			if binding.Role != api.Owner {
+				continue
+			}
+			for _, member := range binding.Members {
+				if member.ID == principalID {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
 }
 
-// ClearRunningTasks changes all RUNNING tasks to CANCELED.
+func (s *Scheduler) getGroupValueForTask(ctx context.Context, issue *store.IssueMessage, task *store.TaskMessage) (*api.AssigneeGroupValue, error) {
+	environmentID := api.UnknownID
+	stages, err := s.store.ListStageV2(ctx, task.PipelineID)
+	if err != nil {
+		return nil, err
+	}
+	for _, stage := range stages {
+		if stage.ID == task.StageID {
+			environmentID = stage.EnvironmentID
+			break
+		}
+	}
+	if environmentID == api.UnknownID {
+		return nil, common.Errorf(common.NotFound, "failed to find environmentID by task.StageID %d", task.StageID)
+	}
+
+	policy, err := s.store.GetPipelineApprovalPolicy(ctx, environmentID)
+	if err != nil {
+		return nil, common.Wrapf(err, common.Internal, "failed to get pipeline approval policy by environmentID %d", environmentID)
+	}
+
+	for _, assigneeGroup := range policy.AssigneeGroupList {
+		if assigneeGroup.IssueType == issue.Type {
+			return &assigneeGroup.Value, nil
+		}
+	}
+	return nil, nil
+}
+
+// ClearRunningTasks changes all RUNNING tasks and taskRuns to CANCELED.
 // When there are running tasks and Bytebase server is shutdown, these task executors are stopped, but the tasks' status are still RUNNING.
 // When Bytebase is restarted, the task scheduler will re-schedule those RUNNING tasks, which should be CANCELED instead.
 // So we change their status to CANCELED before starting the scheduler.
+// And corresponding taskRuns are also changed to CANCELED.
 func (s *Scheduler) ClearRunningTasks(ctx context.Context) error {
 	taskFind := &api.TaskFind{StatusList: &[]api.TaskStatus{api.TaskRunning}}
 	runningTasks, err := s.store.ListTasks(ctx, taskFind)
 	if err != nil {
 		return errors.Wrap(err, "failed to get running tasks")
 	}
-	if len(runningTasks) == 0 {
-		return nil
+	if len(runningTasks) > 0 {
+		var taskIDs []int
+		for _, task := range runningTasks {
+			taskIDs = append(taskIDs, task.ID)
+		}
+		if err := s.store.BatchPatchTaskStatus(ctx, taskIDs, api.TaskCanceled, api.SystemBotID); err != nil {
+			return errors.Wrapf(err, "failed to change task %v's status to %s", taskIDs, api.TaskCanceled)
+		}
 	}
 
-	var taskIDs []int
-	for _, task := range runningTasks {
-		taskIDs = append(taskIDs, task.ID)
+	runningTaskRuns, err := s.store.ListTaskRun(ctx, &store.TaskRunFind{StatusList: &[]api.TaskRunStatus{api.TaskRunRunning}})
+	if err != nil {
+		return errors.Wrap(err, "failed to get running task runs")
 	}
-	if err := s.store.BatchPatchTaskStatus(ctx, taskIDs, api.TaskCanceled, api.SystemBotID); err != nil {
-		return errors.Wrapf(err, "failed to change task %v's status to %s", taskIDs, api.TaskCanceled)
+	if len(runningTaskRuns) > 0 {
+		var taskRunIDs []int
+		for _, taskRun := range runningTaskRuns {
+			taskRunIDs = append(taskRunIDs, taskRun.ID)
+		}
+		if err := s.store.BatchPatchTaskRunStatus(ctx, taskRunIDs, api.TaskRunCanceled, api.SystemBotID); err != nil {
+			return errors.Wrapf(err, "failed to change task run %v's status to %s", taskRunIDs, api.TaskRunCanceled)
+		}
 	}
 
 	for _, task := range runningTasks {
@@ -738,6 +824,9 @@ func (s *Scheduler) scheduleAutoApprovedTasks(ctx context.Context) error {
 			return err
 		}
 		if issue != nil {
+			if issue.Status != api.IssueOpen {
+				continue
+			}
 			approved, err := utils.CheckIssueApproved(issue)
 			if err != nil {
 				log.Warn("taskrun scheduler: failed to check if the issue is approved when scheduling auto-deployed tasks", zap.Int("taskID", task.ID), zap.Int("issueID", issue.UID), zap.Error(err))
@@ -894,12 +983,12 @@ func (s *Scheduler) createTaskStatusUpdateActivity(ctx context.Context, task *st
 	if taskStatusPatch.Status == api.TaskFailed {
 		level = api.ActivityError
 	}
-	activityCreate := &api.ActivityCreate{
-		CreatorID:   taskStatusPatch.UpdaterID,
-		ContainerID: task.PipelineID,
-		Type:        api.ActivityPipelineTaskStatusUpdate,
-		Level:       level,
-		Payload:     string(payload),
+	activityCreate := &store.ActivityMessage{
+		CreatorUID:   taskStatusPatch.UpdaterID,
+		ContainerUID: task.PipelineID,
+		Type:         api.ActivityPipelineTaskStatusUpdate,
+		Level:        level,
+		Payload:      string(payload),
 	}
 	if taskStatusPatch.Comment != nil {
 		activityCreate.Comment = *taskStatusPatch.Comment
@@ -1002,6 +1091,17 @@ func (s *Scheduler) getAnyProjectOwner(ctx context.Context, projectID int) (*sto
 	if err != nil {
 		return nil, err
 	}
+	// Find the project member that is not workspace owner or DBA first.
+	for _, binding := range policy.Bindings {
+		if binding.Role != api.Owner || len(binding.Members) == 0 {
+			continue
+		}
+		for _, user := range binding.Members {
+			if user.Role != api.Owner && user.Role != api.DBA {
+				return user, nil
+			}
+		}
+	}
 	for _, binding := range policy.Bindings {
 		if binding.Role == api.Owner && len(binding.Members) > 0 {
 			return binding.Members[0], nil
@@ -1064,31 +1164,33 @@ func (s *Scheduler) CanPrincipalBeAssignee(ctx context.Context, principalID int,
 
 // ChangeIssueStatus changes the status of an issue.
 func (s *Scheduler) ChangeIssueStatus(ctx context.Context, issue *store.IssueMessage, newStatus api.IssueStatus, updaterID int, comment string) error {
-	tasks, err := s.store.ListTasks(ctx, &api.TaskFind{PipelineID: &issue.PipelineUID})
-	if err != nil {
-		return err
-	}
-	switch newStatus {
-	case api.IssueOpen:
-	case api.IssueDone:
-		// Returns error if any of the tasks is not DONE.
-		for _, task := range tasks {
-			if task.Status != api.TaskDone {
-				return &common.Error{Code: common.Conflict, Err: errors.Errorf("failed to resolve issue: %v, task %v has not finished", issue.Title, task.Name)}
-			}
+	if issue.PipelineUID != nil {
+		tasks, err := s.store.ListTasks(ctx, &api.TaskFind{PipelineID: issue.PipelineUID})
+		if err != nil {
+			return err
 		}
-	case api.IssueCanceled:
-		// If we want to cancel the issue, we find the current running tasks, mark each of them CANCELED.
-		// We keep PENDING and FAILED tasks as is since the issue maybe reopened later, and it's better to
-		// keep those tasks in the same state before the issue was canceled.
-		for _, task := range tasks {
-			if task.Status == api.TaskRunning {
-				if err := s.PatchTaskStatus(ctx, task, &api.TaskStatusPatch{
-					ID:        task.ID,
-					UpdaterID: updaterID,
-					Status:    api.TaskCanceled,
-				}); err != nil {
-					return errors.Wrapf(err, "failed to cancel issue: %v, failed to cancel task: %v", issue.Title, task.Name)
+		switch newStatus {
+		case api.IssueOpen:
+		case api.IssueDone:
+			// Returns error if any of the tasks is not DONE.
+			for _, task := range tasks {
+				if task.Status != api.TaskDone {
+					return &common.Error{Code: common.Conflict, Err: errors.Errorf("failed to resolve issue: %v, task %v has not finished", issue.Title, task.Name)}
+				}
+			}
+		case api.IssueCanceled:
+			// If we want to cancel the issue, we find the current running tasks, mark each of them CANCELED.
+			// We keep PENDING and FAILED tasks as is since the issue maybe reopened later, and it's better to
+			// keep those tasks in the same state before the issue was canceled.
+			for _, task := range tasks {
+				if task.Status == api.TaskRunning {
+					if err := s.PatchTaskStatus(ctx, task, &api.TaskStatusPatch{
+						ID:        task.ID,
+						UpdaterID: updaterID,
+						Status:    api.TaskCanceled,
+					}); err != nil {
+						return errors.Wrapf(err, "failed to cancel issue: %v, failed to cancel task: %v", issue.Title, task.Name)
+					}
 				}
 			}
 		}
@@ -1110,6 +1212,7 @@ func (s *Scheduler) ChangeIssueStatus(ctx context.Context, issue *store.IssueMes
 		if err := s.applicationRunner.CancelExternalApproval(ctx, issue.UID, api.ExternalApprovalCancelReasonIssueNotOpen); err != nil {
 			log.Error("failed to cancel external approval on issue cancellation or completion", zap.Error(err))
 		}
+		s.stateCfg.IssueExternalApprovalRelayCancelChan <- issue.UID
 	}
 
 	payload, err := json.Marshal(api.ActivityIssueStatusUpdatePayload{
@@ -1121,13 +1224,13 @@ func (s *Scheduler) ChangeIssueStatus(ctx context.Context, issue *store.IssueMes
 		return errors.Wrapf(err, "failed to marshal activity after changing the issue status: %v", updatedIssue.Title)
 	}
 
-	activityCreate := &api.ActivityCreate{
-		CreatorID:   updaterID,
-		ContainerID: issue.UID,
-		Type:        api.ActivityIssueStatusUpdate,
-		Level:       api.ActivityInfo,
-		Comment:     comment,
-		Payload:     string(payload),
+	activityCreate := &store.ActivityMessage{
+		CreatorUID:   updaterID,
+		ContainerUID: issue.UID,
+		Type:         api.ActivityIssueStatusUpdate,
+		Level:        api.ActivityInfo,
+		Comment:      comment,
+		Payload:      string(payload),
 	}
 
 	if _, err := s.activityManager.CreateActivity(ctx, activityCreate, &activity.Metadata{
@@ -1140,9 +1243,18 @@ func (s *Scheduler) ChangeIssueStatus(ctx context.Context, issue *store.IssueMes
 }
 
 func (s *Scheduler) onTaskStatusPatched(ctx context.Context, issue *store.IssueMessage, taskPatched *store.TaskMessage) error {
+	s.metricReporter.Report(ctx, &metric.Metric{
+		Name:  metricAPI.TaskStatusMetricName,
+		Value: 1,
+		Labels: map[string]any{
+			"type":  taskPatched.Type,
+			"value": taskPatched.Status,
+		},
+	})
+
 	stages, err := s.store.ListStageV2(ctx, taskPatched.PipelineID)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to list stages")
 	}
 	var taskStage, nextStage *store.StageMessage
 	for i, stage := range stages {
@@ -1158,19 +1270,47 @@ func (s *Scheduler) onTaskStatusPatched(ctx context.Context, issue *store.IssueM
 		return errors.New("failed to find corresponding stage of the task in the issue pipeline")
 	}
 
+	if !taskStage.Active && nextStage != nil {
+		// Every task in this stage has finished, we are moving to the next stage.
+		// The current assignee doesn't fit in the new assignee group, we will reassign a new one based on the new assignee group.
+		func() {
+			environmentID := nextStage.EnvironmentID
+			ok, err := s.CanPrincipalBeAssignee(ctx, issue.Assignee.ID, environmentID, issue.Project.UID, issue.Type)
+			if err != nil {
+				log.Error("failed to check if the current assignee still fits in the new assignee group", zap.Error(err))
+				return
+			}
+			if !ok {
+				// reassign the issue to a new assignee if the current one doesn't fit.
+				assignee, err := s.GetDefaultAssignee(ctx, environmentID, issue.Project.UID, issue.Type)
+				if err != nil {
+					log.Error("failed to get a default assignee", zap.Error(err))
+					return
+				}
+				if _, err := s.store.UpdateIssueV2(ctx, issue.UID, &store.UpdateIssueMessage{Assignee: assignee}, api.SystemBotID); err != nil {
+					log.Error("failed to update the issue assignee", zap.Error(err))
+					return
+				}
+			}
+		}()
+	}
+	if !taskStage.Active && nextStage == nil {
+		// Every task in the pipeline has finished.
+		// Resolve the issue automatically for the user.
+		if err := s.ChangeIssueStatus(ctx, issue, api.IssueDone, api.SystemBotID, ""); err != nil {
+			log.Error("failed to change the issue status to done automatically after completing every task", zap.Error(err))
+		}
+	}
+
 	tasks, err := s.store.ListTasks(ctx, &api.TaskFind{PipelineID: &taskPatched.PipelineID, StageID: &taskPatched.StageID})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to list tasks")
 	}
 	stageTaskHasPendingApproval := false
 	stageTaskAllTerminated := true
-	stageTaskAllDone := true
 	for _, task := range tasks {
 		if task.Status == api.TaskPendingApproval {
 			stageTaskHasPendingApproval = true
-		}
-		if task.Status != api.TaskDone {
-			stageTaskAllDone = false
 		}
 		if !terminatedTaskStatus[task.Status] {
 			stageTaskAllTerminated = false
@@ -1188,54 +1328,64 @@ func (s *Scheduler) onTaskStatusPatched(ctx context.Context, issue *store.IssueM
 	// every task in the stage terminated
 	// create "stage ends" activity.
 	if stageTaskAllTerminated {
-		createActivityPayload := api.ActivityPipelineStageStatusUpdatePayload{
-			StageID:               taskStage.ID,
-			StageStatusUpdateType: api.StageStatusUpdateTypeEnd,
-			IssueName:             issue.Title,
-			StageName:             taskStage.Name,
-		}
-		bytes, err := json.Marshal(createActivityPayload)
-		if err != nil {
-			return errors.Wrap(err, "failed to create ActivityPipelineStageStatusUpdate activity")
-		}
-		activityCreate := &api.ActivityCreate{
-			CreatorID:   api.SystemBotID,
-			ContainerID: issue.PipelineUID,
-			Type:        api.ActivityPipelineStageStatusUpdate,
-			Level:       api.ActivityInfo,
-			Payload:     string(bytes),
-		}
-		if _, err := s.activityManager.CreateActivity(ctx, activityCreate, &activity.Metadata{
-			Issue: issue,
-		}); err != nil {
-			return errors.Wrap(err, "failed to create ActivityPipelineStageStatusUpdate activity")
+		if err := func() error {
+			createActivityPayload := api.ActivityPipelineStageStatusUpdatePayload{
+				StageID:               taskStage.ID,
+				StageStatusUpdateType: api.StageStatusUpdateTypeEnd,
+				IssueName:             issue.Title,
+				StageName:             taskStage.Name,
+			}
+			bytes, err := json.Marshal(createActivityPayload)
+			if err != nil {
+				return errors.Wrap(err, "failed to marshal ActivityPipelineStageStatusUpdate payload")
+			}
+			activityCreate := &store.ActivityMessage{
+				CreatorUID:   api.SystemBotID,
+				ContainerUID: *issue.PipelineUID,
+				Type:         api.ActivityPipelineStageStatusUpdate,
+				Level:        api.ActivityInfo,
+				Payload:      string(bytes),
+			}
+			if _, err := s.activityManager.CreateActivity(ctx, activityCreate, &activity.Metadata{
+				Issue: issue,
+			}); err != nil {
+				return errors.Wrap(err, "failed to create activity")
+			}
+			return nil
+		}(); err != nil {
+			log.Error("failed to create ActivityPipelineStageStatusUpdate activity", zap.Error(err))
 		}
 	}
 
 	// every task in the stage completes and this is not the last stage.
 	// create "stage begins" activity.
-	if stageTaskAllDone && nextStage != nil {
-		createActivityPayload := api.ActivityPipelineStageStatusUpdatePayload{
-			StageID:               nextStage.ID,
-			StageStatusUpdateType: api.StageStatusUpdateTypeBegin,
-			IssueName:             issue.Title,
-			StageName:             nextStage.Name,
-		}
-		bytes, err := json.Marshal(createActivityPayload)
-		if err != nil {
-			return errors.Wrap(err, "failed to create ActivityPipelineStageStatusUpdate activity")
-		}
-		activityCreate := &api.ActivityCreate{
-			CreatorID:   api.SystemBotID,
-			ContainerID: issue.PipelineUID,
-			Type:        api.ActivityPipelineStageStatusUpdate,
-			Level:       api.ActivityInfo,
-			Payload:     string(bytes),
-		}
-		if _, err := s.activityManager.CreateActivity(ctx, activityCreate, &activity.Metadata{
-			Issue: issue,
-		}); err != nil {
-			return errors.Wrap(err, "failed to create ActivityPipelineStageStatusUpdate activity")
+	if !taskStage.Active && nextStage != nil {
+		if err := func() error {
+			createActivityPayload := api.ActivityPipelineStageStatusUpdatePayload{
+				StageID:               nextStage.ID,
+				StageStatusUpdateType: api.StageStatusUpdateTypeBegin,
+				IssueName:             issue.Title,
+				StageName:             nextStage.Name,
+			}
+			bytes, err := json.Marshal(createActivityPayload)
+			if err != nil {
+				return errors.Wrap(err, "failed to marshal ActivityPipelineStageStatusUpdate payload")
+			}
+			activityCreate := &store.ActivityMessage{
+				CreatorUID:   api.SystemBotID,
+				ContainerUID: *issue.PipelineUID,
+				Type:         api.ActivityPipelineStageStatusUpdate,
+				Level:        api.ActivityInfo,
+				Payload:      string(bytes),
+			}
+			if _, err := s.activityManager.CreateActivity(ctx, activityCreate, &activity.Metadata{
+				Issue: issue,
+			}); err != nil {
+				return errors.Wrap(err, "failed to create activity")
+			}
+			return nil
+		}(); err != nil {
+			log.Error("failed to create ActivityPipelineStageStatusUpdate activity", zap.Error(err))
 		}
 	}
 
@@ -1244,7 +1394,7 @@ func (s *Scheduler) onTaskStatusPatched(ctx context.Context, issue *store.IssueM
 	if taskPatched.Status == api.TaskPending && issue.Project.Workflow == api.UIWorkflow && !stageTaskHasPendingApproval {
 		needAttention := false
 		if _, err := s.store.UpdateIssueV2(ctx, issue.UID, &store.UpdateIssueMessage{NeedAttention: &needAttention}, api.SystemBotID); err != nil {
-			return errors.Wrapf(err, "failed to patch issue assigneeNeedAttention after finding out that there isn't any pendingApproval task in the stage")
+			log.Error("failed to patch issue assigneeNeedAttention after finding out that there isn't any pendingApproval task in the stage", zap.Error(err))
 		}
 	}
 

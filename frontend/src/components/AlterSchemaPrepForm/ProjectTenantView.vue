@@ -2,8 +2,8 @@
   <!-- eslint-disable vue/no-mutating-props -->
 
   <div class="project-tenant-view">
-    <template v-if="!!project">
-      <template v-if="deployment?.id === UNKNOWN_ID">
+    <template v-if="project && ready">
+      <template v-if="deploymentConfig === undefined">
         <i18n-t
           tag="p"
           keypath="deployment-config.project-has-no-deployment-config"
@@ -11,7 +11,7 @@
           <template #go>
             <router-link
               :to="{
-                path: `/project/${projectSlug(project)}`,
+                path: `/project/${projectV1Slug(project)}`,
                 hash: '#deployment-config',
               }"
               active-class=""
@@ -42,7 +42,7 @@
             :database-list="databaseList"
             :label="state.label"
             :environment-list="environmentList"
-            :deployment="deployment!"
+            :deployment="deploymentConfig"
           />
         </template>
       </template>
@@ -53,103 +53,52 @@
 <script lang="ts" setup>
 /* eslint-disable vue/no-mutating-props */
 
-import { computed, watchEffect, h } from "vue";
-import { Translation, useI18n } from "vue-i18n";
+import { computed, watchEffect } from "vue";
 import { RouterLink } from "vue-router";
-import type {
-  Database,
-  DatabaseId,
-  Environment,
-  LabelKeyType,
-  Project,
-} from "@/types";
-import { UNKNOWN_ID } from "@/types";
+import type { ComposedDatabase, LabelKeyType } from "@/types";
 import { DeployDatabaseTable } from "../TenantDatabaseTable";
-import { getPipelineFromDeploymentSchedule, projectSlug } from "@/utils";
-import { useDeploymentStore } from "@/store";
-import { useOverrideSubtitle } from "@/bbkit/BBModal.vue";
+import { getPipelineFromDeploymentScheduleV1, projectV1Slug } from "@/utils";
+import { useDeploymentConfigV1ByProject } from "@/store";
+import { Environment } from "@/types/proto/v1/environment_service";
+import { Project } from "@/types/proto/v1/project_service";
 
-export type State = {
-  selectedDatabaseIdListForTenantMode: Set<DatabaseId>;
-  deployingTenantDatabaseList: DatabaseId[];
+export type ProjectTenantViewState = {
+  selectedDatabaseIdListForTenantMode: Set<string>;
+  deployingTenantDatabaseList: string[];
   label: LabelKeyType;
 };
 
 const props = defineProps<{
-  databaseList: Database[];
+  databaseList: ComposedDatabase[];
   environmentList: Environment[];
   project?: Project;
-  state: State;
+  state: ProjectTenantViewState;
 }>();
 
-const emit = defineEmits<{
+defineEmits<{
   (event: "dismiss"): void;
 }>();
 
-const { t } = useI18n();
-
-const deploymentStore = useDeploymentStore();
-
-const fetchData = () => {
-  if (props.project) {
-    deploymentStore.fetchDeploymentConfigByProjectId(props.project.id);
-  }
-};
-
-watchEffect(fetchData);
-
-const deployment = computed(() => {
-  if (props.project) {
-    return deploymentStore.getDeploymentConfigByProjectId(props.project.id);
-  } else {
-    return undefined;
-  }
-});
+const { deploymentConfig, ready } = useDeploymentConfigV1ByProject(
+  computed(() => {
+    return props.project?.name ?? "projects/-1";
+  })
+);
 
 watchEffect(() => {
-  if (!deployment.value) return;
+  if (!deploymentConfig.value) return;
   const { databaseList } = props;
 
   // calculate the deployment matching to preview the pipeline
-  const stages = getPipelineFromDeploymentSchedule(
+  const stages = getPipelineFromDeploymentScheduleV1(
     databaseList,
-    deployment.value.schedule
+    deploymentConfig.value.schedule
   );
 
   // flatten all stages' database id list
   // these databases are to be deployed
-  const databaseIdList = stages.flatMap((stage) => stage.map((db) => db.id));
+  const databaseIdList = stages.flatMap((stage) => stage.map((db) => db.uid));
   props.state.deployingTenantDatabaseList = databaseIdList;
-});
-
-useOverrideSubtitle(() => {
-  return h(
-    Translation,
-    {
-      tag: "p",
-      class: "textinfolabel",
-      keypath: "deployment-config.pipeline-generated-from-deployment-config",
-    },
-    {
-      deployment_config: () =>
-        h(
-          RouterLink,
-          {
-            to: {
-              path: `/project/${projectSlug(props.project!)}`,
-              hash: "#databases",
-            },
-            activeClass: "",
-            exactActiveClass: "",
-            class: "underline hover:bg-link-hover",
-            onClick: () => emit("dismiss"),
-          },
-          {
-            default: () => t("common.deployment-config"),
-          }
-        ),
-    }
-  );
 });
 </script>
 

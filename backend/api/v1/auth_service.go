@@ -18,6 +18,8 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
+	"github.com/nyaruka/phonenumbers"
+
 	"github.com/bytebase/bytebase/backend/api/auth"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/component/config"
@@ -93,7 +95,10 @@ func (s *AuthService) CreateUser(ctx context.Context, request *v1pb.CreateUserRe
 	}
 
 	if setting.DisallowSignup {
-		return nil, status.Errorf(codes.PermissionDenied, "sign up is disallowed")
+		rolePtr := ctx.Value(common.RoleContextKey)
+		if rolePtr == nil || rolePtr.(api.Role) != api.Owner {
+			return nil, status.Errorf(codes.PermissionDenied, "sign up is disallowed")
+		}
 	}
 	if request.User == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "user must be set")
@@ -122,8 +127,14 @@ func (s *AuthService) CreateUser(ctx context.Context, request *v1pb.CreateUserRe
 	}
 	firstEndUser := count == 0
 
+	if request.User.Phone != "" {
+		if err := validatePhone(request.User.Phone); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid phone %q, error: %v", request.User.Phone, err)
+		}
+	}
+
 	if err := validateEmail(request.User.Email); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid email %q format: %v", request.User.Email, err)
+		return nil, status.Errorf(codes.InvalidArgument, "invalid email %q, error: %v", request.User.Email, err)
 	}
 	existingUser, err := s.store.GetUser(ctx, &store.FindUserMessage{
 		Email:       &request.User.Email,
@@ -148,12 +159,28 @@ func (s *AuthService) CreateUser(ctx context.Context, request *v1pb.CreateUserRe
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to generate password hash, error: %v", err)
 	}
-	user, err := s.store.CreateUser(ctx, &store.UserMessage{
+	userMessage := &store.UserMessage{
 		Email:        request.User.Email,
 		Name:         request.User.Title,
+		Phone:        request.User.Phone,
 		Type:         principalType,
 		PasswordHash: string(passwordHash),
-	}, api.SystemBotID)
+	}
+	if request.User.UserRole != v1pb.UserRole_USER_ROLE_UNSPECIFIED {
+		rolePtr := ctx.Value(common.RoleContextKey)
+		// Allow workspace owner to create user with role.
+		if rolePtr != nil && rolePtr.(api.Role) == api.Owner {
+			userRole := convertUserRole(request.User.UserRole)
+			if userRole == api.UnknownRole {
+				return nil, status.Errorf(codes.InvalidArgument, "invalid user role %s", request.User.UserRole)
+			}
+			userMessage.Role = userRole
+		} else {
+			return nil, status.Errorf(codes.PermissionDenied, "only workspace owner can create user with role")
+		}
+	}
+
+	user, err := s.store.CreateUser(ctx, userMessage, api.SystemBotID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create user, error: %v", err)
 	}
@@ -169,6 +196,7 @@ func (s *AuthService) CreateUser(ctx context.Context, request *v1pb.CreateUserRe
 		Labels: map[string]any{
 			"email": user.Email,
 			"name":  user.Name,
+			"phone": user.Phone,
 			// We only send lark notification for the first principal registration.
 			// false means do not notify upfront. Later the notification will be triggered by the scheduler.
 			"lark_notified": !isFirstUser,
@@ -184,14 +212,14 @@ func (s *AuthService) CreateUser(ctx context.Context, request *v1pb.CreateUserRe
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to construct activity payload, error: %v", err)
 	}
-	activityCreate := &api.ActivityCreate{
-		CreatorID:   user.ID,
-		ContainerID: user.ID,
-		Type:        api.ActivityMemberCreate,
-		Level:       api.ActivityInfo,
-		Payload:     string(bytes),
+	activityCreate := &store.ActivityMessage{
+		CreatorUID:   user.ID,
+		ContainerUID: user.ID,
+		Type:         api.ActivityMemberCreate,
+		Level:        api.ActivityInfo,
+		Payload:      string(bytes),
 	}
-	if _, err := s.store.CreateActivity(ctx, activityCreate); err != nil {
+	if _, err := s.store.CreateActivityV2(ctx, activityCreate); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create activity, error: %v", err)
 	}
 	userResponse := convertToUser(user)
@@ -295,6 +323,13 @@ func (s *AuthService) UpdateUser(ctx context.Context, request *v1pb.UpdateUserRe
 				}
 				patch.MFAConfig = &storepb.MFAConfig{}
 			}
+		case "phone":
+			if request.User.Phone != "" {
+				if err := validatePhone(request.User.Phone); err != nil {
+					return nil, status.Errorf(codes.InvalidArgument, "invalid phone number %q, error: %v", request.User.Phone, err)
+				}
+			}
+			patch.Phone = &request.User.Phone
 		}
 	}
 	if passwordPatch != nil {
@@ -443,6 +478,7 @@ func convertToUser(user *store.UserMessage) *v1pb.User {
 		Name:     fmt.Sprintf("%s%d", userNamePrefix, user.ID),
 		State:    convertDeletedToState(user.MemberDeleted),
 		Email:    user.Email,
+		Phone:    user.Phone,
 		Title:    user.Name,
 		UserType: userType,
 		UserRole: role,
@@ -672,10 +708,11 @@ func (s *AuthService) getOrCreateUserWithIDP(ctx context.Context, request *v1pb.
 		oidcIDP, err := oidc.NewIdentityProvider(
 			ctx,
 			oidc.IdentityProviderConfig{
-				Issuer:       idp.Config.GetOidcConfig().Issuer,
-				ClientID:     idp.Config.GetOidcConfig().ClientId,
-				ClientSecret: idp.Config.GetOidcConfig().ClientSecret,
-				FieldMapping: idp.Config.GetOidcConfig().FieldMapping,
+				Issuer:        idp.Config.GetOidcConfig().Issuer,
+				ClientID:      idp.Config.GetOidcConfig().ClientId,
+				ClientSecret:  idp.Config.GetOidcConfig().ClientSecret,
+				FieldMapping:  idp.Config.GetOidcConfig().FieldMapping,
+				SkipTLSVerify: idp.Config.GetOidcConfig().SkipTlsVerify,
 			},
 		)
 		if err != nil {
@@ -777,12 +814,23 @@ func (s *AuthService) challengeRecoveryCode(ctx context.Context, user *store.Use
 }
 
 func validateEmail(email string) error {
-	formatedEmail := strings.ToLower(email)
-	if email != formatedEmail {
+	formattedEmail := strings.ToLower(email)
+	if email != formattedEmail {
 		return errors.New("email should be lowercase")
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validatePhone(phone string) error {
+	phoneNumber, err := phonenumbers.Parse(phone, "")
+	if err != nil {
+		return err
+	}
+	if !phonenumbers.IsValidNumber(phoneNumber) {
+		return errors.New("invalid phone number")
 	}
 	return nil
 }

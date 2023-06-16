@@ -1,4 +1,5 @@
-import { Database, EngineType } from "@/types";
+import { ComposedDatabase, Database } from "@/types";
+import { Engine } from "@/types/proto/v1/common";
 
 // Only allow using Schema Editor with MySQL.
 export const allowUsingSchemaEditor = (databaseList: Database[]): boolean => {
@@ -7,8 +8,17 @@ export const allowUsingSchemaEditor = (databaseList: Database[]): boolean => {
   });
 };
 
-export const getDataTypeSuggestionList = (engineType: EngineType = "MYSQL") => {
-  if (engineType === "MYSQL") {
+export const allowUsingSchemaEditorV1 = (
+  databaseList: ComposedDatabase[]
+): boolean => {
+  const supported = new Set([Engine.MYSQL, Engine.POSTGRES]);
+  return databaseList.every((db) => {
+    return supported.has(db.instanceEntity.engine);
+  });
+};
+
+export const getDataTypeSuggestionList = (engine: Engine = Engine.MYSQL) => {
+  if (engine === Engine.MYSQL) {
     return [
       "BIT",
       "BOOLEAN",
@@ -20,7 +30,7 @@ export const getDataTypeSuggestionList = (engineType: EngineType = "MYSQL") => {
       "JSON",
       "VARCHAR(255)",
     ];
-  } else if (engineType === "POSTGRES") {
+  } else if (engine === Engine.POSTGRES) {
     return [
       "BOOLEAN",
       "CHAR(1)",

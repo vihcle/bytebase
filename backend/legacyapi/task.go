@@ -62,6 +62,7 @@ type TaskDatabasePITRRestorePayload struct {
 	// Common fields
 	Skipped       bool   `json:"skipped,omitempty"`
 	SkippedReason string `json:"skippedReason,omitempty"`
+	SpecID        string `json:"specId,omitempty"`
 
 	// The project owning the database.
 	ProjectID int `json:"projectId,omitempty"`
@@ -90,6 +91,7 @@ type TaskDatabasePITRCutoverPayload struct {
 	// Common fields
 	Skipped       bool   `json:"skipped,omitempty"`
 	SkippedReason string `json:"skippedReason,omitempty"`
+	SpecID        string `json:"specId,omitempty"`
 }
 
 // TaskDatabaseCreatePayload is the task payload for creating databases.
@@ -97,12 +99,13 @@ type TaskDatabaseCreatePayload struct {
 	// Common fields
 	Skipped       bool   `json:"skipped,omitempty"`
 	SkippedReason string `json:"skippedReason,omitempty"`
+	SpecID        string `json:"specId,omitempty"`
 
 	// The project owning the database.
 	ProjectID    int    `json:"projectId,omitempty"`
 	DatabaseName string `json:"databaseName,omitempty"`
 	TableName    string `json:"tableName,omitempty"`
-	Statement    string `json:"statement,omitempty"`
+	SheetID      int    `json:"sheetId,omitempty"`
 	CharacterSet string `json:"character,omitempty"`
 	Collation    string `json:"collation,omitempty"`
 	Labels       string `json:"labels,omitempty"`
@@ -113,6 +116,7 @@ type TaskDatabaseSchemaBaselinePayload struct {
 	// Common fields
 	Skipped       bool   `json:"skipped,omitempty"`
 	SkippedReason string `json:"skippedReason,omitempty"`
+	SpecID        string `json:"specId,omitempty"`
 
 	SchemaVersion string `json:"schemaVersion,omitempty"`
 }
@@ -122,11 +126,12 @@ type TaskDatabaseSchemaUpdatePayload struct {
 	// Common fields
 	Skipped       bool   `json:"skipped,omitempty"`
 	SkippedReason string `json:"skippedReason,omitempty"`
+	SpecID        string `json:"specId,omitempty"`
 
-	Statement     string         `json:"statement,omitempty"`
-	SheetID       int            `json:"sheetId,omitempty"`
-	SchemaVersion string         `json:"schemaVersion,omitempty"`
-	VCSPushEvent  *vcs.PushEvent `json:"pushEvent,omitempty"`
+	SheetID         int            `json:"sheetId,omitempty"`
+	SchemaVersion   string         `json:"schemaVersion,omitempty"`
+	VCSPushEvent    *vcs.PushEvent `json:"pushEvent,omitempty"`
+	SchemaGroupName string         `json:"schemaGroupName,omitempty"`
 }
 
 // TaskDatabaseSchemaUpdateSDLPayload is the task payload for database schema update (SDL).
@@ -134,8 +139,8 @@ type TaskDatabaseSchemaUpdateSDLPayload struct {
 	// Common fields
 	Skipped       bool   `json:"skipped,omitempty"`
 	SkippedReason string `json:"skippedReason,omitempty"`
+	SpecID        string `json:"specId,omitempty"`
 
-	Statement     string         `json:"statement,omitempty"`
 	SheetID       int            `json:"sheetId,omitempty"`
 	SchemaVersion string         `json:"schemaVersion,omitempty"`
 	VCSPushEvent  *vcs.PushEvent `json:"pushEvent,omitempty"`
@@ -146,8 +151,8 @@ type TaskDatabaseSchemaUpdateGhostSyncPayload struct {
 	// Common fields
 	Skipped       bool   `json:"skipped,omitempty"`
 	SkippedReason string `json:"skippedReason,omitempty"`
+	SpecID        string `json:"specId,omitempty"`
 
-	Statement     string         `json:"statement,omitempty"`
 	SheetID       int            `json:"sheetId,omitempty"`
 	SchemaVersion string         `json:"schemaVersion,omitempty"`
 	VCSPushEvent  *vcs.PushEvent `json:"pushEvent,omitempty"`
@@ -162,6 +167,7 @@ type TaskDatabaseSchemaUpdateGhostCutoverPayload struct {
 	// Common fields
 	Skipped       bool   `json:"skipped,omitempty"`
 	SkippedReason string `json:"skippedReason,omitempty"`
+	SpecID        string `json:"specId,omitempty"`
 }
 
 // RollbackSQLStatus is the status of a rollback SQL generation task.
@@ -181,15 +187,15 @@ type TaskDatabaseDataUpdatePayload struct {
 	// Common fields
 	Skipped       bool   `json:"skipped,omitempty"`
 	SkippedReason string `json:"skippedReason,omitempty"`
+	SpecID        string `json:"specId,omitempty"`
 
-	Statement     string         `json:"statement,omitempty"`
 	SheetID       int            `json:"sheetId,omitempty"`
 	SchemaVersion string         `json:"schemaVersion,omitempty"`
 	VCSPushEvent  *vcs.PushEvent `json:"pushEvent,omitempty"`
 
 	// MySQL rollback SQL related.
 
-	// Build the RollbackStatement if RollbackEnabled.
+	// Build the RollbackSheetID if RollbackEnabled.
 	RollbackEnabled bool `json:"rollbackEnabled,omitempty"`
 	// RollbackSQLStatus is the status of the rollback generation.
 	RollbackSQLStatus RollbackSQLStatus `json:"rollbackSqlStatus,omitempty"`
@@ -209,12 +215,14 @@ type TaskDatabaseDataUpdatePayload struct {
 	BinlogPosStart  int64  `json:"binlogPosStart,omitempty"`
 	BinlogPosEnd    int64  `json:"binlogPosEnd,omitempty"`
 	RollbackError   string `json:"rollbackError,omitempty"`
-	// RollbackStatement is the generated rollback SQL statement for the DML task.
-	RollbackStatement string `json:"rollbackStatement,omitempty"`
+	// RollbackSheetID is the generated rollback SQL statement for the DML task.
+	RollbackSheetID int `json:"rollbackSheetId,omitempty"`
 	// RollbackFromIssueID is the issue ID containing the original task from which the rollback SQL statement is generated for this task.
 	RollbackFromIssueID int `json:"rollbackFromIssueId,omitempty"`
 	// RollbackFromTaskID is the task ID from which the rollback SQL statement is generated for this task.
 	RollbackFromTaskID int `json:"rollbackFromTaskId,omitempty"`
+
+	SchemaGroupName string `json:"schemaGroupName,omitempty"`
 }
 
 // TaskDatabaseBackupPayload is the task payload for database backup.
@@ -222,6 +230,7 @@ type TaskDatabaseBackupPayload struct {
 	// Common fields
 	Skipped       bool   `json:"skipped,omitempty"`
 	SkippedReason string `json:"skippedReason,omitempty"`
+	SpecID        string `json:"specId,omitempty"`
 
 	BackupID int `json:"backupId,omitempty"`
 }
@@ -261,6 +270,8 @@ type Task struct {
 	BlockedBy []string `jsonapi:"attr,blockedBy"`
 	// Progress is loaded from the task scheduler in memory, NOT from the database
 	Progress Progress `jsonapi:"attr,progress"`
+	// OUTPUT ONLY, used by grouping batch change.
+	Statement string `jsonapi:"attr,statement"`
 }
 
 // Progress is a generalized struct which can track the progress of a task.
@@ -298,12 +309,13 @@ type TaskCreate struct {
 	// Payload is derived from fields below it
 	Payload           string
 	EarliestAllowedTs int64  `jsonapi:"attr,earliestAllowedTs"`
-	Statement         string `jsonapi:"attr,statement"`
 	DatabaseName      string `jsonapi:"attr,databaseName"`
 	CharacterSet      string `jsonapi:"attr,characterSet"`
 	Collation         string `jsonapi:"attr,collation"`
 	Labels            string `jsonapi:"attr,labels"`
 	BackupID          *int   `jsonapi:"attr,backupId"`
+	// Statement used by grouping batch change, Bytebase use it to render.
+	Statement string `jsonapi:"attr,statement"`
 }
 
 // TaskFind is the API message for finding tasks.
@@ -351,12 +363,14 @@ type TaskPatch struct {
 	// Payload and others cannot be set at the same time.
 	Payload *string
 
-	Statement         *string `jsonapi:"attr,statement"`
+	SheetID           *int `jsonapi:"attr,sheetId"`
 	SchemaVersion     *string
 	RollbackEnabled   *bool `jsonapi:"attr,rollbackEnabled"`
 	RollbackSQLStatus *RollbackSQLStatus
-	RollbackStatement *string
-	RollbackError     *string
+	// RollbackSheetID sets the rollback sheet ID.
+	// When RollbackEnabled is enabled, RollbackSheetID is kept till it's set to the new sheet ID by the runner.
+	RollbackSheetID *int
+	RollbackError   *string
 }
 
 // TaskStatusPatch is the API message for patching a task status.

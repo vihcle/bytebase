@@ -6,23 +6,29 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/pkg/errors"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	bbparser "github.com/bytebase/bytebase/backend/plugin/parser"
+	bbparser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 var (
 	baseTableType = "BASE TABLE"
 	viewTableType = "VIEW"
+	// Sequence is available to TiDB only.
+	sequenceTableType = "SEQUENCE"
 
 	_ db.Driver = (*Driver)(nil)
 )
@@ -31,6 +37,7 @@ func init() {
 	db.Register(db.MySQL, newDriver)
 	db.Register(db.TiDB, newDriver)
 	db.Register(db.MariaDB, newDriver)
+	db.Register(db.OceanBase, newDriver)
 }
 
 // Driver is the MySQL driver.
@@ -46,6 +53,7 @@ type Driver struct {
 	// Use a single connection for executing migrations in the lifetime of the driver can keep the thread ID unchanged.
 	// So that it's easy to get the thread ID for rollback SQL.
 	migrationConn *sql.Conn
+	sshClient     *ssh.Client
 
 	replayedBinlogBytes *common.CountingReader
 	restoredBackupBytes *common.CountingReader
@@ -66,21 +74,24 @@ func (driver *Driver) Open(ctx context.Context, dbType db.Type, connCfg db.Conne
 	}
 
 	params := []string{"multiStatements=true", "maxAllowedPacket=0"}
-
-	port := connCfg.Port
-	if port == "" {
-		port = "3306"
-		if dbType == db.TiDB {
-			port = "4000"
+	if connCfg.SSHConfig.Host != "" {
+		sshClient, err := util.GetSSHClient(connCfg.SSHConfig)
+		if err != nil {
+			return nil, err
 		}
+		driver.sshClient = sshClient
+		// Now we register the dialer with the ssh connection as a parameter.
+		mysql.RegisterDialContext("mysql+tcp", func(ctx context.Context, addr string) (net.Conn, error) {
+			return sshClient.Dial("tcp", addr)
+		})
+		protocol = "mysql+tcp"
 	}
 
+	// TODO(zp): mysql and mysqlbinlog doesn't support SSL yet. We need to write certs to temp files and load them as CLI flags.
 	tlsConfig, err := connCfg.TLSConfig.GetSslConfig()
-
 	if err != nil {
 		return nil, errors.Wrap(err, "sql: tls config error")
 	}
-
 	tlsKey := "db.mysql.tls"
 	if tlsConfig != nil {
 		if err := mysql.RegisterTLSConfig(tlsKey, tlsConfig); err != nil {
@@ -90,10 +101,8 @@ func (driver *Driver) Open(ctx context.Context, dbType db.Type, connCfg db.Conne
 		defer mysql.DeregisterTLSConfig(tlsKey)
 		params = append(params, fmt.Sprintf("tls=%s", tlsKey))
 	}
-	dsn := fmt.Sprintf("%s@%s(%s:%s)/%s?%s", connCfg.Username, protocol, connCfg.Host, port, connCfg.Database, strings.Join(params, "&"))
-	if connCfg.Password != "" {
-		dsn = fmt.Sprintf("%s:%s@%s(%s:%s)/%s?%s", connCfg.Username, connCfg.Password, protocol, connCfg.Host, port, connCfg.Database, strings.Join(params, "&"))
-	}
+
+	dsn := fmt.Sprintf("%s:%s@%s(%s:%s)/%s?%s", connCfg.Username, connCfg.Password, protocol, connCfg.Host, connCfg.Port, connCfg.Database, strings.Join(params, "&"))
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err
@@ -107,6 +116,10 @@ func (driver *Driver) Open(ctx context.Context, dbType db.Type, connCfg db.Conne
 	}
 	driver.dbType = dbType
 	driver.db = db
+	// TODO(d): remove the work-around once we have clean-up the migration connection hack.
+	db.SetConnMaxLifetime(2 * time.Hour)
+	db.SetMaxOpenConns(50)
+	db.SetMaxIdleConns(15)
 	driver.migrationConn = conn
 	driver.connectionCtx = connCtx
 	driver.connCfg = connCfg
@@ -120,6 +133,9 @@ func (driver *Driver) Close(context.Context) error {
 	var err error
 	err = multierr.Append(err, driver.db.Close())
 	err = multierr.Append(err, driver.migrationConn.Close())
+	if driver.sshClient != nil {
+		err = multierr.Append(err, driver.sshClient.Close())
+	}
 	return err
 }
 
@@ -183,7 +199,7 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool) (in
 
 	tx, err := driver.migrationConn.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return 0, errors.Wrapf(err, "failed to begin execute transaction")
 	}
 	defer tx.Rollback()
 
@@ -191,7 +207,7 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool) (in
 	for _, trunk := range trunks {
 		sqlResult, err := tx.ExecContext(ctx, trunk)
 		if err != nil {
-			return 0, err
+			return 0, errors.Wrapf(err, "failed to execute context in a transaction")
 		}
 		rowsAffected, err := sqlResult.RowsAffected()
 		if err != nil {
@@ -202,7 +218,7 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool) (in
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, err
+		return 0, errors.Wrapf(err, "failed to commit execute transaction")
 	}
 
 	return totalRowsAffected, nil
@@ -253,24 +269,12 @@ func splitAndTransformDelimiter(statement string) ([]string, error) {
 	var trunks []string
 
 	var out bytes.Buffer
-	statements, err := bbparser.SplitMultiSQL(bbparser.MySQL, statement)
+	statements, err := bbparser.SplitMultiSQLAndNormalize(bbparser.MySQL, statement)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to split SQL statements")
 	}
-	delimiter := `;`
 	for _, singleSQL := range statements {
 		stmt := singleSQL.Text
-		if bbparser.IsDelimiter(stmt) {
-			delimiter, err = bbparser.ExtractDelimiter(stmt)
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to extract delimiter")
-			}
-			continue
-		}
-		if delimiter != ";" {
-			// Trim delimiter
-			stmt = fmt.Sprintf("%s;", stmt[:len(stmt)-len(delimiter)])
-		}
 		if _, err = out.Write([]byte(stmt)); err != nil {
 			return nil, errors.Wrapf(err, "failed to write SQL statement")
 		}
@@ -284,4 +288,68 @@ func splitAndTransformDelimiter(statement string) ([]string, error) {
 		trunks = append(trunks, out.String())
 	}
 	return trunks, nil
+}
+
+// QueryConn2 queries a SQL statement in a given connection.
+func (driver *Driver) QueryConn2(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]*v1pb.QueryResult, error) {
+	singleSQLs, err := bbparser.SplitMultiSQL(bbparser.MySQL, statement)
+	if err != nil {
+		return nil, err
+	}
+	if len(singleSQLs) == 0 {
+		return nil, nil
+	}
+
+	var results []*v1pb.QueryResult
+	for _, singleSQL := range singleSQLs {
+		result, err := driver.querySingleSQL(ctx, conn, singleSQL, queryContext)
+		if err != nil {
+			results = append(results, &v1pb.QueryResult{
+				Error: err.Error(),
+			})
+		} else {
+			results = append(results, result)
+		}
+	}
+
+	return results, nil
+}
+
+func (driver *Driver) getStatementWithResultLimit(stmt string, limit int) (string, error) {
+	switch driver.dbType {
+	case db.MySQL, db.MariaDB:
+		// MySQL 5.7 doesn't support WITH clause.
+		return fmt.Sprintf("SELECT * FROM (%s) result LIMIT %d;", stmt, limit), nil
+	case db.TiDB:
+		return fmt.Sprintf("WITH result AS (%s) SELECT * FROM result LIMIT %d;", stmt, limit), nil
+	default:
+		return "", errors.Errorf("unsupported database type %s", driver.dbType)
+	}
+}
+
+func (driver *Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL bbparser.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
+	if singleSQL.Empty {
+		return nil, nil
+	}
+	statement := strings.TrimRight(singleSQL.Text, " \n\t;")
+	if !strings.HasPrefix(statement, "EXPLAIN") && queryContext.Limit > 0 {
+		var err error
+		statement, err = driver.getStatementWithResultLimit(statement, queryContext.Limit)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if driver.dbType == db.TiDB && queryContext.ReadOnly {
+		// TiDB doesn't support READ ONLY transactions. We have to skip the flag for it.
+		// https://github.com/pingcap/tidb/issues/34626
+		queryContext.ReadOnly = false
+	}
+
+	return util.Query2(ctx, driver.dbType, conn, statement, queryContext)
+}
+
+// RunStatement runs a SQL statement in a given connection.
+func (*Driver) RunStatement(ctx context.Context, conn *sql.Conn, statement string) ([]*v1pb.QueryResult, error) {
+	return util.RunStatement(ctx, bbparser.MySQL, conn, statement)
 }

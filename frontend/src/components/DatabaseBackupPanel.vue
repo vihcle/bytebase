@@ -15,7 +15,7 @@
             <router-link
               v-if="hasBackupPolicyViolation"
               class="flex items-center normal-link text-sm"
-              :to="`/environment/${database.instance.environment.id}`"
+              :to="`/environment/${database.instanceEntity.environmentEntity.uid}`"
             >
               <heroicons-outline:exclamation-circle class="w-4 h-4 mr-1" />
               <span>{{ $t("database.backup-policy-violation") }}</span>
@@ -54,7 +54,7 @@
               )
             }}
             <a
-              href="https://bytebase.com/docs/administration/webhook-integration/database-webhook?source=console"
+              href="https://bytebase.com/docs/backup/#post-backup-webhook?source=console"
               class="normal-link inline-flex flex-row items-center"
             >
               {{ $t("common.learn-more") }}
@@ -128,9 +128,8 @@
       />
     </div>
 
-    <BBModal
-      v-if="state.showBackupSettingModal"
-      :title="$t('database.automatic-backup')"
+    <Drawer
+      :show="state.showBackupSettingModal"
       @close="state.showBackupSettingModal = false"
     >
       <DatabaseBackupSettingForm
@@ -141,7 +140,7 @@
         @cancel="state.showBackupSettingModal = false"
         @update="updateBackupSetting"
       />
-    </BBModal>
+    </Drawer>
 
     <BBModal
       v-if="state.showCreateBackupModal"
@@ -162,41 +161,54 @@
   </div>
 </template>
 
-<script lang="ts">
+<script lang="ts" setup>
 import {
   computed,
   watchEffect,
   reactive,
   onUnmounted,
   PropType,
-  defineComponent,
   onBeforeMount,
 } from "vue";
+import { isEqual } from "lodash-es";
+import { useI18n } from "vue-i18n";
+
 import {
-  Backup,
-  BackupCreate,
-  BackupSetting,
-  BackupSettingUpsert,
-  Database,
+  ComposedDatabase,
   NORMAL_POLL_INTERVAL,
-  BackupPlanPolicyPayload,
   POLL_JITTER,
   MINIMUM_POLL_INTERVAL,
-  UNKNOWN_ID,
-} from "../types";
-import BackupTable from "../components/BackupTable.vue";
-import DatabaseBackupCreateForm from "../components/DatabaseBackupCreateForm.vue";
-import { cloneDeep, isEqual } from "lodash-es";
-import { useI18n } from "vue-i18n";
-import { pushNotification, useBackupStore, usePolicyStore } from "@/store";
+} from "@/types";
+import DatabaseBackupCreateForm from "@/components/DatabaseBackupCreateForm.vue";
+import PITRRestoreButton from "@/components/DatabaseDetail/PITRRestoreButton.vue";
+import {
+  pushNotification,
+  useBackupV1Store,
+  useGracefulRequest,
+} from "@/store";
 import {
   DatabaseBackupSettingForm,
+  BackupTable,
   levelOfSchedule,
   localFromUTC,
   parseScheduleFromBackupSetting,
 } from "@/components/DatabaseBackup/";
-
-import { instanceHasBackupRestore } from "@/utils";
+import {
+  usePolicyV1Store,
+  defaultBackupSchedule,
+} from "@/store/modules/v1/policy";
+import {
+  PolicyType,
+  BackupPlanSchedule,
+} from "@/types/proto/v1/org_policy_service";
+import { instanceV1HasBackupRestore } from "@/utils";
+import {
+  Backup,
+  BackupSetting,
+  Backup_BackupState,
+  Backup_BackupType,
+} from "@/types/proto/v1/database_service";
+import { Drawer } from "@/components/v2";
 
 interface LocalState {
   showCreateBackupModal: boolean;
@@ -211,261 +223,246 @@ interface LocalState {
   backupSetting: BackupSetting | undefined;
 }
 
-export default defineComponent({
-  name: "DatabaseBackupPanel",
-  components: {
-    BackupTable,
-    DatabaseBackupCreateForm,
-    DatabaseBackupSettingForm,
+const props = defineProps({
+  database: {
+    required: true,
+    type: Object as PropType<ComposedDatabase>,
   },
-  props: {
-    database: {
-      required: true,
-      type: Object as PropType<Database>,
-    },
-    allowAdmin: {
-      required: true,
-      type: Boolean,
-    },
-    allowEdit: {
-      required: true,
-      type: Boolean,
-    },
+  allowAdmin: {
+    required: true,
+    type: Boolean,
   },
-  setup(props) {
-    const backupStore = useBackupStore();
-    const policyStore = usePolicyStore();
-    const { t } = useI18n();
-
-    const state = reactive<LocalState>({
-      showCreateBackupModal: false,
-      autoBackupEnabled: false,
-      autoBackupHour: 0,
-      autoBackupDayOfWeek: 0,
-      autoBackupRetentionPeriodTs: 0,
-      autoBackupHookUrl: "",
-      autoBackupUpdatedHookUrl: "",
-      showBackupSettingModal: false,
-      backupSetting: undefined,
-    });
-
-    onUnmounted(() => {
-      if (state.pollBackupsTimer) {
-        clearInterval(state.pollBackupsTimer);
-      }
-    });
-
-    const prepareBackupList = () => {
-      backupStore.fetchBackupListByDatabaseId(props.database.id);
-    };
-
-    watchEffect(prepareBackupList);
-
-    const prepareBackupPolicy = () => {
-      policyStore.fetchPolicyByEnvironmentAndType({
-        environmentId: props.database.instance.environment.id,
-        type: "bb.policy.backup-plan",
-      });
-    };
-
-    watchEffect(prepareBackupPolicy);
-
-    const assignBackupSetting = (backupSetting: BackupSetting) => {
-      state.autoBackupEnabled = backupSetting.enabled;
-      state.autoBackupHour = backupSetting.hour;
-      state.autoBackupDayOfWeek = backupSetting.dayOfWeek;
-      state.autoBackupRetentionPeriodTs = backupSetting.retentionPeriodTs;
-      state.autoBackupHookUrl = backupSetting.hookUrl;
-      state.autoBackupUpdatedHookUrl = backupSetting.hookUrl;
-
-      state.backupSetting = backupSetting;
-    };
-
-    const disableBackupButton = computed(() => {
-      return !instanceHasBackupRestore(props.database.instance);
-    });
-
-    // List PENDING_CREATE backups first, followed by backups in createdTs descending order.
-    const backupList = computed(() => {
-      const list = cloneDeep(
-        backupStore.backupListByDatabaseId(props.database.id)
-      );
-      return list.sort((a: Backup, b: Backup) => {
-        if (a.status == "PENDING_CREATE" && b.status != "PENDING_CREATE") {
-          return -1;
-        } else if (
-          a.status != "PENDING_CREATE" &&
-          b.status == "PENDING_CREATE"
-        ) {
-          return 1;
-        }
-
-        return b.createdTs - a.createdTs;
-      });
-    });
-
-    const autoBackupWeekdayText = computed(() => {
-      const { dayOfWeek } = localFromUTC(
-        state.autoBackupHour,
-        state.autoBackupDayOfWeek
-      );
-      if (dayOfWeek == -1) {
-        return t("database.week.day");
-      }
-      if (dayOfWeek == 0) {
-        return t("database.week.Sunday");
-      }
-      if (dayOfWeek == 1) {
-        return t("database.week.Monday");
-      }
-      if (dayOfWeek == 2) {
-        return t("database.week.Tuesday");
-      }
-      if (dayOfWeek == 3) {
-        return t("database.week.Wednesday");
-      }
-      if (dayOfWeek == 4) {
-        return t("database.week.Thursday");
-      }
-      if (dayOfWeek == 5) {
-        return t("database.week.Friday");
-      }
-      if (dayOfWeek == 6) {
-        return t("database.week.Saturday");
-      }
-      return `Invalid day of week: ${dayOfWeek}`;
-    });
-
-    const autoBackupHourText = computed(() => {
-      const { hour } = localFromUTC(
-        state.autoBackupHour,
-        state.autoBackupDayOfWeek
-      );
-
-      return `${String(hour).padStart(2, "0")}:00 (${
-        Intl.DateTimeFormat().resolvedOptions().timeZone
-      })`;
-    });
-
-    const autoBackupRetentionDays = computed(() => {
-      return state.autoBackupRetentionPeriodTs / 3600 / 24;
-    });
-
-    const backupPolicy = computed(() => {
-      const policy = policyStore.getPolicyByEnvironmentIdAndType(
-        props.database.instance.environment.id,
-        "bb.policy.backup-plan"
-      );
-      const payload = policy?.payload;
-      return (payload as BackupPlanPolicyPayload | undefined)?.schedule;
-    });
-
-    const hasBackupPolicyViolation = computed((): boolean => {
-      if (!state.backupSetting) return false;
-      if (!backupPolicy.value) return false;
-      const schedule = parseScheduleFromBackupSetting(state.backupSetting);
-      return levelOfSchedule(schedule) < levelOfSchedule(backupPolicy.value);
-    });
-
-    const updateBackupSetting = (setting: BackupSetting) => {
-      state.showBackupSettingModal = false;
-      assignBackupSetting(setting);
-    };
-
-    const urlChanged = computed(() => {
-      return !isEqual(state.autoBackupHookUrl, state.autoBackupUpdatedHookUrl);
-    });
-
-    const createBackup = (backupName: string) => {
-      // Create backup
-      const newBackup: BackupCreate = {
-        databaseId: props.database.id!,
-        name: backupName,
-        type: "MANUAL",
-      };
-      backupStore.createBackup({
-        databaseId: props.database.id,
-        newBackup: newBackup,
-      });
-      pollBackups(MINIMUM_POLL_INTERVAL);
-    };
-
-    // pollBackups invalidates the current timer and schedule a new timer in <<interval>> microseconds
-    const pollBackups = (interval: number) => {
-      if (state.pollBackupsTimer) {
-        clearInterval(state.pollBackupsTimer);
-      }
-      state.pollBackupsTimer = setTimeout(() => {
-        backupStore
-          .fetchBackupListByDatabaseId(props.database.id)
-          .then((backups: Backup[]) => {
-            let pending = false;
-            for (const idx in backups) {
-              if (backups[idx].status.includes("PENDING")) {
-                pending = true;
-                continue;
-              }
-            }
-            if (pending) {
-              pollBackups(Math.min(interval * 2, NORMAL_POLL_INTERVAL));
-            }
-          });
-      }, Math.max(1000, Math.min(interval, NORMAL_POLL_INTERVAL) + (Math.random() * 2 - 1) * POLL_JITTER));
-    };
-
-    const prepareBackupSetting = () => {
-      backupStore
-        .fetchBackupSettingByDatabaseId(props.database.id)
-        .then((backupSetting: BackupSetting) => {
-          // UNKNOWN_ID means database does not have backup setting and we should NOT overwrite the default setting.
-          if (backupSetting.id != UNKNOWN_ID) {
-            assignBackupSetting(backupSetting);
-          }
-        });
-    };
-
-    onBeforeMount(prepareBackupSetting);
-
-    const updateBackupHookUrl = () => {
-      const newBackupSetting: BackupSettingUpsert = {
-        databaseId: props.database.id,
-        enabled: state.autoBackupEnabled,
-        hour: state.autoBackupHour,
-        dayOfWeek: state.autoBackupDayOfWeek,
-        retentionPeriodTs: state.autoBackupRetentionPeriodTs,
-        hookUrl: state.autoBackupUpdatedHookUrl,
-      };
-      backupStore
-        .upsertBackupSetting({
-          newBackupSetting: newBackupSetting,
-        })
-        .then((backupSetting: BackupSetting) => {
-          assignBackupSetting(backupSetting);
-          pushNotification({
-            module: "bytebase",
-            style: "SUCCESS",
-            title: t(
-              "database.updated-backup-webhook-url-for-database-props-database-name",
-              [props.database.name]
-            ),
-          });
-        });
-    };
-
-    return {
-      state,
-      backupList,
-      autoBackupWeekdayText,
-      autoBackupHourText,
-      autoBackupRetentionDays,
-      backupPolicy,
-      hasBackupPolicyViolation,
-      createBackup,
-      updateBackupSetting,
-      urlChanged,
-      updateBackupHookUrl,
-      disableBackupButton,
-    };
+  allowEdit: {
+    required: true,
+    type: Boolean,
   },
 });
+
+const backupStore = useBackupV1Store();
+const policyV1Store = usePolicyV1Store();
+const { t } = useI18n();
+
+const state = reactive<LocalState>({
+  showCreateBackupModal: false,
+  autoBackupEnabled: false,
+  autoBackupHour: 0,
+  autoBackupDayOfWeek: 0,
+  autoBackupRetentionPeriodTs: 0,
+  autoBackupHookUrl: "",
+  autoBackupUpdatedHookUrl: "",
+  showBackupSettingModal: false,
+  backupSetting: undefined,
+});
+
+onUnmounted(() => {
+  if (state.pollBackupsTimer) {
+    clearInterval(state.pollBackupsTimer);
+  }
+});
+
+const prepareBackupList = () => {
+  backupStore.fetchBackupList({
+    parent: props.database.name,
+  });
+};
+
+watchEffect(prepareBackupList);
+
+const prepareBackupPolicy = () => {
+  policyV1Store.getOrFetchPolicyByParentAndType({
+    parentPath: props.database.instanceEntity.environment,
+    policyType: PolicyType.BACKUP_PLAN,
+  });
+};
+
+watchEffect(prepareBackupPolicy);
+
+const assignBackupSetting = (backupSetting: BackupSetting) => {
+  const schedule = backupStore.parseBackupSchedule(backupSetting.cronSchedule);
+  state.autoBackupEnabled = backupSetting.cronSchedule !== "";
+  state.autoBackupHour = schedule.hourOfDay;
+  state.autoBackupDayOfWeek = schedule.dayOfWeek;
+  state.autoBackupRetentionPeriodTs =
+    backupSetting.backupRetainDuration?.seconds ?? 0;
+  state.autoBackupHookUrl = backupSetting.hookUrl;
+  state.autoBackupUpdatedHookUrl = backupSetting.hookUrl;
+
+  state.backupSetting = backupSetting;
+};
+
+const disableBackupButton = computed(() => {
+  return !instanceV1HasBackupRestore(props.database.instanceEntity);
+});
+
+// List PENDING_CREATE backups first, followed by backups in createdTs descending order.
+const backupList = computed(() => {
+  const list = [...backupStore.backupListByDatabase(props.database.name)];
+  return list.sort((a, b) => {
+    if (
+      a.state === Backup_BackupState.PENDING_CREATE &&
+      b.state !== Backup_BackupState.PENDING_CREATE
+    ) {
+      return -1;
+    } else if (
+      a.state !== Backup_BackupState.PENDING_CREATE &&
+      b.state === Backup_BackupState.PENDING_CREATE
+    ) {
+      return 1;
+    }
+
+    return (b.createTime?.getTime() ?? 0) - (a.createTime?.getTime() ?? 0);
+  });
+});
+
+const autoBackupWeekdayText = computed(() => {
+  const { dayOfWeek } = localFromUTC(
+    state.autoBackupHour,
+    state.autoBackupDayOfWeek
+  );
+  if (dayOfWeek == -1) {
+    return t("database.week.day");
+  }
+  if (dayOfWeek == 0) {
+    return t("database.week.Sunday");
+  }
+  if (dayOfWeek == 1) {
+    return t("database.week.Monday");
+  }
+  if (dayOfWeek == 2) {
+    return t("database.week.Tuesday");
+  }
+  if (dayOfWeek == 3) {
+    return t("database.week.Wednesday");
+  }
+  if (dayOfWeek == 4) {
+    return t("database.week.Thursday");
+  }
+  if (dayOfWeek == 5) {
+    return t("database.week.Friday");
+  }
+  if (dayOfWeek == 6) {
+    return t("database.week.Saturday");
+  }
+  return `Invalid day of week: ${dayOfWeek}`;
+});
+
+const autoBackupHourText = computed(() => {
+  const { hour } = localFromUTC(
+    state.autoBackupHour,
+    state.autoBackupDayOfWeek
+  );
+
+  return `${String(hour).padStart(2, "0")}:00 (${
+    Intl.DateTimeFormat().resolvedOptions().timeZone
+  })`;
+});
+
+const autoBackupRetentionDays = computed(() => {
+  return state.autoBackupRetentionPeriodTs / 3600 / 24;
+});
+
+const backupPolicy = computed((): BackupPlanSchedule => {
+  const policy = policyV1Store.getPolicyByParentAndType({
+    parentPath: props.database.instanceEntity.environment,
+    policyType: PolicyType.BACKUP_PLAN,
+  });
+  return policy?.backupPlanPolicy?.schedule ?? defaultBackupSchedule;
+});
+
+const hasBackupPolicyViolation = computed((): boolean => {
+  if (!state.backupSetting) return false;
+  if (!backupPolicy.value) return false;
+  const schedule = parseScheduleFromBackupSetting(
+    state.backupSetting.cronSchedule
+  );
+  return levelOfSchedule(schedule) < levelOfSchedule(backupPolicy.value);
+});
+
+const updateBackupSetting = (setting: BackupSetting) => {
+  state.showBackupSettingModal = false;
+  assignBackupSetting(setting);
+};
+
+const urlChanged = computed(() => {
+  return !isEqual(state.autoBackupHookUrl, state.autoBackupUpdatedHookUrl);
+});
+
+const createBackup = async (backupName: string) => {
+  // Create backup
+
+  useGracefulRequest(async () => {
+    const parent = props.database.name;
+    const backupCreate = Backup.fromJSON({
+      name: `${parent}/backups/${backupName}`,
+      backupType: Backup_BackupType.MANUAL,
+    });
+    await backupStore.createBackup(
+      backupCreate,
+      parent,
+      true /* refreshList */
+    );
+    pollBackups(MINIMUM_POLL_INTERVAL);
+  });
+};
+
+// pollBackups invalidates the current timer and schedule a new timer in <<interval>> microseconds
+const pollBackups = (interval: number) => {
+  if (state.pollBackupsTimer) {
+    clearInterval(state.pollBackupsTimer);
+  }
+  state.pollBackupsTimer = setTimeout(() => {
+    backupStore
+      .fetchBackupList({
+        parent: props.database.name,
+      })
+      .then((backups) => {
+        const pending = backups.some(
+          (backup) => backup.state === Backup_BackupState.PENDING_CREATE
+        );
+        if (pending) {
+          pollBackups(Math.min(interval * 2, NORMAL_POLL_INTERVAL));
+        }
+      });
+  }, Math.max(1000, Math.min(interval, NORMAL_POLL_INTERVAL) + (Math.random() * 2 - 1) * POLL_JITTER));
+};
+
+const prepareBackupSetting = () => {
+  backupStore
+    .fetchBackupSetting(props.database.name)
+    .then((backupSetting: BackupSetting | undefined) => {
+      if (backupSetting) {
+        assignBackupSetting(backupSetting);
+      }
+    });
+};
+
+onBeforeMount(prepareBackupSetting);
+
+const updateBackupHookUrl = () => {
+  backupStore
+    .upsertBackupSetting({
+      name: `${props.database.name}/backupSetting`,
+      cronSchedule: backupStore.buildSimpleSchedule({
+        enabled: state.autoBackupEnabled,
+        hourOfDay: state.autoBackupHour,
+        dayOfWeek: state.autoBackupDayOfWeek,
+      }),
+      hookUrl: state.autoBackupUpdatedHookUrl,
+      backupRetainDuration: {
+        seconds: state.autoBackupRetentionPeriodTs,
+        nanos: 0,
+      },
+    })
+    .then((backupSetting: BackupSetting) => {
+      assignBackupSetting(backupSetting);
+      pushNotification({
+        module: "bytebase",
+        style: "SUCCESS",
+        title: t(
+          "database.updated-backup-webhook-url-for-database-props-database-name",
+          [props.database.name]
+        ),
+      });
+    });
+};
 </script>

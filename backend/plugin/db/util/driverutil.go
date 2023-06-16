@@ -20,9 +20,14 @@ import (
 	"github.com/paulmach/orb/encoding/wkt"
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/bytebase/bytebase/backend/common"
+	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 // FormatErrorWithQuery will format the error with failed query.
@@ -126,16 +131,20 @@ func Query(ctx context.Context, dbType db.Type, conn *sql.Conn, statement string
 	if !readOnly {
 		return queryAdmin(ctx, dbType, conn, statement, limit)
 	}
+
+	statement = strings.TrimRight(statement, " \n\t;")
 	// Limit SQL query result size.
-	if dbType == db.MySQL || dbType == db.MariaDB {
-		// MySQL 5.7 doesn't support WITH clause.
-		statement = getMySQLStatementWithResultLimit(statement, limit)
-	} else if dbType == db.Oracle {
-		statement = getOracleStatementWithResultLimit(statement, limit)
-	} else if dbType == db.MSSQL {
-		statement = getMSSQLStatementWithResultLimit(statement, limit)
-	} else {
-		statement = getStatementWithResultLimit(statement, limit)
+	if !strings.HasPrefix(statement, "EXPLAIN") && limit > 0 {
+		if dbType == db.MySQL || dbType == db.MariaDB {
+			// MySQL 5.7 doesn't support WITH clause.
+			statement = getMySQLStatementWithResultLimit(statement, limit)
+		} else if dbType == db.Oracle {
+			statement = getOracleStatementWithResultLimit(statement, limit)
+		} else if dbType == db.MSSQL {
+			statement = getMSSQLStatementWithResultLimit(statement, limit)
+		} else {
+			statement = getStatementWithResultLimit(statement, limit)
+		}
 	}
 
 	// TiDB doesn't support READ ONLY transactions. We have to skip the flag for it.
@@ -205,10 +214,184 @@ func Query(ctx context.Context, dbType db.Type, conn *sql.Conn, statement string
 	return []any{columnNames, columnTypeNames, data, fieldMaskInfo}, nil
 }
 
+// Query2 will execute a readonly / SELECT query.
+// TODO(rebelice): remove Query function and rename Query2 to Query after frontend is ready to use the new API.
+func Query2(ctx context.Context, dbType db.Type, conn *sql.Conn, statement string, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: queryContext.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, statement)
+	if err != nil {
+		return nil, FormatErrorWithQuery(err, statement)
+	}
+	defer rows.Close()
+
+	columnNames, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	fieldList, err := extractSensitiveField(dbType, statement, queryContext.CurrentDatabase, queryContext.SensitiveSchemaInfo)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to extract sensitive fields: %q", statement)
+	}
+
+	if len(fieldList) != 0 && len(fieldList) != len(columnNames) {
+		return nil, errors.Errorf("failed to extract sensitive fields: %q", statement)
+	}
+
+	var fieldMaskInfo []bool
+	for i := range columnNames {
+		if len(fieldList) > 0 && fieldList[i].Sensitive {
+			fieldMaskInfo = append(fieldMaskInfo, true)
+		} else {
+			fieldMaskInfo = append(fieldMaskInfo, false)
+		}
+	}
+
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+	}
+
+	var columnTypeNames []string
+	for _, v := range columnTypes {
+		// DatabaseTypeName returns the database system name of the column type.
+		// refer: https://pkg.go.dev/database/sql#ColumnType.DatabaseTypeName
+		columnTypeNames = append(columnTypeNames, strings.ToUpper(v.DatabaseTypeName()))
+	}
+
+	data, err := readRows2(rows, columnTypes, columnTypeNames, fieldList)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &v1pb.QueryResult{
+		ColumnNames:     columnNames,
+		ColumnTypeNames: columnTypeNames,
+		Rows:            data,
+		Masked:          fieldMaskInfo,
+	}, nil
+}
+
+// RunStatement runs a SQL statement in a given connection.
+func RunStatement(ctx context.Context, engineType parser.EngineType, conn *sql.Conn, statement string) ([]*v1pb.QueryResult, error) {
+	singleSQLs, err := parser.SplitMultiSQL(engineType, statement)
+	if err != nil {
+		return nil, err
+	}
+	if len(singleSQLs) == 0 {
+		return nil, nil
+	}
+
+	var results []*v1pb.QueryResult
+	for _, singleSQL := range singleSQLs {
+		if singleSQL.Empty {
+			continue
+		}
+		if IsAffectedRowsStatement(singleSQL.Text) {
+			sqlResult, err := conn.ExecContext(ctx, singleSQL.Text)
+			if err != nil {
+				return nil, err
+			}
+			affectedRows, err := sqlResult.RowsAffected()
+			if err != nil {
+				log.Info("rowsAffected returns error", zap.Error(err))
+			}
+
+			field := []string{"Affected Rows"}
+			types := []string{"INT"}
+			rows := []*v1pb.QueryRow{
+				{
+					Values: []*v1pb.RowValue{
+						{
+							Kind: &v1pb.RowValue_Int64Value{
+								Int64Value: affectedRows,
+							},
+						},
+					},
+				},
+			}
+			results = append(results, &v1pb.QueryResult{
+				ColumnNames:     field,
+				ColumnTypeNames: types,
+				Rows:            rows,
+			})
+			continue
+		}
+		results = append(results, adminQuery(ctx, conn, singleSQL.Text))
+	}
+
+	return results, nil
+}
+
+func adminQuery(ctx context.Context, conn *sql.Conn, statement string) *v1pb.QueryResult {
+	rows, err := conn.QueryContext(ctx, statement)
+	if err != nil {
+		return &v1pb.QueryResult{
+			Error: err.Error(),
+		}
+	}
+	defer rows.Close()
+
+	result, err := rowsToQueryResult(rows)
+	if err != nil {
+		return &v1pb.QueryResult{
+			Error: err.Error(),
+		}
+	}
+	return result
+}
+
+func rowsToQueryResult(rows *sql.Rows) (*v1pb.QueryResult, error) {
+	columnNames, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+	}
+
+	var columnTypeNames []string
+	for _, v := range columnTypes {
+		// DatabaseTypeName returns the database system name of the column type.
+		// refer: https://pkg.go.dev/database/sql#ColumnType.DatabaseTypeName
+		columnTypeNames = append(columnTypeNames, strings.ToUpper(v.DatabaseTypeName()))
+	}
+
+	data, err := readRows2(rows, columnTypes, columnTypeNames, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &v1pb.QueryResult{
+		ColumnNames:     columnNames,
+		ColumnTypeNames: columnTypeNames,
+		Rows:            data,
+	}, nil
+}
+
 // query will execute a query.
 func queryAdmin(ctx context.Context, dbType db.Type, conn *sql.Conn, statement string, _ int) ([]any, error) {
 	rows, err := conn.QueryContext(ctx, statement)
 	if err != nil {
+		// TODO(d): ClickHouse will return "driver: bad connection" if we use non-SELECT statement for Query(). We need to ignore the error.
+		if dbType == db.ClickHouse {
+			return nil, nil
+		}
 		return nil, FormatErrorWithQuery(err, statement)
 	}
 	defer rows.Close()
@@ -243,6 +426,72 @@ func queryAdmin(ctx context.Context, dbType db.Type, conn *sql.Conn, statement s
 	// Return the all false boolean slice here as the placeholder.
 	sensitiveInfo := make([]bool, len(columnNames))
 	return []any{columnNames, columnTypeNames, data, sensitiveInfo}, nil
+}
+
+// TODO(rebelice): remove the readRows and rename readRows2 to readRows if legacy API is deprecated.
+func readRows2(rows *sql.Rows, columnTypes []*sql.ColumnType, columnTypeNames []string, fieldList []db.SensitiveField) ([]*v1pb.QueryRow, error) {
+	var data []*v1pb.QueryRow
+	if len(columnTypes) == 0 {
+		// No rows.
+		// The oracle driver will panic if there is no rows such as EXPLAIN PLAN FOR statement.
+		return data, nil
+	}
+	for rows.Next() {
+		scanArgs := make([]any, len(columnTypes))
+		for i, v := range columnTypeNames {
+			// TODO(steven need help): Consult a common list of data types from database driver documentation. e.g. MySQL,PostgreSQL.
+			switch v {
+			case "VARCHAR", "TEXT", "UUID", "TIMESTAMP":
+				scanArgs[i] = new(sql.NullString)
+			case "BOOL":
+				scanArgs[i] = new(sql.NullBool)
+			case "INT", "INTEGER":
+				scanArgs[i] = new(sql.NullInt64)
+			case "FLOAT":
+				scanArgs[i] = new(sql.NullFloat64)
+			default:
+				scanArgs[i] = new(sql.NullString)
+			}
+		}
+
+		if err := rows.Scan(scanArgs...); err != nil {
+			return nil, err
+		}
+
+		var rowData v1pb.QueryRow
+		for i := range columnTypes {
+			if len(fieldList) > 0 && fieldList[i].Sensitive {
+				rowData.Values = append(rowData.Values, &v1pb.RowValue{Kind: &v1pb.RowValue_StringValue{StringValue: "******"}})
+				continue
+			}
+			if v, ok := (scanArgs[i]).(*sql.NullBool); ok && v.Valid {
+				rowData.Values = append(rowData.Values, &v1pb.RowValue{Kind: &v1pb.RowValue_BoolValue{BoolValue: v.Bool}})
+				continue
+			}
+			if v, ok := (scanArgs[i]).(*sql.NullString); ok && v.Valid {
+				rowData.Values = append(rowData.Values, &v1pb.RowValue{Kind: &v1pb.RowValue_StringValue{StringValue: v.String}})
+				continue
+			}
+			if v, ok := (scanArgs[i]).(*sql.NullInt64); ok && v.Valid {
+				rowData.Values = append(rowData.Values, &v1pb.RowValue{Kind: &v1pb.RowValue_Int64Value{Int64Value: v.Int64}})
+				continue
+			}
+			if v, ok := (scanArgs[i]).(*sql.NullInt32); ok && v.Valid {
+				rowData.Values = append(rowData.Values, &v1pb.RowValue{Kind: &v1pb.RowValue_Int32Value{Int32Value: v.Int32}})
+				continue
+			}
+			if v, ok := (scanArgs[i]).(*sql.NullFloat64); ok && v.Valid {
+				rowData.Values = append(rowData.Values, &v1pb.RowValue{Kind: &v1pb.RowValue_DoubleValue{DoubleValue: v.Float64}})
+				continue
+			}
+			// If none of them match, set nil to its value.
+			rowData.Values = append(rowData.Values, &v1pb.RowValue{Kind: &v1pb.RowValue_NullValue{NullValue: structpb.NullValue_NULL_VALUE}})
+		}
+
+		data = append(data, &rowData)
+	}
+
+	return data, nil
 }
 
 func readRows(rows *sql.Rows, dbType db.Type, columnTypes []*sql.ColumnType, columnTypeNames []string, fieldList []db.SensitiveField) ([]any, error) {
@@ -309,52 +558,20 @@ func readRows(rows *sql.Rows, dbType db.Type, columnTypes []*sql.ColumnType, col
 }
 
 func getStatementWithResultLimit(stmt string, limit int) string {
-	stmt = strings.TrimRight(stmt, " \n\t;")
-	if !strings.HasPrefix(stmt, "EXPLAIN") {
-		limitPart := ""
-		if limit > 0 {
-			limitPart = fmt.Sprintf(" LIMIT %d", limit)
-		}
-		return fmt.Sprintf("WITH result AS (%s) SELECT * FROM result%s;", stmt, limitPart)
-	}
-	return stmt
+	return fmt.Sprintf("WITH result AS (%s) SELECT * FROM result LIMIT %d;", stmt, limit)
 }
 
 func getMySQLStatementWithResultLimit(stmt string, limit int) string {
-	stmt = strings.TrimRight(stmt, " \n\t;")
-	if !strings.HasPrefix(stmt, "EXPLAIN") {
-		limitPart := ""
-		if limit > 0 {
-			limitPart = fmt.Sprintf(" LIMIT %d", limit)
-		}
-		return fmt.Sprintf("SELECT * FROM (%s) result%s;", stmt, limitPart)
-	}
-	return stmt
+	return fmt.Sprintf("SELECT * FROM (%s) result LIMIT %d;", stmt, limit)
 }
 
 func getOracleStatementWithResultLimit(stmt string, limit int) string {
-	stmt = strings.TrimRight(stmt, " \n\t;")
-	if !strings.HasPrefix(stmt, "EXPLAIN") {
-		limitPart := ""
-		if limit > 0 {
-			limitPart = fmt.Sprintf(" FETCH NEXT %d ROWS ONLY", limit)
-		}
-		return fmt.Sprintf("%s%s", stmt, limitPart)
-	}
-	return stmt
+	return fmt.Sprintf("SELECT * FROM (%s) WHERE ROWNUM <= %d", stmt, limit)
 }
 
 func getMSSQLStatementWithResultLimit(stmt string, limit int) string {
 	// TODO(d): support SELECT 1 (mssql: No column name was specified for column 1 of 'result').
-	stmt = strings.TrimRight(stmt, " \n\t;")
-	if !strings.HasPrefix(stmt, "EXPLAIN") {
-		limitPart := ""
-		if limit > 0 {
-			limitPart = fmt.Sprintf(" TOP %d", limit)
-		}
-		return fmt.Sprintf("WITH result AS (%s) SELECT%s * FROM result;", stmt, limitPart)
-	}
-	return stmt
+	return fmt.Sprintf("WITH result AS (%s) SELECT TOP %d * FROM result;", stmt, limit)
 }
 
 // FindMigrationHistoryList will find the list of migration history.

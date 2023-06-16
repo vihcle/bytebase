@@ -66,16 +66,16 @@ import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { useTitle } from "@vueuse/core";
 
-import { Bookmark, UNKNOWN_ID, BookmarkCreate, RouteMapList } from "../types";
-import { idFromSlug } from "../utils";
+import { RouteMapList } from "../types";
+import { databaseV1Slug, idFromSlug } from "../utils";
 import {
-  useCurrentUser,
   useRouterStore,
-  useBookmarkStore,
-  useDatabaseStore,
-  useProjectStore,
+  useBookmarkV1Store,
+  useProjectV1Store,
+  useDatabaseV1Store,
 } from "@/store";
 import HelpTriggerIcon from "@/components/HelpTriggerIcon.vue";
+import { Bookmark } from "@/types/proto/v1/bookmark_service";
 
 interface BreadcrumbItem {
   name: string;
@@ -92,10 +92,9 @@ export default defineComponent({
     const routerStore = useRouterStore();
     const currentRoute = useRouter().currentRoute;
     const { t } = useI18n();
-    const bookmarkStore = useBookmarkStore();
+    const bookmarkV1Store = useBookmarkV1Store();
 
-    const currentUser = useCurrentUser();
-    const projectStore = useProjectStore();
+    const projectV1Store = useProjectV1Store();
 
     const documentTitle = useTitle(null, { observe: true });
 
@@ -112,16 +111,11 @@ export default defineComponent({
       routeHelpNameMapList.value = await res.json();
     });
 
-    const bookmark: ComputedRef<Bookmark> = computed(() =>
-      bookmarkStore.bookmarkByUserAndLink(
-        currentUser.value.id,
-        currentRoute.value.path
-      )
+    const bookmark: ComputedRef<Bookmark | undefined> = computed(() =>
+      bookmarkV1Store.findBookmarkByLink(currentRoute.value.path)
     );
 
-    const isBookmarked: ComputedRef<boolean> = computed(
-      () => bookmark.value.id != UNKNOWN_ID
-    );
+    const isBookmarked: ComputedRef<boolean> = computed(() => !!bookmark.value);
 
     const allowBookmark = computed(() => currentRoute.value.meta.allowBookmark);
 
@@ -135,10 +129,13 @@ export default defineComponent({
       const databaseSlug = routeSlug.databaseSlug;
       const tableName = routeSlug.tableName;
       const dataSourceSlug = routeSlug.dataSourceSlug;
-      const migrationHistory = routeSlug.migrationHistorySlug;
       const vcsSlug = routeSlug.vcsSlug;
       const sqlReviewPolicySlug = routeSlug.sqlReviewPolicySlug;
       const ssoName = routeSlug.ssoName;
+
+      const projectName = routeSlug.projectName;
+      const databaseGroupName = routeSlug.databaseGroupName;
+      const schemaGroupName = routeSlug.schemaGroupName;
 
       const list: Array<BreadcrumbItem> = [];
       if (environmentSlug) {
@@ -153,9 +150,11 @@ export default defineComponent({
         });
 
         if (projectWebhookSlug) {
-          const project = projectStore.getProjectById(idFromSlug(projectSlug));
+          const project = projectV1Store.getProjectByUID(
+            String(idFromSlug(projectSlug))
+          );
           list.push({
-            name: `${project.name}`,
+            name: `${project.title}`,
             path: `/project/${projectSlug}`,
           });
         }
@@ -170,20 +169,14 @@ export default defineComponent({
           path: "/db",
         });
 
-        if (tableName || dataSourceSlug || migrationHistory) {
-          const database = useDatabaseStore().getDatabaseById(
-            idFromSlug(databaseSlug)
+        if (tableName || dataSourceSlug) {
+          const database = useDatabaseV1Store().getDatabaseByUID(
+            String(idFromSlug(databaseSlug))
           );
           list.push({
-            name: database.name,
+            name: database.databaseName,
             path: `/db/${databaseSlug}`,
           });
-          if (migrationHistory) {
-            list.push({
-              name: t("common.change"),
-              path: `/db/${databaseSlug}#change-history`,
-            });
-          }
         }
       } else if (vcsSlug) {
         list.push({
@@ -202,6 +195,33 @@ export default defineComponent({
             path: "/setting/sso",
           });
         }
+      } else if (schemaGroupName) {
+        if (projectName && databaseGroupName) {
+          list.push(
+            {
+              name: "Databases",
+            },
+            {
+              name: databaseGroupName,
+              path: `/projects/${projectName}/database-groups/${databaseGroupName}`,
+            },
+            {
+              name: `Tables - ${schemaGroupName}`,
+            }
+          );
+        }
+      }
+      if (route.name === "workspace.database.history.detail") {
+        const parent = `instances/${route.params.instance}/databases/${route.params.database}`;
+        const database = useDatabaseV1Store().getDatabaseByName(parent);
+        list.push({
+          name: database.databaseName,
+          path: `/db/${databaseV1Slug(database)}`,
+        });
+        list.push({
+          name: t("common.change"),
+          path: `/db/${databaseV1Slug(database)}#change-history`,
+        });
       }
 
       const {
@@ -234,14 +254,13 @@ export default defineComponent({
     });
 
     const toggleBookmark = () => {
-      if (isBookmarked.value) {
-        bookmarkStore.deleteBookmark(bookmark.value);
+      if (bookmark.value) {
+        bookmarkV1Store.deleteBookmark(bookmark.value.name);
       } else {
-        const newBookmark: BookmarkCreate = {
-          name: breadcrumbList.value[breadcrumbList.value.length - 1].name,
+        bookmarkV1Store.createBookmark({
+          title: breadcrumbList.value[breadcrumbList.value.length - 1].name,
           link: currentRoute.value.path,
-        };
-        bookmarkStore.createBookmark(newBookmark);
+        });
       }
     };
 

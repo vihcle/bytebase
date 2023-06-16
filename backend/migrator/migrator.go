@@ -26,29 +26,6 @@ import (
 	"github.com/bytebase/bytebase/backend/utils"
 )
 
-const (
-	// The schema version consists of major version and minor version.
-	// Backward compatible schema change increases the minor version, while backward non-compatible schema change increase the major version.
-	// majorSchemaVersion and majorSchemaVersion defines the schema version this version of code can handle.
-	// We reserve 4 least significant digits for minor version.
-	// e.g.
-	// 10001 -> Major version 1, minor version 1
-	// 11001 -> Major version 1, minor version 1001
-	// 20001 -> Major version 2, minor version 1
-	//
-	// The migration file follows the name pattern of {{version_number}}##{{description}}.
-	//
-	// Though minor version is backward compatible, we require the schema version must match both the MAJOR and MINOR version,
-	// otherwise, Bytebase will fail to start. We choose this because otherwise failed minor migration changes like adding an
-	// index is hard to detect.
-	//
-	// If the new release requires a higher MAJOR version then the schema file, then the code will abort immediately. We
-	// will require a separate process to upgrade the schema.
-	// If the new release requires a higher MINOR version than the schema file, then it will apply the migration upon
-	// startup.
-	majorSchemaVersion = 1
-)
-
 //go:embed migration
 var migrationFS embed.FS
 
@@ -109,10 +86,6 @@ func MigrateSchema(ctx context.Context, storeDB *store.DB, strictUseDb bool, pgB
 		return nil, err
 	}
 
-	if err := backfillHistory(ctx, storeInstance, bytebasePgDriver, databaseName); err != nil {
-		return nil, err
-	}
-
 	verBefore, err := getLatestVersion(ctx, storeInstance)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get current schema version")
@@ -138,75 +111,6 @@ func MigrateSchema(ctx context.Context, storeDB *store.DB, strictUseDb bool, pgB
 	return &verAfter, nil
 }
 
-func backfillHistory(ctx context.Context, storeInstance *store.Store, bytebasePgDriver *pg.Driver, databaseName string) error {
-	histories, err := storeInstance.ListInstanceChangeHistory(ctx, &store.FindInstanceChangeHistoryMessage{
-		// Metadata database has instanceID nil;
-		InstanceID: nil,
-	})
-	if err != nil {
-		return err
-	}
-	// For new database and backfilled database, there should be histories already.
-	if len(histories) > 0 {
-		return nil
-	}
-
-	log.Info("Backfilling Bytebase metadata migration history")
-	limit := 10
-	offset := 0
-	for {
-		oldHistories, err := bytebasePgDriver.FindMigrationHistoryList(ctx, &dbdriver.MigrationHistoryFind{
-			Database: &databaseName,
-			Limit:    &limit,
-			Offset:   &offset,
-		})
-		if err != nil {
-			return err
-		}
-		if len(oldHistories) == 0 {
-			break
-		}
-		offset += limit
-
-		var creates []*store.InstanceChangeHistoryMessage
-		for _, h := range oldHistories {
-			storedVersion, err := util.ToStoredVersion(h.UseSemanticVersion, h.Version, h.SemanticVersionSuffix)
-			if err != nil {
-				return err
-			}
-			changeHistory := store.InstanceChangeHistoryMessage{
-				CreatorID:           api.SystemBotID,
-				CreatedTs:           h.CreatedTs,
-				UpdaterID:           api.SystemBotID,
-				UpdatedTs:           h.UpdatedTs,
-				InstanceID:          nil,
-				DatabaseID:          nil,
-				IssueID:             nil,
-				ReleaseVersion:      h.ReleaseVersion,
-				Sequence:            int64(h.Sequence),
-				Source:              h.Source,
-				Type:                h.Type,
-				Status:              h.Status,
-				Version:             storedVersion,
-				Description:         h.Description,
-				Statement:           h.Statement,
-				Schema:              h.Schema,
-				SchemaPrev:          h.SchemaPrev,
-				ExecutionDurationNs: h.ExecutionDurationNs,
-				Payload:             h.Payload,
-			}
-
-			creates = append(creates, &changeHistory)
-		}
-
-		if _, err := storeInstance.CreateInstanceChangeHistory(ctx, creates...); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func hasInstanceChangeTable(ctx context.Context, metadataDriver dbdriver.Driver) (bool, error) {
 	var exists bool
 	if err := metadataDriver.GetDB().QueryRowContext(ctx,
@@ -217,6 +121,7 @@ func hasInstanceChangeTable(ctx context.Context, metadataDriver dbdriver.Driver)
 	return exists, nil
 }
 
+// migrates the old Bytebase schema up to where we create the instance_change_history table.
 func migrateOld(ctx context.Context, metadataDriver dbdriver.Driver, bytebasePgDriver *pg.Driver, databaseName, serverVersion string) error {
 	has, err := hasInstanceChangeTable(ctx, metadataDriver)
 	if err != nil {
@@ -308,6 +213,7 @@ func migrateOld(ctx context.Context, metadataDriver dbdriver.Driver, bytebasePgD
 				return err
 			}
 
+			// Stops the migration after we've reached to the point where we create the instance_change_history table.
 			has, err := hasInstanceChangeTable(ctx, metadataDriver)
 			if err != nil {
 				return err
@@ -357,9 +263,9 @@ func initializeSchema(ctx context.Context, storeInstance *store.Store, metadataD
 	}
 	if _, err := storeInstance.CreateInstanceChangeHistory(ctx, &store.InstanceChangeHistoryMessage{
 		CreatorID:      api.SystemBotID,
-		InstanceID:     nil,
-		DatabaseID:     nil,
-		IssueID:        nil,
+		InstanceUID:    nil,
+		DatabaseUID:    nil,
+		IssueUID:       nil,
 		ReleaseVersion: serverVersion,
 		// Sequence starts from 1.
 		Sequence:            1,
@@ -372,7 +278,7 @@ func initializeSchema(ctx context.Context, storeInstance *store.Store, metadataD
 		Schema:              stmt,
 		SchemaPrev:          "",
 		ExecutionDurationNs: 0,
-		Payload:             "",
+		Payload:             nil,
 	}); err != nil {
 		return err
 	}
@@ -385,9 +291,10 @@ func initializeSchema(ctx context.Context, storeInstance *store.Store, metadataD
 // If there's no migration history, version will be nil.
 func getLatestVersion(ctx context.Context, storeInstance *store.Store) (semver.Version, error) {
 	// We look back the past migration history records and return the latest successful (DONE) migration version.
-	histories, err := storeInstance.ListInstanceChangeHistory(ctx, &store.FindInstanceChangeHistoryMessage{
+	histories, err := storeInstance.ListInstanceChangeHistoryForMigrator(ctx, &store.FindInstanceChangeHistoryMessage{
 		// Metadata database has instanceID nil;
 		InstanceID: nil,
+		ShowFull:   true,
 	})
 	if err != nil {
 		return semver.Version{}, errors.Wrap(err, "failed to get migration history")
@@ -542,18 +449,15 @@ const (
 func migrate(ctx context.Context, storeInstance *store.Store, metadataDriver dbdriver.Driver, cutoffSchemaVersion, curVer semver.Version, mode common.ReleaseMode, serverVersion, databaseName string) error {
 	log.Info("Apply database migration if needed...")
 	log.Info(fmt.Sprintf("Current schema version before migration: %s", curVer))
-	major := curVer.Major
-	if major != majorSchemaVersion {
-		return errors.Errorf("current major schema version %d is different from the major schema version %d this release %s expects", major, majorSchemaVersion, serverVersion)
-	}
 
 	var histories []*store.InstanceChangeHistoryMessage
 	// Because dev migrations don't use semantic versioning, we have to look at all migration history to
 	// figure out whether the migration statement has already been applied.
 	if mode == common.ReleaseModeDev {
-		h, err := storeInstance.ListInstanceChangeHistory(ctx, &store.FindInstanceChangeHistoryMessage{
+		h, err := storeInstance.ListInstanceChangeHistoryForMigrator(ctx, &store.FindInstanceChangeHistoryMessage{
 			// Metadata database has instanceID nil;
 			InstanceID: nil,
+			ShowFull:   true,
 		})
 		if err != nil {
 			return err

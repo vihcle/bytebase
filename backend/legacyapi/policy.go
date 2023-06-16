@@ -6,6 +6,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
+	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
 )
 
 // PolicyType is the type or name of a policy.
@@ -82,8 +83,8 @@ const (
 )
 
 var (
-	// allowedResourceTypes includes allowed resource types for each policy type.
-	allowedResourceTypes = map[PolicyType][]PolicyResourceType{
+	// AllowedResourceTypes includes allowed resource types for each policy type.
+	AllowedResourceTypes = map[PolicyType][]PolicyResourceType{
 		PolicyTypePipelineApproval: {PolicyResourceTypeEnvironment},
 		PolicyTypeBackupPlan:       {PolicyResourceTypeEnvironment},
 		PolicyTypeSQLReview:        {PolicyResourceTypeEnvironment},
@@ -93,44 +94,6 @@ var (
 		PolicyTypeSlowQuery:        {PolicyResourceTypeInstance},
 	}
 )
-
-// Policy is the API message for a policy.
-type Policy struct {
-	ID int `jsonapi:"primary,policy"`
-
-	// Standard fields
-	RowStatus RowStatus `jsonapi:"attr,rowStatus"`
-
-	// Related fields
-	ResourceType PolicyResourceType
-	ResourceID   int          `jsonapi:"attr,resourceId"`
-	Environment  *Environment `jsonapi:"relation,environment"`
-
-	// Domain specific fields
-	InheritFromParent bool       `jsonapi:"attr,inheritFromParent"`
-	Type              PolicyType `jsonapi:"attr,type"`
-	Payload           string     `jsonapi:"attr,payload"`
-}
-
-// PolicyFind is the message to get a policy.
-type PolicyFind struct {
-	ID *int
-
-	// Related fields
-	ResourceType *PolicyResourceType
-	ResourceID   *int
-
-	// Domain specific fields
-	Type PolicyType `jsonapi:"attr,type"`
-}
-
-// PolicyUpsert is the message to upsert a policy.
-// NOTE: We use PATCH for Upsert, this is inspired by https://google.aip.dev/134#patch-and-put
-type PolicyUpsert struct {
-	RowStatus         *string `jsonapi:"attr,rowStatus"`
-	InheritFromParent *bool   `jsonapi:"attr,inheritFromParent"`
-	Payload           *string `jsonapi:"attr,payload"`
-}
 
 // PipelineApprovalPolicy is the policy configuration for pipeline approval.
 type PipelineApprovalPolicy struct {
@@ -322,131 +285,6 @@ func UnmarshalEnvironmentTierPolicy(payload string) (*EnvironmentTierPolicy, err
 	return &p, nil
 }
 
-// ValidatePolicyType will validate the policy type.
-func ValidatePolicyType(pType PolicyType) error {
-	if _, ok := allowedResourceTypes[pType]; !ok {
-		return errors.Errorf("invalid policy type: %s", pType)
-	}
-	return nil
-}
-
-// ValidatePolicy will validate the policy resource type, type and payload values.
-func ValidatePolicy(resourceType PolicyResourceType, pType PolicyType, payload *string) error {
-	hasResourceType := false
-	for _, rt := range allowedResourceTypes[pType] {
-		if rt == resourceType {
-			hasResourceType = true
-		}
-	}
-	if !hasResourceType {
-		return errors.Errorf("invalid resource type %s and policy type %s pair", resourceType, pType)
-	}
-	// If payload is not changed, we will not check its content.
-	if payload == nil {
-		return nil
-	}
-
-	switch pType {
-	case PolicyTypePipelineApproval:
-		pa, err := UnmarshalPipelineApprovalPolicy(*payload)
-		if err != nil {
-			return err
-		}
-		if pa.Value != PipelineApprovalValueManualNever && pa.Value != PipelineApprovalValueManualAlways {
-			return errors.Errorf("invalid approval policy value: %q", *payload)
-		}
-		issueTypeSeen := make(map[IssueType]bool)
-		for _, group := range pa.AssigneeGroupList {
-			if group.IssueType != IssueDatabaseSchemaUpdate &&
-				group.IssueType != IssueDatabaseSchemaUpdateGhost &&
-				group.IssueType != IssueDatabaseDataUpdate {
-				return errors.Errorf("invalid assignee group issue type %q", group.IssueType)
-			}
-			if issueTypeSeen[group.IssueType] {
-				return errors.Errorf("duplicate assignee group issue type %q", group.IssueType)
-			}
-			issueTypeSeen[group.IssueType] = true
-		}
-		return nil
-	case PolicyTypeBackupPlan:
-		bp, err := UnmarshalBackupPlanPolicy(*payload)
-		if err != nil {
-			return err
-		}
-		if bp.Schedule != BackupPlanPolicyScheduleUnset && bp.Schedule != BackupPlanPolicyScheduleDaily && bp.Schedule != BackupPlanPolicyScheduleWeekly {
-			return errors.Errorf("invalid backup plan policy schedule: %q", bp.Schedule)
-		}
-		return nil
-	case PolicyTypeSQLReview:
-		sr, err := UnmarshalSQLReviewPolicy(*payload)
-		if err != nil {
-			return err
-		}
-		if err := sr.Validate(); err != nil {
-			return errors.Wrap(err, "invalid SQL review policy")
-		}
-		return nil
-	case PolicyTypeEnvironmentTier:
-		p, err := UnmarshalEnvironmentTierPolicy(*payload)
-		if err != nil {
-			return err
-		}
-		if p.EnvironmentTier != EnvironmentTierValueProtected && p.EnvironmentTier != EnvironmentTierValueUnprotected {
-			return errors.Errorf("invalid environment tier value %q", p.EnvironmentTier)
-		}
-		return nil
-	case PolicyTypeSensitiveData:
-		p, err := UnmarshalSensitiveDataPolicy(*payload)
-		if err != nil {
-			return err
-		}
-		for _, v := range p.SensitiveDataList {
-			if v.Table == "" || v.Column == "" {
-				return errors.Errorf("sensitive data policy rule cannot have empty table or column name")
-			}
-			if v.Type != SensitiveDataMaskTypeDefault {
-				return errors.Errorf("sensitive data policy rule must have mask type %q", SensitiveDataMaskTypeDefault)
-			}
-		}
-		return nil
-	case PolicyTypeAccessControl:
-		if _, err := UnmarshalAccessControlPolicy(*payload); err != nil {
-			return err
-		}
-		return nil
-	}
-	return nil
-}
-
-// GetDefaultPolicy will return the default value for the given policy type.
-// The default policy can be empty when we don't have anything to enforce at runtime.
-func GetDefaultPolicy(pType PolicyType) (string, error) {
-	switch pType {
-	case PolicyTypePipelineApproval:
-		policy := PipelineApprovalPolicy{
-			Value: PipelineApprovalValueManualAlways,
-		}
-		return policy.String()
-	case PolicyTypeBackupPlan:
-		policy := BackupPlanPolicy{
-			Schedule: BackupPlanPolicyScheduleUnset,
-		}
-		return policy.String()
-	case PolicyTypeSQLReview:
-		// TODO(ed): we may need to define the default SQL review policy payload in the PR of policy data migration.
-		return "{}", nil
-	case PolicyTypeEnvironmentTier:
-		policy := EnvironmentTierPolicy{
-			EnvironmentTier: EnvironmentTierValueUnprotected,
-		}
-		return policy.String()
-	case PolicyTypeSensitiveData:
-		policy := SensitiveDataPolicy{}
-		return policy.String()
-	}
-	return "", nil
-}
-
 // GetPolicyResourceType gets the policy resource type.
 func GetPolicyResourceType(resourceType string) (PolicyResourceType, error) {
 	var rt PolicyResourceType
@@ -465,4 +303,103 @@ func GetPolicyResourceType(resourceType string) (PolicyResourceType, error) {
 		return PolicyResourceTypeUnknown, errors.Errorf("invalid policy resource type %q", rt)
 	}
 	return rt, nil
+}
+
+// FlattenSQLReviewRulesWithEngine will map SQL review rules with engine.
+func FlattenSQLReviewRulesWithEngine(policy *advisor.SQLReviewPolicy) *advisor.SQLReviewPolicy {
+	var ruleList []*advisor.SQLReviewRule
+	for i, rule := range policy.RuleList {
+		if rule.Engine != "" {
+			ruleList = append(ruleList, policy.RuleList[i])
+		} else {
+			if advisor.RuleExists(rule.Type, db.MySQL) {
+				ruleList = append(ruleList, &advisor.SQLReviewRule{
+					Type:    rule.Type,
+					Level:   rule.Level,
+					Engine:  db.MySQL,
+					Comment: rule.Comment,
+					Payload: rule.Payload,
+				})
+			}
+			if advisor.RuleExists(rule.Type, db.TiDB) {
+				ruleList = append(ruleList, &advisor.SQLReviewRule{
+					Type:    rule.Type,
+					Level:   rule.Level,
+					Engine:  db.TiDB,
+					Comment: rule.Comment,
+					Payload: rule.Payload,
+				})
+			}
+			if advisor.RuleExists(rule.Type, db.MariaDB) {
+				ruleList = append(ruleList, &advisor.SQLReviewRule{
+					Type:    rule.Type,
+					Level:   rule.Level,
+					Engine:  db.MariaDB,
+					Comment: rule.Comment,
+					Payload: rule.Payload,
+				})
+			}
+			if advisor.RuleExists(rule.Type, db.Postgres) {
+				ruleList = append(ruleList, &advisor.SQLReviewRule{
+					Type:    rule.Type,
+					Level:   rule.Level,
+					Engine:  db.Postgres,
+					Comment: rule.Comment,
+					Payload: rule.Payload,
+				})
+			}
+			if advisor.RuleExists(rule.Type, db.Oracle) {
+				ruleList = append(ruleList, &advisor.SQLReviewRule{
+					Type:    rule.Type,
+					Level:   rule.Level,
+					Engine:  db.Oracle,
+					Comment: rule.Comment,
+					Payload: rule.Payload,
+				})
+			}
+			if advisor.RuleExists(rule.Type, db.OceanBase) {
+				ruleList = append(ruleList, &advisor.SQLReviewRule{
+					Type:    rule.Type,
+					Level:   rule.Level,
+					Engine:  db.OceanBase,
+					Comment: rule.Comment,
+					Payload: rule.Payload,
+				})
+			}
+		}
+	}
+
+	policy.RuleList = ruleList
+	return policy
+}
+
+// MergeSQLReviewRulesWithoutEngine will merge SQL review rules without engine.
+func MergeSQLReviewRulesWithoutEngine(payload string) string {
+	policy, err := UnmarshalSQLReviewPolicy(payload)
+	if err != nil {
+		return payload
+	}
+
+	ruleMap := make(map[advisor.SQLReviewRuleType]bool)
+	var ruleList []*advisor.SQLReviewRule
+	for _, rule := range policy.RuleList {
+		if _, exists := ruleMap[rule.Type]; exists {
+			continue
+		}
+		ruleMap[rule.Type] = true
+
+		ruleList = append(ruleList, &advisor.SQLReviewRule{
+			Type:    rule.Type,
+			Level:   rule.Level,
+			Comment: rule.Comment,
+			Payload: rule.Payload,
+		})
+	}
+
+	policy.RuleList = ruleList
+	result, err := json.Marshal(policy)
+	if err != nil {
+		return payload
+	}
+	return string(result)
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
+	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	"github.com/bytebase/bytebase/backend/resources/mysqlutil"
 )
@@ -43,6 +44,11 @@ const (
 	viewStmtFmt = "" +
 		"--\n" +
 		"-- View structure for `%s`\n" +
+		"--\n" +
+		"%s;\n"
+	sequenceStmtFmt = "" +
+		"--\n" +
+		"-- Sequence structure for `%s`\n" +
 		"--\n" +
 		"%s;\n"
 	tempViewStmtFmt = "" +
@@ -101,7 +107,7 @@ func (driver *Driver) Dump(ctx context.Context, out io.Writer, schemaOnly bool) 
 	if !schemaOnly {
 		log.Debug("flush tables in database with read locks",
 			zap.String("database", driver.databaseName))
-		if err := FlushTablesWithReadLock(ctx, conn, driver.databaseName); err != nil {
+		if err := FlushTablesWithReadLock(ctx, driver.dbType, conn, driver.databaseName); err != nil {
 			log.Error("flush tables failed", zap.Error(err))
 			return "", err
 		}
@@ -122,8 +128,8 @@ func (driver *Driver) Dump(ctx context.Context, out io.Writer, schemaOnly bool) 
 	}
 
 	options := sql.TxOptions{}
-	// TiDB does not support readonly, so we only set for MySQL.
-	if driver.dbType == "MYSQL" {
+	// TiDB does not support readonly, so we only set for MySQL and OceanBase.
+	if driver.dbType == db.MySQL || driver.dbType == db.MariaDB || driver.dbType == db.OceanBase {
 		options.ReadOnly = true
 	}
 	// If `schemaOnly` is false, now we are still holding the tables' exclusive locks.
@@ -136,7 +142,7 @@ func (driver *Driver) Dump(ctx context.Context, out io.Writer, schemaOnly bool) 
 	defer txn.Rollback()
 
 	log.Debug("begin to dump database", zap.String("database", driver.databaseName), zap.Bool("schemaOnly", schemaOnly))
-	if err := dumpTxn(ctx, txn, driver.databaseName, out, schemaOnly); err != nil {
+	if err := dumpTxn(ctx, txn, driver.dbType, driver.databaseName, out, schemaOnly); err != nil {
 		return "", err
 	}
 
@@ -148,7 +154,7 @@ func (driver *Driver) Dump(ctx context.Context, out io.Writer, schemaOnly bool) 
 }
 
 // FlushTablesWithReadLock runs FLUSH TABLES table1, table2, ... WITH READ LOCK for all the tables in the database.
-func FlushTablesWithReadLock(ctx context.Context, conn *sql.Conn, database string) error {
+func FlushTablesWithReadLock(ctx context.Context, dbType db.Type, conn *sql.Conn, database string) error {
 	// The lock acquiring could take a long time if there are concurrent exclusive locks on the tables.
 	// We ensures that the execution is canceled after 30 seconds, otherwise we may get dead lock and stuck forever.
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -160,7 +166,7 @@ func FlushTablesWithReadLock(ctx context.Context, conn *sql.Conn, database strin
 	}
 	defer txn.Rollback()
 
-	tables, err := getTablesTx(txn, database)
+	tables, err := getTablesTx(txn, dbType, database)
 	if err != nil {
 		return err
 	}
@@ -183,7 +189,7 @@ func FlushTablesWithReadLock(ctx context.Context, conn *sql.Conn, database strin
 	return txn.Commit()
 }
 
-func dumpTxn(ctx context.Context, txn *sql.Tx, database string, out io.Writer, schemaOnly bool) error {
+func dumpTxn(ctx context.Context, txn *sql.Tx, dbType db.Type, database string, out io.Writer, schemaOnly bool) error {
 	// Find all dumpable databases
 	dbNames, err := getDatabases(ctx, txn)
 	if err != nil {
@@ -243,7 +249,7 @@ func dumpTxn(ctx context.Context, txn *sql.Tx, database string, out io.Writer, s
 
 		// Table and view statement.
 		// We have to dump the table before views because of the structure dependency.
-		tables, err := getTablesTx(txn, dbName)
+		tables, err := getTablesTx(txn, dbType, dbName)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get tables of database %q", dbName)
 		}
@@ -267,7 +273,7 @@ func dumpTxn(ctx context.Context, txn *sql.Tx, database string, out io.Writer, s
 		}
 		// Construct tables.
 		for _, tbl := range tables {
-			if tbl.TableType != baseTableType {
+			if tbl.TableType == viewTableType {
 				continue
 			}
 			if schemaOnly {
@@ -276,7 +282,7 @@ func dumpTxn(ctx context.Context, txn *sql.Tx, database string, out io.Writer, s
 			if _, err := io.WriteString(out, fmt.Sprintf("%s\n", tbl.Statement)); err != nil {
 				return err
 			}
-			if !schemaOnly {
+			if !schemaOnly && tbl.TableType == baseTableType {
 				// Include db prefix if dumping multiple databases.
 				includeDbPrefix := len(dumpableDbNames) > 1
 				if err := exportTableData(txn, dbName, tbl.Name, includeDbPrefix, out); err != nil {
@@ -300,7 +306,7 @@ func dumpTxn(ctx context.Context, txn *sql.Tx, database string, out io.Writer, s
 		}
 
 		// Procedure and function (routine) statements.
-		routines, err := getRoutines(txn, dbName)
+		routines, err := getRoutines(txn, dbType, dbName)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get routines of database %q", dbName)
 		}
@@ -310,19 +316,22 @@ func dumpTxn(ctx context.Context, txn *sql.Tx, database string, out io.Writer, s
 			}
 		}
 
-		// Event statements.
-		events, err := getEvents(txn, dbName)
-		if err != nil {
-			return errors.Wrapf(err, "failed to get events of database %q", dbName)
-		}
-		for _, et := range events {
-			if _, err := io.WriteString(out, fmt.Sprintf("%s\n", et.statement)); err != nil {
-				return err
+		// OceanBase doesn't support "Event Scheduler"
+		if dbType != db.OceanBase {
+			// Event statements.
+			events, err := getEvents(txn, dbName)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get events of database %q", dbName)
+			}
+			for _, et := range events {
+				if _, err := io.WriteString(out, fmt.Sprintf("%s\n", et.statement)); err != nil {
+					return err
+				}
 			}
 		}
 
 		// Trigger statements.
-		triggers, err := getTriggers(txn, dbName)
+		triggers, err := getTriggers(txn, dbType, dbName)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get triggers of database %q", dbName)
 		}
@@ -466,11 +475,11 @@ func getTables(ctx context.Context, conn *sql.Conn, dbName string) ([]*TableSche
 		return nil, err
 	}
 	defer txn.Rollback()
-	return getTablesTx(txn, dbName)
+	return getTablesTx(txn, db.MySQL, dbName)
 }
 
 // getTablesTx gets all tables of a database using the provided transaction.
-func getTablesTx(txn *sql.Tx, dbName string) ([]*TableSchema, error) {
+func getTablesTx(txn *sql.Tx, dbType db.Type, dbName string) ([]*TableSchema, error) {
 	var tables []*TableSchema
 	query := fmt.Sprintf("SHOW FULL TABLES FROM `%s`;", dbName)
 	rows, err := txn.Query(query)
@@ -490,7 +499,7 @@ func getTablesTx(txn *sql.Tx, dbName string) ([]*TableSchema, error) {
 		return nil, err
 	}
 	for _, tbl := range tables {
-		stmt, err := getTableStmt(txn, dbName, tbl.Name, tbl.TableType)
+		stmt, err := getTableStmt(txn, dbType, dbName, tbl.Name, tbl.TableType)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to call getTableStmt(%q, %q, %q)", dbName, tbl.Name, tbl.TableType)
 		}
@@ -506,8 +515,17 @@ func getTablesTx(txn *sql.Tx, dbName string) ([]*TableSchema, error) {
 	return tables, nil
 }
 
+func trimAfterLastParenthesis(sql string) string {
+	pos := strings.LastIndex(sql, ")")
+	if pos != -1 {
+		return sql[:pos+1]
+	}
+
+	return sql
+}
+
 // getTableStmt gets the create statement of a table.
-func getTableStmt(txn *sql.Tx, dbName, tblName, tblType string) (string, error) {
+func getTableStmt(txn *sql.Tx, dbType db.Type, dbName, tblName, tblType string) (string, error) {
 	switch tblType {
 	case baseTableType:
 		query := fmt.Sprintf("SHOW CREATE TABLE `%s`.`%s`;", dbName, tblName)
@@ -517,6 +535,9 @@ func getTableStmt(txn *sql.Tx, dbName, tblName, tblType string) (string, error) 
 				return "", common.FormatDBErrorEmptyRowWithQuery(query)
 			}
 			return "", err
+		}
+		if dbType == db.OceanBase {
+			stmt = trimAfterLastParenthesis(stmt)
 		}
 		return fmt.Sprintf(tableStmtFmt, tblName, stmt), nil
 	case viewTableType:
@@ -530,6 +551,16 @@ func getTableStmt(txn *sql.Tx, dbName, tblName, tblType string) (string, error) 
 			return "", err
 		}
 		return fmt.Sprintf(viewStmtFmt, tblName, createStmt), nil
+	case sequenceTableType:
+		query := fmt.Sprintf("SHOW CREATE SEQUENCE `%s`.`%s`;", dbName, tblName)
+		var stmt, unused string
+		if err := txn.QueryRow(query).Scan(&unused, &stmt); err != nil {
+			if err == sql.ErrNoRows {
+				return "", common.FormatDBErrorEmptyRowWithQuery(query)
+			}
+			return "", err
+		}
+		return fmt.Sprintf(sequenceStmtFmt, tblName, stmt), nil
 	default:
 		return "", errors.Errorf("unrecognized table type %q for database %q table %q", tblType, dbName, tblName)
 	}
@@ -622,14 +653,23 @@ func isNumeric(t string) bool {
 }
 
 // getRoutines gets all routines of a database.
-func getRoutines(txn *sql.Tx, dbName string) ([]*routineSchema, error) {
+func getRoutines(txn *sql.Tx, dbType db.Type, dbName string) ([]*routineSchema, error) {
 	var routines []*routineSchema
 	for _, routineType := range []string{"FUNCTION", "PROCEDURE"} {
 		if err := func() error {
-			query := fmt.Sprintf("SHOW %s STATUS WHERE Db = ?;", routineType)
-			rows, err := txn.Query(query, dbName)
+			var query string
+			if dbType == db.OceanBase {
+				query = fmt.Sprintf("SHOW %s STATUS FROM `%s`;", routineType, dbName)
+			} else {
+				query = fmt.Sprintf("SHOW %s STATUS WHERE Db = '%s';", routineType, dbName)
+			}
+			rows, err := txn.Query(query)
 			if err != nil {
-				return err
+				// Oceanbase starts to support functions since 4.0.
+				if dbType == db.OceanBase {
+					return nil
+				}
+				return errors.Wrapf(err, "failed query %q", query)
 			}
 			defer rows.Close()
 
@@ -753,11 +793,15 @@ func getEventStmt(txn *sql.Tx, dbName, eventName string) (string, error) {
 }
 
 // getTriggers gets all triggers of a database.
-func getTriggers(txn *sql.Tx, dbName string) ([]*triggerSchema, error) {
+func getTriggers(txn *sql.Tx, dbType db.Type, dbName string) ([]*triggerSchema, error) {
 	var triggers []*triggerSchema
 	query := fmt.Sprintf("SHOW TRIGGERS FROM `%s`;", dbName)
 	rows, err := txn.Query(query)
 	if err != nil {
+		// Oceanbase starts to support trigger since 4.0.
+		if dbType == db.OceanBase {
+			return nil, nil
+		}
 		return nil, err
 	}
 	defer rows.Close()

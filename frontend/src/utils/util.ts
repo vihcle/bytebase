@@ -3,8 +3,9 @@ import dayOfYear from "dayjs/plugin/dayOfYear";
 import duration from "dayjs/plugin/duration";
 import relativeTime from "dayjs/plugin/relativeTime";
 import utc from "dayjs/plugin/utc";
-import { round } from "lodash-es";
+import { escapeRegExp, round } from "lodash-es";
 import semver from "semver";
+import type { Duration } from "@/types/proto/google/protobuf/duration";
 
 dayjs.extend(dayOfYear);
 dayjs.extend(duration);
@@ -32,6 +33,24 @@ export function humanizeTs(ts: number): string {
   }
   return time.local().format("MMM D YYYY");
 }
+
+export function humanizeDuration(seconds: number): string {
+  if (seconds <= 1) return "Less than 1s";
+  return `${seconds}s`;
+}
+
+export const humanizeDurationV1 = (
+  duration: Duration | undefined,
+  brief = true
+) => {
+  if (!duration) return "-";
+  const { seconds, nanos } = duration;
+  const total = seconds + nanos / 1e9;
+  if (brief && total <= 1) {
+    return "Less than 1s";
+  }
+  return total.toFixed(2) + "s";
+};
 
 export function bytesToString(size: number): string {
   const unitList = ["B", "KB", "MB", "GB", "TB"];
@@ -171,6 +190,16 @@ export function getHighlightHTMLByKeyWords(s: string, k: string) {
   return s.replaceAll(k, `<b class="text-accent">${k}</b>`);
 }
 
+export function getHighlightHTMLByRegExp(
+  s: string,
+  pattern: string,
+  caseSensitive = false
+) {
+  const flags = caseSensitive ? "g" : "gi";
+  const re = new RegExp(escapeRegExp(pattern), flags);
+  return s.replaceAll(re, (k) => `<b class="text-accent">${k}</b>`);
+}
+
 export type Defer<T> = {
   promise: Promise<T>;
   resolve: (value: T | PromiseLike<T>) => void;
@@ -221,3 +250,52 @@ export function clearObject(obj: any) {
   keys.forEach((key) => delete obj[key]);
   return obj;
 }
+
+const MODIFIERS = [
+  "cmd",
+  "ctrl",
+  "cmd_or_ctrl",
+  "opt",
+  "alt",
+  "opt_or_alt",
+  "shift",
+] as const;
+export type ModifierKey = typeof MODIFIERS[number];
+
+export const modifierKeyText = (mod: ModifierKey) => {
+  const isMac = navigator.userAgent.search("Mac") !== -1;
+  if (mod === "cmd" || (mod === "cmd_or_ctrl" && isMac)) {
+    return "⌘"; // U+2318
+  }
+  if (mod === "ctrl" && isMac) {
+    return "⌃"; // U+2303
+  }
+  if ((mod === "ctrl" && !isMac) || (mod === "cmd_or_ctrl" && !isMac)) {
+    return "Ctrl";
+  }
+  if (mod === "opt" || (mod === "opt_or_alt" && isMac)) {
+    return "⌥"; // U+2325
+  }
+  if (mod === "alt" || (mod === "opt_or_alt" && !isMac)) {
+    return "Alt";
+  }
+  if (mod === "shift" && isMac) {
+    return "⇧"; // U+21E7
+  }
+  if (mod === "shift" && !isMac) {
+    return "Shift";
+  }
+  console.assert(false, "should never reach this line");
+  return "";
+};
+
+export const keyboardShortcutStr = (str: string) => {
+  const parts = str.split("+");
+  return parts
+    .map((part) => {
+      const mod = part as ModifierKey;
+      if (MODIFIERS.includes(mod)) return modifierKeyText(mod);
+      return part;
+    })
+    .join("+");
+};

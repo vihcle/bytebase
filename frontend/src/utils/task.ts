@@ -1,9 +1,10 @@
 import { groupBy, maxBy } from "lodash-es";
 
-import { useCurrentUser, useDatabaseStore } from "@/store";
+import { useCurrentUserV1, useDatabaseV1Store } from "@/store";
 import {
   Issue,
   Task,
+  TaskCheckStatus,
   TaskCheckType,
   TaskCreate,
   TaskDatabaseCreatePayload,
@@ -15,11 +16,12 @@ import {
   TaskDatabaseSchemaUpdateSDLPayload,
   TaskStatus,
   TaskType,
-  unknown,
+  unknownDatabase,
 } from "@/types";
 import { issueSlug, stageSlug, taskSlug } from "./slug";
 import { activeTask } from "./pipeline";
-import { hasWorkspacePermission } from "./role";
+import { hasWorkspacePermissionV1 } from "./role";
+import { extractUserUID } from "./v1";
 
 export const extractDatabaseNameFromTask = (
   task: Task | TaskCreate
@@ -30,9 +32,11 @@ export const extractDatabaseNameFromTask = (
     // The task is not created yet
     // Find the database by databaseId if possible
     if (taskCreate.databaseId) {
-      return useDatabaseStore().getDatabaseById(taskCreate.databaseId!).name;
+      return useDatabaseV1Store().getDatabaseByUID(
+        String(taskCreate.databaseId!)
+      ).databaseName;
     }
-    return unknown("DATABASE").name;
+    return unknownDatabase().databaseName;
   }
 
   const taskType = taskEntity.type;
@@ -65,7 +69,7 @@ export const extractDatabaseNameFromTask = (
   }
 
   // Fallback to <<Unknown database>>. Won't be happy to see it.
-  return unknown("DATABASE").name;
+  return unknownDatabase().databaseName;
 };
 
 export const buildIssueLinkWithTask = (
@@ -74,7 +78,7 @@ export const buildIssueLinkWithTask = (
   simple = false
 ) => {
   const stage = task.stage;
-  const stageIndex = issue.pipeline.stageList.findIndex(
+  const stageIndex = issue.pipeline!.stageList.findIndex(
     (s) => s.id === stage.id
   );
 
@@ -214,7 +218,7 @@ export const canSkipTask = (
   failedOnly = false
 ) => {
   const pipeline = issue.pipeline;
-  const isActiveTask = task.id === activeTask(pipeline).id;
+  const isActiveTask = task.id === activeTask(pipeline!).id;
   if (activeOnly && !isActiveTask) {
     return false;
   }
@@ -227,20 +231,29 @@ export const canSkipTask = (
     return false;
   }
 
-  const currentUser = useCurrentUser();
+  const currentUserV1 = useCurrentUserV1();
 
   if (
-    hasWorkspacePermission(
+    hasWorkspacePermissionV1(
       "bb.permission.workspace.manage-issue",
-      currentUser.value.role
+      currentUserV1.value.userRole
     )
   ) {
     return true;
   }
 
-  if (currentUser.value.id === issue.assignee.id) {
+  if (extractUserUID(currentUserV1.value.name) === String(issue.assignee.id)) {
     return true;
   }
 
   return false;
+};
+
+export const checkStatusOfTask = (task: Task): TaskCheckStatus | undefined => {
+  if (task.status === "PENDING" || task.status === "PENDING_APPROVAL") {
+    const summary = taskCheckRunSummary(task);
+    if (summary.errorCount > 0) return "ERROR";
+    if (summary.warnCount > 0) return "WARN";
+  }
+  return undefined;
 };

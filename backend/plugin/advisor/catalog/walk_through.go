@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	mysqlparser "github.com/bytebase/mysql-parser"
+
 	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
-	"github.com/bytebase/bytebase/backend/plugin/parser"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
 
 	tidbparser "github.com/pingcap/tidb/parser"
 	tidbast "github.com/pingcap/tidb/parser/ast"
@@ -205,7 +207,7 @@ func (e *WalkThroughError) Error() string {
 // WalkThrough will collect the catalog schema in the databaseState as it walks through the stmt.
 func (d *DatabaseState) WalkThrough(stmt string) error {
 	switch d.dbType {
-	case db.MySQL, db.TiDB, db.MariaDB:
+	case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
 		return d.mysqlWalkThrough(stmt)
 	case db.Postgres:
 		if err := d.pgWalkThrough(stmt); err != nil {
@@ -1315,41 +1317,48 @@ func (d *DatabaseState) createSchema(name string) *SchemaState {
 	return schema
 }
 
-func (d *DatabaseState) parse(stmts string) ([]tidbast.StmtNode, *WalkThroughError) {
+func (*DatabaseState) parse(statement string) ([]tidbast.StmtNode, *WalkThroughError) {
 	p := tidbparser.New()
 	// To support MySQL8 window function syntax.
 	// See https://github.com/bytebase/bytebase/issues/175.
 	p.EnableWindowFunc(true)
 
-	nodeList, _, err := p.Parse(stmts, d.characterSet, d.collation)
+	tree, tokens, err := parser.ParseMySQL(statement)
 	if err != nil {
 		return nil, NewParseError(err.Error())
 	}
-
-	// sikp the setting line stage
-	if len(nodeList) == 0 {
-		return nodeList, nil
+	if tree == nil {
+		return nil, nil
 	}
 
-	sqlList, err := parser.SplitMultiSQL(parser.MySQL, stmts)
-	if err != nil {
-		return nil, NewParseError(err.Error())
-	}
-	if len(sqlList) != len(nodeList) {
-		return nil, NewParseError(fmt.Sprintf("split multi-SQL failed: the length should be %d, but get %d. stmt: \"%s\"", len(nodeList), len(sqlList), stmts))
-	}
+	var returnNodes []tidbast.StmtNode
+	for _, child := range tree.GetChildren() {
+		if child == nil {
+			continue
+		}
 
-	for i, node := range nodeList {
-		node.SetText(nil, strings.TrimSpace(node.Text()))
-		node.SetOriginTextPosition(sqlList[i].LastLine)
-		if n, ok := node.(*tidbast.CreateTableStmt); ok {
-			if err := parser.SetLineForMySQLCreateTableStmt(n); err != nil {
-				return nil, NewParseError(err.Error())
+		if query, ok := child.(mysqlparser.IQueryContext); ok {
+			text := tokens.GetTextFromRuleContext(query)
+			lastLine := query.GetStop().GetLine()
+
+			if nodes, _, err := p.Parse(text, "", ""); err == nil {
+				if len(nodes) != 1 {
+					continue
+				}
+				node := nodes[0]
+				node.SetText(nil, text)
+				node.SetOriginTextPosition(lastLine)
+				if n, ok := node.(*tidbast.CreateTableStmt); ok {
+					if err := parser.SetLineForMySQLCreateTableStmt(n); err != nil {
+						return nil, NewParseError(err.Error())
+					}
+				}
+				returnNodes = append(returnNodes, node)
 			}
 		}
 	}
 
-	return nodeList, nil
+	return returnNodes, nil
 }
 
 func restoreNode(node tidbast.Node, flag format.RestoreFlags) (string, *WalkThroughError) {

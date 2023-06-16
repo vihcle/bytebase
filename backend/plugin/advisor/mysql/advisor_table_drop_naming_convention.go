@@ -19,6 +19,7 @@ func init() {
 	advisor.Register(db.MySQL, advisor.MySQLTableDropNamingConvention, &TableDropNamingConventionAdvisor{})
 	advisor.Register(db.TiDB, advisor.MySQLTableDropNamingConvention, &TableDropNamingConventionAdvisor{})
 	advisor.Register(db.MariaDB, advisor.MySQLTableDropNamingConvention, &TableDropNamingConventionAdvisor{})
+	advisor.Register(db.OceanBase, advisor.MySQLTableDropNamingConvention, &TableDropNamingConventionAdvisor{})
 }
 
 // TableDropNamingConventionAdvisor is the advisor checking the MySQLTableDropNamingConvention rule.
@@ -36,7 +37,7 @@ func (*TableDropNamingConventionAdvisor) Check(ctx advisor.Context, statement st
 	if err != nil {
 		return nil, err
 	}
-	format, _, err := advisor.UnamrshalNamingRulePayloadAsRegexp(ctx.Rule.Payload)
+	format, _, err := advisor.UnmarshalNamingRulePayloadAsRegexp(ctx.Rule.Payload)
 	if err != nil {
 		return nil, err
 	}

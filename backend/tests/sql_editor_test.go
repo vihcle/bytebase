@@ -5,15 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/testing/protocmp"
 
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	resourcemysql "github.com/bytebase/bytebase/backend/resources/mysql"
 	"github.com/bytebase/bytebase/backend/resources/postgres"
 	"github.com/bytebase/bytebase/backend/tests/fake"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 func TestAdminQueryAffectedRows(t *testing.T) {
@@ -23,35 +27,84 @@ func TestAdminQueryAffectedRows(t *testing.T) {
 		prepareStatements string
 		query             string
 		want              bool
-		affectedRows      []string
+		affectedRows      []*v1pb.QueryResult
 	}{
 		{
 			databaseName:      "Test1",
 			dbType:            db.MySQL,
 			prepareStatements: "CREATE TABLE tbl(id INT PRIMARY KEY);",
 			query:             "INSERT INTO tbl VALUES(1);",
-			affectedRows:      []string{`[["Affected Rows"],["INT"],[[1]]]`},
+			affectedRows: []*v1pb.QueryResult{
+				{
+					ColumnNames:     []string{"Affected Rows"},
+					ColumnTypeNames: []string{"INT"},
+					Rows: []*v1pb.QueryRow{
+						{
+							Values: []*v1pb.RowValue{
+								{Kind: &v1pb.RowValue_Int64Value{Int64Value: 1}},
+							},
+						},
+					},
+				},
+			},
 		},
 		{
 			databaseName:      "Test2",
 			dbType:            db.MySQL,
 			prepareStatements: "CREATE TABLE tbl(id INT PRIMARY KEY);",
 			query:             "INSERT INTO tbl VALUES(1); DELETE FROM tbl WHERE id = 1;",
-			affectedRows:      []string{`[["Affected Rows"],["INT"],[[1]]]`, `[["Affected Rows"],["INT"],[[1]]]`},
+			affectedRows: []*v1pb.QueryResult{
+				{
+					ColumnNames:     []string{"Affected Rows"},
+					ColumnTypeNames: []string{"INT"},
+					Rows: []*v1pb.QueryRow{
+						{
+							Values: []*v1pb.RowValue{
+								{Kind: &v1pb.RowValue_Int64Value{Int64Value: 1}},
+							},
+						},
+					},
+				},
+				{
+					ColumnNames:     []string{"Affected Rows"},
+					ColumnTypeNames: []string{"INT"},
+					Rows: []*v1pb.QueryRow{
+						{
+							Values: []*v1pb.RowValue{
+								{Kind: &v1pb.RowValue_Int64Value{Int64Value: 1}},
+							},
+						},
+					},
+				},
+			},
 		},
 		{
 			databaseName:      "Test3",
 			dbType:            db.Postgres,
 			prepareStatements: "CREATE TABLE public.tbl(id INT PRIMARY KEY);",
 			query:             "INSERT INTO tbl VALUES(1),(2);",
-			affectedRows:      []string{`[["Affected Rows"],["INT"],[[2]]]`},
+			affectedRows: []*v1pb.QueryResult{
+				{
+					ColumnNames:     []string{"Affected Rows"},
+					ColumnTypeNames: []string{"INT"},
+					Rows: []*v1pb.QueryRow{
+						{
+							Values: []*v1pb.RowValue{
+								{Kind: &v1pb.RowValue_Int64Value{Int64Value: 2}},
+							},
+						},
+					},
+				},
+			},
 		},
 		{
 			databaseName:      "Test4",
 			dbType:            db.Postgres,
 			prepareStatements: "CREATE TABLE tbl(id INT PRIMARY KEY);",
 			query:             "ALTER TABLE tbl ADD COLUMN name VARCHAR(255);",
-			affectedRows:      []string{`[[],null,[],[]]`},
+			affectedRows: []*v1pb.QueryResult{
+				{},
+			},
 		},
 	}
 
@@ -60,7 +113,7 @@ func TestAdminQueryAffectedRows(t *testing.T) {
 	ctx := context.Background()
 	ctl := &controller{}
 	dataDir := t.TempDir()
-	err := ctl.StartServerWithExternalPg(ctx, &config{
+	ctx, err := ctl.StartServerWithExternalPg(ctx, &config{
 		dataDir:            dataDir,
 		vcsProviderCreator: fake.NewGitLab,
 	})
@@ -77,42 +130,38 @@ func TestAdminQueryAffectedRows(t *testing.T) {
 	defer pgStopInstance()
 
 	// Create a project.
-	project, err := ctl.createProject(api.ProjectCreate{
-		ResourceID: generateRandomString("project", 10),
-		Name:       "Test Project",
-		Key:        t.Name(),
-	})
+	project, err := ctl.createProject(ctx)
 	a.NoError(err)
-	environments, err := ctl.getEnvironments()
-	a.NoError(err)
-	prodEnvironment, err := findEnvironment(environments, "Prod")
+	projectUID, err := strconv.Atoi(project.Uid)
 	a.NoError(err)
 
-	mysqlInstance, err := ctl.addInstance(api.InstanceCreate{
-		ResourceID:    generateRandomString("instance", 10),
-		EnvironmentID: prodEnvironment.ID,
-		Name:          "mysqlInstance",
-		Engine:        db.MySQL,
-		Host:          "127.0.0.1",
-		Port:          strconv.Itoa(mysqlPort),
-		Username:      "root",
-		Password:      "",
+	prodEnvironment, err := ctl.getEnvironment(ctx, "prod")
+	a.NoError(err)
+
+	mysqlInstance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
+		InstanceId: generateRandomString("instance", 10),
+		Instance: &v1pb.Instance{
+			Title:       "mysqlInstance",
+			Engine:      v1pb.Engine_MYSQL,
+			Environment: prodEnvironment.Name,
+			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: "127.0.0.1", Port: strconv.Itoa(mysqlPort), Username: "root", Password: ""}},
+		},
 	})
 	a.NoError(err)
 
-	pgInstance, err := ctl.addInstance(api.InstanceCreate{
-		ResourceID:    generateRandomString("instance", 10),
-		EnvironmentID: prodEnvironment.ID,
-		Name:          "pgInstance",
-		Engine:        db.Postgres,
-		Host:          "/tmp",
-		Port:          strconv.Itoa(pgPort),
-		Username:      "root",
+	pgInstance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
+		InstanceId: generateRandomString("instance", 10),
+		Instance: &v1pb.Instance{
+			Title:       "pgInstance",
+			Engine:      v1pb.Engine_POSTGRES,
+			Environment: prodEnvironment.Name,
+			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: "/tmp", Port: strconv.Itoa(pgPort), Username: "root"}},
+		},
 	})
 	a.NoError(err)
 
-	for idx, tt := range tests {
-		var instance *api.Instance
+	for _, tt := range tests {
+		var instance *v1pb.Instance
 		databaseOwner := ""
 		switch tt.dbType {
 		case db.MySQL:
@@ -123,57 +172,62 @@ func TestAdminQueryAffectedRows(t *testing.T) {
 		default:
 			a.FailNow("unsupported db type")
 		}
-		err = ctl.createDatabase(project, instance, tt.databaseName, databaseOwner, nil)
+		err = ctl.createDatabase(ctx, projectUID, instance, tt.databaseName, databaseOwner, nil)
 		a.NoError(err)
 
-		databases, err := ctl.getDatabases(api.DatabaseFind{
-			ProjectID: &project.ID,
+		database, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
+			Name: fmt.Sprintf("%s/databases/%s", instance.Name, tt.databaseName),
 		})
 		a.NoError(err)
-		a.Equal(idx+1, len(databases))
+		databaseUID, err := strconv.Atoi(database.Uid)
+		a.NoError(err)
 
-		var database *api.Database
-		for _, d := range databases {
-			if d.Name == tt.databaseName {
-				database = d
-				break
-			}
-		}
-		a.NotNil(database)
-
-		a.Equal(instance.ID, database.Instance.ID)
+		sheet, err := ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
+			Parent: project.Name,
+			Sheet: &v1pb.Sheet{
+				Title:      "prepareStatements",
+				Content:    []byte(tt.prepareStatements),
+				Visibility: v1pb.Sheet_VISIBILITY_PROJECT,
+				Source:     v1pb.Sheet_SOURCE_BYTEBASE_ARTIFACT,
+				Type:       v1pb.Sheet_TYPE_SQL,
+			},
+		})
+		a.NoError(err)
+		sheetUID, err := strconv.Atoi(strings.TrimPrefix(sheet.Name, fmt.Sprintf("%s/sheets/", project.Name)))
+		a.NoError(err)
 
 		// Create an issue that updates database schema.
 		createContext, err := json.Marshal(&api.MigrationContext{
 			DetailList: []*api.MigrationDetail{
 				{
 					MigrationType: db.Migrate,
-					DatabaseID:    database.ID,
-					Statement:     tt.prepareStatements,
+					DatabaseID:    databaseUID,
+					SheetID:       sheetUID,
 				},
 			},
 		})
 		a.NoError(err)
 		issue, err := ctl.createIssue(api.IssueCreate{
-			ProjectID:     project.ID,
+			ProjectID:     projectUID,
 			Name:          fmt.Sprintf("Prepare statements of database %q", tt.databaseName),
 			Type:          api.IssueDatabaseSchemaUpdate,
 			Description:   fmt.Sprintf("Prepare statements of database %q.", tt.databaseName),
-			AssigneeID:    ownerID,
+			AssigneeID:    api.SystemBotID,
 			CreateContext: string(createContext),
 		})
 		a.NoError(err)
-		status, err := ctl.waitIssuePipeline(issue.ID)
+		status, err := ctl.waitIssuePipeline(ctx, issue.ID)
 		a.NoError(err)
 		a.Equal(api.TaskDone, status)
 
-		singleSQLResults, err := ctl.adminQuery(instance, tt.databaseName, tt.query)
+		results, err := ctl.adminQuery(ctx, instance, tt.databaseName, tt.query)
 		a.NoError(err)
 
-		a.Equal(len(tt.affectedRows), len(singleSQLResults))
-		for idx, singleSQLResult := range singleSQLResults {
-			a.Equal("", singleSQLResult.Error)
-			a.Equal(tt.affectedRows[idx], singleSQLResult.Data)
+		a.Equal(len(tt.affectedRows), len(results))
+		for idx, result := range results {
+			a.Equal("", result.Error)
+			diff := cmp.Diff(tt.affectedRows[idx], result, protocmp.Transform())
+			a.Equal("", diff)
 		}
 	}
 }

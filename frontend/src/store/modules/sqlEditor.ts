@@ -1,5 +1,4 @@
 import { defineStore } from "pinia";
-import dayjs from "dayjs";
 import {
   SQLEditorState,
   QueryInfo,
@@ -8,13 +7,13 @@ import {
   SingleSQLResult,
 } from "@/types";
 import { UNKNOWN_ID } from "@/types";
-import { useActivityStore } from "./activity";
-import { useDatabaseStore } from "./database";
-import { useSQLStore } from "./sql";
+import { useLegacySQLStore } from "./sql";
 import { useTabStore } from "./tab";
+import { useDatabaseV1Store } from "./v1/database";
+import { useInstanceV1Store, useSQLStore, useActivityV1Store } from "./v1";
 
 // set the limit to 10000 temporarily to avoid the query timeout and page crash
-export const RESULT_ROWS_LIMIT = 10000;
+export const RESULT_ROWS_LIMIT = 1000;
 
 export const useSQLEditorStore = defineStore("sqlEditor", {
   state: (): SQLEditorState => ({
@@ -41,23 +40,26 @@ export const useSQLEditorStore = defineStore("sqlEditor", {
     },
     async executeQuery({ statement }: Pick<QueryInfo, "statement">) {
       const { instanceId, databaseId } = useTabStore().currentTab.connection;
-      const database = useDatabaseStore().getDatabaseById(databaseId);
-      const databaseName = database.id === UNKNOWN_ID ? "" : database.name;
-      const queryResult = await useSQLStore().query({
-        instanceId,
-        databaseName,
-        statement: statement,
+      const database = useDatabaseV1Store().getDatabaseByUID(databaseId);
+      const databaseName =
+        database.uid === String(UNKNOWN_ID) ? "" : database.databaseName;
+      const instance = useInstanceV1Store().getInstanceByUID(instanceId);
+      const response = await useSQLStore().queryReadonly({
+        name: instance.name,
+        connectionDatabase: databaseName,
+        statement,
         limit: RESULT_ROWS_LIMIT,
       });
 
-      return queryResult;
+      return response;
     },
     async executeAdminQuery({ statement }: Pick<QueryInfo, "statement">) {
       const { instanceId, databaseId } = useTabStore().currentTab.connection;
-      const database = useDatabaseStore().getDatabaseById(databaseId);
-      const databaseName = database.id === UNKNOWN_ID ? "" : database.name;
-      const queryResult = await useSQLStore().adminQuery({
-        instanceId,
+      const database = useDatabaseV1Store().getDatabaseByUID(databaseId);
+      const databaseName =
+        database.uid === String(UNKNOWN_ID) ? "" : database.databaseName;
+      const queryResult = await useLegacySQLStore().adminQuery({
+        instanceId: Number(instanceId),
         databaseName,
         statement: statement,
         limit: RESULT_ROWS_LIMIT,
@@ -68,31 +70,30 @@ export const useSQLEditorStore = defineStore("sqlEditor", {
     async fetchQueryHistoryList() {
       this.setIsFetchingQueryHistory(true);
       const activityList =
-        await useActivityStore().fetchActivityListForQueryHistory({
+        await useActivityV1Store().fetchActivityListForQueryHistory({
           limit: 20,
+          order: "desc",
         });
-      const queryHistoryList: QueryHistory[] = activityList.map((history) => {
-        const payload = history.payload as ActivitySQLEditorQueryPayload;
-        return {
-          id: history.id,
-          creator: history.creator,
-          createdTs: history.createdTs,
-          updatedTs: history.updatedTs,
-          statement: payload.statement,
-          durationNs: payload.durationNs,
-          instanceId: payload.instanceId || UNKNOWN_ID,
-          instanceName: payload.instanceName,
-          databaseId: payload.databaseId || UNKNOWN_ID,
-          databaseName: payload.databaseName,
-          error: payload.error,
-          createdAt: dayjs(history.createdTs * 1000).format(
-            "YYYY-MM-DD HH:mm:ss"
-          ),
-        };
-      });
-      this.setQueryHistoryList(
-        queryHistoryList.sort((a, b) => b.createdTs - a.createdTs)
+      const queryHistoryList: QueryHistory[] = activityList.map(
+        (history): QueryHistory => {
+          const payload = JSON.parse(
+            history.payload
+          ) as ActivitySQLEditorQueryPayload;
+          return {
+            name: history.name,
+            creator: history.creator,
+            createTime: history.createTime ?? new Date(),
+            statement: payload.statement,
+            durationNs: payload.durationNs,
+            instanceId: payload.instanceId || UNKNOWN_ID,
+            instanceName: payload.instanceName,
+            databaseId: payload.databaseId || UNKNOWN_ID,
+            databaseName: payload.databaseName,
+            error: payload.error,
+          };
+        }
       );
+      this.setQueryHistoryList(queryHistoryList);
       this.setIsFetchingQueryHistory(false);
     },
   },

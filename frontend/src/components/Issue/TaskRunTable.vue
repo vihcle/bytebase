@@ -52,23 +52,25 @@
         </template>
       </BBTableCell>
       <!-- Started -->
-      <BBTableCell class="table-cell w-12">{{
-        humanizeTs(taskRun.createdTs)
-      }}</BBTableCell>
+      <BBTableCell class="table-cell w-12">
+        {{ dayjs(taskRun.createdTs * 1000).format("YYYY-MM-DD HH:mm") }}
+      </BBTableCell>
       <!-- Ended -->
-      <BBTableCell class="table-cell w-12">{{
-        humanizeTs(taskRun.updatedTs)
-      }}</BBTableCell>
+      <BBTableCell class="table-cell w-12">
+        {{ humanizeDuration(taskRun.updatedTs - taskRun.createdTs) }}
+      </BBTableCell>
     </template>
   </BBTable>
 </template>
 
 <script lang="ts" setup>
 import { computed, PropType } from "vue";
-import { BBTableColumn } from "../../bbkit/types";
-import { MigrationErrorCode, Task, TaskRun, TaskRunStatus } from "../../types";
-import { databaseSlug, instanceSlug, migrationHistorySlug } from "../../utils";
 import { useI18n } from "vue-i18n";
+
+import { BBTableColumn } from "@/bbkit/types";
+import { MigrationErrorCode, Task, TaskRun, TaskRunStatus } from "@/types";
+import { changeHistorySlug, databaseSlug, instanceSlug } from "@/utils";
+import { useDatabaseV1Store } from "@/store";
 
 type CommentLink = {
   title: string;
@@ -100,7 +102,7 @@ const columnList = computed((): BBTableColumn[] => [
     title: t("task.started"),
   },
   {
-    title: t("task.ended"),
+    title: t("task.execution-time"),
   },
 ]);
 
@@ -146,14 +148,16 @@ const commentLink = (task: Task, taskRun: TaskRun): CommentLink => {
       case "bb.task.database.schema.update":
       case "bb.task.database.schema.update-sdl":
       case "bb.task.database.data.update": {
+        const db = useDatabaseV1Store().getDatabaseByUID(
+          String(task.database!.id)
+        );
+        const link = `/${db.name}/changeHistories/${changeHistorySlug(
+          taskRun.result.migrationId!,
+          taskRun.result.version!
+        )}`;
         return {
           title: t("task.view-change"),
-          link: `/db/${databaseSlug(
-            task.database!
-          )}/history/${migrationHistorySlug(
-            taskRun.result.migrationId!,
-            taskRun.result.version!
-          )}`,
+          link,
         };
       }
       // TODO(jim): format for gh-ost related tasks

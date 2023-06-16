@@ -76,7 +76,7 @@ import {
 } from "@/utils";
 import TaskStatusIcon from "./TaskStatusIcon.vue";
 import PipelineStageList from "./PipelineStageList.vue";
-import TaskExtraActionsButton from "./TaskExtraActionsButton.vue";
+import { TaskExtraActionsButton } from "./StatusTransitionButtonGroup";
 import { useIssueLogic } from "./logic";
 
 const { create, issue, selectedStage, selectedTask, selectStageOrTask } =
@@ -133,7 +133,7 @@ const onClickTask = (task: Task | TaskCreate, index: number) => {
   const taskId = create.value ? index + 1 : (task as Task).id;
   const ts = taskSlug(taskName, taskId);
 
-  selectStageOrTask(stageId, ts);
+  selectStageOrTask(Number(stageId), ts);
 };
 </script>
 

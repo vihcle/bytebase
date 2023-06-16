@@ -18,9 +18,11 @@ import (
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/db"
-	"github.com/bytebase/bytebase/backend/plugin/parser"
-	"github.com/bytebase/bytebase/backend/plugin/parser/ast"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
 	"github.com/bytebase/bytebase/backend/store"
+	"github.com/bytebase/bytebase/backend/utils"
 )
 
 // NewStatementAffectedRowsReportExecutor creates a task check statement affected rows report executor.
@@ -53,16 +55,27 @@ func (s *StatementAffectedRowsReportExecutor) Run(ctx context.Context, _ *store.
 	if !api.IsTaskCheckReportSupported(instance.Engine) {
 		return nil, nil
 	}
-	if payload.SheetID > 0 {
+	sheet, err := s.store.GetSheetV2(ctx, &store.FindSheetMessage{UID: &payload.SheetID}, api.SystemBotID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get sheet %d", payload.SheetID)
+	}
+	if sheet == nil {
+		return nil, errors.Errorf("sheet %d not found", payload.SheetID)
+	}
+	if sheet.Size > common.MaxSheetSizeForTaskCheck {
 		return []api.TaskCheckResult{
 			{
 				Status:    api.TaskCheckStatusSuccess,
-				Namespace: api.BBNamespace,
+				Namespace: api.AdvisorNamespace,
 				Code:      common.Ok.Int(),
-				Title:     "Large SQL affected rows report is disabled",
+				Title:     "Large SQL review policy is disabled",
 				Content:   "",
 			},
 		}, nil
+	}
+	statement, err := s.store.GetSheetStatementByID(ctx, payload.SheetID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get sheet statement %d", payload.SheetID)
 	}
 	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{UID: task.DatabaseID})
 	if err != nil {
@@ -72,18 +85,22 @@ func (s *StatementAffectedRowsReportExecutor) Run(ctx context.Context, _ *store.
 	if err != nil {
 		return nil, err
 	}
-	driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, database.DatabaseName)
+	driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, database)
 	if err != nil {
 		return nil, err
 	}
 	defer driver.Close(ctx)
 
+	materials := utils.GetSecretMapFromDatabaseMessage(database)
+	// To avoid leaking the rendered statement, the error message should use the original statement and not the rendered statement.
+	renderedStatement := utils.RenderStatement(statement, materials)
+
 	sqlDB := driver.GetDB()
 	switch instance.Engine {
 	case db.Postgres:
-		return reportStatementAffectedRowsForPostgres(ctx, sqlDB, payload.Statement)
-	case db.MySQL:
-		return reportStatementAffectedRowsForMySQL(ctx, sqlDB, payload.Statement, dbSchema.Metadata.CharacterSet, dbSchema.Metadata.Collation)
+		return reportStatementAffectedRowsForPostgres(ctx, sqlDB, renderedStatement)
+	case db.MySQL, db.MariaDB, db.OceanBase:
+		return reportStatementAffectedRowsForMySQL(ctx, instance.Engine, sqlDB, renderedStatement, dbSchema.Metadata.CharacterSet, dbSchema.Metadata.Collation)
 	default:
 		return nil, errors.New("unsupported db type")
 	}
@@ -111,16 +128,14 @@ func reportStatementAffectedRowsForPostgres(ctx context.Context, sqlDB *sql.DB, 
 	for _, stmt := range stmts {
 		rowCount, err := getAffectedRowsForPostgres(ctx, sqlDB, stmt)
 		if err != nil {
-			// nolint:nilerr
-			return []api.TaskCheckResult{
-				{
-					Status:    api.TaskCheckStatusError,
-					Namespace: api.BBNamespace,
-					Code:      common.Internal.Int(),
-					Title:     "Failed to report statement affected rows",
-					Content:   err.Error(),
-				},
-			}, nil
+			result = append(result, api.TaskCheckResult{
+				Status:    api.TaskCheckStatusError,
+				Namespace: api.BBNamespace,
+				Code:      common.Internal.Int(),
+				Title:     "Failed to report statement affected rows",
+				Content:   err.Error(),
+			})
+			continue
 		}
 		result = append(result, api.TaskCheckResult{
 			Status:    api.TaskCheckStatusSuccess,
@@ -136,40 +151,14 @@ func reportStatementAffectedRowsForPostgres(ctx context.Context, sqlDB *sql.DB, 
 
 func getAffectedRowsForPostgres(ctx context.Context, sqlDB *sql.DB, node ast.Node) (int64, error) {
 	switch node := node.(type) {
-	case *ast.InsertStmt:
-		return getInsertAffectedRowsForPostgres(ctx, sqlDB, node)
-	case *ast.UpdateStmt, *ast.DeleteStmt:
-		return getUpdateOrDeleteAffectedRowsForPostgres(ctx, sqlDB, node)
+	case *ast.InsertStmt, *ast.UpdateStmt, *ast.DeleteStmt:
+		if node, ok := node.(*ast.InsertStmt); ok && len(node.ValueList) > 0 {
+			return int64(len(node.ValueList)), nil
+		}
+		return getAffectedRowsCount(ctx, sqlDB, fmt.Sprintf("EXPLAIN %s", node.Text()), getAffectedRowsCountForPostgres)
 	default:
 		return 0, nil
 	}
-}
-
-func getInsertAffectedRowsForPostgres(ctx context.Context, sqlDB *sql.DB, node *ast.InsertStmt) (int64, error) {
-	if len(node.ValueList) > 0 {
-		return int64(len(node.ValueList)), nil
-	}
-	res, err := query(ctx, sqlDB, fmt.Sprintf("EXPLAIN %s", node.Text()))
-	if err != nil {
-		return 0, err
-	}
-	rowCount, err := getAffectedRowsCountForPostgres(res)
-	if err != nil {
-		return 0, err
-	}
-	return rowCount, nil
-}
-
-func getUpdateOrDeleteAffectedRowsForPostgres(ctx context.Context, sqlDB *sql.DB, node ast.Node) (int64, error) {
-	res, err := query(ctx, sqlDB, fmt.Sprintf("EXPLAIN %s", node.Text()))
-	if err != nil {
-		return 0, err
-	}
-	rowCount, err := getAffectedRowsCountForPostgres(res)
-	if err != nil {
-		return 0, err
-	}
-	return rowCount, nil
 }
 
 func getAffectedRowsCountForPostgres(res []any) (int64, error) {
@@ -219,7 +208,7 @@ func getAffectedRowsCountForPostgres(res []any) (int64, error) {
 
 // MySQL
 
-func reportStatementAffectedRowsForMySQL(ctx context.Context, sqlDB *sql.DB, statement, charset, collation string) ([]api.TaskCheckResult, error) {
+func reportStatementAffectedRowsForMySQL(ctx context.Context, dbType db.Type, sqlDB *sql.DB, statement, charset, collation string) ([]api.TaskCheckResult, error) {
 	singleSQLs, err := parser.SplitMultiSQL(parser.MySQL, statement)
 	if err != nil {
 		// nolint:nilerr
@@ -255,40 +244,35 @@ func reportStatementAffectedRowsForMySQL(ctx context.Context, sqlDB *sql.DB, sta
 		}
 		root, _, err := p.Parse(stmt.Text, charset, collation)
 		if err != nil {
-			// nolint:nilerr
-			return []api.TaskCheckResult{
-				{
-					Status:    api.TaskCheckStatusError,
-					Namespace: api.AdvisorNamespace,
-					Code:      advisor.StatementSyntaxError.Int(),
-					Title:     "Syntax error",
-					Content:   err.Error(),
-				},
-			}, nil
+			result = append(result, api.TaskCheckResult{
+				Status:    api.TaskCheckStatusError,
+				Namespace: api.AdvisorNamespace,
+				Code:      advisor.StatementSyntaxError.Int(),
+				Title:     "Syntax error",
+				Content:   err.Error(),
+			})
+			continue
 		}
 		if len(root) != 1 {
-			return []api.TaskCheckResult{
-				{
-					Status:    api.TaskCheckStatusError,
-					Namespace: api.BBNamespace,
-					Code:      common.Internal.Int(),
-					Title:     "Failed to report statement affected rows",
-					Content:   "Expect to get one node from parser",
-				},
-			}, nil
+			result = append(result, api.TaskCheckResult{
+				Status:    api.TaskCheckStatusError,
+				Namespace: api.BBNamespace,
+				Code:      common.Internal.Int(),
+				Title:     "Failed to report statement affected rows",
+				Content:   "Expect to get one node from parser",
+			})
+			continue
 		}
-		affectedRows, err := getAffectedRowsForMysql(ctx, sqlDB, root[0])
+		affectedRows, err := getAffectedRowsForMysql(ctx, dbType, sqlDB, root[0])
 		if err != nil {
-			// nolint:nilerr
-			return []api.TaskCheckResult{
-				{
-					Status:    api.TaskCheckStatusError,
-					Namespace: api.BBNamespace,
-					Code:      common.Internal.Int(),
-					Title:     "Failed to report statement affected rows",
-					Content:   err.Error(),
-				},
-			}, nil
+			result = append(result, api.TaskCheckResult{
+				Status:    api.TaskCheckStatusError,
+				Namespace: api.BBNamespace,
+				Code:      common.Internal.Int(),
+				Title:     "Failed to report statement affected rows",
+				Content:   err.Error(),
+			})
+			continue
 		}
 		result = append(result, api.TaskCheckResult{
 			Status:    api.TaskCheckStatusSuccess,
@@ -302,45 +286,44 @@ func reportStatementAffectedRowsForMySQL(ctx context.Context, sqlDB *sql.DB, sta
 	return result, nil
 }
 
-func getAffectedRowsForMysql(ctx context.Context, sqlDB *sql.DB, node tidbast.StmtNode) (int64, error) {
+func getAffectedRowsForMysql(ctx context.Context, dbType db.Type, sqlDB *sql.DB, node tidbast.StmtNode) (int64, error) {
 	switch node := node.(type) {
-	case *tidbast.InsertStmt:
-		return getInsertAffectedRowsForMysql(ctx, sqlDB, node)
-	case *tidbast.UpdateStmt, *tidbast.DeleteStmt:
-		return getUpdateOrDeleteAffectedRowsForMysql(ctx, sqlDB, node)
+	case *tidbast.InsertStmt, *tidbast.UpdateStmt, *tidbast.DeleteStmt:
+		if node, ok := node.(*tidbast.InsertStmt); ok && node.Select == nil {
+			return int64(len(node.Lists)), nil
+		}
+		if dbType == db.OceanBase {
+			return getAffectedRowsCount(ctx, sqlDB, fmt.Sprintf("EXPLAIN FORMAT=JSON %s", node.Text()), getAffectedRowsCountForOceanBase)
+		}
+		return getAffectedRowsCount(ctx, sqlDB, fmt.Sprintf("EXPLAIN %s", node.Text()), getAffectedRowsCountForMysql)
 	default:
 		return 0, nil
 	}
 }
 
-func getInsertAffectedRowsForMysql(ctx context.Context, sqlDB *sql.DB, node *tidbast.InsertStmt) (int64, error) {
-	if node.Select == nil {
-		return int64(len(node.Lists)), nil
-	}
-	res, err := query(ctx, sqlDB, fmt.Sprintf("EXPLAIN %s", node.Text()))
-	if err != nil {
-		return 0, err
-	}
-	rowCount, err := getInsertAffectedRowsCountForMysql(res)
-	if err != nil {
-		return 0, err
-	}
-	return rowCount, nil
+// OceanBaseQueryPlan represents the query plan of OceanBase.
+type OceanBaseQueryPlan struct {
+	ID       int    `json:"ID"`
+	Operator string `json:"OPERATOR"`
+	Name     string `json:"NAME"`
+	EstRows  int64  `json:"EST.ROWS"`
+	Cost     int    `json:"COST"`
+	OutPut   any    `json:"output"`
 }
 
-func getUpdateOrDeleteAffectedRowsForMysql(ctx context.Context, sqlDB *sql.DB, node tidbast.StmtNode) (int64, error) {
-	res, err := query(ctx, sqlDB, fmt.Sprintf("EXPLAIN %s", node.Text()))
+// Unmarshal parses data and stores the result to current OceanBaseQueryPlan.
+func (plan *OceanBaseQueryPlan) Unmarshal(data any) error {
+	b, err := json.Marshal(data)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	rowCount, err := getUpdateOrDeleteAffectedRowsCountForMysql(res)
-	if err != nil {
-		return 0, err
+	if b != nil {
+		return json.Unmarshal(b, &plan)
 	}
-	return rowCount, nil
+	return nil
 }
 
-func getUpdateOrDeleteAffectedRowsCountForMysql(res []any) (int64, error) {
+func getAffectedRowsCountForOceanBase(res []any) (int64, error) {
 	// the res struct is []any{columnName, columnTable, rowDataList}
 	if len(res) != 3 {
 		return 0, errors.Errorf("expected 3 but got %d", len(res))
@@ -352,39 +335,48 @@ func getUpdateOrDeleteAffectedRowsCountForMysql(res []any) (int64, error) {
 	if len(rowList) < 1 {
 		return 0, errors.Errorf("not found any data")
 	}
-	rowOne, ok := rowList[0].([]any)
+
+	plan, ok := rowList[0].([]any)
 	if !ok {
 		return 0, errors.Errorf("expected []any but got %t", rowList[0])
 	}
-	// MySQL EXPLAIN statement result has 12 columns.
-	//
-	// mysql> explain delete from td;
-	// +----+-------------+-------+------------+------+---------------+------+---------+------+------+----------+-------+
-	// | id | select_type | table | partitions | type | possible_keys | key  | key_len | ref  | rows | filtered | Extra |
-	// +----+-------------+-------+------------+------+---------------+------+---------+------+------+----------+-------+
-	// |  1 | DELETE      | td    | NULL       | ALL  | NULL          | NULL | NULL    | NULL |    1 |   100.00 | NULL  |
-	// +----+-------------+-------+------------+------+---------------+------+---------+------+------+----------+-------+
-	if len(rowOne) != 12 {
-		return 0, errors.Errorf("expected 12 but got %d", len(rowOne))
+	planString, ok := plan[0].(string)
+	if !ok {
+		return 0, errors.Errorf("expected string but got %t", plan[0])
 	}
-	// the column 9 is the data 'rows'.
-	switch rows := rowOne[9].(type) {
-	case int:
-		return int64(rows), nil
-	case int64:
-		return rows, nil
-	case string:
-		v, err := strconv.ParseInt(rows, 10, 64)
-		if err != nil {
-			return 0, errors.Errorf("expected int or int64 but got string(%s)", rows)
+	var planValue map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(planString), &planValue); err != nil {
+		return 0, errors.Wrapf(err, "failed to parse query plan from string: %+v", planString)
+	}
+	if len(planValue) > 0 {
+		queryPlan := OceanBaseQueryPlan{}
+		if err := queryPlan.Unmarshal(planValue); err != nil {
+			return 0, errors.Wrapf(err, "failed to parse query plan from map: %+v", planValue)
 		}
-		return v, nil
-	default:
-		return 0, errors.Errorf("expected int or int64 but got %t", rowOne[9])
+		if queryPlan.Operator != "" {
+			return queryPlan.EstRows, nil
+		}
+		count := int64(-1)
+		for k, v := range planValue {
+			if !strings.HasPrefix(k, "CHILD_") {
+				continue
+			}
+			child := OceanBaseQueryPlan{}
+			if err := child.Unmarshal(v); err != nil {
+				return 0, errors.Wrapf(err, "failed to parse field '%s', value: %+v", k, v)
+			}
+			if child.Operator != "" && child.EstRows > count {
+				count = child.EstRows
+			}
+		}
+		if count >= 0 {
+			return count, nil
+		}
 	}
+	return 0, errors.Errorf("failed to extract 'EST.ROWS' from query plan")
 }
 
-func getInsertAffectedRowsCountForMysql(res []any) (int64, error) {
+func getAffectedRowsCountForMysql(res []any) (int64, error) {
 	// the res struct is []any{columnName, columnTable, rowDataList}
 	if len(res) != 3 {
 		return 0, errors.Errorf("expected 3 but got %d", len(res))
@@ -393,6 +385,21 @@ func getInsertAffectedRowsCountForMysql(res []any) (int64, error) {
 	if !ok {
 		return 0, errors.Errorf("expected []any but got %t", res[2])
 	}
+	if len(rowList) < 1 {
+		return 0, errors.Errorf("not found any data")
+	}
+
+	// MySQL EXPLAIN statement result has 12 columns.
+	// the column 9 is the data 'rows'.
+	// the first not-NULL value of column 9 is the affected rows count.
+	//
+	// mysql> explain delete from td;
+	// +----+-------------+-------+------------+------+---------------+------+---------+------+------+----------+-------+
+	// | id | select_type | table | partitions | type | possible_keys | key  | key_len | ref  | rows | filtered | Extra |
+	// +----+-------------+-------+------------+------+---------------+------+---------+------+------+----------+-------+
+	// |  1 | DELETE      | td    | NULL       | ALL  | NULL          | NULL | NULL    | NULL |    1 |   100.00 | NULL  |
+	// +----+-------------+-------+------------+------+---------------+------+---------+------+------+----------+-------+
+	//
 	// mysql> explain insert into td select * from td;
 	// +----+-------------+-------+------------+------+---------------+------+---------+------+------+----------+-----------------+
 	// | id | select_type | table | partitions | type | possible_keys | key  | key_len | ref  | rows | filtered | Extra           |
@@ -400,33 +407,48 @@ func getInsertAffectedRowsCountForMysql(res []any) (int64, error) {
 	// |  1 | INSERT      | td    | NULL       | ALL  | NULL          | NULL | NULL    | NULL | NULL |     NULL | NULL            |
 	// |  1 | SIMPLE      | td    | NULL       | ALL  | NULL          | NULL | NULL    | NULL |    1 |   100.00 | Using temporary |
 	// +----+-------------+-------+------------+------+---------------+------+---------+------+------+----------+-----------------+
-	if len(rowList) < 2 {
-		return 0, errors.Errorf("not found any data")
-	}
-	// We need the row 2.
-	rowTwo, ok := rowList[1].([]any)
-	if !ok {
-		return 0, errors.Errorf("expected []any but got %t", rowList[0])
-	}
-	// MySQL EXPLAIN statement result has 12 columns.
-	if len(rowTwo) != 12 {
-		return 0, errors.Errorf("expected 12 but got %d", len(rowTwo))
-	}
-	// the column 9 is the data 'rows'.
-	switch rows := rowTwo[9].(type) {
-	case int:
-		return int64(rows), nil
-	case int64:
-		return rows, nil
-	case string:
-		v, err := strconv.ParseInt(rows, 10, 64)
-		if err != nil {
-			return 0, errors.Errorf("expected int or int64 but got string(%s)", rows)
+
+	for _, rowAny := range rowList {
+		row, ok := rowAny.([]any)
+		if !ok {
+			return 0, errors.Errorf("expected []any but got %t", row)
 		}
-		return v, nil
-	default:
-		return 0, errors.Errorf("expected int or in64 but got %t", rowTwo[9])
+		if len(row) != 12 {
+			return 0, errors.Errorf("expected 12 but got %d", len(row))
+		}
+		switch col := row[9].(type) {
+		case int:
+			return int64(col), nil
+		case int32:
+			return int64(col), nil
+		case int64:
+			return col, nil
+		case string:
+			v, err := strconv.ParseInt(col, 10, 64)
+			if err != nil {
+				return 0, errors.Errorf("expected int or int64 but got string(%s)", col)
+			}
+			return v, nil
+		default:
+			continue
+		}
 	}
+
+	return 0, errors.Errorf("failed to extract rows from query plan")
+}
+
+type affectedRowsCountExtractor func(res []any) (int64, error)
+
+func getAffectedRowsCount(ctx context.Context, sqlDB *sql.DB, explainSQL string, extractor affectedRowsCountExtractor) (int64, error) {
+	res, err := query(ctx, sqlDB, explainSQL)
+	if err != nil {
+		return 0, err
+	}
+	rowCount, err := extractor(res)
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to get affected rows count, res %+v", res)
+	}
+	return rowCount, nil
 }
 
 // Query runs the EXPLAIN or SELECT statements for advisors.

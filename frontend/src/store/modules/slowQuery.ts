@@ -1,19 +1,12 @@
 import { defineStore } from "pinia";
-import { uniq } from "lodash-es";
 
 import { databaseServiceClient, instanceServiceClient } from "@/grpcweb";
 import {
   ListSlowQueriesRequest,
   SlowQueryLog,
 } from "@/types/proto/v1/database_service";
-import {
-  ComposedSlowQueryLog,
-  Database,
-  Instance,
-  unknown,
-  UNKNOWN_ID,
-} from "@/types";
-import { useDatabaseStore } from "./database";
+import { ComposedSlowQueryLog, ComposedDatabase } from "@/types";
+import { useDatabaseV1Store } from "./v1/database";
 
 export const useSlowQueryStore = defineStore("slow-query", () => {
   const fetchSlowQueryLogList = async (
@@ -30,44 +23,36 @@ export const useSlowQueryStore = defineStore("slow-query", () => {
     }
   };
 
-  const syncSlowQueriesByInstance = async (instance: Instance) => {
-    const name = `environments/${instance.environment.resourceId}/instances/${instance.resourceId}`;
+  const syncSlowQueriesByInstance = async (instance: string) => {
     await instanceServiceClient.syncSlowQueries({
-      instance: name,
+      instance,
     });
   };
 
   return { fetchSlowQueryLogList, syncSlowQueriesByInstance };
 });
 
+const databaseRequestCache = new Map<string, Promise<ComposedDatabase>>();
+
+const getOrFetchV1Database = (name: string) => {
+  const cached = databaseRequestCache.get(name);
+  if (cached) return cached;
+  const request = useDatabaseV1Store().getOrFetchDatabaseByName(name);
+  databaseRequestCache.set(name, request);
+  return request;
+};
+
 const composeSlowQueryLogDatabase = async (
   slowQueryLogList: SlowQueryLog[]
 ) => {
-  const databaseNameList = uniq(slowQueryLogList.map((log) => log.resource));
-  const databaseIdList = await Promise.all(
+  const databaseNameList = slowQueryLogList.map((log) => log.resource);
+  await Promise.all(
     databaseNameList.map((name) => {
-      return databaseServiceClient.getDatabase({ name }).then(
-        (db) => parseInt(db.uid, 10),
-        () => UNKNOWN_ID // fallback for robustness
-      );
+      return getOrFetchV1Database(name);
     })
   );
-  const databaseList = await Promise.all(
-    databaseIdList.map((id) => {
-      if (id === UNKNOWN_ID) return unknown("DATABASE");
-      return useDatabaseStore().getOrFetchDatabaseById(id);
-    })
-  );
-  const databaseMap = databaseList.reduce((map, db) => {
-    if (db.id !== UNKNOWN_ID) {
-      const resource = `environments/${db.instance.environment.resourceId}/instances/${db.instance.resourceId}/databases/${db.name}`;
-      map.set(resource, db);
-    }
-    return map;
-  }, new Map<string, Database>());
-
   return slowQueryLogList.map<ComposedSlowQueryLog>((log) => ({
     log,
-    database: databaseMap.get(log.resource) ?? unknown("DATABASE"), // databaseMap.get(log.resource)!,
+    database: useDatabaseV1Store().getDatabaseByName(log.resource),
   }));
 };

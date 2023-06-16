@@ -2,9 +2,9 @@
 import * as Long from "long";
 import type { CallContext, CallOptions } from "nice-grpc-common";
 import * as _m0 from "protobufjs/minimal";
-import { ParsedExpr } from "../google/api/expr/v1alpha1/syntax";
 import { Empty } from "../google/protobuf/empty";
 import { FieldMask } from "../google/protobuf/field_mask";
+import { Expr } from "../google/type/expr";
 
 export const protobufPackage = "bytebase.v1";
 
@@ -68,8 +68,8 @@ export interface Risk {
   source: Risk_Source;
   title: string;
   level: number;
-  expression?: ParsedExpr;
   active: boolean;
+  condition?: Expr;
 }
 
 export enum Risk_Source {
@@ -77,6 +77,8 @@ export enum Risk_Source {
   DDL = 1,
   DML = 2,
   CREATE_DATABASE = 3,
+  QUERY = 4,
+  EXPORT = 5,
   UNRECOGNIZED = -1,
 }
 
@@ -94,6 +96,12 @@ export function risk_SourceFromJSON(object: any): Risk_Source {
     case 3:
     case "CREATE_DATABASE":
       return Risk_Source.CREATE_DATABASE;
+    case 4:
+    case "QUERY":
+      return Risk_Source.QUERY;
+    case 5:
+    case "EXPORT":
+      return Risk_Source.EXPORT;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -111,6 +119,10 @@ export function risk_SourceToJSON(object: Risk_Source): string {
       return "DML";
     case Risk_Source.CREATE_DATABASE:
       return "CREATE_DATABASE";
+    case Risk_Source.QUERY:
+      return "QUERY";
+    case Risk_Source.EXPORT:
+      return "EXPORT";
     case Risk_Source.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -140,21 +152,21 @@ export const ListRisksRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 8) {
+          if (tag !== 8) {
             break;
           }
 
           message.pageSize = reader.int32();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.pageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -211,21 +223,21 @@ export const ListRisksResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.risks.push(Risk.decode(reader, reader.uint32()));
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.nextPageToken = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -283,14 +295,14 @@ export const CreateRiskRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.risk = Risk.decode(reader, reader.uint32());
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -342,21 +354,21 @@ export const UpdateRiskRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.risk = Risk.decode(reader, reader.uint32());
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.updateMask = FieldMask.unwrap(FieldMask.decode(reader, reader.uint32()));
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -410,14 +422,14 @@ export const DeleteRiskRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -447,7 +459,7 @@ export const DeleteRiskRequest = {
 };
 
 function createBaseRisk(): Risk {
-  return { name: "", uid: "", source: 0, title: "", level: 0, expression: undefined, active: false };
+  return { name: "", uid: "", source: 0, title: "", level: 0, active: false, condition: undefined };
 }
 
 export const Risk = {
@@ -467,11 +479,11 @@ export const Risk = {
     if (message.level !== 0) {
       writer.uint32(40).int64(message.level);
     }
-    if (message.expression !== undefined) {
-      ParsedExpr.encode(message.expression, writer.uint32(50).fork()).ldelim();
-    }
     if (message.active === true) {
       writer.uint32(56).bool(message.active);
+    }
+    if (message.condition !== undefined) {
+      Expr.encode(message.condition, writer.uint32(66).fork()).ldelim();
     }
     return writer;
   },
@@ -484,56 +496,56 @@ export const Risk = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          if (tag != 10) {
+          if (tag !== 10) {
             break;
           }
 
           message.name = reader.string();
           continue;
         case 2:
-          if (tag != 18) {
+          if (tag !== 18) {
             break;
           }
 
           message.uid = reader.string();
           continue;
         case 3:
-          if (tag != 24) {
+          if (tag !== 24) {
             break;
           }
 
           message.source = reader.int32() as any;
           continue;
         case 4:
-          if (tag != 34) {
+          if (tag !== 34) {
             break;
           }
 
           message.title = reader.string();
           continue;
         case 5:
-          if (tag != 40) {
+          if (tag !== 40) {
             break;
           }
 
           message.level = longToNumber(reader.int64() as Long);
           continue;
-        case 6:
-          if (tag != 50) {
-            break;
-          }
-
-          message.expression = ParsedExpr.decode(reader, reader.uint32());
-          continue;
         case 7:
-          if (tag != 56) {
+          if (tag !== 56) {
             break;
           }
 
           message.active = reader.bool();
           continue;
+        case 8:
+          if (tag !== 66) {
+            break;
+          }
+
+          message.condition = Expr.decode(reader, reader.uint32());
+          continue;
       }
-      if ((tag & 7) == 4 || tag == 0) {
+      if ((tag & 7) === 4 || tag === 0) {
         break;
       }
       reader.skipType(tag & 7);
@@ -548,8 +560,8 @@ export const Risk = {
       source: isSet(object.source) ? risk_SourceFromJSON(object.source) : 0,
       title: isSet(object.title) ? String(object.title) : "",
       level: isSet(object.level) ? Number(object.level) : 0,
-      expression: isSet(object.expression) ? ParsedExpr.fromJSON(object.expression) : undefined,
       active: isSet(object.active) ? Boolean(object.active) : false,
+      condition: isSet(object.condition) ? Expr.fromJSON(object.condition) : undefined,
     };
   },
 
@@ -560,9 +572,8 @@ export const Risk = {
     message.source !== undefined && (obj.source = risk_SourceToJSON(message.source));
     message.title !== undefined && (obj.title = message.title);
     message.level !== undefined && (obj.level = Math.round(message.level));
-    message.expression !== undefined &&
-      (obj.expression = message.expression ? ParsedExpr.toJSON(message.expression) : undefined);
     message.active !== undefined && (obj.active = message.active);
+    message.condition !== undefined && (obj.condition = message.condition ? Expr.toJSON(message.condition) : undefined);
     return obj;
   },
 
@@ -577,10 +588,10 @@ export const Risk = {
     message.source = object.source ?? 0;
     message.title = object.title ?? "";
     message.level = object.level ?? 0;
-    message.expression = (object.expression !== undefined && object.expression !== null)
-      ? ParsedExpr.fromPartial(object.expression)
-      : undefined;
     message.active = object.active ?? false;
+    message.condition = (object.condition !== undefined && object.condition !== null)
+      ? Expr.fromPartial(object.condition)
+      : undefined;
     return message;
   },
 };

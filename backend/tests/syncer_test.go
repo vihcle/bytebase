@@ -19,7 +19,7 @@ import (
 	"github.com/bytebase/bytebase/backend/resources/mysql"
 	"github.com/bytebase/bytebase/backend/resources/postgres"
 	"github.com/bytebase/bytebase/backend/tests/fake"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 func TestSyncerForPostgreSQL(t *testing.T) {
@@ -42,17 +42,17 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 		CREATE VIEW "VW" AS SELECT * FROM "TFK";
 		`
 	)
-	wantDatabaseMetadata := &storepb.DatabaseMetadata{
+	wantDatabaseMetadata := &v1pb.DatabaseMetadata{
 		Name:         "test_sync_postgresql_schema_db",
 		CharacterSet: "UTF8",
 		Collation:    "en_US.UTF-8",
-		Schemas: []*storepb.SchemaMetadata{
+		Schemas: []*v1pb.SchemaMetadata{
 			{
 				Name: "public",
-				Tables: []*storepb.TableMetadata{
+				Tables: []*v1pb.TableMetadata{
 					{
 						Name: "TFK",
-						Columns: []*storepb.ColumnMetadata{
+						Columns: []*v1pb.ColumnMetadata{
 							{
 								Name:     "a",
 								Position: 1,
@@ -72,7 +72,7 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 								Type:     "integer",
 							},
 						},
-						ForeignKeys: []*storepb.ForeignKeyMetadata{
+						ForeignKeys: []*v1pb.ForeignKeyMetadata{
 							{
 								Name:              "tfk_ibfk_1",
 								Columns:           []string{"a", "b", "c"},
@@ -86,7 +86,7 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 						},
 					},
 				},
-				Views: []*storepb.ViewMetadata{
+				Views: []*v1pb.ViewMetadata{
 					{
 						Name: "VW",
 						Definition: strings.Join([]string{
@@ -95,7 +95,7 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 							`    "TFK".c`,
 							`   FROM "TFK";`},
 							"\n"),
-						DependentColumns: []*storepb.DependentColumn{
+						DependentColumns: []*v1pb.DependentColumn{
 							{
 								Schema: "public",
 								Table:  "TFK",
@@ -117,10 +117,10 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 			},
 			{
 				Name: "schema1",
-				Tables: []*storepb.TableMetadata{
+				Tables: []*v1pb.TableMetadata{
 					{
 						Name: "trd",
-						Columns: []*storepb.ColumnMetadata{
+						Columns: []*v1pb.ColumnMetadata{
 							{
 								Name:     "A",
 								Position: 1,
@@ -140,7 +140,7 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 								Type:     "integer",
 							},
 						},
-						Indexes: []*storepb.IndexMetadata{
+						Indexes: []*v1pb.IndexMetadata{
 							{
 								Name:        "trd_A_B_c_key",
 								Expressions: []string{`A`, `B`, "c"},
@@ -160,7 +160,7 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 	ctx := context.Background()
 	ctl := &controller{}
 	dataDir := t.TempDir()
-	err := ctl.StartServerWithExternalPg(ctx, &config{
+	ctx, err := ctl.StartServerWithExternalPg(ctx, &config{
 		dataDir:            dataDir,
 		vcsProviderCreator: fake.NewGitLab,
 	})
@@ -189,79 +189,79 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 	a.NoError(err)
 
 	// Create a project.
-	project, err := ctl.createProject(api.ProjectCreate{
-		ResourceID: generateRandomString("project", 10),
-		Name:       "Test Syncer For PostgreSQL",
-		Key:        "TestSyncerForPostgreSQL",
+	project, err := ctl.createProject(ctx)
+	a.NoError(err)
+	projectUID, err := strconv.Atoi(project.Uid)
+	a.NoError(err)
+
+	prodEnvironment, err := ctl.getEnvironment(ctx, "prod")
+	a.NoError(err)
+
+	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
+		InstanceId: generateRandomString("instance", 10),
+		Instance: &v1pb.Instance{
+			Title:       "pgInstance",
+			Engine:      v1pb.Engine_POSTGRES,
+			Environment: prodEnvironment.Name,
+			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: "/tmp", Port: strconv.Itoa(pgPort), Username: "bytebase", Password: "bytebase"}},
+		},
 	})
 	a.NoError(err)
 
-	environments, err := ctl.getEnvironments()
-	a.NoError(err)
-	prodEnvironment, err := findEnvironment(environments, "Prod")
+	err = ctl.createDatabase(ctx, projectUID, instance, databaseName, "bytebase", nil)
 	a.NoError(err)
 
-	instance, err := ctl.addInstance(api.InstanceCreate{
-		ResourceID:    generateRandomString("instance", 10),
-		EnvironmentID: prodEnvironment.ID,
-		Name:          "pgInstance",
-		Engine:        db.Postgres,
-		Host:          "/tmp",
-		Port:          strconv.Itoa(pgPort),
-		Username:      "bytebase",
-		Password:      "bytebase",
+	database, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
+		Name: fmt.Sprintf("%s/databases/%s", instance.Name, databaseName),
 	})
 	a.NoError(err)
+	databaseUID, err := strconv.Atoi(database.Uid)
+	a.NoError(err)
 
-	databases, err := ctl.getDatabases(api.DatabaseFind{
-		ProjectID: &project.ID,
+	sheet, err := ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
+		Parent: project.Name,
+		Sheet: &v1pb.Sheet{
+			Title:      "create schema",
+			Content:    []byte(createSchema),
+			Visibility: v1pb.Sheet_VISIBILITY_PROJECT,
+			Source:     v1pb.Sheet_SOURCE_BYTEBASE_ARTIFACT,
+			Type:       v1pb.Sheet_TYPE_SQL,
+		},
 	})
 	a.NoError(err)
-	a.Nil(databases)
-
-	err = ctl.createDatabase(project, instance, databaseName, "bytebase", nil)
+	sheetUID, err := strconv.Atoi(strings.TrimPrefix(sheet.Name, fmt.Sprintf("%s/sheets/", project.Name)))
 	a.NoError(err)
 
-	databases, err = ctl.getDatabases(api.DatabaseFind{
-		ProjectID: &project.ID,
-	})
-	a.NoError(err)
-	a.Equal(1, len(databases))
-
-	database := databases[0]
-	a.Equal(instance.ID, database.Instance.ID)
 	// Create an issue that updates database schema.
 	createContext, err := json.Marshal(&api.MigrationContext{
 		DetailList: []*api.MigrationDetail{
 			{
 				MigrationType: db.Migrate,
-				DatabaseID:    database.ID,
-				Statement:     createSchema,
+				DatabaseID:    databaseUID,
+				SheetID:       sheetUID,
 			},
 		},
 	})
 	a.NoError(err)
 	issue, err := ctl.createIssue(api.IssueCreate{
-		ProjectID:     project.ID,
+		ProjectID:     projectUID,
 		Name:          fmt.Sprintf("Create sequence for database %q", databaseName),
 		Type:          api.IssueDatabaseSchemaUpdate,
 		Description:   fmt.Sprintf("Create sequence of database %q.", databaseName),
-		AssigneeID:    ownerID,
+		AssigneeID:    api.SystemBotID,
 		CreateContext: string(createContext),
 	})
 	a.NoError(err)
-	status, err := ctl.waitIssuePipeline(issue.ID)
+	status, err := ctl.waitIssuePipeline(ctx, issue.ID)
 	a.NoError(err)
 	a.Equal(api.TaskDone, status)
 
-	metadata, err := ctl.getLatestSchemaMetadata(database.ID)
+	latestSchemaMetadata, err := ctl.databaseServiceClient.GetDatabaseMetadata(ctx, &v1pb.GetDatabaseMetadataRequest{
+		Name: fmt.Sprintf("%s/metadata", database.Name),
+	})
 	a.NoError(err)
 
-	var latestSchemaMetadata storepb.DatabaseMetadata
-	err = protojson.Unmarshal([]byte(metadata), &latestSchemaMetadata)
-	a.NoError(err)
-
-	diff := cmp.Diff(wantDatabaseMetadata, &latestSchemaMetadata, protocmp.Transform())
+	diff := cmp.Diff(wantDatabaseMetadata, latestSchemaMetadata, protocmp.Transform())
 	a.Equal("", diff)
 }
 
@@ -441,7 +441,7 @@ func TestSyncerForMySQL(t *testing.T) {
 	ctx := context.Background()
 	ctl := &controller{}
 	dataDir := t.TempDir()
-	err := ctl.StartServerWithExternalPg(ctx, &config{
+	ctx, err := ctl.StartServerWithExternalPg(ctx, &config{
 		dataDir:            dataDir,
 		vcsProviderCreator: fake.NewGitLab,
 	})
@@ -469,81 +469,82 @@ func TestSyncerForMySQL(t *testing.T) {
 	a.NoError(err)
 
 	// Create a project.
-	project, err := ctl.createProject(api.ProjectCreate{
-		ResourceID: generateRandomString("project", 10),
-		Name:       "Test Sync MySQL Schema",
-		Key:        "TestSyncMySQLSchema",
+	project, err := ctl.createProject(ctx)
+	a.NoError(err)
+	projectUID, err := strconv.Atoi(project.Uid)
+	a.NoError(err)
+
+	prodEnvironment, err := ctl.getEnvironment(ctx, "prod")
+	a.NoError(err)
+
+	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
+		InstanceId: generateRandomString("instance", 10),
+		Instance: &v1pb.Instance{
+			Title:       "mysqlInstance",
+			Engine:      v1pb.Engine_MYSQL,
+			Environment: prodEnvironment.Name,
+			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: "127.0.0.1", Port: strconv.Itoa(mysqlPort), Username: "bytebase", Password: "bytebase"}},
+		},
 	})
 	a.NoError(err)
 
-	environments, err := ctl.getEnvironments()
-	a.NoError(err)
-	prodEnvironment, err := findEnvironment(environments, "Prod")
+	err = ctl.createDatabase(ctx, projectUID, instance, databaseName, "", nil)
 	a.NoError(err)
 
-	instance, err := ctl.addInstance(api.InstanceCreate{
-		ResourceID:    generateRandomString("instance", 10),
-		EnvironmentID: prodEnvironment.ID,
-		Name:          "mysqlInstance",
-		Engine:        db.MySQL,
-		Host:          "127.0.0.1",
-		Port:          strconv.Itoa(mysqlPort),
-		Username:      "bytebase",
-		Password:      "bytebase",
+	database, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
+		Name: fmt.Sprintf("%s/databases/%s", instance.Name, databaseName),
 	})
 	a.NoError(err)
+	databaseUID, err := strconv.Atoi(database.Uid)
+	a.NoError(err)
 
-	databases, err := ctl.getDatabases(api.DatabaseFind{
-		ProjectID: &project.ID,
+	sheet, err := ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
+		Parent: project.Name,
+		Sheet: &v1pb.Sheet{
+			Title:      "create schema",
+			Content:    []byte(createSchema),
+			Visibility: v1pb.Sheet_VISIBILITY_PROJECT,
+			Source:     v1pb.Sheet_SOURCE_BYTEBASE_ARTIFACT,
+			Type:       v1pb.Sheet_TYPE_SQL,
+		},
 	})
 	a.NoError(err)
-	a.Nil(databases)
-
-	err = ctl.createDatabase(project, instance, databaseName, "", nil)
+	sheetUID, err := strconv.Atoi(strings.TrimPrefix(sheet.Name, fmt.Sprintf("%s/sheets/", project.Name)))
 	a.NoError(err)
-
-	databases, err = ctl.getDatabases(api.DatabaseFind{
-		ProjectID: &project.ID,
-	})
-	a.NoError(err)
-	a.Equal(1, len(databases))
-
-	database := databases[0]
-	a.Equal(instance.ID, database.Instance.ID)
 
 	// Create an issue that updates database schema.
 	createContext, err := json.Marshal(&api.MigrationContext{
 		DetailList: []*api.MigrationDetail{
 			{
 				MigrationType: db.Migrate,
-				DatabaseID:    database.ID,
-				Statement:     createSchema,
+				DatabaseID:    databaseUID,
+				SheetID:       sheetUID,
 			},
 		},
 	})
 	a.NoError(err)
 	issue, err := ctl.createIssue(api.IssueCreate{
-		ProjectID:     project.ID,
+		ProjectID:     projectUID,
 		Name:          fmt.Sprintf("Create sequence for database %q", databaseName),
 		Type:          api.IssueDatabaseSchemaUpdate,
 		Description:   fmt.Sprintf("Create sequence of database %q.", databaseName),
-		AssigneeID:    ownerID,
+		AssigneeID:    api.SystemBotID,
 		CreateContext: string(createContext),
 	})
 	a.NoError(err)
-	status, err := ctl.waitIssuePipeline(issue.ID)
+	status, err := ctl.waitIssuePipeline(ctx, issue.ID)
 	a.NoError(err)
 	a.Equal(api.TaskDone, status)
 
-	metadata, err := ctl.getLatestSchemaMetadata(database.ID)
+	latestSchemaMetadata, err := ctl.databaseServiceClient.GetDatabaseMetadata(ctx, &v1pb.GetDatabaseMetadataRequest{
+		Name: fmt.Sprintf("%s/metadata", database.Name),
+	})
 	a.NoError(err)
 
-	var latestSchemaMetadata storepb.DatabaseMetadata
-	err = protojson.Unmarshal([]byte(metadata), &latestSchemaMetadata)
-	a.NoError(err)
-
-	var expectedSchemaMetadata storepb.DatabaseMetadata
+	var expectedSchemaMetadata v1pb.DatabaseMetadata
 	err = protojson.Unmarshal([]byte(expectedSchema), &expectedSchemaMetadata)
 	a.NoError(err)
-	a.Equal(&expectedSchemaMetadata, &latestSchemaMetadata)
+
+	diff := cmp.Diff(&expectedSchemaMetadata, latestSchemaMetadata, protocmp.Transform())
+	a.Equal("", diff)
 }

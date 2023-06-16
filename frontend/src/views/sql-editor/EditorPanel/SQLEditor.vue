@@ -21,24 +21,25 @@
 import { computed, defineEmits, nextTick, ref, watch, watchEffect } from "vue";
 
 import {
-  useInstanceStore,
   useTabStore,
   useSQLEditorStore,
-  useDatabaseStore,
-  useSheetStore,
-  useInstanceById,
-  useDBSchemaStore,
+  useSheetV1Store,
+  useDBSchemaV1Store,
+  useUIStateStore,
+  useDatabaseV1Store,
+  useInstanceV1ByUID,
 } from "@/store";
 import MonacoEditor from "@/components/MonacoEditor/MonacoEditor.vue";
 import {
-  Database,
-  dialectOfEngine,
+  ComposedDatabase,
+  dialectOfEngineV1,
   ExecuteConfig,
   ExecuteOption,
   SQLDialect,
+  UNKNOWN_ID,
 } from "@/types";
 import { TableMetadata } from "@/types/proto/store/database";
-import { useInstanceEditorLanguage } from "@/utils";
+import { formatEngineV1, useInstanceV1EditorLanguage } from "@/utils";
 
 const emit = defineEmits<{
   (e: "save-sheet", content?: string): void;
@@ -50,28 +51,33 @@ const emit = defineEmits<{
   ): void;
 }>();
 
-const instanceStore = useInstanceStore();
 const tabStore = useTabStore();
-const databaseStore = useDatabaseStore();
-const dbSchemaStore = useDBSchemaStore();
+const databaseStore = useDatabaseV1Store();
+const dbSchemaStore = useDBSchemaV1Store();
 const sqlEditorStore = useSQLEditorStore();
-const sheetStore = useSheetStore();
+const sheetV1Store = useSheetV1Store();
+const uiStateStore = useUIStateStore();
 
 const editorRef = ref<InstanceType<typeof MonacoEditor>>();
 
 const sqlCode = computed(() => tabStore.currentTab.statement);
-const selectedInstance = useInstanceById(
+const { instance: selectedInstance } = useInstanceV1ByUID(
   computed(() => tabStore.currentTab.connection.instanceId)
 );
-const selectedInstanceEngine = computed(() => {
-  return instanceStore.formatEngine(selectedInstance.value);
+const selectedDatabase = computed(() => {
+  const uid = tabStore.currentTab.connection.databaseId;
+  if (uid === String(UNKNOWN_ID)) return undefined;
+  return databaseStore.getDatabaseByUID(uid);
 });
-const selectedLanguage = useInstanceEditorLanguage(selectedInstance);
+const selectedInstanceEngine = computed(() => {
+  return formatEngineV1(selectedInstance.value);
+});
+const selectedLanguage = useInstanceV1EditorLanguage(selectedInstance);
 const selectedDialect = computed((): SQLDialect => {
   const engine = selectedInstance.value.engine;
-  return dialectOfEngine(engine);
+  return dialectOfEngineV1(engine);
 });
-const readonly = computed(() => sheetStore.isReadOnly);
+const readonly = computed(() => sheetV1Store.isReadOnly);
 const currentTabId = computed(() => tabStore.currentTabId);
 const isSwitchingTab = ref(false);
 
@@ -133,6 +139,10 @@ const handleEditorReady = async () => {
       await emit("execute", query, {
         databaseType: selectedInstanceEngine.value,
       });
+      uiStateStore.saveIntroStateByKey({
+        key: "data.query",
+        newState: true,
+      });
     },
   });
 
@@ -161,18 +171,23 @@ const handleEditorReady = async () => {
 
   watchEffect(() => {
     if (selectedInstance.value) {
-      const databaseMap: Map<Database, TableMetadata[]> = new Map();
-      const databaseList = databaseStore.getDatabaseListByInstanceId(
-        selectedInstance.value.id
-      );
+      const databaseMap: Map<ComposedDatabase, TableMetadata[]> = new Map();
+
+      const databaseList = selectedDatabase.value
+        ? [selectedDatabase.value]
+        : databaseStore.databaseListByInstance(selectedInstance.value.name);
       // Only provide auto-complete context for those opened database.
       for (const database of databaseList) {
-        const tableList = dbSchemaStore.getTableListByDatabaseId(database.id);
+        const tableList = dbSchemaStore.getTableList(database.name);
         if (tableList.length > 0) {
           databaseMap.set(database, tableList);
         }
       }
-      editorRef.value?.setEditorAutoCompletionContext(databaseMap);
+      const connectionScope = selectedDatabase.value ? "database" : "instance";
+      editorRef.value?.setEditorAutoCompletionContextV1(
+        databaseMap,
+        connectionScope
+      );
     }
   });
 };

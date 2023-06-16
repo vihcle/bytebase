@@ -31,28 +31,6 @@ func (s *Store) GetInstanceByID(ctx context.Context, id int) (*api.Instance, err
 	return composedInstance, nil
 }
 
-// FindInstance finds a list of Instance instances.
-func (s *Store) FindInstance(ctx context.Context, find *api.InstanceFind) ([]*api.Instance, error) {
-	v2Find := &FindInstanceMessage{ShowDeleted: true}
-	instances, err := s.ListInstancesV2(ctx, v2Find)
-	if err != nil {
-		return nil, err
-	}
-
-	var composedInstances []*api.Instance
-	for _, instance := range instances {
-		composedInstance, err := s.composeInstance(ctx, instance)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to compose Instance with instance[%+v]", instance)
-		}
-		if find.RowStatus != nil && composedInstance.RowStatus != *find.RowStatus {
-			continue
-		}
-		composedInstances = append(composedInstances, composedInstance)
-	}
-	return composedInstances, nil
-}
-
 // private function.
 func (s *Store) composeInstance(ctx context.Context, instance *InstanceMessage) (*api.Instance, error) {
 	composedInstance := &api.Instance{
@@ -89,8 +67,16 @@ func (s *Store) composeInstance(ctx context.Context, instance *InstanceMessage) 
 			Username:   ds.Username,
 			Host:       ds.Host,
 			Port:       ds.Port,
-			Options:    api.DataSourceOptions{SRV: ds.SRV, AuthenticationDatabase: ds.AuthenticationDatabase, SID: ds.SID, ServiceName: ds.ServiceName},
-			Database:   ds.Database,
+			Options: api.DataSourceOptions{
+				SRV:                    ds.SRV,
+				AuthenticationDatabase: ds.AuthenticationDatabase,
+				SID:                    ds.SID,
+				ServiceName:            ds.ServiceName,
+				SSHHost:                ds.SSHHost,
+				SSHPort:                ds.SSHPort,
+				SSHUser:                ds.SSHUser,
+			},
+			Database: ds.Database,
 		})
 		if ds.Type == api.Admin {
 			composedInstance.Host = ds.Host
@@ -139,8 +125,8 @@ type FindInstanceMessage struct {
 
 // GetInstanceV2 gets an instance by the resource_id.
 func (s *Store) GetInstanceV2(ctx context.Context, find *FindInstanceMessage) (*InstanceMessage, error) {
-	if find.EnvironmentID != nil && find.ResourceID != nil {
-		if instance, ok := s.instanceCache.Load(getInstanceCacheKey(*find.EnvironmentID, *find.ResourceID)); ok {
+	if find.ResourceID != nil {
+		if instance, ok := s.instanceCache.Load(getInstanceCacheKey(*find.ResourceID)); ok {
 			return instance.(*InstanceMessage), nil
 		}
 	}
@@ -173,7 +159,7 @@ func (s *Store) GetInstanceV2(ctx context.Context, find *FindInstanceMessage) (*
 	}
 
 	instance := instances[0]
-	s.instanceCache.Store(getInstanceCacheKey(instance.EnvironmentID, instance.ResourceID), instance)
+	s.instanceCache.Store(getInstanceCacheKey(instance.ResourceID), instance)
 	s.instanceIDCache.Store(instance.UID, instance)
 	return instance, nil
 }
@@ -196,14 +182,14 @@ func (s *Store) ListInstancesV2(ctx context.Context, find *FindInstanceMessage) 
 	}
 
 	for _, instance := range instances {
-		s.instanceCache.Store(getInstanceCacheKey(instance.EnvironmentID, instance.ResourceID), instance)
+		s.instanceCache.Store(getInstanceCacheKey(instance.ResourceID), instance)
 		s.instanceIDCache.Store(instance.UID, instance)
 	}
 	return instances, nil
 }
 
 // CreateInstanceV2 creates the instance.
-func (s *Store) CreateInstanceV2(ctx context.Context, environmentID string, instanceCreate *InstanceMessage, creatorID int) (*InstanceMessage, error) {
+func (s *Store) CreateInstanceV2(ctx context.Context, instanceCreate *InstanceMessage, creatorID int) (*InstanceMessage, error) {
 	if err := validateDataSourceList(instanceCreate.DataSources); err != nil {
 		return nil, err
 	}
@@ -216,13 +202,13 @@ func (s *Store) CreateInstanceV2(ctx context.Context, environmentID string, inst
 
 	// TODO(d): use the same query for environment.
 	environment, err := s.getEnvironmentImplV2(ctx, tx, &FindEnvironmentMessage{
-		ResourceID: &environmentID,
+		ResourceID: &instanceCreate.EnvironmentID,
 	})
 	if err != nil {
 		return nil, err
 	}
 	if environment == nil {
-		return nil, common.Errorf(common.NotFound, "environment %s not found", environmentID)
+		return nil, common.Errorf(common.NotFound, "environment %s not found", instanceCreate.EnvironmentID)
 	}
 
 	var instanceID int
@@ -271,7 +257,7 @@ func (s *Store) CreateInstanceV2(ctx context.Context, environmentID string, inst
 	}
 
 	instance := &InstanceMessage{
-		EnvironmentID: environmentID,
+		EnvironmentID: instanceCreate.EnvironmentID,
 		ResourceID:    instanceCreate.ResourceID,
 		UID:           instanceID,
 		Title:         instanceCreate.Title,
@@ -279,7 +265,7 @@ func (s *Store) CreateInstanceV2(ctx context.Context, environmentID string, inst
 		ExternalLink:  instanceCreate.ExternalLink,
 		DataSources:   dataSources,
 	}
-	s.instanceCache.Store(getInstanceCacheKey(instance.EnvironmentID, instance.ResourceID), instance)
+	s.instanceCache.Store(getInstanceCacheKey(instance.ResourceID), instance)
 	s.instanceIDCache.Store(instance.UID, instance)
 	return instance, nil
 }
@@ -392,7 +378,7 @@ func (s *Store) UpdateInstanceV2(ctx context.Context, patch *UpdateInstanceMessa
 		return nil, err
 	}
 
-	s.instanceCache.Store(getInstanceCacheKey(instance.EnvironmentID, instance.ResourceID), instance)
+	s.instanceCache.Store(getInstanceCacheKey(instance.ResourceID), instance)
 	s.instanceIDCache.Store(instance.UID, instance)
 	return instance, nil
 }

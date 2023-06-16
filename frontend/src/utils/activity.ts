@@ -1,23 +1,26 @@
-import { usePrincipalStore } from "@/store";
+import { useUserStore } from "@/store";
 import { IssueBuiltinFieldId } from "../plugins";
 import { t } from "@/plugins/i18n";
 import {
-  Activity,
   ActivityIssueFieldUpdatePayload,
   ActivityIssueStatusUpdatePayload,
+  unknownUser,
 } from "../types";
+import { LogEntity, LogEntity_Action } from "@/types/proto/v1/logging_service";
 
 export function issueActivityActionSentence(
-  activity: Activity
+  activity: LogEntity
 ): [string, Record<string, any>] {
-  switch (activity.type) {
-    case "bb.issue.create":
+  switch (activity.action) {
+    case LogEntity_Action.ACTION_ISSUE_CREATE:
       return ["activity.sentence.created-issue", {}];
-    case "bb.issue.comment.create":
+    case LogEntity_Action.ACTION_ISSUE_COMMENT_CREATE:
       return ["activity.sentence.commented", {}];
-    case "bb.issue.field.update": {
-      const principalStore = usePrincipalStore();
-      const update = activity.payload as ActivityIssueFieldUpdatePayload;
+    case LogEntity_Action.ACTION_ISSUE_FIELD_UPDATE: {
+      const userStore = useUserStore();
+      const update = JSON.parse(
+        activity.payload
+      ) as ActivityIssueFieldUpdatePayload;
 
       switch (update.fieldId) {
         case IssueBuiltinFieldId.NAME: {
@@ -34,8 +37,12 @@ export function issueActivityActionSentence(
         }
         case IssueBuiltinFieldId.ASSIGNEE: {
           if (update.oldValue && update.newValue) {
-            const oldName = principalStore.principalById(+update.oldValue).name;
-            const newName = principalStore.principalById(+update.newValue).name;
+            const oldName = (
+              userStore.getUserById(String(update.oldValue)) ?? unknownUser()
+            ).name;
+            const newName = (
+              userStore.getUserById(String(update.newValue)) ?? unknownUser()
+            ).name;
             return [
               "activity.sentence.reassigned-issue",
               {
@@ -44,7 +51,9 @@ export function issueActivityActionSentence(
               },
             ];
           } else if (!update.oldValue && update.newValue) {
-            const newName = principalStore.principalById(+update.newValue).name;
+            const newName = (
+              userStore.getUserById(String(update.newValue)) ?? unknownUser()
+            ).name;
             return [
               "activity.sentence.assigned-issue",
               {
@@ -52,7 +61,9 @@ export function issueActivityActionSentence(
               },
             ];
           } else if (update.oldValue && !update.newValue) {
-            const oldName = principalStore.principalById(+update.oldValue).name;
+            const oldName = (
+              userStore.getUserById(String(update.oldValue)) ?? unknownUser()
+            ).name;
             return [
               "activity.sentence.unassigned-issue",
               {
@@ -75,8 +86,10 @@ export function issueActivityActionSentence(
 
       return ["activity.sentence.updated", {}];
     }
-    case "bb.issue.status.update": {
-      const update = activity.payload as ActivityIssueStatusUpdatePayload;
+    case LogEntity_Action.ACTION_ISSUE_STATUS_UPDATE: {
+      const update = JSON.parse(
+        activity.payload
+      ) as ActivityIssueStatusUpdatePayload;
       switch (update.newStatus) {
         case "OPEN":
           return ["activity.sentence.reopened-issue", {}];

@@ -6,7 +6,7 @@ import (
 
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
-	"github.com/bytebase/bytebase/backend/plugin/parser/ast"
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
 )
 
 var (
@@ -34,7 +34,7 @@ func (*NamingTableConventionAdvisor) Check(ctx advisor.Context, statement string
 		return nil, err
 	}
 
-	format, maxLength, err := advisor.UnamrshalNamingRulePayloadAsRegexp(ctx.Rule.Payload)
+	format, maxLength, err := advisor.UnmarshalNamingRulePayloadAsRegexp(ctx.Rule.Payload)
 	if err != nil {
 		return nil, err
 	}

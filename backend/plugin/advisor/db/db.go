@@ -21,6 +21,12 @@ const (
 	TiDB Type = "TIDB"
 	// MariaDB is the database type for MariaDB.
 	MariaDB Type = "MARIADB"
+	// Oracle is the database type for Oracle.
+	Oracle Type = "ORACLE"
+	// OceanBase is the database type for OceanBase.
+	OceanBase Type = "OCEANBASE"
+	// Snowflake is the database type for Snowflake.
+	Snowflake Type = "SNOWFLAKE"
 )
 
 // ConvertToAdvisorDBType will convert db type into advisor db type.
@@ -32,6 +38,12 @@ func ConvertToAdvisorDBType(dbType string) (Type, error) {
 		return Postgres, nil
 	case string(TiDB):
 		return TiDB, nil
+	case string(Oracle):
+		return Oracle, nil
+	case string(OceanBase):
+		return OceanBase, nil
+	case string(Snowflake):
+		return Snowflake, nil
 	}
 
 	return "", errors.Errorf("unsupported db type %s for advisor", dbType)

@@ -1,7 +1,7 @@
 <template>
   <!-- Navigation -->
   <nav class="overflow-y-hidden flex flex-col">
-    <BytebaseLogo class="w-full px-4 pb-2 shrink-0" />
+    <BytebaseLogo class="w-full px-4 shrink-0" />
 
     <div class="flex-1 overflow-y-auto px-2 pt-1">
       <button
@@ -28,7 +28,7 @@
           data-label="bb-dashboard-sidebar-home-button"
         >
           <heroicons-outline:home class="w-5 h-5 mr-2" />
-          {{ $t("common.home") }}
+          {{ $t("issue.my-issues") }}
         </div>
       </router-link>
       <a
@@ -40,10 +40,25 @@
         {{ $t("sql-editor.self") }}
       </a>
       <router-link
+        v-if="shouldShowSyncSchemaEntry"
+        to="/sync-schema"
+        class="outline-item group flex items-center px-2 py-2 capitalize"
+      >
+        <heroicons-outline:refresh class="w-5 h-5 mr-2" />
+        {{ $t("database.sync-schema.title") }}
+      </router-link>
+      <router-link
+        to="/export-center"
+        class="outline-item group flex items-center px-2 py-2 capitalize"
+      >
+        <heroicons-outline:download class="w-5 h-5 mr-2" />
+        {{ $t("export-center.self") }}
+      </router-link>
+      <router-link
         to="/slow-query"
         class="outline-item group flex items-center px-2 py-2 capitalize"
       >
-        <heroicons:bug-ant class="w-5 h-5 mr-2" />
+        <img src="../assets/slow-query.svg" class="w-5 h-auto mr-2" />
         {{ $t("slow-query.slow-queries") }}
       </router-link>
 
@@ -68,6 +83,11 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue";
+import {
+  useCurrentUserIamPolicy,
+  useProjectV1ListByCurrentUser,
+} from "@/store";
 import { useKBarHandler } from "@bytebase/vue-kbar";
 import BytebaseLogo from "@/components/BytebaseLogo.vue";
 import BookmarkListSidePanel from "@/components/BookmarkListSidePanel.vue";
@@ -77,6 +97,17 @@ import DatabaseListSidePanel from "@/components/DatabaseListSidePanel.vue";
 const isMac = navigator.platform.match(/mac/i);
 
 const handler = useKBarHandler();
+
+// Only show sync schema if the user has permission to alter schema of at least one project.
+const shouldShowSyncSchemaEntry = computed(() => {
+  const { projectList } = useProjectV1ListByCurrentUser();
+  const currentUserIamPolicy = useCurrentUserIamPolicy();
+  return projectList.value
+    .map((project) => {
+      return currentUserIamPolicy.allowToChangeDatabaseOfProject(project.name);
+    })
+    .includes(true);
+});
 
 const onClickSearchButton = () => {
   handler.value.show();

@@ -1,15 +1,8 @@
 <template>
   <div class="flex items-center justify-between h-16">
-    <div class="flex items-center">
-      <div class="flex-shrink-0 w-44">
-        <router-link to="/" class="select-none">
-          <img
-            class="h-12 w-auto"
-            src="../../assets/logo-full.svg"
-            alt="Bytebase"
-          />
-        </router-link>
-      </div>
+    <div class="flex items-center h-full">
+      <BytebaseLogo class="h-full overflow-y-hidden" />
+
       <div class="hidden sm:block">
         <div class="ml-4 flex items-baseline space-x-1">
           <router-link
@@ -26,7 +19,7 @@
           >
           <router-link
             v-if="showAuditLogItem"
-            to="/setting/audit-log?type=bb.sql-editor.query"
+            :to="`/setting/audit-log?type=${sqlQueryAction}`"
             class="router-link"
             exact-active-class="anchor-link"
             >{{ $t("settings.sidebar.audit-log") }}</router-link
@@ -44,17 +37,9 @@
           <heroicons-outline:bell class="w-6 h-6" />
         </router-link>
         <div class="ml-2">
-          <div
-            class="flex justify-center items-center bg-gray-100 rounded-3xl"
-            :class="logoUrl ? 'p-2' : ''"
-          >
-            <img
-              v-if="logoUrl"
-              class="h-7 mr-4 ml-2 bg-no-repeat bg-contain bg-center"
-              :src="logoUrl"
-            />
+          <ProfileBrandingLogo>
             <ProfileDropdown />
-          </div>
+          </ProfileBrandingLogo>
         </div>
         <div class="ml-2 -mr-2 flex sm:hidden">
           <!-- Mobile menu button -->
@@ -92,7 +77,7 @@
     </router-link>
     <router-link
       v-if="showAuditLogItem"
-      to="/setting/audit-log?type=bb.sql-editor.query"
+      :to="`/setting/audit-log?type=${sqlQueryAction}`"
       class="bar-link rounded-md block px-3 py-2"
     >
       {{ $t("settings.sidebar.audit-log") }}
@@ -106,10 +91,15 @@ import { computed, reactive, watchEffect, defineComponent } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { useLocalStorage } from "@vueuse/core";
+
+import BytebaseLogo from "@/components/BytebaseLogo.vue";
+import ProfileBrandingLogo from "@/components/ProfileBrandingLogo.vue";
 import ProfileDropdown from "@/components/ProfileDropdown.vue";
 import { UNKNOWN_ID } from "@/types";
-import { useCurrentUser, useInboxStore, useSettingStore } from "@/store";
-import { hasWorkspacePermission } from "@/utils";
+import { useCurrentUser, useCurrentUserV1, useInboxV1Store } from "@/store";
+import { hasWorkspacePermissionV1 } from "@/utils";
+import { useSettingV1Store } from "@/store/modules/v1/setting";
+import { LogEntity_Action } from "@/types/proto/v1/logging_service";
 
 interface LocalState {
   showMobileMenu: boolean;
@@ -117,11 +107,11 @@ interface LocalState {
 
 export default defineComponent({
   name: "EditorHeader",
-  components: { ProfileDropdown },
+  components: { BytebaseLogo, ProfileBrandingLogo, ProfileDropdown },
   setup() {
     const { t, availableLocales, locale } = useI18n();
-    const inboxStore = useInboxStore();
-    const settingStore = useSettingStore();
+    const inboxV1Store = useInboxV1Store();
+    const settingV1Store = useSettingV1Store();
     const router = useRouter();
 
     const state = reactive<LocalState>({
@@ -129,31 +119,30 @@ export default defineComponent({
     });
 
     const currentUser = useCurrentUser();
+    const currentUserV1 = useCurrentUserV1();
 
     const logoUrl = computed((): string | undefined => {
-      const brandingLogoSetting =
-        settingStore.getSettingByName("bb.branding.logo");
-      return brandingLogoSetting?.value;
+      return settingV1Store.brandingLogo;
     });
 
     const showAuditLogItem = computed((): boolean => {
-      return hasWorkspacePermission(
+      return hasWorkspacePermissionV1(
         "bb.permission.workspace.audit-log",
-        currentUser.value.role
+        currentUserV1.value.userRole
       );
     });
 
     const prepareInboxSummary = () => {
       // It will also be called when user logout
       if (currentUser.value.id != UNKNOWN_ID) {
-        inboxStore.fetchInboxSummaryByUser(currentUser.value.id);
+        inboxV1Store.fetchInboxSummary();
       }
     };
 
     watchEffect(prepareInboxSummary);
 
     const inboxSummary = computed(() => {
-      return inboxStore.getInboxSummaryByUser(currentUser.value.id);
+      return inboxV1Store.inboxSummary;
     });
 
     const kbarActions = computed(() => [
@@ -218,6 +207,7 @@ export default defineComponent({
       inboxSummary,
       logoUrl,
       goBack,
+      sqlQueryAction: LogEntity_Action.ACTION_DATABASE_SQL_EDITOR_QUERY,
     };
   },
 });

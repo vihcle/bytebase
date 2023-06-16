@@ -5,7 +5,7 @@
     </div>
     <div class="flex items-center justify-between">
       <div class="radio-set-row">
-        <template v-if="project.id != DEFAULT_PROJECT_ID">
+        <template v-if="project.name !== DEFAULT_PROJECT_V1_NAME">
           <label class="radio">
             <input
               v-model="state.transferSource"
@@ -34,8 +34,9 @@
       </div>
       <NInputGroup style="width: auto">
         <InstanceSelect
-          :instance="instanceFilter?.id ?? UNKNOWN_ID"
+          :instance="instanceFilter?.uid ?? String(UNKNOWN_ID)"
           :include-all="true"
+          :filter="filterInstance"
           @update:instance="changeInstanceFilter"
         />
         <SearchBox
@@ -49,19 +50,19 @@
 </template>
 
 <script lang="ts" setup>
-import { PropType, reactive, watch } from "vue";
+import { type PropType, computed, reactive, watch } from "vue";
 import { NInputGroup } from "naive-ui";
 
 import { TransferSource } from "./utils";
 import {
-  type Project,
-  type Instance,
-  DEFAULT_PROJECT_ID,
   UNKNOWN_ID,
-  InstanceId,
+  ComposedDatabase,
+  ComposedInstance,
+  DEFAULT_PROJECT_V1_NAME,
 } from "@/types";
 import { InstanceSelect, SearchBox } from "@/components/v2";
-import { useInstanceStore } from "@/store";
+import { useInstanceV1Store } from "@/store";
+import { Project } from "@/types/proto/v1/project_service";
 
 interface LocalState {
   transferSource: TransferSource;
@@ -72,12 +73,16 @@ const props = defineProps({
     required: true,
     type: Object as PropType<Project>,
   },
+  rawDatabaseList: {
+    type: Array as PropType<ComposedDatabase[]>,
+    default: () => [],
+  },
   transferSource: {
     type: String as PropType<TransferSource>,
     required: true,
   },
   instanceFilter: {
-    type: Object as PropType<Instance>,
+    type: Object as PropType<ComposedInstance>,
     default: undefined,
   },
   searchText: {
@@ -88,7 +93,7 @@ const props = defineProps({
 
 const emit = defineEmits<{
   (event: "change", src: TransferSource): void;
-  (event: "select-instance", instance: Instance | undefined): void;
+  (event: "select-instance", instance: ComposedInstance | undefined): void;
   (event: "search-text-change", searchText: string): void;
 }>();
 
@@ -96,11 +101,21 @@ const state = reactive<LocalState>({
   transferSource: props.transferSource,
 });
 
-const changeInstanceFilter = (instanceId: InstanceId | undefined) => {
-  if (!instanceId || instanceId === UNKNOWN_ID) {
+const nonEmptyInstanceUidSet = computed(() => {
+  const instanceList = props.rawDatabaseList.map((db) => db.instanceEntity);
+  return new Set(instanceList.map((instance) => instance.uid));
+});
+
+const changeInstanceFilter = (uid: string | undefined) => {
+  if (!uid || uid === String(UNKNOWN_ID)) {
     return emit("select-instance", undefined);
   }
-  emit("select-instance", useInstanceStore().getInstanceById(instanceId));
+  emit("select-instance", useInstanceV1Store().getInstanceByUID(uid));
+};
+
+const filterInstance = (instance: ComposedInstance) => {
+  if (instance.uid === String(UNKNOWN_ID)) return true; // "ALL" can be displayed.
+  return nonEmptyInstanceUidSet.value.has(instance.uid);
 };
 
 watch(

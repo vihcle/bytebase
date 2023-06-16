@@ -12,8 +12,13 @@ import { Pipeline, PipelineCreate } from "./pipeline";
 import { Principal } from "./principal";
 import { Project } from "./project";
 import { MigrationType } from "./instance";
+import { Expr } from "./proto/google/type/expr";
+import { DatabaseResource } from "@/components/Issue/form/SelectDatabaseResourceForm/common";
+import { IssuePayload as IssueProtoPayload } from "./proto/store/issue";
 
 type IssueTypeGeneral = "bb.issue.general";
+
+type IssueTypeDataSource = "bb.issue.data-source.request";
 
 type IssueTypeDatabase =
   | "bb.issue.database.create"
@@ -24,12 +29,13 @@ type IssueTypeDatabase =
   | "bb.issue.database.schema.update.ghost"
   | "bb.issue.database.restore.pitr";
 
-type IssueTypeDataSource = "bb.issue.data-source.request";
+type IssueTypeGrantRequest = "bb.issue.grant.request";
 
 export type IssueType =
   | IssueTypeGeneral
+  | IssueTypeDataSource
   | IssueTypeDatabase
-  | IssueTypeDataSource;
+  | IssueTypeGrantRequest;
 
 export type IssueStatus = "OPEN" | "DONE" | "CANCELED";
 
@@ -50,9 +56,11 @@ export type CreateDatabaseContext = {
 export type MigrationDetail = {
   migrationType: MigrationType;
   statement: string;
-  sheetId?: SheetId;
+  sheetId: SheetId;
   earliestAllowedTs: number;
   databaseId?: DatabaseId;
+  databaseGroupName?: string;
+  schemaGroupName?: string;
   rollbackEnabled?: boolean;
   rollbackDetail?: RollbackDetail;
 };
@@ -84,20 +92,40 @@ export type PITRContext = {
 // eslint-disable-next-line @typescript-eslint/ban-types
 export type EmptyContext = {};
 
+export interface GrantRequestContext {
+  role: "EXPORTER" | "QUERIER";
+  // Conditions in CEL expression.
+  databaseResources: DatabaseResource[];
+  expireDays: number;
+  maxRowCount: number;
+  statement: string;
+  exportFormat: "CSV" | "JSON";
+}
+
 export type IssueCreateContext =
   | CreateDatabaseContext
   | MigrationContext
   | PITRContext
+  | GrantRequestContext
   | EmptyContext;
 
-export type IssuePayload = { [key: string]: any };
+export interface GrantRequestPayload {
+  // The requested role, e.g. roles/EXPORTER
+  role: string;
+  // The requested user, e.g. users/hello@bytebase.com
+  user: string;
+  // IAM binding condition in expr.
+  condition: Expr;
+}
+
+export type IssuePayload = IssueProtoPayload | { [key: string]: any };
 
 export type Issue = {
   id: IssueId;
 
   // Related fields
   project: Project;
-  pipeline: Pipeline;
+  pipeline?: Pipeline;
 
   // Standard fields
   creator: Principal;
@@ -118,7 +146,7 @@ export type Issue = {
 
 export type IssueCreate = {
   // Related fields
-  projectId: ProjectId;
+  projectId: number;
   pipeline?: PipelineCreate;
 
   // Domain specific fields

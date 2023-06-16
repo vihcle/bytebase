@@ -12,9 +12,11 @@ import (
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/db"
-	"github.com/bytebase/bytebase/backend/plugin/parser"
-	"github.com/bytebase/bytebase/backend/plugin/parser/ast"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+
+	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
 	"github.com/bytebase/bytebase/backend/store"
+	"github.com/bytebase/bytebase/backend/utils"
 )
 
 // NewStatementTypeReportExecutor creates a task check statement type report executor.
@@ -45,16 +47,27 @@ func (s *StatementTypeReportExecutor) Run(ctx context.Context, _ *store.TaskChec
 	if !api.IsTaskCheckReportSupported(instance.Engine) {
 		return nil, nil
 	}
-	if payload.SheetID > 0 {
+	sheet, err := s.store.GetSheetV2(ctx, &store.FindSheetMessage{UID: &payload.SheetID}, api.SystemBotID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get sheet %d", payload.SheetID)
+	}
+	if sheet == nil {
+		return nil, errors.Errorf("sheet %d not found", payload.SheetID)
+	}
+	if sheet.Size > common.MaxSheetSizeForTaskCheck {
 		return []api.TaskCheckResult{
 			{
 				Status:    api.TaskCheckStatusSuccess,
-				Namespace: api.BBNamespace,
+				Namespace: api.AdvisorNamespace,
 				Code:      common.Ok.Int(),
-				Title:     "Large SQL affected rows report is disabled",
+				Title:     "Large SQL review policy is disabled",
 				Content:   "",
 			},
 		}, nil
+	}
+	statement, err := s.store.GetSheetStatementByID(ctx, payload.SheetID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get sheet statement %d", payload.SheetID)
 	}
 	var charset, collation string
 	if task.DatabaseID != nil {
@@ -66,11 +79,19 @@ func (s *StatementTypeReportExecutor) Run(ctx context.Context, _ *store.TaskChec
 		collation = dbSchema.Metadata.Collation
 	}
 
+	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{UID: task.DatabaseID})
+	if err != nil {
+		return nil, err
+	}
+	materials := utils.GetSecretMapFromDatabaseMessage(database)
+	// To avoid leaking the rendered statement, the error message should use the original statement and not the rendered statement.
+	renderedStatement := utils.RenderStatement(statement, materials)
+
 	switch instance.Engine {
 	case db.Postgres:
-		return reportStatementTypeForPostgres(payload.Statement)
-	case db.MySQL:
-		return reportStatementTypeForMySQL(payload.Statement, charset, collation)
+		return reportStatementTypeForPostgres(renderedStatement)
+	case db.MySQL, db.MariaDB, db.OceanBase, db.TiDB:
+		return reportStatementTypeForMySQL(renderedStatement, charset, collation)
 	default:
 		return nil, errors.New("unsupported db type")
 	}
@@ -112,27 +133,24 @@ func reportStatementTypeForMySQL(statement, charset, collation string) ([]api.Ta
 		}
 		root, _, err := p.Parse(stmt.Text, charset, collation)
 		if err != nil {
-			// nolint:nilerr
-			return []api.TaskCheckResult{
-				{
-					Status:    api.TaskCheckStatusError,
-					Namespace: api.AdvisorNamespace,
-					Code:      advisor.StatementSyntaxError.Int(),
-					Title:     "Syntax error",
-					Content:   err.Error(),
-				},
-			}, nil
+			result = append(result, api.TaskCheckResult{
+				Status:    api.TaskCheckStatusError,
+				Namespace: api.AdvisorNamespace,
+				Code:      advisor.StatementSyntaxError.Int(),
+				Title:     "Syntax error",
+				Content:   err.Error(),
+			})
+			continue
 		}
 		if len(root) != 1 {
-			return []api.TaskCheckResult{
-				{
-					Status:    api.TaskCheckStatusError,
-					Namespace: api.BBNamespace,
-					Code:      common.Internal.Int(),
-					Title:     "Failed to report statement type",
-					Content:   "Expect to get one node from parser",
-				},
-			}, nil
+			result = append(result, api.TaskCheckResult{
+				Status:    api.TaskCheckStatusError,
+				Namespace: api.BBNamespace,
+				Code:      common.Internal.Int(),
+				Title:     "Failed to report statement type",
+				Content:   "Expect to get one node from parser",
+			})
+			continue
 		}
 		sqlType := getStatementTypeFromTidbAstNode(root[0])
 		result = append(result, api.TaskCheckResult{

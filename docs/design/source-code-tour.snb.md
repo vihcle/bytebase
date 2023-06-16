@@ -10,7 +10,7 @@ https://sourcegraph.com/github.com/bytebase/bytebase@d55481/-/blob/bin/server/cm
 
 Bytebase is a database change and version control tool. It helps DevOps team to handle database CI/CD for DDL (aka schema migration) and DML. A typical application consists of the code/stateless and data/stateful part, GitLab/GitHub deals with the code change and deployment (the stateless part), while Bytebase deals with the database change and deployment (the stateful part).
 
-![Overview](https://raw.githubusercontent.com/bytebase/bytebase/main/docs/assets/overview2.webp)
+![Overview](https://raw.githubusercontent.com/bytebase/bytebase/main/docs/assets/issue-detail.webp)
 
 ## Architecture Overview
 
@@ -103,13 +103,13 @@ Bytebase records very detailed migration histories. The history is stored on the
 
 https://sourcegraph.com/github.com/bytebase/bytebase@d55481/-/blob/plugin/db/mysql/mysql_migration_schema.sql?L5-44
 
-This detailed history schema info enables Bytebase to implement powerful features such as [Drift Detection](https://www.bytebase.com/docs/anomaly-detection/drift-detection), [Tenant Database Batch Change](https://www.bytebase.com/docs/batch-change/multi-tenant-change).
+This detailed history schema info enables Bytebase to implement powerful features such as [Drift Detection](https://www.bytebase.com/docs/change-database/drift-detection), [Tenant Database Batch Change](https://www.bytebase.com/docs/change-database/batch-change/#change-databases-from-multiple-tenants).
 
 ### How a task check is scheduled
 
 Tasks may need to meet some pre-conditions before being scheduled. For example:
 
-1. The task needs to be [approved](https://www.bytebase.com/docs/administration/environment-policy/approval-policy).
+1. The task needs to be [approved](https://www.bytebase.com/docs/administration/environment-policy/rollout-policy).
 1. The SQL statement must conform to [defined policy](https://www.bytebase.com/docs/sql-review/review-rules).
 
 This pre-condition is modeled as `Task Check`. Task checks are created before when the corresponding task becomes the next to-be-scheduled task in the pipeline:

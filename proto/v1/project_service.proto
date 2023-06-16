@@ -4,10 +4,11 @@ package bytebase.v1;
 
 import "google/api/annotations.proto";
 import "google/api/client.proto";
+import "google/api/expr/v1alpha1/syntax.proto";
 import "google/api/field_behavior.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/field_mask.proto";
-import "google/protobuf/timestamp.proto";
+import "google/type/expr.proto";
 import "v1/common.proto";
 import "v1/externalvs_service.proto";
 
@@ -21,6 +22,12 @@ service ProjectService {
 
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse) {
     option (google.api.http) = {get: "/v1/projects"};
+    option (google.api.method_signature) = "";
+  }
+
+  // Search for projects that the caller has both projects.get permission on, and also satisfy the specified query.
+  rpc SearchProjects(SearchProjectsRequest) returns (SearchProjectsResponse) {
+    option (google.api.http) = {get: "/v1/projects:search"};
     option (google.api.method_signature) = "";
   }
 
@@ -56,6 +63,10 @@ service ProjectService {
     option (google.api.http) = {get: "/v1/{project=projects/*}:getIamPolicy"};
   }
 
+  rpc BatchGetIamPolicy(BatchGetIamPolicyRequest) returns (BatchGetIamPolicyResponse) {
+    option (google.api.http) = {get: "/v1/{scope=*/*}/iamPolicies:batchGet"};
+  }
+
   rpc SetIamPolicy(SetIamPolicyRequest) returns (IamPolicy) {
     option (google.api.http) = {
       post: "/v1/{project=projects/*}:setIamPolicy"
@@ -83,14 +94,15 @@ service ProjectService {
 
   rpc UpdateWebhook(UpdateWebhookRequest) returns (Project) {
     option (google.api.http) = {
-      patch: "/v1/{project=projects/*}:updateWebhook"
+      post: "/v1/{webhook.name=projects/*/webhooks/*}:updateWebhook"
       body: "*"
     };
+    option (google.api.method_signature) = "webhook,update_mask";
   }
 
   rpc RemoveWebhook(RemoveWebhookRequest) returns (Project) {
     option (google.api.http) = {
-      post: "/v1/{project=projects/*}:removeWebhook"
+      post: "/v1/{webhook.name=projects/*/webhooks/*}:removeWebhook"
       body: "*"
     };
   }
@@ -102,15 +114,89 @@ service ProjectService {
     };
   }
 
-  rpc SetProjectGitOpsInfo(SetProjectGitOpsInfoRequest) returns (ProjectGitOpsInfo) {
+  rpc UpdateProjectGitOpsInfo(UpdateProjectGitOpsInfoRequest) returns (ProjectGitOpsInfo) {
     option (google.api.http) = {
-      put: "/v1/{project=projects/*}/gitOpsInfo"
+      post: "/v1/{project_gitops_info.name=projects/*/gitOpsInfo}"
       body: "*"
     };
   }
 
-  rpc GetProjectGitOpsInfo(SetProjectGitOpsInfoRequest) returns (ProjectGitOpsInfo) {
-    option (google.api.http) = {get: "/v1/{project=projects/*}/gitOpsInfo"};
+  rpc UnsetProjectGitOpsInfo(UnsetProjectGitOpsInfoRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/{name=projects/*/gitOpsInfo}"};
+    option (google.api.method_signature) = "name";
+  }
+
+  rpc SetupProjectSQLReviewCI(SetupSQLReviewCIRequest) returns (SetupSQLReviewCIResponse) {
+    option (google.api.http) = {
+      patch: "/v1/{name=projects/*/gitOpsInfo}:setupSQLReviewCI"
+      body: "*"
+    };
+  }
+
+  rpc GetProjectGitOpsInfo(GetProjectGitOpsInfoRequest) returns (ProjectGitOpsInfo) {
+    option (google.api.http) = {get: "/v1/{name=projects/*/gitOpsInfo}"};
+  }
+
+  rpc ListDatabaseGroups(ListDatabaseGroupsRequest) returns (ListDatabaseGroupsResponse) {
+    option (google.api.http) = {get: "/v1/{parent=projects/*}/databaseGroups"};
+    option (google.api.method_signature) = "parent";
+  }
+
+  rpc GetDatabaseGroup(GetDatabaseGroupRequest) returns (DatabaseGroup) {
+    option (google.api.http) = {get: "/v1/{name=projects/*/databaseGroups/*}"};
+    option (google.api.method_signature) = "name";
+  }
+
+  rpc CreateDatabaseGroup(CreateDatabaseGroupRequest) returns (DatabaseGroup) {
+    option (google.api.http) = {
+      post: "/v1/{parent=projects/*}/databaseGroups"
+      body: "database_group"
+    };
+    option (google.api.method_signature) = "parent,databaseGroup";
+  }
+
+  rpc UpdateDatabaseGroup(UpdateDatabaseGroupRequest) returns (DatabaseGroup) {
+    option (google.api.http) = {
+      patch: "/v1/{database_group.name=projects/*/databaseGroups/*}"
+      body: "database_group"
+    };
+    option (google.api.method_signature) = "database_group,update_mask";
+  }
+
+  rpc DeleteDatabaseGroup(DeleteDatabaseGroupRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/{name=projects/*/databaseGroups/*}"};
+    option (google.api.method_signature) = "name";
+  }
+
+  rpc ListSchemaGroups(ListSchemaGroupsRequest) returns (ListSchemaGroupsResponse) {
+    option (google.api.http) = {get: "/v1/{parent=projects/*/databaseGroups/*}/schemaGroups"};
+    option (google.api.method_signature) = "parent";
+  }
+
+  rpc GetSchemaGroup(GetSchemaGroupRequest) returns (SchemaGroup) {
+    option (google.api.http) = {get: "/v1/{name=projects/*/databaseGroups/*/schemaGroups/*}"};
+    option (google.api.method_signature) = "name";
+  }
+
+  rpc CreateSchemaGroup(CreateSchemaGroupRequest) returns (SchemaGroup) {
+    option (google.api.http) = {
+      post: "/v1/{parent=projects/*/databaseGroups/*}/schemaGroups"
+      body: "schema_group"
+    };
+    option (google.api.method_signature) = "parent,databaseGroup";
+  }
+
+  rpc UpdateSchemaGroup(UpdateSchemaGroupRequest) returns (SchemaGroup) {
+    option (google.api.http) = {
+      patch: "/v1/{schema_group.name=projects/*/databaseGroups/*/schemaGroups/*}"
+      body: "schema_group"
+    };
+    option (google.api.method_signature) = "schema_group,update_mask";
+  }
+
+  rpc DeleteSchemaGroup(DeleteSchemaGroupRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/{name=projects/*/databaseGroups/*/schemaGroups/*}"};
+    option (google.api.method_signature) = "name";
   }
 }
 
@@ -147,6 +233,33 @@ message ListProjectsResponse {
   string next_page_token = 2;
 }
 
+message SearchProjectsRequest {
+  // The maximum number of projects to return. The service may return fewer than
+  // this value.
+  // If unspecified, at most 50 projects will be returned.
+  // The maximum value is 1000; values above 1000 will be coerced to 1000.
+  int32 page_size = 1;
+
+  // A page token, received from a previous `ListProjects` call.
+  // Provide this to retrieve the subsequent page.
+  //
+  // When paginating, all other parameters provided to `ListProjects` must match
+  // the call that provided the page token.
+  string page_token = 2;
+
+  // Filter is used to filter projects returned in the list.
+  string filter = 3;
+}
+
+message SearchProjectsResponse {
+  // The projects from the specified request.
+  repeated Project projects = 1;
+
+  // A token, which can be sent as `page_token` to retrieve the next page.
+  // If this field is omitted, there are no subsequent pages.
+  string next_page_token = 2;
+}
+
 message CreateProjectRequest {
   // The project to create.
   Project project = 1 [(google.api.field_behavior) = REQUIRED];
@@ -174,6 +287,9 @@ message DeleteProjectRequest {
   // The name of the project to delete.
   // Format: projects/{project}
   string name = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // If set to true, any databases and sheets from this project will also be moved to default project, and all open issues will be closed.
+  bool force = 2;
 }
 
 message UndeleteProjectRequest {
@@ -186,6 +302,22 @@ message GetIamPolicyRequest {
   // The name of the project to get the IAM policy.
   // Format: projects/{project}
   string project = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message BatchGetIamPolicyRequest {
+  // The scope of the batch get. Typically it's "projects/-".
+  string scope = 1 [(google.api.field_behavior) = REQUIRED];
+
+  repeated string names = 2;
+}
+
+message BatchGetIamPolicyResponse {
+  message PolicyResult {
+    string project = 1;
+
+    IamPolicy policy = 2;
+  }
+  repeated PolicyResult policy_results = 1;
 }
 
 message SetIamPolicyRequest {
@@ -206,19 +338,38 @@ message UpdateDeploymentConfigRequest {
   DeploymentConfig config = 1 [(google.api.field_behavior) = REQUIRED];
 }
 
-message SetProjectGitOpsInfoRequest {
-  // The name of the project.
-  // Format: projects/{project}
-  string project = 1 [(google.api.field_behavior) = REQUIRED];
-
+message UpdateProjectGitOpsInfoRequest {
   // The binding for the project and external version control.
   ProjectGitOpsInfo project_gitops_info = 2 [(google.api.field_behavior) = REQUIRED];
+
+  // The mask of the fields to be updated.
+  google.protobuf.FieldMask update_mask = 3;
+
+  // If true, the gitops will be created if it does not exist.
+  bool allow_missing = 4;
+}
+
+message UnsetProjectGitOpsInfoRequest {
+  // The name of the GitOps info.
+  // Format: projects/{project}/gitOpsInfo
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
 }
 
 message GetProjectGitOpsInfoRequest {
-  // The name of the project.
-  // Format: projects/{project}
-  string project = 1 [(google.api.field_behavior) = REQUIRED];
+  // The name of the GitOps info.
+  // Format: projects/{project}/gitOpsInfo
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message SetupSQLReviewCIRequest {
+  // The name of the GitOps info.
+  // Format: projects/{project}/gitOpsInfo
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message SetupSQLReviewCIResponse {
+  // The CI setup PR URL for the repository.
+  string pull_request_url = 1;
 }
 
 message Project {
@@ -260,7 +411,8 @@ message IamPolicy {
 
 message Binding {
   // The project role that is assigned to the members.
-  ProjectRole role = 1;
+  // Format: roles/{role}
+  string role = 1;
 
   // Specifies the principals requesting access for a Bytebase resource.
   // `members` can have the following values:
@@ -269,6 +421,14 @@ message Binding {
   //    account. For example, `alice@example.com` .
   //
   repeated string members = 2;
+
+  // The condition that is associated with this binding.
+  // If the condition evaluates to true, then this binding applies to the current request.
+  // If the condition evaluates to false, then this binding does not apply to the current request. However, a different role binding might grant the same role to one or more of the principals in this binding.
+  google.type.Expr condition = 3;
+
+  // The parsed expression of the condition.
+  google.api.expr.v1alpha1.ParsedExpr parsed_expr = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 enum Workflow {
@@ -301,12 +461,6 @@ enum SchemaChange {
   SDL = 2;
 }
 
-enum ProjectRole {
-  PROJECT_ROLE_UNSPECIFIED = 0;
-  PROJECT_ROLE_OWNER = 1;
-  PROJECT_ROLE_DEVELOPER = 2;
-}
-
 message AddWebhookRequest {
   // The name of the project to add the webhook to.
   // Format: projects/{project}
@@ -317,25 +471,16 @@ message AddWebhookRequest {
 }
 
 message UpdateWebhookRequest {
-  // The name of the project which owns the webhook to be updated.
-  // Format: projects/{project}
-  string project = 1 [(google.api.field_behavior) = REQUIRED];
-
   // The webhook to modify.
-  // Identified by its url.
-  Webhook webhook = 2 [(google.api.field_behavior) = REQUIRED];
+  Webhook webhook = 1 [(google.api.field_behavior) = REQUIRED];
 
   // The list of fields to update.
-  google.protobuf.FieldMask update_mask = 3;
+  google.protobuf.FieldMask update_mask = 2;
 }
 
 message RemoveWebhookRequest {
-  // The name of the project to remove the webhook from.
-  // Format: projects/{project}
-  string project = 1 [(google.api.field_behavior) = REQUIRED];
-
   // The webhook to remove. Identified by its url.
-  Webhook webhook = 2 [(google.api.field_behavior) = REQUIRED];
+  Webhook webhook = 1 [(google.api.field_behavior) = REQUIRED];
 }
 
 message TestWebhookRequest {
@@ -353,6 +498,10 @@ message TestWebhookResponse {
 }
 
 message Webhook {
+  // name is the name of the webhook, generated by the server.
+  // format: projects/{project}/webhooks/{webhook}
+  string name = 1;
+
   enum Type {
     TYPE_UNSPECIFIED = 0;
     TYPE_SLACK = 1;
@@ -363,15 +512,14 @@ message Webhook {
     TYPE_WECOM = 6;
     TYPE_CUSTOM = 7;
   }
-
   // type is the type of the webhook.
-  Type type = 1 [(google.api.field_behavior) = REQUIRED];
+  Type type = 2 [(google.api.field_behavior) = REQUIRED];
 
   // title is the title of the webhook.
-  string title = 2 [(google.api.field_behavior) = REQUIRED];
+  string title = 3 [(google.api.field_behavior) = REQUIRED];
 
   // url is the url of the webhook, should be unique within the project.
-  string url = 3 [(google.api.field_behavior) = REQUIRED];
+  string url = 4 [(google.api.field_behavior) = REQUIRED];
 
   // notification_types is the list of activities types that the webhook is interested in.
   // Bytebase will only send notifications to the webhook if the activity type is in the list.
@@ -382,7 +530,7 @@ message Webhook {
   // - TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE
   // - TYPE_ISSUE_FIELD_UPDATE
   // - TYPE_ISSUE_COMMENT_CREAT
-  repeated Activity.Type notification_types = 4 [(google.api.field_behavior) = UNORDERED_LIST];
+  repeated Activity.Type notification_types = 5 [(google.api.field_behavior) = UNORDERED_LIST];
 }
 
 message DeploymentConfig {
@@ -443,6 +591,8 @@ message Activity {
     TYPE_ISSUE_FIELD_UPDATE = 3;
     // TYPE_ISSUE_STATUS_UPDATE represents the issue status change, including OPEN, CLOSE, CANCEL fow now.
     TYPE_ISSUE_STATUS_UPDATE = 4;
+    // TYPE_ISSUE_APPROVAL_NOTIFY is the type for notifying issue approval.
+    TYPE_ISSUE_APPROVAL_NOTIFY = 21;
     // TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE represents the pipeline stage status change, including BEGIN, END for now.
     TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE = 5;
     // TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE represents the pipeline task status change, including PENDING, PENDING_APPROVAL, RUNNING, SUCCESS, FAILURE, CANCELED for now.
@@ -486,4 +636,230 @@ message Activity {
     // TYPE_DATABASE_RECOVERY_PITR_DONE represents the database recovery to a point in time is done.
     TYPE_DATABASE_RECOVERY_PITR_DONE = 20;
   }
+}
+
+message ListDatabaseGroupsRequest {
+  // The parent resource whose database groups are to be listed.
+  // Format: projects/{project}
+  // Using "projects/-" will list database groups across all projects.
+  string parent = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // Not used. The maximum number of anomalies to return. The service may return fewer than
+  // this value.
+  // If unspecified, at most 50 anomalies will be returned.
+  // The maximum value is 1000; values above 1000 will be coerced to 1000.
+  int32 page_size = 2;
+
+  // Not used. A page token, received from a previous `ListDatabaseGroups` call.
+  // Provide this to retrieve the subsequent page.
+  //
+  // When paginating, all other parameters provided to `ListDatabaseGroups` must match
+  // the call that provided the page token.
+  string page_token = 3;
+}
+
+message ListDatabaseGroupsResponse {
+  // database_groups is the list of database groups.
+  repeated DatabaseGroup database_groups = 1;
+
+  // Not used. A token, which can be sent as `page_token` to retrieve the next page.
+  // If this field is omitted, there are no subsequent pages.
+  string next_page_token = 2;
+}
+
+message GetDatabaseGroupRequest {
+  // The name of the database group to retrieve.
+  // Format: projects/{project}/databaseGroups/{databaseGroup}
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The view to return. Defaults to DATABASE_GROUP_VIEW_BASIC.
+  DatabaseGroupView view = 2;
+}
+
+message CreateDatabaseGroupRequest {
+  // The parent resource where this database group will be created.
+  // Format: projects/{project}
+  string parent = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The database group to create.
+  DatabaseGroup database_group = 2 [(google.api.field_behavior) = REQUIRED];
+
+  // The ID to use for the database group, which will become the final component of
+  // the database group's resource name.
+  //
+  // This value should be 4-63 characters, and valid characters
+  // are /[a-z][0-9]-/.
+  string database_group_id = 3;
+
+  // If set, validate the create request and preview the full database group response, but do not actually create it.
+  bool validate_only = 4;
+}
+
+message UpdateDatabaseGroupRequest {
+  // The database group to update.
+  //
+  // The database group's `name` field is used to identify the database group to update.
+  // Format: projects/{project}/databaseGroups/{databaseGroup}
+  DatabaseGroup database_group = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The list of fields to update.
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message DeleteDatabaseGroupRequest {
+  // The name of the database group to delete.
+  // Format: projects/{project}/databaseGroups/{databaseGroup}
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+enum DatabaseGroupView {
+  // The default / unset value.
+  // The API will default to the BASIC view.
+  DATABASE_GROUP_VIEW_UNSPECIFIED = 0;
+
+  // Include basic information about the database group, but exclude the list of matched databases and unmatched databases.
+  DATABASE_GROUP_VIEW_BASIC = 1;
+
+  // Include everything.
+  DATABASE_GROUP_VIEW_FULL = 2;
+}
+
+message DatabaseGroup {
+  // The name of the database group.
+  // Format: projects/{project}/databaseGroups/{databaseGroup}
+  string name = 1;
+
+  // The short name used in actual databases specified by users.
+  // For example, the placeholder for db1_2010, db1_2021, db1_2023 will be "db1".
+  string database_placeholder = 2;
+
+  // The condition that is associated with this database group.
+  google.type.Expr database_expr = 3;
+
+  message Database {
+    // The resource name of the database.
+    // Format: instances/{instance}/databases/{database}
+    string name = 1;
+  }
+  // The list of databases that match the database group condition.
+  repeated Database matched_databases = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // The list of databases that match the database group condition.
+  repeated Database unmatched_databases = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message CreateSchemaGroupRequest {
+  // The parent resource where this schema group will be created.
+  // Format: projects/{project}/databaseGroups/{databaseGroup}
+  string parent = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The schema group to create.
+  SchemaGroup schema_group = 2 [(google.api.field_behavior) = REQUIRED];
+
+  // The ID to use for the schema group, which will become the final component of
+  // the schema group's resource name.
+  //
+  // This value should be 4-63 characters, and valid characters
+  // are /[a-z][0-9]-/.
+  string schema_group_id = 3;
+
+  // If set, validate the create request and preview the full schema group response, but do not actually create it.
+  bool validate_only = 4;
+}
+
+message UpdateSchemaGroupRequest {
+  // The schema group to update.
+  //
+  // The schema group's `name` field is used to identify the schema group to update.
+  // Format: projects/{project}/databaseGroups/{databaseGroup}/schemaGroups/{schemaGroup}
+  SchemaGroup schema_group = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The list of fields to update.
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message DeleteSchemaGroupRequest {
+  // The name of the schema group to delete.
+  // Format: projects/{project}/databaseGroups/{databaseGroup}/schemaGroups/{schemaGroup}
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message ListSchemaGroupsRequest {
+  // The parent resource whose schema groups are to be listed.
+  // Format: projects/{project}/schemaGroups/{schemaGroup}
+  string parent = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // Not used. The maximum number of anomalies to return. The service may return fewer than
+  // this value.
+  // If unspecified, at most 50 anomalies will be returned.
+  // The maximum value is 1000; values above 1000 will be coerced to 1000.
+  int32 page_size = 2;
+
+  // Not used. A page token, received from a previous `ListSchemaGroups` call.
+  // Provide this to retrieve the subsequent page.
+  //
+  // When paginating, all other parameters provided to `ListSchemaGroups` must match
+  // the call that provided the page token.
+  string page_token = 3;
+}
+
+message ListSchemaGroupsResponse {
+  // schema_groups is the list of schema groups.
+  repeated SchemaGroup schema_groups = 1;
+
+  // Not used. A token, which can be sent as `page_token` to retrieve the next page.
+  // If this field is omitted, there are no subsequent pages.
+  string next_page_token = 2;
+}
+
+message GetSchemaGroupRequest {
+  // The name of the database group to retrieve.
+  // Format: projects/{project}/databaseGroups/{databaseGroup}/schemaGroups/{schemaGroup}
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The view to return. Defaults to SCHEMA_GROUP_VIEW_BASIC.
+  SchemaGroupView view = 2;
+}
+
+enum SchemaGroupView {
+  // The default / unset value.
+  // The API will default to the BASIC view.
+  SCHEMA_GROUP_VIEW_UNSPECIFIED = 0;
+
+  // Include basic information about the schema group, but exclude the list of matched tables and unmatched tables.
+  SCHEMA_GROUP_VIEW_BASIC = 1;
+
+  // Include everything.
+  SCHEMA_GROUP_VIEW_FULL = 2;
+}
+
+message SchemaGroup {
+  // The name of the schema group.
+  // Format: projects/{project}/databaseGroups/{databaseGroup}/schemaGroups/{schemaGroup}
+  string name = 1;
+
+  // The table condition that is associated with this schema group.
+  // The table_placeholder in the sheet script will be rendered to the actual table name.
+  google.type.Expr table_expr = 2;
+  // The table placeholder used for rendering. For example, if set to "tbl", all the table name
+  // "tbl" in the SQL script will be rendered to the actual table name.
+  string table_placeholder = 3;
+
+  // In the future, we can introduce schema_expr if users use schema (Postgres schema) for groups.
+  // Its keyword will be {{SCHEMA}}.
+  // All the expressions will be used to filter the schema objects in DatabaseSchema.
+  message Table {
+    // The resource name of the database.
+    // Format: instances/{instance}/databases/{database}
+    string database = 1;
+
+    string schema = 2;
+
+    string table = 3;
+  }
+  // The list of databases that match the database group condition.
+  repeated Table matched_tables = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // The list of databases that match the database group condition.
+  repeated Table unmatched_tables = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
 }

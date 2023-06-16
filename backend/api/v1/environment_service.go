@@ -180,15 +180,42 @@ func (s *EnvironmentService) UndeleteEnvironment(ctx context.Context, request *v
 	return convertToEnvironment(environment), nil
 }
 
+// UpdateBackupSetting updates the backup setting for an environment.
+func (s *EnvironmentService) UpdateBackupSetting(ctx context.Context, request *v1pb.UpdateEnvironmentBackupSettingRequest) (*v1pb.EnvironmentBackupSetting, error) {
+	environmentName, err := trimSuffix(request.Setting.Name, backupSettingSuffix)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+	environment, err := s.getEnvironmentMessage(ctx, environmentName)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.store.UpdateBackupSettingsForEnvironmentV2(ctx, environment.ResourceID, request.Setting.Enabled, ctx.Value(common.PrincipalIDContextKey).(int)); err != nil {
+		if common.ErrorCode(err) == common.Invalid {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid backup setting: %v", err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "failed to set backup setting: %v", err.Error())
+	}
+
+	return request.Setting, nil
+}
+
 func (s *EnvironmentService) getEnvironmentMessage(ctx context.Context, name string) (*store.EnvironmentMessage, error) {
 	environmentID, err := getEnvironmentID(name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
-	environment, err := s.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{
-		ResourceID: &environmentID,
-	})
+	environmentUID, isNumber := isNumber(environmentID)
+	find := &store.FindEnvironmentMessage{}
+	if isNumber {
+		find.UID = &environmentUID
+	} else {
+		find.ResourceID = &environmentID
+	}
+
+	environment, err := s.store.GetEnvironmentV2(ctx, find)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}

@@ -66,7 +66,7 @@ func (p *LicenseProvider) FetchLicense(ctx context.Context) (string, error) {
 	}
 
 	settingName := api.SettingPluginAgent
-	setting, err := p.store.GetSetting(ctx, &api.SettingFind{
+	setting, err := p.store.GetSettingV2(ctx, &store.FindSettingMessage{
 		Name: &settingName,
 	})
 	if err != nil {
@@ -87,7 +87,7 @@ func (p *LicenseProvider) FetchLicense(ctx context.Context) (string, error) {
 		p.lastFetchTime = time.Now().Unix()
 	}()
 
-	return p.requestLicense(ctx, payload.Url, setting.Value)
+	return p.requestLicense(ctx, payload.Url, payload.Token)
 }
 
 func (p *LicenseProvider) requestLicense(ctx context.Context, agentURL, agentToken string) (string, error) {

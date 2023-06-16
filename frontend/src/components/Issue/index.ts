@@ -1,8 +1,6 @@
-import IssueDetailLayout from "./IssueDetailLayout.vue";
 import IssueBanner from "./IssueBanner.vue";
 import IssueHighlightPanel from "./IssueHighlightPanel.vue";
 import IssueStagePanel from "./IssueStagePanel.vue";
-import IssueStatusTransitionButtonGroup from "./IssueStatusTransitionButtonGroup.vue";
 import IssueOutputPanel from "./IssueOutputPanel.vue";
 import IssueSidebar from "./IssueSidebar.vue";
 import IssueTaskStatementPanel from "./IssueTaskStatementPanel.vue";
@@ -13,11 +11,9 @@ import TaskCheckBar from "./TaskCheckBar.vue";
 import IssueTable from "./table/IssueTable.vue";
 
 export {
-  IssueDetailLayout,
   IssueBanner,
   IssueHighlightPanel,
   IssueStagePanel,
-  IssueStatusTransitionButtonGroup,
   IssueOutputPanel,
   IssueSidebar,
   IssueTaskStatementPanel,

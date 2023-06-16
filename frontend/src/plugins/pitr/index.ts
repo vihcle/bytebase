@@ -1,47 +1,51 @@
 import { computed, Ref, watch } from "vue";
 import {
   CreateDatabaseContext,
-  Database,
-  Instance,
+  ComposedDatabase,
   IssueCreate,
-  MigrationHistory,
   PITRContext,
 } from "@/types";
 import {
-  useBackupListByDatabaseId,
-  useCurrentUser,
-  useInstanceStore,
+  useBackupListByDatabaseName,
+  useChangeHistoryStore,
+  useCurrentUserV1,
   useIssueStore,
 } from "@/store";
 import { useI18n } from "vue-i18n";
-import { semverCompare } from "@/utils";
+import { extractUserUID, semverCompare } from "@/utils";
+import { Instance } from "@/types/proto/v1/instance_service";
+import { Engine } from "@/types/proto/v1/common";
+import { head } from "lodash-es";
+import { Backup_BackupState } from "@/types/proto/v1/database_service";
 
 export const MIN_PITR_SUPPORT_MYSQL_VERSION = "8.0.0";
 
-export const isPITRAvailableOnInstance = (instance: Instance): boolean => {
+export const isPITRAvailableOnInstanceV1 = (instance: Instance): boolean => {
   const { engine, engineVersion } = instance;
   return (
-    engine === "MYSQL" &&
+    engine === Engine.MYSQL &&
     semverCompare(engineVersion, MIN_PITR_SUPPORT_MYSQL_VERSION)
   );
 };
 
-export const usePITRLogic = (database: Ref<Database>) => {
+export const usePITRLogic = (database: Ref<ComposedDatabase>) => {
   const { t } = useI18n();
-  const currentUser = useCurrentUser();
-  const instanceStore = useInstanceStore();
+  const currentUserV1 = useCurrentUserV1();
+  const changeHistoryStore = useChangeHistoryStore();
 
-  const backupList = useBackupListByDatabaseId(
-    computed(() => database.value.id)
+  const backupList = useBackupListByDatabaseName(
+    computed(() => database.value.name)
   );
   const doneBackupList = computed(() =>
-    backupList.value.filter((backup) => backup.status === "DONE")
+    backupList.value.filter(
+      (backup) => backup.state === Backup_BackupState.DONE
+    )
   );
 
   const pitrAvailable = computed((): { result: boolean; message: string } => {
-    const { engine, engineVersion } = database.value.instance;
+    const { engine, engineVersion } = database.value.instanceEntity;
     if (
-      engine === "MYSQL" &&
+      engine === Engine.MYSQL &&
       semverCompare(engineVersion, MIN_PITR_SUPPORT_MYSQL_VERSION)
     ) {
       if (doneBackupList.value.length > 0) {
@@ -61,29 +65,22 @@ export const usePITRLogic = (database: Ref<Database>) => {
     };
   });
 
-  const prepareMigrationHistoryList = async () => {
-    const migration = await instanceStore.checkMigrationSetup(
-      database.value.instance.id
-    );
-    if (migration.status === "OK") {
-      instanceStore.fetchMigrationHistory({
-        instanceId: database.value.instance.id,
-        databaseName: database.value.name,
-      });
-    }
+  const prepareChangeHistoryList = async () => {
+    changeHistoryStore.fetchChangeHistoryList({
+      parent: database.value.name,
+    });
   };
 
-  watch(database, prepareMigrationHistoryList, { immediate: true });
-
-  const migrationHistoryList = computed(() => {
-    return instanceStore.getMigrationHistoryListByInstanceIdAndDatabaseName(
-      database.value.instance.id,
-      database.value.name
-    );
+  watch(() => database.value.name, prepareChangeHistoryList, {
+    immediate: true,
   });
 
-  const lastMigrationHistory = computed((): MigrationHistory | undefined => {
-    return migrationHistoryList.value[0];
+  const changeHistoryList = computed(() => {
+    return changeHistoryStore.changeHistoryListByDatabase(database.value.name);
+  });
+
+  const lastChangeHistory = computed(() => {
+    return head(changeHistoryList.value);
   });
 
   const createPITRIssue = async (
@@ -93,7 +90,7 @@ export const usePITRLogic = (database: Ref<Database>) => {
   ) => {
     const issueStore = useIssueStore();
     const createContext: PITRContext = {
-      databaseId: database.value.id,
+      databaseId: Number(database.value.uid),
       pointInTimeTs: pointTimeTs,
       createDatabaseContext,
     };
@@ -101,8 +98,8 @@ export const usePITRLogic = (database: Ref<Database>) => {
       name: `Restore database [${database.value.name}]`,
       type: "bb.issue.database.restore.pitr",
       description: "",
-      assigneeId: currentUser.value.id,
-      projectId: database.value.project.id,
+      assigneeId: Number(extractUserUID(currentUserV1.value.name)),
+      projectId: Number(database.value.projectEntity.uid),
       payload: {},
       createContext,
       ...params,
@@ -119,8 +116,8 @@ export const usePITRLogic = (database: Ref<Database>) => {
     backupList,
     doneBackupList,
     pitrAvailable,
-    migrationHistoryList,
-    lastMigrationHistory,
+    changeHistoryList,
+    lastChangeHistory,
     createPITRIssue,
   };
 };

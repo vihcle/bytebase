@@ -1,8 +1,11 @@
-import { hasFeature } from "@/store";
-import type { Database, Instance, Policy, Principal } from "@/types";
-import { hasWorkspacePermission } from "./role";
+import { hasFeature, useCurrentUserIamPolicy } from "@/store";
+import type { ComposedDatabase, Instance } from "@/types";
+import { hasWorkspacePermissionV1 } from "./role";
+import { Policy, PolicyType } from "@/types/proto/v1/org_policy_service";
+import { User } from "@/types/proto/v1/auth_service";
+import { EnvironmentTier } from "@/types/proto/v1/environment_service";
 
-export const isInstanceAccessible = (instance: Instance, user: Principal) => {
+export const isInstanceAccessible = (instance: Instance, user: User) => {
   if (!hasFeature("bb.feature.access-control")) {
     // The current plan doesn't have access control feature.
     // Fallback to true.
@@ -10,9 +13,9 @@ export const isInstanceAccessible = (instance: Instance, user: Principal) => {
   }
 
   if (
-    hasWorkspacePermission(
+    hasWorkspacePermissionV1(
       "bb.permission.workspace.manage-access-control",
-      user.role
+      user.userRole
     )
   ) {
     // The current user has the super privilege to access all databases.
@@ -30,20 +33,14 @@ export const isInstanceAccessible = (instance: Instance, user: Principal) => {
 };
 
 export const isDatabaseAccessible = (
-  database: Database,
+  database: ComposedDatabase,
   policyList: Policy[],
-  user: Principal
+  user: User
 ) => {
-  if (!hasFeature("bb.feature.access-control")) {
-    // The current plan doesn't have access control feature.
-    // Fallback to true.
-    return true;
-  }
-
   if (
-    hasWorkspacePermission(
+    hasWorkspacePermissionV1(
       "bb.permission.workspace.manage-access-control",
-      user.role
+      user.userRole
     )
   ) {
     // The current user has the super privilege to access all databases.
@@ -51,23 +48,29 @@ export const isDatabaseAccessible = (
     return true;
   }
 
-  const { environment } = database.instance;
-  if (environment.tier === "UNPROTECTED") {
+  if (hasFeature("bb.feature.access-control")) {
+    const { environmentEntity } = database.instanceEntity;
+    if (environmentEntity.tier === EnvironmentTier.PROTECTED) {
+      const policy = policyList.find((policy) => {
+        const { type, resourceUid, enforce } = policy;
+        return (
+          type === PolicyType.ACCESS_CONTROL &&
+          resourceUid === `${database.uid}` &&
+          enforce
+        );
+      });
+      if (policy) {
+        // The database is in the allowed list
+        return true;
+      }
+    }
+  }
+
+  const currentUserIamPolicy = useCurrentUserIamPolicy();
+  if (currentUserIamPolicy.allowToQueryDatabaseV1(database)) {
     return true;
   }
 
-  const policy = policyList.find((policy) => {
-    const { type, resourceId, rowStatus } = policy;
-    return (
-      type === "bb.policy.access-control" &&
-      resourceId === database.id &&
-      rowStatus === "NORMAL"
-    );
-  });
-  if (policy) {
-    // The database is in the allowed list
-    return true;
-  }
   // denied otherwise
   return false;
 };

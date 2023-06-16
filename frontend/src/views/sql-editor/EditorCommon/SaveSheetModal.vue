@@ -11,19 +11,24 @@
 <script lang="ts" setup>
 import { computed, reactive } from "vue";
 
-import type { SheetUpsert } from "@/types";
 import { UNKNOWN_ID } from "@/types";
-import { useDatabaseStore, useSheetStore, useTabStore } from "@/store";
+import { useDatabaseV1Store, useSheetV1Store, useTabStore } from "@/store";
 import { defaultTabName, getDefaultTabNameFromConnection } from "@/utils";
 import SaveSheetForm from "./SaveSheetForm.vue";
+import {
+  Sheet_Visibility,
+  Sheet_Source,
+  Sheet_Type,
+  Sheet,
+} from "@/types/proto/v1/sheet_service";
 
 type LocalState = {
   showModal: boolean;
 };
 
 const tabStore = useTabStore();
-const databaseStore = useDatabaseStore();
-const sheetStore = useSheetStore();
+const databaseStore = useDatabaseV1Store();
+const sheetV1Store = useSheetV1Store();
 
 const state = reactive<LocalState>({
   showModal: false,
@@ -39,37 +44,53 @@ const allowSave = computed((): boolean => {
   }
   // Temporarily disable saving and sharing if we are connected to an instance
   // but not a database.
-  if (tab.connection.databaseId === UNKNOWN_ID) {
+  if (tab.connection.databaseId === String(UNKNOWN_ID)) {
     return false;
   }
   return true;
 });
 
-const doSaveSheet = async (sheetName?: string) => {
-  const { name, statement, sheetId } = tabStore.currentTab;
-  sheetName = sheetName || name;
+const doSaveSheet = async (sheetTitle?: string) => {
+  const { name, statement, sheetName } = tabStore.currentTab;
+  sheetTitle = sheetTitle || name;
+
+  const sheetId = sheetV1Store.getSheetUid(sheetName ?? "");
 
   const conn = tabStore.currentTab.connection;
-  const database = await databaseStore.getOrFetchDatabaseById(conn.databaseId);
-  const sheetUpsert: SheetUpsert = {
-    id: sheetId,
-    projectId: database.project.id,
-    databaseId: conn.databaseId,
-    name: sheetName,
-    statement: statement,
-  };
-  const sheet = await sheetStore.upsertSheet(sheetUpsert);
+  const database = await databaseStore.getOrFetchDatabaseByUID(conn.databaseId);
 
-  tabStore.updateCurrentTab({
-    sheetId: sheet.id,
-    isSaved: true,
-    name: sheetName,
-  });
+  let sheet: Sheet | undefined;
+  if (sheetId !== UNKNOWN_ID) {
+    sheet = await sheetV1Store.patchSheet({
+      name: sheetName,
+      database: database.name,
+      title: sheetTitle,
+      content: new TextEncoder().encode(statement),
+    });
+  } else {
+    sheet = await sheetV1Store.createSheet(database.project, {
+      title: sheetTitle,
+      content: new TextEncoder().encode(statement),
+      database: database.name,
+      visibility: Sheet_Visibility.VISIBILITY_PRIVATE,
+      source: Sheet_Source.SOURCE_BYTEBASE,
+      type: Sheet_Type.TYPE_SQL,
+      payload: "{}",
+    });
+  }
+
+  if (sheet) {
+    tabStore.updateCurrentTab({
+      sheetName: sheet.name,
+      isSaved: true,
+      name: sheetTitle,
+    });
+  }
 };
 
 const needSheetName = (sheetName: string | undefined) => {
   const tab = tabStore.currentTab;
-  if (tab.sheetId) {
+  if (tab.sheetName) {
     // If the sheet is saved, we don't need to show the name popup.
     return false;
   }
@@ -86,18 +107,18 @@ const needSheetName = (sheetName: string | undefined) => {
   return false;
 };
 
-const trySaveSheet = (sheetName?: string) => {
+const trySaveSheet = (sheetTitle?: string) => {
   if (!allowSave.value) {
     return;
   }
 
-  if (needSheetName(sheetName)) {
+  if (needSheetName(sheetTitle)) {
     state.showModal = true;
     return;
   }
   state.showModal = false;
 
-  doSaveSheet(sheetName);
+  doSaveSheet(sheetTitle);
 };
 
 const close = () => {

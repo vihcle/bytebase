@@ -78,7 +78,7 @@
               <carbon:share class="h-5 w-5" /> &nbsp; {{ $t("common.share") }}
               <FeatureBadge
                 :feature="'bb.feature.shared-sql-script'"
-                class="ml-2 text-accent"
+                custom-class="ml-2"
               />
             </NButton>
           </template>
@@ -91,7 +91,7 @@
   </div>
 
   <FeatureModal
-    v-if="state.requiredFeatureName"
+    :open="state.requiredFeatureName"
     :feature="state.requiredFeatureName"
     @cancel="state.requiredFeatureName = undefined"
   />

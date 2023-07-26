@@ -6,8 +6,10 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
@@ -44,39 +46,11 @@ func newDriver(db.DriverConfig) db.Driver {
 
 // Open opens a Snowflake driver.
 func (driver *Driver) Open(_ context.Context, dbType db.Type, config db.ConnectionConfig, connCtx db.ConnectionContext) (db.Driver, error) {
-	prefixParts, loggedPrefixParts := []string{config.Username}, []string{config.Username}
-	if config.Password != "" {
-		prefixParts = append(prefixParts, config.Password)
-		loggedPrefixParts = append(loggedPrefixParts, "<<redacted password>>")
+	dsn, loggedDSN, err := buildSnowflakeDSN(config)
+	if err != nil {
+		return nil, err
 	}
 
-	var account, host string
-	// Host can also be account e.g. xma12345, or xma12345@host_ip where host_ip is the proxy server IP.
-	if strings.Contains(config.Host, "@") {
-		parts := strings.Split(config.Host, "@")
-		if len(parts) != 2 {
-			return nil, errors.Errorf("driver.Open() has invalid host %q", config.Host)
-		}
-		account, host = parts[0], parts[1]
-	} else {
-		account = config.Host
-	}
-
-	var params []string
-	var suffix string
-	if host != "" {
-		suffix = fmt.Sprintf("%s:%s", host, config.Port)
-		params = append(params, fmt.Sprintf("account=%s", account))
-	} else {
-		suffix = account
-	}
-
-	dsn := fmt.Sprintf("%s@%s/%s", strings.Join(prefixParts, ":"), suffix, config.Database)
-	loggedDSN := fmt.Sprintf("%s@%s/%s", strings.Join(loggedPrefixParts, ":"), suffix, config.Database)
-	if len(params) > 0 {
-		dsn = fmt.Sprintf("%s?%s", dsn, strings.Join(params, "&"))
-		loggedDSN = fmt.Sprintf("%s?%s", loggedDSN, strings.Join(params, "&"))
-	}
 	log.Debug("Opening Snowflake driver",
 		zap.String("dsn", loggedDSN),
 		zap.String("environment", connCtx.EnvironmentID),
@@ -92,6 +66,38 @@ func (driver *Driver) Open(_ context.Context, dbType db.Type, config db.Connecti
 	driver.databaseName = config.Database
 
 	return driver, nil
+}
+
+// buildSnowflakeDSN returns the Snowflake Golang DSN and a redacted version of the DSN.
+func buildSnowflakeDSN(config db.ConnectionConfig) (string, string, error) {
+	snowConfig := &snow.Config{
+		Database: fmt.Sprintf(`"%s"`, config.Database),
+		User:     config.Username,
+		Password: config.Password,
+	}
+	// Host can also be account e.g. xma12345, or xma12345@host_ip where host_ip is the proxy server IP.
+	if strings.Contains(config.Host, "@") {
+		parts := strings.Split(config.Host, "@")
+		if len(parts) != 2 {
+			return "", "", errors.Errorf("expected one @ in the host at most, got %q", config.Host)
+		}
+		snowConfig.Account = parts[0]
+		snowConfig.Host = parts[1]
+	} else {
+		snowConfig.Account = config.Host
+	}
+	dsn, err := snow.DSN(snowConfig)
+	if err != nil {
+		return "", "", errors.Wrapf(err, "failed to build Snowflake DSN")
+	}
+	snowConfig.Password = "xxxxxx"
+	redactedDSN, err := snow.DSN(snowConfig)
+	if err != nil {
+		// nolint
+		log.Warn("failed to build redacted Snowflake DSN", zap.Error(err))
+		return dsn, "", nil
+	}
+	return dsn, redactedDSN, nil
 }
 
 // Close closes the driver.
@@ -211,7 +217,7 @@ func getDatabasesTxn(ctx context.Context, tx *sql.Tx) ([]string, error) {
 }
 
 // Execute executes a SQL statement and returns the affected rows.
-func (driver *Driver) Execute(ctx context.Context, statement string, _ bool) (int64, error) {
+func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, _ db.ExecuteOptions) (int64, error) {
 	count := 0
 	f := func(stmt string) error {
 		count++
@@ -276,14 +282,16 @@ func (driver *Driver) QueryConn2(ctx context.Context, conn *sql.Conn, statement 
 }
 
 func getStatementWithResultLimit(stmt string, limit int) string {
-	return fmt.Sprintf("WITH result AS (%s) SELECT * FROM result LIMIT %d;", stmt, limit)
+	// return fmt.Sprintf("WITH result AS (%s) SELECT * FROM result LIMIT %d;", stmt, limit)
+	return fmt.Sprintf("SELECT * FROM (%s) LIMIT %d", stmt, limit)
 }
 
 func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL parser.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
-	statement := singleSQL.Text
-	statement = strings.TrimRight(statement, " \n\t;")
-	if !strings.HasPrefix(statement, "EXPLAIN") && queryContext.Limit > 0 {
-		statement = getStatementWithResultLimit(statement, queryContext.Limit)
+	statement := strings.TrimRight(singleSQL.Text, " \n\t;")
+
+	stmt := statement
+	if !strings.HasPrefix(stmt, "EXPLAIN") && queryContext.Limit > 0 {
+		stmt = getStatementWithResultLimit(stmt, queryContext.Limit)
 	}
 
 	// Snowflake doesn't support READ ONLY transactions.
@@ -292,7 +300,14 @@ func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL par
 		queryContext.ReadOnly = false
 	}
 
-	return util.Query2(ctx, db.Snowflake, conn, statement, queryContext)
+	startTime := time.Now()
+	result, err := util.Query2(ctx, db.Snowflake, conn, stmt, queryContext)
+	if err != nil {
+		return nil, err
+	}
+	result.Latency = durationpb.New(time.Since(startTime))
+	result.Statement = statement
+	return result, nil
 }
 
 // RunStatement runs a SQL statement in a given connection.

@@ -212,6 +212,13 @@ message SyncSlowQueriesRequest {
   string instance = 1 [(google.api.field_behavior) = REQUIRED];
 }
 
+// InstanceOptions is the option for instances.
+message InstanceOptions {
+  // The schema tenant mode is used to determine whether the instance is in schema tenant mode.
+  // For Oracle schema tenant mode, the instance a Oracle database and the database is the Oracle schema.
+  bool schema_tenant_mode = 1;
+}
+
 message Instance {
   // The name of the instance.
   // Format: instances/{instance}
@@ -234,7 +241,11 @@ message Instance {
 
   // The environment resource.
   // Format: environments/prod where prod is the environment resource ID.
-  string environment = 9;
+  string environment = 9 [(google.api.field_behavior) = OPTIONAL];
+
+  bool activation = 10;
+
+  InstanceOptions options = 11;
 }
 
 message DataSource {

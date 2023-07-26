@@ -35,10 +35,11 @@ const (
 	bookmarkPrefix               = "bookmarks/"
 	externalVersionControlPrefix = "externalVersionControls/"
 	riskPrefix                   = "risks/"
-	reviewPrefix                 = "reviews/"
+	issuePrefix                  = "issues/"
 	rolloutPrefix                = "rollouts/"
 	stagePrefix                  = "stages/"
 	taskPrefix                   = "tasks/"
+	taskRunPrefix                = "taskRuns/"
 	planPrefix                   = "plans/"
 	rolePrefix                   = "roles/"
 	secretNamePrefix             = "secrets/"
@@ -51,6 +52,7 @@ const (
 	pipelineNamePrefix           = "pipelines/"
 	logNamePrefix                = "logs/"
 	inboxNamePrefix              = "inbox/"
+	schemaDesignPrefix           = "schemaDesigns/"
 
 	deploymentConfigSuffix = "/deploymentConfig"
 	backupSettingSuffix    = "/backupSetting"
@@ -75,7 +77,7 @@ var (
 )
 
 func isNumber(v string) (int, bool) {
-	n, err := strconv.ParseInt(v, 10, 64)
+	n, err := strconv.Atoi(v)
 	if err == nil {
 		return int(n), true
 	}
@@ -251,16 +253,16 @@ func getRiskID(name string) (int64, error) {
 	return riskID, nil
 }
 
-func getReviewID(name string) (int, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, reviewPrefix)
+func getIssueID(name string) (int, error) {
+	tokens, err := getNameParentTokens(name, projectNamePrefix, issuePrefix)
 	if err != nil {
 		return 0, err
 	}
-	reviewID, err := strconv.Atoi(tokens[1])
+	issueID, err := strconv.Atoi(tokens[1])
 	if err != nil {
-		return 0, errors.Errorf("invalid review ID %q", tokens[1])
+		return 0, errors.Errorf("invalid issue ID %q", tokens[1])
 	}
-	return reviewID, nil
+	return issueID, nil
 }
 
 func getTaskID(name string) (int, error) {
@@ -299,6 +301,74 @@ func getProjectIDRolloutID(name string) (string, int, error) {
 	return tokens[0], rolloutID, nil
 }
 
+func getProjectIDRolloutIDMaybeStageID(name string) (string, int, *int, error) {
+	tokens, err := getNameParentTokens(name, projectNamePrefix, rolloutPrefix, stagePrefix)
+	if err != nil {
+		return "", 0, nil, err
+	}
+	rolloutID, err := strconv.Atoi(tokens[1])
+	if err != nil {
+		return "", 0, nil, errors.Errorf("invalid rollout ID %q", tokens[1])
+	}
+	var maybeStageID *int
+	if tokens[2] != "-" {
+		stageID, err := strconv.Atoi(tokens[2])
+		if err != nil {
+			return "", 0, nil, errors.Errorf("invalid stage ID %q", tokens[2])
+		}
+		maybeStageID = &stageID
+	}
+	return tokens[0], rolloutID, maybeStageID, nil
+}
+
+func getProjectIDRolloutIDMaybeStageIDMaybeTaskID(name string) (string, int, *int, *int, error) {
+	tokens, err := getNameParentTokens(name, projectNamePrefix, rolloutPrefix, stagePrefix, taskPrefix)
+	if err != nil {
+		return "", 0, nil, nil, err
+	}
+	rolloutID, err := strconv.Atoi(tokens[1])
+	if err != nil {
+		return "", 0, nil, nil, errors.Errorf("invalid rollout ID %q", tokens[1])
+	}
+	var maybeStageID, maybeTaskID *int
+	if tokens[2] != "-" {
+		stageID, err := strconv.Atoi(tokens[2])
+		if err != nil {
+			return "", 0, nil, nil, errors.Errorf("invalid stage ID %q", tokens[2])
+		}
+		maybeStageID = &stageID
+	}
+	if tokens[3] != "-" {
+		taskID, err := strconv.Atoi(tokens[3])
+		if err != nil {
+			return "", 0, nil, nil, errors.Errorf("invalid task ID %q", tokens[3])
+		}
+		maybeTaskID = &taskID
+	}
+	return tokens[0], rolloutID, maybeStageID, maybeTaskID, nil
+}
+
+func getProjectIDRolloutIDStageIDTaskID(name string) (string, int, int, int, error) {
+	tokens, err := getNameParentTokens(name, projectNamePrefix, rolloutPrefix, stagePrefix, taskPrefix)
+	if err != nil {
+		return "", 0, 0, 0, err
+	}
+	rolloutID, err := strconv.Atoi(tokens[1])
+	if err != nil {
+		return "", 0, 0, 0, errors.Errorf("invalid rollout ID %q", tokens[1])
+	}
+	stageID, err := strconv.Atoi(tokens[2])
+	if err != nil {
+		return "", 0, 0, 0, errors.Errorf("invalid stage ID %q", tokens[2])
+	}
+
+	taskID, err := strconv.Atoi(tokens[3])
+	if err != nil {
+		return "", 0, 0, 0, errors.Errorf("invalid task ID %q", tokens[3])
+	}
+	return tokens[0], rolloutID, stageID, taskID, nil
+}
+
 func getRoleID(name string) (string, error) {
 	tokens, err := getNameParentTokens(name, rolePrefix)
 	if err != nil {
@@ -309,6 +379,14 @@ func getRoleID(name string) (string, error) {
 
 func getProjectResourceIDSheetID(name string) (string, string, error) {
 	tokens, err := getNameParentTokens(name, projectNamePrefix, sheetIDPrefix)
+	if err != nil {
+		return "", "", err
+	}
+	return tokens[0], tokens[1], nil
+}
+
+func getProjectResourceIDAndSchemaDesignSheetID(name string) (string, string, error) {
+	tokens, err := getNameParentTokens(name, projectNamePrefix, schemaDesignPrefix)
 	if err != nil {
 		return "", "", err
 	}
@@ -663,6 +741,13 @@ func convertEngine(engine v1pb.Engine) db.Type {
 		return db.OceanBase
 	}
 	return db.UnknownType
+}
+
+func getPageToken(limit int, offset int) (string, error) {
+	return marshalPageToken(&storepb.PageToken{
+		Limit:  int32(limit),
+		Offset: int32(offset),
+	})
 }
 
 func marshalPageToken(pageToken *storepb.PageToken) (string, error) {

@@ -2,6 +2,7 @@
 import * as Long from "long";
 import type { CallContext, CallOptions } from "nice-grpc-common";
 import * as _m0 from "protobufjs/minimal";
+import { Duration } from "../google/protobuf/duration";
 import { NullValue, nullValueFromJSON, nullValueToJSON, Value } from "../google/protobuf/struct";
 import { Engine, engineFromJSON, engineToJSON } from "./common";
 
@@ -23,6 +24,8 @@ export interface AdminExecuteRequest {
   statement: string;
   /** The maximum number of rows to return. */
   limit: number;
+  /** The timeout for the request. */
+  timeout?: Duration | undefined;
 }
 
 export interface AdminExecuteResponse {
@@ -48,12 +51,19 @@ export interface ExportRequest {
   limit: number;
   /** The export format. */
   format: ExportRequest_Format;
+  /**
+   * The admin is used for workspace owner and DBA for exporting data from SQL Editor Admin mode.
+   * The exported data is not anonymized.
+   */
+  admin: boolean;
 }
 
 export enum ExportRequest_Format {
   FORMAT_UNSPECIFIED = 0,
   CSV = 1,
   JSON = 2,
+  SQL = 3,
+  XLSX = 4,
   UNRECOGNIZED = -1,
 }
 
@@ -68,6 +78,12 @@ export function exportRequest_FormatFromJSON(object: any): ExportRequest_Format 
     case 2:
     case "JSON":
       return ExportRequest_Format.JSON;
+    case 3:
+    case "SQL":
+      return ExportRequest_Format.SQL;
+    case 4:
+    case "XLSX":
+      return ExportRequest_Format.XLSX;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -83,6 +99,10 @@ export function exportRequest_FormatToJSON(object: ExportRequest_Format): string
       return "CSV";
     case ExportRequest_Format.JSON:
       return "JSON";
+    case ExportRequest_Format.SQL:
+      return "SQL";
+    case ExportRequest_Format.XLSX:
+      return "XLSX";
     case ExportRequest_Format.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -110,6 +130,8 @@ export interface QueryRequest {
   statement: string;
   /** The maximum number of rows to return. */
   limit: number;
+  /** The timeout for the request. */
+  timeout?: Duration | undefined;
 }
 
 export interface QueryResponse {
@@ -131,8 +153,16 @@ export interface QueryResult {
   rows: QueryRow[];
   /** Columns are masked or not. */
   masked: boolean[];
+  /** Columns are sensitive or not. */
+  sensitive: boolean[];
   /** The error message if the query failed. */
   error: string;
+  /** The time it takes to execute the query. */
+  latency?:
+    | Duration
+    | undefined;
+  /** The query statement for the result. */
+  statement: string;
 }
 
 export interface QueryRow {
@@ -154,7 +184,7 @@ export interface RowValue {
     | number
     | undefined;
   /** value_value is used for Spanner and TUPLE ARRAY MAP in Clickhouse only. */
-  valueValue?: any;
+  valueValue?: any | undefined;
 }
 
 export interface Advice {
@@ -237,7 +267,7 @@ export interface PrettyResponse {
 }
 
 function createBaseAdminExecuteRequest(): AdminExecuteRequest {
-  return { name: "", connectionDatabase: "", statement: "", limit: 0 };
+  return { name: "", connectionDatabase: "", statement: "", limit: 0, timeout: undefined };
 }
 
 export const AdminExecuteRequest = {
@@ -253,6 +283,9 @@ export const AdminExecuteRequest = {
     }
     if (message.limit !== 0) {
       writer.uint32(32).int32(message.limit);
+    }
+    if (message.timeout !== undefined) {
+      Duration.encode(message.timeout, writer.uint32(42).fork()).ldelim();
     }
     return writer;
   },
@@ -292,6 +325,13 @@ export const AdminExecuteRequest = {
 
           message.limit = reader.int32();
           continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.timeout = Duration.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -307,6 +347,7 @@ export const AdminExecuteRequest = {
       connectionDatabase: isSet(object.connectionDatabase) ? String(object.connectionDatabase) : "",
       statement: isSet(object.statement) ? String(object.statement) : "",
       limit: isSet(object.limit) ? Number(object.limit) : 0,
+      timeout: isSet(object.timeout) ? Duration.fromJSON(object.timeout) : undefined,
     };
   },
 
@@ -316,6 +357,7 @@ export const AdminExecuteRequest = {
     message.connectionDatabase !== undefined && (obj.connectionDatabase = message.connectionDatabase);
     message.statement !== undefined && (obj.statement = message.statement);
     message.limit !== undefined && (obj.limit = Math.round(message.limit));
+    message.timeout !== undefined && (obj.timeout = message.timeout ? Duration.toJSON(message.timeout) : undefined);
     return obj;
   },
 
@@ -329,6 +371,9 @@ export const AdminExecuteRequest = {
     message.connectionDatabase = object.connectionDatabase ?? "";
     message.statement = object.statement ?? "";
     message.limit = object.limit ?? 0;
+    message.timeout = (object.timeout !== undefined && object.timeout !== null)
+      ? Duration.fromPartial(object.timeout)
+      : undefined;
     return message;
   },
 };
@@ -394,7 +439,7 @@ export const AdminExecuteResponse = {
 };
 
 function createBaseExportRequest(): ExportRequest {
-  return { name: "", connectionDatabase: "", statement: "", limit: 0, format: 0 };
+  return { name: "", connectionDatabase: "", statement: "", limit: 0, format: 0, admin: false };
 }
 
 export const ExportRequest = {
@@ -413,6 +458,9 @@ export const ExportRequest = {
     }
     if (message.format !== 0) {
       writer.uint32(40).int32(message.format);
+    }
+    if (message.admin === true) {
+      writer.uint32(48).bool(message.admin);
     }
     return writer;
   },
@@ -459,6 +507,13 @@ export const ExportRequest = {
 
           message.format = reader.int32() as any;
           continue;
+        case 6:
+          if (tag !== 48) {
+            break;
+          }
+
+          message.admin = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -475,6 +530,7 @@ export const ExportRequest = {
       statement: isSet(object.statement) ? String(object.statement) : "",
       limit: isSet(object.limit) ? Number(object.limit) : 0,
       format: isSet(object.format) ? exportRequest_FormatFromJSON(object.format) : 0,
+      admin: isSet(object.admin) ? Boolean(object.admin) : false,
     };
   },
 
@@ -485,6 +541,7 @@ export const ExportRequest = {
     message.statement !== undefined && (obj.statement = message.statement);
     message.limit !== undefined && (obj.limit = Math.round(message.limit));
     message.format !== undefined && (obj.format = exportRequest_FormatToJSON(message.format));
+    message.admin !== undefined && (obj.admin = message.admin);
     return obj;
   },
 
@@ -499,6 +556,7 @@ export const ExportRequest = {
     message.statement = object.statement ?? "";
     message.limit = object.limit ?? 0;
     message.format = object.format ?? 0;
+    message.admin = object.admin ?? false;
     return message;
   },
 };
@@ -561,7 +619,7 @@ export const ExportResponse = {
 };
 
 function createBaseQueryRequest(): QueryRequest {
-  return { name: "", connectionDatabase: "", statement: "", limit: 0 };
+  return { name: "", connectionDatabase: "", statement: "", limit: 0, timeout: undefined };
 }
 
 export const QueryRequest = {
@@ -577,6 +635,9 @@ export const QueryRequest = {
     }
     if (message.limit !== 0) {
       writer.uint32(32).int32(message.limit);
+    }
+    if (message.timeout !== undefined) {
+      Duration.encode(message.timeout, writer.uint32(42).fork()).ldelim();
     }
     return writer;
   },
@@ -616,6 +677,13 @@ export const QueryRequest = {
 
           message.limit = reader.int32();
           continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.timeout = Duration.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -631,6 +699,7 @@ export const QueryRequest = {
       connectionDatabase: isSet(object.connectionDatabase) ? String(object.connectionDatabase) : "",
       statement: isSet(object.statement) ? String(object.statement) : "",
       limit: isSet(object.limit) ? Number(object.limit) : 0,
+      timeout: isSet(object.timeout) ? Duration.fromJSON(object.timeout) : undefined,
     };
   },
 
@@ -640,6 +709,7 @@ export const QueryRequest = {
     message.connectionDatabase !== undefined && (obj.connectionDatabase = message.connectionDatabase);
     message.statement !== undefined && (obj.statement = message.statement);
     message.limit !== undefined && (obj.limit = Math.round(message.limit));
+    message.timeout !== undefined && (obj.timeout = message.timeout ? Duration.toJSON(message.timeout) : undefined);
     return obj;
   },
 
@@ -653,6 +723,9 @@ export const QueryRequest = {
     message.connectionDatabase = object.connectionDatabase ?? "";
     message.statement = object.statement ?? "";
     message.limit = object.limit ?? 0;
+    message.timeout = (object.timeout !== undefined && object.timeout !== null)
+      ? Duration.fromPartial(object.timeout)
+      : undefined;
     return message;
   },
 };
@@ -737,7 +810,16 @@ export const QueryResponse = {
 };
 
 function createBaseQueryResult(): QueryResult {
-  return { columnNames: [], columnTypeNames: [], rows: [], masked: [], error: "" };
+  return {
+    columnNames: [],
+    columnTypeNames: [],
+    rows: [],
+    masked: [],
+    sensitive: [],
+    error: "",
+    latency: undefined,
+    statement: "",
+  };
 }
 
 export const QueryResult = {
@@ -756,8 +838,19 @@ export const QueryResult = {
       writer.bool(v);
     }
     writer.ldelim();
+    writer.uint32(42).fork();
+    for (const v of message.sensitive) {
+      writer.bool(v);
+    }
+    writer.ldelim();
     if (message.error !== "") {
-      writer.uint32(42).string(message.error);
+      writer.uint32(50).string(message.error);
+    }
+    if (message.latency !== undefined) {
+      Duration.encode(message.latency, writer.uint32(58).fork()).ldelim();
+    }
+    if (message.statement !== "") {
+      writer.uint32(66).string(message.statement);
     }
     return writer;
   },
@@ -808,11 +901,42 @@ export const QueryResult = {
 
           break;
         case 5:
-          if (tag !== 42) {
+          if (tag === 40) {
+            message.sensitive.push(reader.bool());
+
+            continue;
+          }
+
+          if (tag === 42) {
+            const end2 = reader.uint32() + reader.pos;
+            while (reader.pos < end2) {
+              message.sensitive.push(reader.bool());
+            }
+
+            continue;
+          }
+
+          break;
+        case 6:
+          if (tag !== 50) {
             break;
           }
 
           message.error = reader.string();
+          continue;
+        case 7:
+          if (tag !== 58) {
+            break;
+          }
+
+          message.latency = Duration.decode(reader, reader.uint32());
+          continue;
+        case 8:
+          if (tag !== 66) {
+            break;
+          }
+
+          message.statement = reader.string();
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -829,7 +953,10 @@ export const QueryResult = {
       columnTypeNames: Array.isArray(object?.columnTypeNames) ? object.columnTypeNames.map((e: any) => String(e)) : [],
       rows: Array.isArray(object?.rows) ? object.rows.map((e: any) => QueryRow.fromJSON(e)) : [],
       masked: Array.isArray(object?.masked) ? object.masked.map((e: any) => Boolean(e)) : [],
+      sensitive: Array.isArray(object?.sensitive) ? object.sensitive.map((e: any) => Boolean(e)) : [],
       error: isSet(object.error) ? String(object.error) : "",
+      latency: isSet(object.latency) ? Duration.fromJSON(object.latency) : undefined,
+      statement: isSet(object.statement) ? String(object.statement) : "",
     };
   },
 
@@ -855,7 +982,14 @@ export const QueryResult = {
     } else {
       obj.masked = [];
     }
+    if (message.sensitive) {
+      obj.sensitive = message.sensitive.map((e) => e);
+    } else {
+      obj.sensitive = [];
+    }
     message.error !== undefined && (obj.error = message.error);
+    message.latency !== undefined && (obj.latency = message.latency ? Duration.toJSON(message.latency) : undefined);
+    message.statement !== undefined && (obj.statement = message.statement);
     return obj;
   },
 
@@ -869,7 +1003,12 @@ export const QueryResult = {
     message.columnTypeNames = object.columnTypeNames?.map((e) => e) || [];
     message.rows = object.rows?.map((e) => QueryRow.fromPartial(e)) || [];
     message.masked = object.masked?.map((e) => e) || [];
+    message.sensitive = object.sensitive?.map((e) => e) || [];
     message.error = object.error ?? "";
+    message.latency = (object.latency !== undefined && object.latency !== null)
+      ? Duration.fromPartial(object.latency)
+      : undefined;
+    message.statement = object.statement ?? "";
     return message;
   },
 };
@@ -1541,30 +1680,7 @@ export const SQLServiceDefinition = {
       options: {
         _unknownFields: {
           578365826: [
-            new Uint8Array([
-              21,
-              58,
-              1,
-              42,
-              34,
-              16,
-              47,
-              118,
-              49,
-              58,
-              97,
-              100,
-              109,
-              105,
-              110,
-              69,
-              120,
-              101,
-              99,
-              117,
-              116,
-              101,
-            ]),
+            new Uint8Array([18, 18, 16, 47, 118, 49, 58, 97, 100, 109, 105, 110, 69, 120, 101, 99, 117, 116, 101]),
           ],
         },
       },
@@ -1592,10 +1708,10 @@ export interface SQLServiceClient<CallOptionsExt = {}> {
   ): AsyncIterable<AdminExecuteResponse>;
 }
 
-declare var self: any | undefined;
-declare var window: any | undefined;
-declare var global: any | undefined;
-var tsProtoGlobalThis: any = (() => {
+declare const self: any | undefined;
+declare const window: any | undefined;
+declare const global: any | undefined;
+const tsProtoGlobalThis: any = (() => {
   if (typeof globalThis !== "undefined") {
     return globalThis;
   }

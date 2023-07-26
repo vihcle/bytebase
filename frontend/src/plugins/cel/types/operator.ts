@@ -101,6 +101,10 @@ export const OperatorList: Record<Factor, Operator[]> = {
     "contains",
     "matches",
   ]),
+
+  // Request query/export factors
+  expiration_days: uniq([...EqualityOperatorList, ...CompareOperatorList]),
+  export_rows: uniq([...EqualityOperatorList, ...CompareOperatorList]),
 };
 
 export const getOperatorListByFactor = (factor: Factor) => {

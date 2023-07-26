@@ -19,7 +19,7 @@
           @click="handleCreateSSO"
         >
           {{ $t("common.create") }}
-          <FeatureBadge :feature="'bb.feature.sso'" class="ml-2" />
+          <FeatureBadge :feature="'bb.feature.sso'" custom-class="ml-2" />
         </button>
       </div>
     </div>
@@ -40,7 +40,7 @@
               @click="handleCreateSSO"
             >
               {{ $t("settings.sso.create") }}
-              <FeatureBadge :feature="'bb.feature.sso'" class="ml-2" />
+              <FeatureBadge :feature="'bb.feature.sso'" custom-class="ml-2" />
             </button>
           </div>
         </div>
@@ -85,8 +85,8 @@
   </div>
 
   <FeatureModal
-    v-if="state.showFeatureModal"
     feature="bb.feature.sso"
+    :open="state.showFeatureModal"
     @cancel="state.showFeatureModal = false"
   />
 </template>

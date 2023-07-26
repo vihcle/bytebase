@@ -13,13 +13,14 @@
           :disabled="pitrButtonDisabled"
           @pointerenter="showTooltip"
           @pointerleave="hideTooltip"
-          @click="(action) => onClickPITRButton(action as PITRButtonAction)"
+          @click="(action: PITRButtonAction) => onClickPITRButton(action)"
         >
           <template #default="{ action }">
             <span>{{ action.text }}</span>
             <FeatureBadge
               feature="bb.feature.pitr"
-              class="text-accent ml-2 -mr-1"
+              custom-class="ml-2 -mr-1"
+              :instance="database.instanceEntity"
             />
           </template>
         </BBContextMenuButton>
@@ -135,8 +136,9 @@
   </Drawer>
 
   <FeatureModal
-    v-if="state.showFeatureModal"
     feature="bb.feature.pitr"
+    :open="state.showFeatureModal"
+    :instance="database.instanceEntity"
     @cancel="state.showFeatureModal = false"
   />
 </template>
@@ -151,7 +153,7 @@ import { useI18n } from "vue-i18n";
 import { CreateDatabaseContext, ComposedDatabase } from "@/types";
 import { usePITRLogic } from "@/plugins";
 import { issueSlug } from "@/utils";
-import { featureToRef } from "@/store";
+import { useSubscriptionV1Store } from "@/store";
 import { Drawer, DrawerContent } from "@/components/v2";
 import CreatePITRDatabaseForm from "./CreatePITRDatabaseForm.vue";
 import RestoreTargetForm from "../DatabaseBackup/RestoreTargetForm.vue";
@@ -205,7 +207,12 @@ const state = reactive<LocalState>({
 
 const createDatabaseForm = ref<InstanceType<typeof CreatePITRDatabaseForm>>();
 
-const hasPITRFeature = featureToRef("bb.feature.pitr");
+const hasPITRFeature = computed(() => {
+  return useSubscriptionV1Store().hasInstanceFeature(
+    "bb.feature.pitr",
+    props.database.instanceEntity
+  );
+});
 
 const timezone = computed(() => "UTC" + dayjs().format("ZZ"));
 
@@ -234,6 +241,9 @@ const buttonActionList = computed((): PITRButtonAction[] => {
 });
 
 const onClickPITRButton = (action: PITRButtonAction) => {
+  if (!hasPITRFeature.value) {
+    return;
+  }
   const { step, mode } = action.params;
   openDialog(step, mode);
 };
@@ -353,7 +363,7 @@ const onConfirm = async () => {
     }
 
     const issueNameParts: string[] = [
-      `Restore database [${props.database.name}]`,
+      `Restore database [${props.database.databaseName}]`,
     ];
     if (state.mode === "CUSTOM") {
       const datetime = dayjs(state.pitrTimestampMS).format(

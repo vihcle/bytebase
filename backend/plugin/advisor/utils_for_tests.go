@@ -175,13 +175,14 @@ func RunSQLReviewRuleTest(t *testing.T, rule SQLReviewRuleType, dbType db.Type, 
 		}
 
 		ctx := SQLReviewCheckContext{
-			Charset:       "",
-			Collation:     "",
-			DbType:        dbType,
-			Catalog:       &testCatalog{finder: finder},
-			Driver:        nil,
-			Context:       context.Background(),
-			CurrentSchema: "SYS",
+			Charset:         "",
+			Collation:       "",
+			DbType:          dbType,
+			Catalog:         &testCatalog{finder: finder},
+			Driver:          nil,
+			Context:         context.Background(),
+			CurrentSchema:   "SYS",
+			CurrentDatabase: "TEST_DB",
 		}
 
 		adviceList, err := SQLReviewCheck(tc.Statement, ruleList, ctx)
@@ -240,7 +241,7 @@ func (*MockDriver) GetDB() *sql.DB {
 }
 
 // Execute implements the Driver interface.
-func (*MockDriver) Execute(_ context.Context, _ string, _ bool) (int64, error) {
+func (*MockDriver) Execute(_ context.Context, _ string, _ bool, _ database.ExecuteOptions) (int64, error) {
 	return 0, nil
 }
 
@@ -396,6 +397,8 @@ func SetDefaultSQLReviewRulePayload(ruleTp SQLReviewRuleType, dbType db.Type) (s
 		maxLength := 64
 		if dbType == db.Snowflake {
 			format = "^[A-Z]+(_[A-Z]+)*$"
+		} else if dbType == db.MSSQL {
+			format = "^[A-Z]([_A-Za-z])*$"
 		}
 		payload, err = json.Marshal(NamingRulePayload{
 			Format:    format,

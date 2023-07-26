@@ -42,13 +42,61 @@ service RolloutService {
     option (google.api.method_signature) = "name";
   }
 
-  rpc ListRolloutTaskRuns(ListPlansRequest) returns (ListPlansResponse) {
-    option (google.api.http) = {get: "/v1/{parent=projects/*}/rollouts"};
+  rpc CreateRollout(CreateRolloutRequest) returns (Rollout) {
+    option (google.api.http) = {
+      post: "/v1/{parent=projects/*}/rollouts"
+      body: "plan"
+    };
+    option (google.api.method_signature) = "";
+  }
+
+  rpc PreviewRollout(PreviewRolloutRequest) returns (Rollout) {
+    option (google.api.http) = {
+      post: "/v1/{project=projects/*}:previewRollout",
+      body: "*"
+    };
+    option (google.api.method_signature) = "name";
+  }
+
+  rpc ListTaskRuns(ListTaskRunsRequest) returns (ListTaskRunsResponse) {
+    option (google.api.http) = {get: "/v1/{parent=projects/*/rollouts/*/stages/*/tasks/*}/taskRuns"};
     option (google.api.method_signature) = "parent";
   }
 
   rpc ListPlanCheckRuns(ListPlanCheckRunsRequest) returns (ListPlanCheckRunsResponse) {
     option (google.api.http) = {get: "/v1/{parent=projects/*/plans/*}/planCheckRuns"};
+    option (google.api.method_signature) = "parent";
+  }
+
+  rpc RunPlanChecks(RunPlanChecksRequest) returns (RunPlanChecksResponse) {
+    option (google.api.http) = {
+      post: "/v1/{name=projects/*/plans/*}:runPlanCheks"
+      body: "*"
+    };
+    option (google.api.method_signature) = "name";
+  }
+
+  rpc BatchRunTasks(BatchRunTasksRequest) returns (BatchRunTasksResponse) {
+    option (google.api.http) = {
+      post: "/v1/{parent=projects/*/rollouts/*/stages/*}/tasks:batchRun",
+      body: "*"
+    };
+    option (google.api.method_signature) = "parent";
+  }
+
+  rpc BatchSkipTasks(BatchSkipTasksRequest) returns (BatchSkipTasksResponse) {
+    option (google.api.http) = {
+      post: "/v1/{parent=projects/*/rollouts/*/stages/*}/tasks:batchSkip",
+      body: "*"
+    };
+    option (google.api.method_signature) = "parent";
+  }
+
+  rpc BatchCancelTaskRuns(BatchCancelTaskRunsRequest) returns (BatchCancelTaskRunsResponse) {
+    option (google.api.http) = {
+      post: "/v1/{parent=projects/*/rollouts/*/stages/*/tasks/*}/taskRuns:batchCancel",
+      body: "*"
+    };
     option (google.api.method_signature) = "parent";
   }
 }
@@ -117,16 +165,15 @@ message Plan {
   // The system-assigned, unique identifier for a resource.
   string uid = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
 
-  // The resource name of the review associated with this plan.
-  // Format: projects/{project}/reviews/{review}
-  string review = 3;
+  // The resource name of the issue associated with this plan.
+  // Format: projects/{project}/issues/{issue}
+  string issue = 3;
 
   string title = 4;
   string description = 5;
 
   repeated Step steps = 6;
 
-  // FIXME(d/xz): support spec with deployment config
   message Step {
     repeated Spec specs = 1;
   }
@@ -171,7 +218,6 @@ message Plan {
   message ChangeDatabaseConfig {
     // The resource name of the target.
     // Format: instances/{instance-id}/databases/{database-name}.
-    // Format: projects/{project}/deploymentConfig.
     string target = 1;
     // The resource name of the sheet.
     // Format: projects/{project}/sheets/{sheet}
@@ -206,9 +252,9 @@ message Plan {
       // rollback_from_task is the task from which the rollback SQL statement is generated for this task.
       // Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}
       string rollback_from_task = 1;
-      // rollback_from_review is the review containing the original task from which the rollback SQL statement is generated for this task.
-      // Format: projects/{project}/reviews/{review}
-      string rollback_from_review = 2;
+      // rollback_from_issue is the issue containing the original task from which the rollback SQL statement is generated for this task.
+      // Format: projects/{project}/issues/{issue}
+      string rollback_from_issue = 2;
     }
     optional RollbackDetail rollback_detail = 6;
   }
@@ -261,6 +307,47 @@ message ListPlanCheckRunsResponse {
   string next_page_token = 2;
 }
 
+message RunPlanChecksRequest {
+  // The plan to run plan checks.
+  // Format: projects/{project}/plans/{plan}
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message RunPlanChecksResponse {}
+
+message BatchRunTasksRequest {
+  // The name of the parent of the tasks.
+  // Format: projects/{project}/rollouts/{rollout}/stages/{stage}
+  string parent = 1;
+  // The tasks to run.
+  // Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}
+  repeated string tasks = 2;
+}
+
+message BatchRunTasksResponse {}
+
+message BatchSkipTasksRequest {
+  // The name of the parent of the tasks.
+  // Format: projects/{project}/rollouts/{rollout}/stages/{stage}
+  string parent = 1;
+  // The tasks to skip.
+  // Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}
+  repeated string tasks = 2;
+}
+
+message BatchSkipTasksResponse {}
+
+message BatchCancelTaskRunsRequest {
+  // The name of the parent of the taskRuns.
+  // Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}
+  string parent = 1;
+  // The taskRuns to cancel.
+  // Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}/taskRuns/{taskRun}
+  repeated string task_runs = 2;
+}
+
+message BatchCancelTaskRunsResponse {}
+
 message PlanCheckRun {
   // Format: projects/{project}/plans/{plan}/planCheckRuns/{planCheckRun}
   string name = 1;
@@ -275,11 +362,10 @@ message PlanCheckRun {
     DATABASE_STATEMENT_COMPATIBILITY = 3;
     DATABASE_STATEMENT_ADVISE = 4;
     DATABASE_STATEMENT_TYPE = 5;
-    DATABASE_STATEMENT_TYPE_REPORT = 6;
-    DATABASE_STATEMENT_AFFECTED_ROWS_REPORT = 7;
-    DATABASE_CONNECT = 8;
-    DATABASE_GHOST_SYNC = 9;
-    DATABASE_PITR_MYSQL = 10;
+    DATABASE_STATEMENT_SUMMARY_REPORT = 6;
+    DATABASE_CONNECT = 7;
+    DATABASE_GHOST_SYNC = 8;
+    DATABASE_PITR_MYSQL = 9;
   }
   Type type = 3;
 
@@ -297,28 +383,36 @@ message PlanCheckRun {
   // Format: projects/{project}/sheets/{sheet}
   string sheet = 6;
 
-  string detail = 7;
-  repeated Result results = 8;
+  repeated Result results = 7;
+  // error is set if the Status is FAILED.
+  string error = 8;
 
   message Result {
-    enum Namespace {
-      NAMESPACE_UNSPECIFIED = 0;
-      BYTEBASE = 1;
-      ADVISOR = 2;
-    }
-    Namespace namespace = 1;
-    int64 code = 2;
     enum Status {
       STATUS_UNSPECIFIED = 0;
       ERROR = 1;
       WARNING = 2;
       SUCCESS = 3;
     }
-    Status status = 3;
-    string title = 4;
-    string content = 5;
-    int64 line = 6;
-    string detail = 7;
+    Status status = 1;
+    string title = 2;
+    string content = 3;
+    int64 code = 4;
+
+    oneof report {
+      SqlSummaryReport sql_summary_report = 5;
+      SqlReviewReport sql_review_report = 6;
+    }
+    message SqlSummaryReport {
+      string statement_type = 1;
+      int64 affected_rows = 2;
+    }
+    message SqlReviewReport {
+      int64 line = 1;
+      string detail = 2;
+      // Code from sql review.
+      int64 code = 3;
+    }
   }
 }
 
@@ -326,6 +420,53 @@ message GetRolloutRequest {
   // The name of the rollout to retrieve.
   // Format: projects/{project}/rollouts/{rollout}
   string name = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message CreateRolloutRequest {
+  // The parent project where this rollout will be created.
+  // Format: projects/{project}
+  string parent = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The plan used to create rollout.
+  string plan = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message PreviewRolloutRequest {
+  // The name of the project.
+  // Format: projects/{project}
+  string project = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The plan used to preview rollout.
+  Plan plan = 2;
+}
+
+message ListTaskRunsRequest {
+  // The parent, which owns this collection of plans.
+  // Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}
+  // Use "projects/{project}/rollouts/{rollout}/stages/-/tasks/-" to list all taskRuns from a rollout.
+  string parent = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The maximum number of taskRuns to return. The service may return fewer than
+  // this value.
+  // If unspecified, at most 50 taskRuns will be returned.
+  // The maximum value is 1000; values above 1000 will be coerced to 1000.
+  int32 page_size = 2;
+
+  // A page token, received from a previous `ListRolloutTaskRuns` call.
+  // Provide this to retrieve the subsequent page.
+  //
+  // When paginating, all other parameters provided to `ListRolloutTaskRuns` must match
+  // the call that provided the page token.
+  string page_token = 3;
+}
+
+message ListTaskRunsResponse {
+  // The taskRuns from the specified request.
+  repeated TaskRun task_runs = 1;
+
+  // A token, which can be sent as `page_token` to retrieve the next page.
+  // If this field is omitted, there are no subsequent pages.
+  string next_page_token = 2;
 }
 
 message Rollout {
@@ -461,10 +602,10 @@ message Task {
     // the sheet that stores the generated rollback SQL statement.
     // Format: projects/{project}/sheets/{sheet}
     string rollback_sheet = 6;
-    // rollback_from_review is the resource name of the review that
+    // rollback_from_issue is the resource name of the issue that
     // the rollback SQL statement is generated from.
-    // Format: projects/{project}/reviews/{review}
-    string rollback_from_review = 7;
+    // Format: projects/{project}/issues/{issue}
+    string rollback_from_issue = 7;
     // rollback_from_task is the resource name of the task that
     // the rollback SQL statement is generated from.
     // Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}

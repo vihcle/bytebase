@@ -61,8 +61,8 @@ func (s *RiskService) ListRisks(ctx context.Context, _ *v1pb.ListRisksRequest) (
 
 // CreateRisk creates a risk.
 func (s *RiskService) CreateRisk(ctx context.Context, request *v1pb.CreateRiskRequest) (*v1pb.Risk, error) {
-	if !s.licenseService.IsFeatureEnabled(api.FeatureCustomApproval) {
-		return nil, status.Errorf(codes.PermissionDenied, api.FeatureCustomApproval.AccessErrorMessage())
+	if err := s.licenseService.IsFeatureEnabled(api.FeatureCustomApproval); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, err.Error())
 	}
 	// Validate the condition.
 	if _, err := common.ConvertUnparsedRisk(request.Risk.Condition); err != nil {
@@ -85,8 +85,8 @@ func (s *RiskService) CreateRisk(ctx context.Context, request *v1pb.CreateRiskRe
 
 // UpdateRisk updates a risk.
 func (s *RiskService) UpdateRisk(ctx context.Context, request *v1pb.UpdateRiskRequest) (*v1pb.Risk, error) {
-	if !s.licenseService.IsFeatureEnabled(api.FeatureCustomApproval) {
-		return nil, status.Errorf(codes.PermissionDenied, api.FeatureCustomApproval.AccessErrorMessage())
+	if err := s.licenseService.IsFeatureEnabled(api.FeatureCustomApproval); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, err.Error())
 	}
 	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
 	if request.UpdateMask == nil {
@@ -171,6 +171,10 @@ func convertToSource(source store.RiskSource) v1pb.Risk_Source {
 		return v1pb.Risk_DDL
 	case store.RiskSourceDatabaseDataUpdate:
 		return v1pb.Risk_DML
+	case store.RiskRequestQuery:
+		return v1pb.Risk_QUERY
+	case store.RiskRequestExport:
+		return v1pb.Risk_EXPORT
 	}
 	return v1pb.Risk_SOURCE_UNSPECIFIED
 }
@@ -183,6 +187,10 @@ func convertSource(source v1pb.Risk_Source) store.RiskSource {
 		return store.RiskSourceDatabaseSchemaUpdate
 	case v1pb.Risk_DML:
 		return store.RiskSourceDatabaseDataUpdate
+	case v1pb.Risk_QUERY:
+		return store.RiskRequestQuery
+	case v1pb.Risk_EXPORT:
+		return store.RiskRequestExport
 	}
 	return store.RiskSourceUnknown
 }

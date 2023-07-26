@@ -11,7 +11,7 @@
         {{ extractDatabaseName(item) }}
       </div>
       <div class="bb-grid-cell">
-        {{ extractTableName(item) }}
+        <span class="line-clamp-1">{{ extractTableName(item) }}</span>
       </div>
       <div class="bb-grid-cell">
         <EnvironmentV1Name
@@ -34,7 +34,7 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { BBGridColumn } from "@/bbkit";
 import { DatabaseGroup } from "@/types/proto/v1/project_service";
-import { DatabaseResource } from "../panel/RequestExportPanel/SelectTableForm/common";
+import { DatabaseResource } from "@/types";
 import { watch } from "vue";
 import { useDatabaseV1Store } from "@/store";
 import { EnvironmentV1Name, InstanceV1Name } from "@/components/v2";
@@ -93,10 +93,10 @@ watch(
 const COLUMN_LIST = computed(() => {
   const columns: BBGridColumn[] = [
     { title: t("common.database"), width: "1fr" },
-    { title: t("common.table"), width: "1fr" },
+    { title: t("common.table"), width: "0.5fr" },
     {
       title: t("common.environment"),
-      width: "1fr",
+      width: "0.5fr",
     },
     { title: t("common.instance"), width: "1fr" },
   ];

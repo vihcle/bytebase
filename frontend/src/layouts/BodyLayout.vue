@@ -46,7 +46,7 @@
                 {{ $t("common.demo-mode") }}
               </div>
               <router-link
-                v-else-if="!isFreePlan"
+                v-else-if="!isFreePlan || !hasPermission"
                 to="/setting/subscription"
                 exact-active-class=""
                 class="text-sm flex"
@@ -105,7 +105,7 @@
             {{ $t("common.archive") }}
           </router-link>
           <div
-            class="flex-shrink-0 flex border-t border-block-border px-3 py-2"
+            class="flex-shrink-0 flex justify-between border-t border-block-border px-3 py-2"
           >
             <div
               v-if="isDemo"
@@ -115,7 +115,7 @@
               {{ $t("common.demo-mode") }}
             </div>
             <router-link
-              v-else-if="!isFreePlan"
+              v-else-if="!isFreePlan || !hasPermission"
               to="/setting/subscription"
               exact-active-class=""
               class="text-sm flex whitespace-nowrap mr-1"
@@ -123,7 +123,7 @@
               {{ $t(currentPlan) }}
             </router-link>
             <div
-              v-else
+              v-else-if="subscriptionStore.canTrial"
               class="text-sm flex whitespace-nowrap mr-1 text-accent cursor-pointer"
               @click="state.showTrialModal = true"
             >
@@ -131,7 +131,7 @@
               {{ $t(currentPlan) }}
             </div>
             <div
-              class="text-xs flex items-center gap-x-1 ml-auto tooltip-wrapper whitespace-nowrap"
+              class="text-xs flex items-center gap-x-1 tooltip-wrapper whitespace-nowrap"
               :class="
                 canUpgrade
                   ? 'text-success cursor-pointer'
@@ -240,8 +240,8 @@
   />
 </template>
 
-<script lang="ts">
-import { computed, defineComponent, reactive } from "vue";
+<script lang="ts" setup>
+import { computed, reactive } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import DashboardHeader from "@/views/DashboardHeader.vue";
@@ -256,6 +256,7 @@ import {
   useCurrentUserV1,
   useSubscriptionV1Store,
 } from "@/store";
+import { hasWorkspacePermissionV1 } from "@/utils";
 
 interface LocalState {
   showMobileOverlay: boolean;
@@ -263,127 +264,111 @@ interface LocalState {
   showReleaseModal: boolean;
 }
 
-export default defineComponent({
-  name: "BodyLayout",
-  components: {
-    DashboardHeader,
-    Breadcrumb,
-    Quickstart,
-    QuickActionPanel,
-  },
-  setup() {
-    const actuatorStore = useActuatorV1Store();
-    const subscriptionStore = useSubscriptionV1Store();
-    const route = useRoute();
-    const router = useRouter();
+const actuatorStore = useActuatorV1Store();
+const subscriptionStore = useSubscriptionV1Store();
+const route = useRoute();
+const router = useRouter();
 
-    const state = reactive<LocalState>({
-      showMobileOverlay: false,
-      showTrialModal: false,
-      showReleaseModal: false,
-    });
+const state = reactive<LocalState>({
+  showMobileOverlay: false,
+  showTrialModal: false,
+  showReleaseModal: false,
+});
 
-    const { isDemo } = storeToRefs(actuatorStore);
+const hasPermission = hasWorkspacePermissionV1(
+  "bb.permission.workspace.manage-subscription",
+  useCurrentUserV1().value.userRole
+);
 
-    actuatorStore.tryToRemindRelease().then((openRemindModal) => {
-      state.showReleaseModal = openRemindModal;
-    });
+const { isDemo } = storeToRefs(actuatorStore);
 
-    const canUpgrade = computed(() => {
-      return actuatorStore.hasNewRelease;
-    });
+actuatorStore.tryToRemindRelease().then((openRemindModal) => {
+  state.showReleaseModal = openRemindModal;
+});
 
-    const currentUserV1 = useCurrentUserV1();
+const canUpgrade = computed(() => {
+  return actuatorStore.hasNewRelease;
+});
 
-    const quickActionList = computed(() => {
-      const role = currentUserV1.value.userRole;
-      const quickActionListFunc =
-        router.currentRoute.value.meta.quickActionListByRole;
-      const listByRole = quickActionListFunc
-        ? quickActionListFunc(router.currentRoute.value)
-        : new Map();
-      const list: QuickActionType[] = [];
+const currentUserV1 = useCurrentUserV1();
 
-      // We write this way because for free version, the user wears the three role hat,
-      // and we want to display all quick actions relevant to those three roles without duplication.
-      if (isOwner(role)) {
-        for (const item of listByRole.get("OWNER") || []) {
-          list.push(item);
-        }
+const quickActionList = computed(() => {
+  const role = currentUserV1.value.userRole;
+  const quickActionListFunc =
+    router.currentRoute.value.meta.quickActionListByRole;
+  const listByRole = quickActionListFunc
+    ? quickActionListFunc(router.currentRoute.value)
+    : new Map();
+  const list: QuickActionType[] = [];
+
+  // We write this way because for free version, the user wears the three role hat,
+  // and we want to display all quick actions relevant to those three roles without duplication.
+  if (isOwner(role)) {
+    for (const item of listByRole.get("OWNER") || []) {
+      list.push(item);
+    }
+  }
+
+  if (isDBA(role)) {
+    for (const item of listByRole.get("DBA") || []) {
+      if (
+        !list.find((myItem: QuickActionType) => {
+          return item == myItem;
+        })
+      ) {
+        list.push(item);
       }
+    }
+  }
 
-      if (isDBA(role)) {
-        for (const item of listByRole.get("DBA") || []) {
-          if (
-            !list.find((myItem: QuickActionType) => {
-              return item == myItem;
-            })
-          ) {
-            list.push(item);
-          }
-        }
+  if (isDeveloper(role)) {
+    for (const item of listByRole.get("DEVELOPER") || []) {
+      if (
+        !list.find((myItem: QuickActionType) => {
+          return item == myItem;
+        })
+      ) {
+        list.push(item);
       }
+    }
+  }
+  return list;
+});
 
-      if (isDeveloper(role)) {
-        for (const item of listByRole.get("DEVELOPER") || []) {
-          if (
-            !list.find((myItem: QuickActionType) => {
-              return item == myItem;
-            })
-          ) {
-            list.push(item);
-          }
-        }
+const showBreadcrumb = computed(() => {
+  const name = router.currentRoute.value.name;
+  return !(name === "workspace.home" || name === "workspace.profile");
+});
+
+const version = computed(() => {
+  const v = actuatorStore.version;
+  if (v.split(".").length == 3) {
+    return `v${v}`;
+  }
+  return v;
+});
+
+const gitCommit = computed(() => {
+  return `${actuatorStore.gitCommit.substring(0, 7)}`;
+});
+
+const currentPlan = computed((): string => {
+  const plan = subscriptionStore.currentPlan;
+  switch (plan) {
+    case PlanType.TEAM:
+      return "subscription.plan.team.title";
+    case PlanType.ENTERPRISE:
+      return "subscription.plan.enterprise.title";
+    default:
+      if (hasPermission) {
+        return "subscription.plan.try";
       }
-      return list;
-    });
+      return "subscription.plan.free.title";
+  }
+});
 
-    const showBreadcrumb = computed(() => {
-      const name = router.currentRoute.value.name;
-      return !(name === "workspace.home" || name === "workspace.profile");
-    });
-
-    const version = computed(() => {
-      const v = actuatorStore.version;
-      if (v.split(".").length == 3) {
-        return `v${v}`;
-      }
-      return v;
-    });
-
-    const gitCommit = computed(() => {
-      return `${actuatorStore.gitCommit.substring(0, 7)}`;
-    });
-
-    const currentPlan = computed((): string => {
-      const plan = subscriptionStore.currentPlan;
-      switch (plan) {
-        case PlanType.TEAM:
-          return "subscription.plan.team.title";
-        case PlanType.ENTERPRISE:
-          return "subscription.plan.enterprise.title";
-        default:
-          return "subscription.plan.try";
-      }
-    });
-
-    const isFreePlan = computed((): boolean => {
-      const plan = subscriptionStore.currentPlan;
-      return plan === PlanType.FREE;
-    });
-
-    return {
-      state,
-      route,
-      quickActionList,
-      showBreadcrumb,
-      version,
-      gitCommit,
-      currentPlan,
-      isFreePlan,
-      canUpgrade,
-      isDemo,
-    };
-  },
+const isFreePlan = computed((): boolean => {
+  const plan = subscriptionStore.currentPlan;
+  return plan === PlanType.FREE;
 });
 </script>

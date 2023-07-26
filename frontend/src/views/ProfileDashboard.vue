@@ -112,7 +112,7 @@
             <PhoneNumberInput
               v-if="state.editing"
               :value="state.editingUser?.phone || ''"
-              @update="(value) => updateUser('phone', value)"
+              @update="(value: string) => updateUser('phone', value)"
             />
             <template v-else>
               {{ user.phone }}
@@ -170,7 +170,7 @@
           class="text-lg font-medium flex flex-row justify-start items-center"
         >
           {{ $t("two-factor.self") }}
-          <FeatureBadge :feature="'bb.feature.2fa'" class="ml-2 text-accent" />
+          <FeatureBadge :feature="'bb.feature.2fa'" custom-class="ml-2" />
         </span>
         <div class="space-x-2">
           <NButton @click="enable2FA">
@@ -228,8 +228,8 @@
   </main>
 
   <FeatureModal
-    v-if="state.showFeatureModal"
     feature="bb.feature.2fa"
+    :open="state.showFeatureModal"
     @cancel="state.showFeatureModal = false"
   />
 
@@ -400,7 +400,7 @@ const saveEdit = async () => {
   if (userPatch.phone !== user.value.phone) {
     updateMask.push("phone");
   }
-  if (userPatch.password !== user.value.email) {
+  if (userPatch.password !== "") {
     updateMask.push("password");
   }
   try {

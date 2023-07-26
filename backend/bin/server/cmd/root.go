@@ -69,7 +69,7 @@ var (
 		readonly bool
 		// saas means the Bytebase is running in SaaS mode, several features is only controlled by us instead of users under this mode.
 		saas bool
-		// demoName is the name of the demo and should be one of the subpath name in the ./store/demo/ directory.
+		// demoName is the name of the demo and should be one of the subpath name in the ../migrator/demo directory.
 		// empty means no demo.
 		demoName string
 		debug    bool
@@ -78,6 +78,8 @@ var (
 		pgURL string
 		// disableMetric is the flag to disable the metric collector.
 		disableMetric bool
+		// disableSample is the flag to disable the sample instance.
+		disableSample bool
 
 		// Cloud backup configs.
 		backupRegion     string
@@ -117,7 +119,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flags.dataDir, "data", ".", "directory where Bytebase stores data. If relative path is supplied, then the path is relative to the directory where Bytebase is under")
 	rootCmd.PersistentFlags().BoolVar(&flags.readonly, "readonly", false, "whether to run in read-only mode")
 	rootCmd.PersistentFlags().BoolVar(&flags.saas, "saas", false, "whether to run in SaaS mode")
-	// Must be one of the subpath name in the ./store/demo/ directory
+	// Must be one of the subpath name in the ../migrator/demo directory
 	rootCmd.PersistentFlags().StringVar(&flags.demoName, "demo", "", "name of the demo to use. Empty means not running in demo mode.")
 	rootCmd.PersistentFlags().BoolVar(&flags.debug, "debug", false, "whether to enable debug level logging")
 	// Support environment variable for deploying to render.com using its blueprint file.
@@ -125,6 +127,7 @@ func init() {
 	// It allows to pass the postgres connection string as an ENV to the service.
 	rootCmd.PersistentFlags().StringVar(&flags.pgURL, "pg", os.Getenv("PG_URL"), "optional external PostgreSQL instance connection url(must provide dbname); for example postgresql://user:secret@masterhost:5432/dbname?sslrootcert=cert")
 	rootCmd.PersistentFlags().BoolVar(&flags.disableMetric, "disable-metric", false, "disable the metric collector")
+	rootCmd.PersistentFlags().BoolVar(&flags.disableSample, "disable-sample", false, "disable the sample instance")
 
 	// Cloud backup related flags.
 	// TODO(dragonly): Add GCS usages when it's supported.
@@ -258,7 +261,7 @@ func start() {
 	if s.SchemaVersion != nil {
 		schemaVersion = fmt.Sprintf("(schema version %v) ", s.SchemaVersion)
 	}
-	fmt.Printf(greetingBanner, fmt.Sprintf("Version %s %shas started on port %d", profile.Version, schemaVersion, flags.port))
+	fmt.Printf(greetingBanner, fmt.Sprintf("Version %s %shas started on port %d 🚀", profile.Version, schemaVersion, flags.port))
 
 	// Execute program.
 	if err := s.Run(ctx, flags.port); err != nil {

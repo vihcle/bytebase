@@ -86,6 +86,9 @@
               </p>
             </div>
           </div>
+          <div class="sm:mt-0 sm:ml-14 sm:text-left">
+            <slot name="default" />
+          </div>
         </div>
         <div class="mt-5 flex flex-col space-y-4">
           <div class="flex justify-end">
@@ -94,7 +97,7 @@
               class="btn-normal mt-3 px-4 py-2 sm:mt-0 sm:w-auto"
               data-label="bb-alert-cancel-button"
               :disabled="inProgress"
-              @click.prevent="cancel"
+              @click.stop="cancel"
             >
               {{ $t(cancelText) }}
             </button>
@@ -104,7 +107,7 @@
               data-label="bb-alert-ok-button"
               :class="okButtonStyle"
               :disabled="inProgress"
-              @click.prevent="$emit('ok', payload)"
+              @click.stop="$emit('ok', payload)"
             >
               {{ $t(okText) }}
             </button>

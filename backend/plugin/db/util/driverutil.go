@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/bytebase/bytebase/backend/common"
@@ -182,12 +183,12 @@ func Query(ctx context.Context, dbType db.Type, conn *sql.Conn, statement string
 	}
 
 	var fieldMaskInfo []bool
+	var fieldSensitiveInfo []bool
+
 	for i := range columnNames {
-		if len(fieldList) > 0 && fieldList[i].Sensitive {
-			fieldMaskInfo = append(fieldMaskInfo, true)
-		} else {
-			fieldMaskInfo = append(fieldMaskInfo, false)
-		}
+		sensitive := len(fieldList) > 0 && fieldList[i].Sensitive
+		fieldSensitiveInfo = append(fieldSensitiveInfo, sensitive)
+		fieldMaskInfo = append(fieldMaskInfo, sensitive && queryContext.EnableSensitive)
 	}
 
 	columnTypes, err := rows.ColumnTypes()
@@ -202,7 +203,7 @@ func Query(ctx context.Context, dbType db.Type, conn *sql.Conn, statement string
 		columnTypeNames = append(columnTypeNames, strings.ToUpper(v.DatabaseTypeName()))
 	}
 
-	data, err := readRows(rows, dbType, columnTypes, columnTypeNames, fieldList)
+	data, err := readRows(rows, dbType, columnTypes, columnTypeNames, fieldMaskInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +212,7 @@ func Query(ctx context.Context, dbType db.Type, conn *sql.Conn, statement string
 		return nil, err
 	}
 
-	return []any{columnNames, columnTypeNames, data, fieldMaskInfo}, nil
+	return []any{columnNames, columnTypeNames, data, fieldMaskInfo, fieldSensitiveInfo}, nil
 }
 
 // Query2 will execute a readonly / SELECT query.
@@ -234,22 +235,24 @@ func Query2(ctx context.Context, dbType db.Type, conn *sql.Conn, statement strin
 		return nil, err
 	}
 
+	// TODO(d): use a Redshift extraction for shared database.
+	if dbType == db.Redshift && queryContext.ShareDB {
+		statement = strings.ReplaceAll(statement, fmt.Sprintf("%s.", queryContext.CurrentDatabase), "")
+	}
 	fieldList, err := extractSensitiveField(dbType, statement, queryContext.CurrentDatabase, queryContext.SensitiveSchemaInfo)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to extract sensitive fields: %q", statement)
 	}
-
 	if len(fieldList) != 0 && len(fieldList) != len(columnNames) {
 		return nil, errors.Errorf("failed to extract sensitive fields: %q", statement)
 	}
 
 	var fieldMaskInfo []bool
+	var fieldSensitiveInfo []bool
 	for i := range columnNames {
-		if len(fieldList) > 0 && fieldList[i].Sensitive {
-			fieldMaskInfo = append(fieldMaskInfo, true)
-		} else {
-			fieldMaskInfo = append(fieldMaskInfo, false)
-		}
+		sensitive := len(fieldList) > 0 && fieldList[i].Sensitive
+		fieldSensitiveInfo = append(fieldSensitiveInfo, sensitive)
+		fieldMaskInfo = append(fieldMaskInfo, sensitive && queryContext.EnableSensitive)
 	}
 
 	columnTypes, err := rows.ColumnTypes()
@@ -264,7 +267,7 @@ func Query2(ctx context.Context, dbType db.Type, conn *sql.Conn, statement strin
 		columnTypeNames = append(columnTypeNames, strings.ToUpper(v.DatabaseTypeName()))
 	}
 
-	data, err := readRows2(rows, columnTypes, columnTypeNames, fieldList)
+	data, err := readRows2(rows, columnTypes, columnTypeNames, fieldMaskInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -278,6 +281,7 @@ func Query2(ctx context.Context, dbType db.Type, conn *sql.Conn, statement strin
 		ColumnTypeNames: columnTypeNames,
 		Rows:            data,
 		Masked:          fieldMaskInfo,
+		Sensitive:       fieldSensitiveInfo,
 	}, nil
 }
 
@@ -293,10 +297,11 @@ func RunStatement(ctx context.Context, engineType parser.EngineType, conn *sql.C
 
 	var results []*v1pb.QueryResult
 	for _, singleSQL := range singleSQLs {
+		startTime := time.Now()
 		if singleSQL.Empty {
 			continue
 		}
-		if IsAffectedRowsStatement(singleSQL.Text) {
+		if parser.IsMySQLAffectedRowsStatement(singleSQL.Text) {
 			sqlResult, err := conn.ExecContext(ctx, singleSQL.Text)
 			if err != nil {
 				return nil, err
@@ -323,6 +328,8 @@ func RunStatement(ctx context.Context, engineType parser.EngineType, conn *sql.C
 				ColumnNames:     field,
 				ColumnTypeNames: types,
 				Rows:            rows,
+				Latency:         durationpb.New(time.Since(startTime)),
+				Statement:       strings.TrimLeft(strings.TrimRight(singleSQL.Text, " \n\t;"), " \n\t"),
 			})
 			continue
 		}
@@ -333,6 +340,7 @@ func RunStatement(ctx context.Context, engineType parser.EngineType, conn *sql.C
 }
 
 func adminQuery(ctx context.Context, conn *sql.Conn, statement string) *v1pb.QueryResult {
+	startTime := time.Now()
 	rows, err := conn.QueryContext(ctx, statement)
 	if err != nil {
 		return &v1pb.QueryResult{
@@ -347,6 +355,8 @@ func adminQuery(ctx context.Context, conn *sql.Conn, statement string) *v1pb.Que
 			Error: err.Error(),
 		}
 	}
+	result.Latency = durationpb.New(time.Since(startTime))
+	result.Statement = strings.TrimLeft(strings.TrimRight(statement, " \n\t;"), " \n\t")
 	return result
 }
 
@@ -429,7 +439,7 @@ func queryAdmin(ctx context.Context, dbType db.Type, conn *sql.Conn, statement s
 }
 
 // TODO(rebelice): remove the readRows and rename readRows2 to readRows if legacy API is deprecated.
-func readRows2(rows *sql.Rows, columnTypes []*sql.ColumnType, columnTypeNames []string, fieldList []db.SensitiveField) ([]*v1pb.QueryRow, error) {
+func readRows2(rows *sql.Rows, columnTypes []*sql.ColumnType, columnTypeNames []string, fieldMaskInfo []bool) ([]*v1pb.QueryRow, error) {
 	var data []*v1pb.QueryRow
 	if len(columnTypes) == 0 {
 		// No rows.
@@ -460,7 +470,7 @@ func readRows2(rows *sql.Rows, columnTypes []*sql.ColumnType, columnTypeNames []
 
 		var rowData v1pb.QueryRow
 		for i := range columnTypes {
-			if len(fieldList) > 0 && fieldList[i].Sensitive {
+			if len(fieldMaskInfo) > 0 && fieldMaskInfo[i] {
 				rowData.Values = append(rowData.Values, &v1pb.RowValue{Kind: &v1pb.RowValue_StringValue{StringValue: "******"}})
 				continue
 			}
@@ -494,9 +504,9 @@ func readRows2(rows *sql.Rows, columnTypes []*sql.ColumnType, columnTypeNames []
 	return data, nil
 }
 
-func readRows(rows *sql.Rows, dbType db.Type, columnTypes []*sql.ColumnType, columnTypeNames []string, fieldList []db.SensitiveField) ([]any, error) {
+func readRows(rows *sql.Rows, dbType db.Type, columnTypes []*sql.ColumnType, columnTypeNames []string, fieldMaskInfo []bool) ([]any, error) {
 	if dbType == db.ClickHouse {
-		return readRowsForClickhouse(rows, columnTypes, columnTypeNames, fieldList)
+		return readRowsForClickhouse(rows, columnTypes, columnTypeNames, fieldMaskInfo)
 	}
 	data := []any{}
 	for rows.Next() {
@@ -523,7 +533,7 @@ func readRows(rows *sql.Rows, dbType db.Type, columnTypes []*sql.ColumnType, col
 
 		rowData := []any{}
 		for i := range columnTypes {
-			if len(fieldList) > 0 && fieldList[i].Sensitive {
+			if len(fieldMaskInfo) > 0 && fieldMaskInfo[i] {
 				rowData = append(rowData, "******")
 				continue
 			}
@@ -693,7 +703,7 @@ func FromStoredVersion(storedVersion string) (bool, string, string, error) {
 // IsAffectedRowsStatement returns true if the statement will return the number of affected rows.
 func IsAffectedRowsStatement(stmt string) bool {
 	affectedRowsStatementPrefix := []string{"INSERT ", "UPDATE ", "DELETE "}
-	upperStatement := strings.ToUpper(stmt)
+	upperStatement := strings.TrimLeft(strings.ToUpper(stmt), " \t\r\n")
 	for _, prefix := range affectedRowsStatementPrefix {
 		if strings.HasPrefix(upperStatement, prefix) {
 			return true
@@ -714,7 +724,7 @@ func ConvertYesNo(s string) (bool, error) {
 	}
 }
 
-func readRowsForClickhouse(rows *sql.Rows, columnTypes []*sql.ColumnType, columnTypeNames []string, fieldList []db.SensitiveField) ([]any, error) {
+func readRowsForClickhouse(rows *sql.Rows, columnTypes []*sql.ColumnType, columnTypeNames []string, fieldMaskInfo []bool) ([]any, error) {
 	data := []any{}
 
 	for rows.Next() {
@@ -740,7 +750,7 @@ func readRowsForClickhouse(rows *sql.Rows, columnTypes []*sql.ColumnType, column
 
 		rowData := []any{}
 		for i := range cols {
-			if len(fieldList) > 0 && fieldList[i].Sensitive {
+			if len(fieldMaskInfo) > 0 && fieldMaskInfo[i] {
 				rowData = append(rowData, "******")
 				continue
 			}

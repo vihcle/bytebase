@@ -15,6 +15,15 @@
             {{ $t("schema-editor.actions.add-column") }}
           </button>
           <button
+            class="flex flex-row justify-center items-center border px-3 py-1 leading-6 text-sm text-gray-700 rounded cursor-pointer hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="disableChangeTable"
+            @click="state.showSchemaTemplateDrawer = true"
+          >
+            <FeatureBadge feature="bb.feature.schema-template" />
+            <heroicons-outline:plus class="w-4 h-auto mr-1 text-gray-400" />
+            {{ $t("schema-editor.actions.add-from-template") }}
+          </button>
+          <button
             v-if="table.status !== 'created'"
             class="flex flex-row justify-center items-center border px-3 py-1 leading-6 text-sm text-gray-700 rounded cursor-pointer hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="!allowResetTable"
@@ -135,7 +144,7 @@
               <input
                 v-model="column.default"
                 :disabled="disableAlterColumn(column)"
-                :placeholder="column.default === undefined ? 'NULL' : 'EMPTY'"
+                :placeholder="column.default === undefined ? 'EMPTY' : 'NULL'"
                 class="column-field-input !pr-8"
                 type="text"
               />
@@ -268,6 +277,24 @@
     :column-id="editForeignKeyColumn.id"
     @close="state.showEditColumnForeignKeyModal = false"
   />
+  <Drawer
+    :show="state.showSchemaTemplateDrawer"
+    @close="state.showSchemaTemplateDrawer = false"
+  >
+    <DrawerContent :title="$t('schema-template.field-template')">
+      <div class="w-[46rem]">
+        <SettingWorkspaceSchemaTemplate
+          :engine="databaseEngine"
+          @apply="handleApplyColumnTemplate"
+        />
+      </div>
+    </DrawerContent>
+  </Drawer>
+  <FeatureModal
+    feature="bb.feature.schema-template"
+    :open="state.showFeatureModal"
+    @cancel="state.showFeatureModal = false"
+  />
 </template>
 
 <script lang="ts" setup>
@@ -276,7 +303,9 @@ import scrollIntoView from "scroll-into-view-if-needed";
 import { computed, nextTick, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { NDropdown } from "naive-ui";
+import { v1 as uuidv1 } from "uuid";
 import {
+  hasFeature,
   generateUniqueTabId,
   useNotificationStore,
   useSchemaEditorStore,
@@ -299,6 +328,9 @@ import { isTableChanged } from "../utils/table";
 import { diffSchema } from "@/utils/schemaEditor/diffSchema";
 import EditColumnForeignKeyModal from "../Modals/EditColumnForeignKeyModal.vue";
 import { Engine } from "@/types/proto/v1/common";
+import { Drawer, DrawerContent } from "@/components/v2";
+import SettingWorkspaceSchemaTemplate from "../../../views/SettingWorkspaceSchemaTemplate.vue";
+import { SchemaTemplateSetting_FieldTemplate } from "@/types/proto/v1/setting_service";
 
 type SubtabType = "column-list" | "raw-sql";
 
@@ -307,6 +339,8 @@ interface LocalState {
   isFetchingDDL: boolean;
   statement: string;
   showEditColumnForeignKeyModal: boolean;
+  showSchemaTemplateDrawer: boolean;
+  showFeatureModal: boolean;
 }
 
 const { t } = useI18n();
@@ -322,6 +356,8 @@ const state = reactive<LocalState>({
   isFetchingDDL: false,
   statement: "",
   showEditColumnForeignKeyModal: false,
+  showSchemaTemplateDrawer: false,
+  showFeatureModal: false,
 });
 
 const table = ref(editorStore.getTableWithTableTab(currentTab.value) as Table);
@@ -395,7 +431,7 @@ const columnHeaderList = computed(() => {
     },
     {
       key: "foreign_key",
-      label: "Foreign Key",
+      label: t("schema-editor.column.foreign-key"),
     },
   ];
 });
@@ -577,6 +613,29 @@ const handleChangeTab = (tab: SubtabType) => {
   state.selectedSubtab = tab;
 };
 
+const handleApplyColumnTemplate = (
+  template: SchemaTemplateSetting_FieldTemplate
+) => {
+  if (!hasFeature("bb.feature.schema-template")) {
+    state.showFeatureModal = true;
+    return;
+  }
+  if (template.engine !== databaseEngine.value || !template.column) {
+    return;
+  }
+  const column: Column = {
+    id: uuidv1(),
+    name: template.column.name,
+    type: template.column.type,
+    nullable: template.column.nullable,
+    comment: template.column.comment,
+    default: template.column.default,
+    status: "created",
+  };
+  table.value.columnList.push(column);
+  state.showSchemaTemplateDrawer = false;
+};
+
 const handleAddColumn = () => {
   const column = convertColumnMetadataToColumn(ColumnMetadata.fromPartial({}));
   column.status = "created";
@@ -595,9 +654,9 @@ const handleColumnDefaultFieldChange = (
   defaultString: string
 ) => {
   if (defaultString === "NULL") {
-    column.default = undefined;
+    column.default = "NULL";
   } else if (defaultString === "EMPTY") {
-    column.default = "";
+    column.default = undefined;
   }
 };
 

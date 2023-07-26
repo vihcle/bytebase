@@ -148,9 +148,11 @@ export interface UpdateDatabaseRequest {
    * The database's `name` field is used to identify the database to update.
    * Format: instances/{instance}/databases/{database}
    */
-  database?: Database;
+  database?:
+    | Database
+    | undefined;
   /** The list of fields to update. */
-  updateMask?: string[];
+  updateMask?: string[] | undefined;
 }
 
 export interface BatchUpdateDatabasesRequest {
@@ -212,7 +214,7 @@ export interface GetBackupSettingRequest {
 
 export interface UpdateBackupSettingRequest {
   /** The database backup setting to update. */
-  setting?: BackupSetting;
+  setting?: BackupSetting | undefined;
 }
 
 /** CreateBackupRequest is the request message for CreateBackup. */
@@ -222,7 +224,7 @@ export interface CreateBackupRequest {
    * Format: instances/{instance}/databases/{database}
    */
   parent: string;
-  backup?: Backup;
+  backup?: Backup | undefined;
 }
 
 /** ListBackupsRequest is the request message for ListBackup. */
@@ -271,7 +273,9 @@ export interface Database {
   /** The existence of a database on latest sync. */
   syncState: State;
   /** The latest synchronization time. */
-  successfulSyncTime?: Date;
+  successfulSyncTime?:
+    | Date
+    | undefined;
   /**
    * The project for a database.
    * Format: projects/{project}
@@ -279,6 +283,16 @@ export interface Database {
   project: string;
   /** The version of database schema. */
   schemaVersion: string;
+  /**
+   * The environment resource.
+   * Format: environments/prod where prod is the environment resource ID.
+   */
+  environment: string;
+  /**
+   * The effective environment based on environment tag above and environment tag on the instance.
+   * Inheritance follows https://cloud.google.com/resource-manager/docs/tags/tags-overview.
+   */
+  effectiveEnvironment: string;
   /** Labels will be used for deployment and policy control. */
   labels: { [key: string]: string };
 }
@@ -317,6 +331,10 @@ export interface SchemaMetadata {
   views: ViewMetadata[];
   /** The functions is the list of functions in a schema. */
   functions: FunctionMetadata[];
+  /** The streams is the list of streams in a schema, currently, only used for Snowflake. */
+  streams: StreamMetadata[];
+  /** The routines is the list of routines in a schema, currently, only used for Snowflake. */
+  tasks: TaskMetadata[];
 }
 
 /** TableMetadata is the metadata for tables. */
@@ -354,7 +372,9 @@ export interface ColumnMetadata {
   /** The position is the position in columns. */
   position: number;
   /** The default is the default of a column. Use google.protobuf.StringValue to distinguish between an empty string default value or no default. */
-  default?: string;
+  default?:
+    | string
+    | undefined;
   /** The nullable is the nullable of a column. */
   nullable: boolean;
   /** The type is the type of a column. */
@@ -395,6 +415,168 @@ export interface FunctionMetadata {
   name: string;
   /** The definition is the definition of a view. */
   definition: string;
+}
+
+export interface TaskMetadata {
+  /** The name is the name of a task. */
+  name: string;
+  /**
+   * The id is the snowflake-generated id of a task.
+   * Example: 01ad32a0-1bb6-5e93-0000-000000000001
+   */
+  id: string;
+  /** The owner of the task. */
+  owner: string;
+  /** The comment of the task. */
+  comment: string;
+  /** The warehouse of the task. */
+  warehouse: string;
+  /** The schedule interval of the task. */
+  schedule: string;
+  /** The predecessor tasks of the task. */
+  predecessors: string[];
+  /** The state of the task. */
+  state: TaskMetadata_State;
+  /** The condition of the task. */
+  condition: string;
+  /** The definition of the task. */
+  definition: string;
+}
+
+export enum TaskMetadata_State {
+  STATE_UNSPECIFIED = 0,
+  STATE_STARTED = 1,
+  STATE_SUSPENDED = 2,
+  UNRECOGNIZED = -1,
+}
+
+export function taskMetadata_StateFromJSON(object: any): TaskMetadata_State {
+  switch (object) {
+    case 0:
+    case "STATE_UNSPECIFIED":
+      return TaskMetadata_State.STATE_UNSPECIFIED;
+    case 1:
+    case "STATE_STARTED":
+      return TaskMetadata_State.STATE_STARTED;
+    case 2:
+    case "STATE_SUSPENDED":
+      return TaskMetadata_State.STATE_SUSPENDED;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return TaskMetadata_State.UNRECOGNIZED;
+  }
+}
+
+export function taskMetadata_StateToJSON(object: TaskMetadata_State): string {
+  switch (object) {
+    case TaskMetadata_State.STATE_UNSPECIFIED:
+      return "STATE_UNSPECIFIED";
+    case TaskMetadata_State.STATE_STARTED:
+      return "STATE_STARTED";
+    case TaskMetadata_State.STATE_SUSPENDED:
+      return "STATE_SUSPENDED";
+    case TaskMetadata_State.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
+export interface StreamMetadata {
+  /** The name is the name of a stream. */
+  name: string;
+  /** The table_name is the name of the table/view that the stream is created on. */
+  tableName: string;
+  /** The owner of the stream. */
+  owner: string;
+  /** The comment of the stream. */
+  comment: string;
+  /** The type of the stream. */
+  type: StreamMetadata_Type;
+  /** Indicates whether the stream was last read before the `stale_after` time. */
+  stale: boolean;
+  /** The mode of the stream. */
+  mode: StreamMetadata_Mode;
+  /** The definition of the stream. */
+  definition: string;
+}
+
+export enum StreamMetadata_Type {
+  TYPE_UNSPECIFIED = 0,
+  TYPE_DELTA = 1,
+  UNRECOGNIZED = -1,
+}
+
+export function streamMetadata_TypeFromJSON(object: any): StreamMetadata_Type {
+  switch (object) {
+    case 0:
+    case "TYPE_UNSPECIFIED":
+      return StreamMetadata_Type.TYPE_UNSPECIFIED;
+    case 1:
+    case "TYPE_DELTA":
+      return StreamMetadata_Type.TYPE_DELTA;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return StreamMetadata_Type.UNRECOGNIZED;
+  }
+}
+
+export function streamMetadata_TypeToJSON(object: StreamMetadata_Type): string {
+  switch (object) {
+    case StreamMetadata_Type.TYPE_UNSPECIFIED:
+      return "TYPE_UNSPECIFIED";
+    case StreamMetadata_Type.TYPE_DELTA:
+      return "TYPE_DELTA";
+    case StreamMetadata_Type.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
+export enum StreamMetadata_Mode {
+  MODE_UNSPECIFIED = 0,
+  MODE_DEFAULT = 1,
+  MODE_APPEND_ONLY = 2,
+  MODE_INSERT_ONLY = 3,
+  UNRECOGNIZED = -1,
+}
+
+export function streamMetadata_ModeFromJSON(object: any): StreamMetadata_Mode {
+  switch (object) {
+    case 0:
+    case "MODE_UNSPECIFIED":
+      return StreamMetadata_Mode.MODE_UNSPECIFIED;
+    case 1:
+    case "MODE_DEFAULT":
+      return StreamMetadata_Mode.MODE_DEFAULT;
+    case 2:
+    case "MODE_APPEND_ONLY":
+      return StreamMetadata_Mode.MODE_APPEND_ONLY;
+    case 3:
+    case "MODE_INSERT_ONLY":
+      return StreamMetadata_Mode.MODE_INSERT_ONLY;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return StreamMetadata_Mode.UNRECOGNIZED;
+  }
+}
+
+export function streamMetadata_ModeToJSON(object: StreamMetadata_Mode): string {
+  switch (object) {
+    case StreamMetadata_Mode.MODE_UNSPECIFIED:
+      return "MODE_UNSPECIFIED";
+    case StreamMetadata_Mode.MODE_DEFAULT:
+      return "MODE_DEFAULT";
+    case StreamMetadata_Mode.MODE_APPEND_ONLY:
+      return "MODE_APPEND_ONLY";
+    case StreamMetadata_Mode.MODE_INSERT_ONLY:
+      return "MODE_INSERT_ONLY";
+    case StreamMetadata_Mode.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
 }
 
 /** IndexMetadata is the metadata for indexes. */
@@ -476,7 +658,9 @@ export interface BackupSetting {
    * If not specified, Backups created under this BackupPlan will be deleted after 7 DAYS.
    * It will be rounded up to the number of days.
    */
-  backupRetainDuration?: Duration;
+  backupRetainDuration?:
+    | Duration
+    | undefined;
   /**
    * Cron(https://wikipedia.com/wiki/cron) string that defines a repeating schedule for creating Backups.
    * Support hour of day, day of week. (UTC time)
@@ -496,9 +680,13 @@ export interface Backup {
    */
   name: string;
   /** The timestamp when the backup resource was created initially. */
-  createTime?: Date;
+  createTime?:
+    | Date
+    | undefined;
   /** The timestamp when the backup resource was updated. */
-  updateTime?: Date;
+  updateTime?:
+    | Date
+    | undefined;
   /** The state of the backup. */
   state: Backup_BackupState;
   /** The type of the backup. */
@@ -656,7 +844,7 @@ export interface SlowQueryLog {
    */
   project: string;
   /** The statistics of the slow query log. */
-  statistics?: SlowQueryStatistics;
+  statistics?: SlowQueryStatistics | undefined;
 }
 
 /** SlowQueryStatistics is the statistics of the slow query log. */
@@ -666,11 +854,17 @@ export interface SlowQueryStatistics {
   /** The count of the slow query log. */
   count: number;
   /** The latest log time of the slow query log. */
-  latestLogTime?: Date;
+  latestLogTime?:
+    | Date
+    | undefined;
   /** The average query time of the slow query log. */
-  averageQueryTime?: Duration;
+  averageQueryTime?:
+    | Duration
+    | undefined;
   /** The maximum query time of the slow query log. */
-  maximumQueryTime?: Duration;
+  maximumQueryTime?:
+    | Duration
+    | undefined;
   /** The average rows sent of the slow query log. */
   averageRowsSent: number;
   /** The maximum rows sent of the slow query log. */
@@ -690,11 +884,17 @@ export interface SlowQueryStatistics {
 /** SlowQueryDetails is the details of the slow query log. */
 export interface SlowQueryDetails {
   /** The start time of the slow query log. */
-  startTime?: Date;
+  startTime?:
+    | Date
+    | undefined;
   /** The query time of the slow query log. */
-  queryTime?: Duration;
+  queryTime?:
+    | Duration
+    | undefined;
   /** The lock time of the slow query log. */
-  lockTime?: Duration;
+  lockTime?:
+    | Duration
+    | undefined;
   /** The rows sent of the slow query log. */
   rowsSent: number;
   /** The rows examined of the slow query log. */
@@ -738,9 +938,13 @@ export interface ListSecretsResponse {
 
 export interface UpdateSecretRequest {
   /** The secret to be created or updated. */
-  secret?: Secret;
+  secret?:
+    | Secret
+    | undefined;
   /** The mask of the fields to be updated. */
-  updateMask?: string[];
+  updateMask?:
+    | string[]
+    | undefined;
   /** If true, the secret will be created if it does not exist. */
   allowMissing: boolean;
 }
@@ -763,9 +967,13 @@ export interface Secret {
    */
   name: string;
   /** Not used. The timestamp when the secret resource was created initially. */
-  createdTime?: Date;
+  createdTime?:
+    | Date
+    | undefined;
   /** Not used. The timestamp when the secret resource was updated. */
-  updatedTime?: Date;
+  updatedTime?:
+    | Date
+    | undefined;
   /** The value of the secret. */
   value: string;
   /** The description of the secret. */
@@ -798,8 +1006,10 @@ export interface ChangeHistory {
   creator: string;
   /** Format: users/hello@world.com */
   updater: string;
-  createTime?: Date;
-  updateTime?: Date;
+  createTime?: Date | undefined;
+  updateTime?:
+    | Date
+    | undefined;
   /** release version of Bytebase */
   releaseVersion: string;
   source: ChangeHistory_Source;
@@ -810,10 +1020,12 @@ export interface ChangeHistory {
   statement: string;
   schema: string;
   prevSchema: string;
-  executionDuration?: Duration;
-  /** Format: projects/{project}/reviews/{review} */
-  review: string;
-  pushEvent?: PushEvent;
+  executionDuration?:
+    | Duration
+    | undefined;
+  /** Format: projects/{project}/issues/{issue} */
+  issue: string;
+  pushEvent?: PushEvent | undefined;
 }
 
 export enum ChangeHistory_Source {
@@ -2200,7 +2412,17 @@ export const ListBackupsResponse = {
 };
 
 function createBaseDatabase(): Database {
-  return { name: "", uid: "", syncState: 0, successfulSyncTime: undefined, project: "", schemaVersion: "", labels: {} };
+  return {
+    name: "",
+    uid: "",
+    syncState: 0,
+    successfulSyncTime: undefined,
+    project: "",
+    schemaVersion: "",
+    environment: "",
+    effectiveEnvironment: "",
+    labels: {},
+  };
 }
 
 export const Database = {
@@ -2223,8 +2445,14 @@ export const Database = {
     if (message.schemaVersion !== "") {
       writer.uint32(50).string(message.schemaVersion);
     }
+    if (message.environment !== "") {
+      writer.uint32(58).string(message.environment);
+    }
+    if (message.effectiveEnvironment !== "") {
+      writer.uint32(66).string(message.effectiveEnvironment);
+    }
     Object.entries(message.labels).forEach(([key, value]) => {
-      Database_LabelsEntry.encode({ key: key as any, value }, writer.uint32(58).fork()).ldelim();
+      Database_LabelsEntry.encode({ key: key as any, value }, writer.uint32(74).fork()).ldelim();
     });
     return writer;
   },
@@ -2283,9 +2511,23 @@ export const Database = {
             break;
           }
 
-          const entry7 = Database_LabelsEntry.decode(reader, reader.uint32());
-          if (entry7.value !== undefined) {
-            message.labels[entry7.key] = entry7.value;
+          message.environment = reader.string();
+          continue;
+        case 8:
+          if (tag !== 66) {
+            break;
+          }
+
+          message.effectiveEnvironment = reader.string();
+          continue;
+        case 9:
+          if (tag !== 74) {
+            break;
+          }
+
+          const entry9 = Database_LabelsEntry.decode(reader, reader.uint32());
+          if (entry9.value !== undefined) {
+            message.labels[entry9.key] = entry9.value;
           }
           continue;
       }
@@ -2305,6 +2547,8 @@ export const Database = {
       successfulSyncTime: isSet(object.successfulSyncTime) ? fromJsonTimestamp(object.successfulSyncTime) : undefined,
       project: isSet(object.project) ? String(object.project) : "",
       schemaVersion: isSet(object.schemaVersion) ? String(object.schemaVersion) : "",
+      environment: isSet(object.environment) ? String(object.environment) : "",
+      effectiveEnvironment: isSet(object.effectiveEnvironment) ? String(object.effectiveEnvironment) : "",
       labels: isObject(object.labels)
         ? Object.entries(object.labels).reduce<{ [key: string]: string }>((acc, [key, value]) => {
           acc[key] = String(value);
@@ -2322,6 +2566,8 @@ export const Database = {
     message.successfulSyncTime !== undefined && (obj.successfulSyncTime = message.successfulSyncTime.toISOString());
     message.project !== undefined && (obj.project = message.project);
     message.schemaVersion !== undefined && (obj.schemaVersion = message.schemaVersion);
+    message.environment !== undefined && (obj.environment = message.environment);
+    message.effectiveEnvironment !== undefined && (obj.effectiveEnvironment = message.effectiveEnvironment);
     obj.labels = {};
     if (message.labels) {
       Object.entries(message.labels).forEach(([k, v]) => {
@@ -2343,6 +2589,8 @@ export const Database = {
     message.successfulSyncTime = object.successfulSyncTime ?? undefined;
     message.project = object.project ?? "";
     message.schemaVersion = object.schemaVersion ?? "";
+    message.environment = object.environment ?? "";
+    message.effectiveEnvironment = object.effectiveEnvironment ?? "";
     message.labels = Object.entries(object.labels ?? {}).reduce<{ [key: string]: string }>((acc, [key, value]) => {
       if (value !== undefined) {
         acc[key] = String(value);
@@ -2542,7 +2790,7 @@ export const DatabaseMetadata = {
 };
 
 function createBaseSchemaMetadata(): SchemaMetadata {
-  return { name: "", tables: [], views: [], functions: [] };
+  return { name: "", tables: [], views: [], functions: [], streams: [], tasks: [] };
 }
 
 export const SchemaMetadata = {
@@ -2558,6 +2806,12 @@ export const SchemaMetadata = {
     }
     for (const v of message.functions) {
       FunctionMetadata.encode(v!, writer.uint32(34).fork()).ldelim();
+    }
+    for (const v of message.streams) {
+      StreamMetadata.encode(v!, writer.uint32(42).fork()).ldelim();
+    }
+    for (const v of message.tasks) {
+      TaskMetadata.encode(v!, writer.uint32(50).fork()).ldelim();
     }
     return writer;
   },
@@ -2597,6 +2851,20 @@ export const SchemaMetadata = {
 
           message.functions.push(FunctionMetadata.decode(reader, reader.uint32()));
           continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.streams.push(StreamMetadata.decode(reader, reader.uint32()));
+          continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.tasks.push(TaskMetadata.decode(reader, reader.uint32()));
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2612,6 +2880,8 @@ export const SchemaMetadata = {
       tables: Array.isArray(object?.tables) ? object.tables.map((e: any) => TableMetadata.fromJSON(e)) : [],
       views: Array.isArray(object?.views) ? object.views.map((e: any) => ViewMetadata.fromJSON(e)) : [],
       functions: Array.isArray(object?.functions) ? object.functions.map((e: any) => FunctionMetadata.fromJSON(e)) : [],
+      streams: Array.isArray(object?.streams) ? object.streams.map((e: any) => StreamMetadata.fromJSON(e)) : [],
+      tasks: Array.isArray(object?.tasks) ? object.tasks.map((e: any) => TaskMetadata.fromJSON(e)) : [],
     };
   },
 
@@ -2633,6 +2903,16 @@ export const SchemaMetadata = {
     } else {
       obj.functions = [];
     }
+    if (message.streams) {
+      obj.streams = message.streams.map((e) => e ? StreamMetadata.toJSON(e) : undefined);
+    } else {
+      obj.streams = [];
+    }
+    if (message.tasks) {
+      obj.tasks = message.tasks.map((e) => e ? TaskMetadata.toJSON(e) : undefined);
+    } else {
+      obj.tasks = [];
+    }
     return obj;
   },
 
@@ -2646,6 +2926,8 @@ export const SchemaMetadata = {
     message.tables = object.tables?.map((e) => TableMetadata.fromPartial(e)) || [];
     message.views = object.views?.map((e) => ViewMetadata.fromPartial(e)) || [];
     message.functions = object.functions?.map((e) => FunctionMetadata.fromPartial(e)) || [];
+    message.streams = object.streams?.map((e) => StreamMetadata.fromPartial(e)) || [];
+    message.tasks = object.tasks?.map((e) => TaskMetadata.fromPartial(e)) || [];
     return message;
   },
 };
@@ -3289,6 +3571,345 @@ export const FunctionMetadata = {
   fromPartial(object: DeepPartial<FunctionMetadata>): FunctionMetadata {
     const message = createBaseFunctionMetadata();
     message.name = object.name ?? "";
+    message.definition = object.definition ?? "";
+    return message;
+  },
+};
+
+function createBaseTaskMetadata(): TaskMetadata {
+  return {
+    name: "",
+    id: "",
+    owner: "",
+    comment: "",
+    warehouse: "",
+    schedule: "",
+    predecessors: [],
+    state: 0,
+    condition: "",
+    definition: "",
+  };
+}
+
+export const TaskMetadata = {
+  encode(message: TaskMetadata, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.id !== "") {
+      writer.uint32(18).string(message.id);
+    }
+    if (message.owner !== "") {
+      writer.uint32(26).string(message.owner);
+    }
+    if (message.comment !== "") {
+      writer.uint32(34).string(message.comment);
+    }
+    if (message.warehouse !== "") {
+      writer.uint32(42).string(message.warehouse);
+    }
+    if (message.schedule !== "") {
+      writer.uint32(50).string(message.schedule);
+    }
+    for (const v of message.predecessors) {
+      writer.uint32(58).string(v!);
+    }
+    if (message.state !== 0) {
+      writer.uint32(64).int32(message.state);
+    }
+    if (message.condition !== "") {
+      writer.uint32(74).string(message.condition);
+    }
+    if (message.definition !== "") {
+      writer.uint32(82).string(message.definition);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): TaskMetadata {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTaskMetadata();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.id = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.owner = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.comment = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.warehouse = reader.string();
+          continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.schedule = reader.string();
+          continue;
+        case 7:
+          if (tag !== 58) {
+            break;
+          }
+
+          message.predecessors.push(reader.string());
+          continue;
+        case 8:
+          if (tag !== 64) {
+            break;
+          }
+
+          message.state = reader.int32() as any;
+          continue;
+        case 9:
+          if (tag !== 74) {
+            break;
+          }
+
+          message.condition = reader.string();
+          continue;
+        case 10:
+          if (tag !== 82) {
+            break;
+          }
+
+          message.definition = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TaskMetadata {
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      id: isSet(object.id) ? String(object.id) : "",
+      owner: isSet(object.owner) ? String(object.owner) : "",
+      comment: isSet(object.comment) ? String(object.comment) : "",
+      warehouse: isSet(object.warehouse) ? String(object.warehouse) : "",
+      schedule: isSet(object.schedule) ? String(object.schedule) : "",
+      predecessors: Array.isArray(object?.predecessors) ? object.predecessors.map((e: any) => String(e)) : [],
+      state: isSet(object.state) ? taskMetadata_StateFromJSON(object.state) : 0,
+      condition: isSet(object.condition) ? String(object.condition) : "",
+      definition: isSet(object.definition) ? String(object.definition) : "",
+    };
+  },
+
+  toJSON(message: TaskMetadata): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    message.id !== undefined && (obj.id = message.id);
+    message.owner !== undefined && (obj.owner = message.owner);
+    message.comment !== undefined && (obj.comment = message.comment);
+    message.warehouse !== undefined && (obj.warehouse = message.warehouse);
+    message.schedule !== undefined && (obj.schedule = message.schedule);
+    if (message.predecessors) {
+      obj.predecessors = message.predecessors.map((e) => e);
+    } else {
+      obj.predecessors = [];
+    }
+    message.state !== undefined && (obj.state = taskMetadata_StateToJSON(message.state));
+    message.condition !== undefined && (obj.condition = message.condition);
+    message.definition !== undefined && (obj.definition = message.definition);
+    return obj;
+  },
+
+  create(base?: DeepPartial<TaskMetadata>): TaskMetadata {
+    return TaskMetadata.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<TaskMetadata>): TaskMetadata {
+    const message = createBaseTaskMetadata();
+    message.name = object.name ?? "";
+    message.id = object.id ?? "";
+    message.owner = object.owner ?? "";
+    message.comment = object.comment ?? "";
+    message.warehouse = object.warehouse ?? "";
+    message.schedule = object.schedule ?? "";
+    message.predecessors = object.predecessors?.map((e) => e) || [];
+    message.state = object.state ?? 0;
+    message.condition = object.condition ?? "";
+    message.definition = object.definition ?? "";
+    return message;
+  },
+};
+
+function createBaseStreamMetadata(): StreamMetadata {
+  return { name: "", tableName: "", owner: "", comment: "", type: 0, stale: false, mode: 0, definition: "" };
+}
+
+export const StreamMetadata = {
+  encode(message: StreamMetadata, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.tableName !== "") {
+      writer.uint32(18).string(message.tableName);
+    }
+    if (message.owner !== "") {
+      writer.uint32(26).string(message.owner);
+    }
+    if (message.comment !== "") {
+      writer.uint32(34).string(message.comment);
+    }
+    if (message.type !== 0) {
+      writer.uint32(40).int32(message.type);
+    }
+    if (message.stale === true) {
+      writer.uint32(48).bool(message.stale);
+    }
+    if (message.mode !== 0) {
+      writer.uint32(56).int32(message.mode);
+    }
+    if (message.definition !== "") {
+      writer.uint32(66).string(message.definition);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): StreamMetadata {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStreamMetadata();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.tableName = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.owner = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.comment = reader.string();
+          continue;
+        case 5:
+          if (tag !== 40) {
+            break;
+          }
+
+          message.type = reader.int32() as any;
+          continue;
+        case 6:
+          if (tag !== 48) {
+            break;
+          }
+
+          message.stale = reader.bool();
+          continue;
+        case 7:
+          if (tag !== 56) {
+            break;
+          }
+
+          message.mode = reader.int32() as any;
+          continue;
+        case 8:
+          if (tag !== 66) {
+            break;
+          }
+
+          message.definition = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): StreamMetadata {
+    return {
+      name: isSet(object.name) ? String(object.name) : "",
+      tableName: isSet(object.tableName) ? String(object.tableName) : "",
+      owner: isSet(object.owner) ? String(object.owner) : "",
+      comment: isSet(object.comment) ? String(object.comment) : "",
+      type: isSet(object.type) ? streamMetadata_TypeFromJSON(object.type) : 0,
+      stale: isSet(object.stale) ? Boolean(object.stale) : false,
+      mode: isSet(object.mode) ? streamMetadata_ModeFromJSON(object.mode) : 0,
+      definition: isSet(object.definition) ? String(object.definition) : "",
+    };
+  },
+
+  toJSON(message: StreamMetadata): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    message.tableName !== undefined && (obj.tableName = message.tableName);
+    message.owner !== undefined && (obj.owner = message.owner);
+    message.comment !== undefined && (obj.comment = message.comment);
+    message.type !== undefined && (obj.type = streamMetadata_TypeToJSON(message.type));
+    message.stale !== undefined && (obj.stale = message.stale);
+    message.mode !== undefined && (obj.mode = streamMetadata_ModeToJSON(message.mode));
+    message.definition !== undefined && (obj.definition = message.definition);
+    return obj;
+  },
+
+  create(base?: DeepPartial<StreamMetadata>): StreamMetadata {
+    return StreamMetadata.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<StreamMetadata>): StreamMetadata {
+    const message = createBaseStreamMetadata();
+    message.name = object.name ?? "";
+    message.tableName = object.tableName ?? "";
+    message.owner = object.owner ?? "";
+    message.comment = object.comment ?? "";
+    message.type = object.type ?? 0;
+    message.stale = object.stale ?? false;
+    message.mode = object.mode ?? 0;
     message.definition = object.definition ?? "";
     return message;
   },
@@ -5165,7 +5786,7 @@ function createBaseChangeHistory(): ChangeHistory {
     schema: "",
     prevSchema: "",
     executionDuration: undefined,
-    review: "",
+    issue: "",
     pushEvent: undefined,
   };
 }
@@ -5220,8 +5841,8 @@ export const ChangeHistory = {
     if (message.executionDuration !== undefined) {
       Duration.encode(message.executionDuration, writer.uint32(130).fork()).ldelim();
     }
-    if (message.review !== "") {
-      writer.uint32(138).string(message.review);
+    if (message.issue !== "") {
+      writer.uint32(138).string(message.issue);
     }
     if (message.pushEvent !== undefined) {
       PushEvent.encode(message.pushEvent, writer.uint32(146).fork()).ldelim();
@@ -5353,7 +5974,7 @@ export const ChangeHistory = {
             break;
           }
 
-          message.review = reader.string();
+          message.issue = reader.string();
           continue;
         case 18:
           if (tag !== 146) {
@@ -5389,7 +6010,7 @@ export const ChangeHistory = {
       schema: isSet(object.schema) ? String(object.schema) : "",
       prevSchema: isSet(object.prevSchema) ? String(object.prevSchema) : "",
       executionDuration: isSet(object.executionDuration) ? Duration.fromJSON(object.executionDuration) : undefined,
-      review: isSet(object.review) ? String(object.review) : "",
+      issue: isSet(object.issue) ? String(object.issue) : "",
       pushEvent: isSet(object.pushEvent) ? PushEvent.fromJSON(object.pushEvent) : undefined,
     };
   },
@@ -5413,7 +6034,7 @@ export const ChangeHistory = {
     message.prevSchema !== undefined && (obj.prevSchema = message.prevSchema);
     message.executionDuration !== undefined &&
       (obj.executionDuration = message.executionDuration ? Duration.toJSON(message.executionDuration) : undefined);
-    message.review !== undefined && (obj.review = message.review);
+    message.issue !== undefined && (obj.issue = message.issue);
     message.pushEvent !== undefined &&
       (obj.pushEvent = message.pushEvent ? PushEvent.toJSON(message.pushEvent) : undefined);
     return obj;
@@ -5443,7 +6064,7 @@ export const ChangeHistory = {
     message.executionDuration = (object.executionDuration !== undefined && object.executionDuration !== null)
       ? Duration.fromPartial(object.executionDuration)
       : undefined;
-    message.review = object.review ?? "";
+    message.issue = object.issue ?? "";
     message.pushEvent = (object.pushEvent !== undefined && object.pushEvent !== null)
       ? PushEvent.fromPartial(object.pushEvent)
       : undefined;
@@ -7120,10 +7741,10 @@ export interface DatabaseServiceClient<CallOptionsExt = {}> {
   ): Promise<ChangeHistory>;
 }
 
-declare var self: any | undefined;
-declare var window: any | undefined;
-declare var global: any | undefined;
-var tsProtoGlobalThis: any = (() => {
+declare const self: any | undefined;
+declare const window: any | undefined;
+declare const global: any | undefined;
+const tsProtoGlobalThis: any = (() => {
   if (typeof globalThis !== "undefined") {
     return globalThis;
   }

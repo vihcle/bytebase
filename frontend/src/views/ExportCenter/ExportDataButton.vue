@@ -37,6 +37,7 @@ import { NButton } from "naive-ui";
 import { ExportRecord } from "./types";
 import { reactive } from "vue";
 import {
+  getExportFileType,
   getExportRequestFormat,
   pushNotification,
   useProjectIamPolicyStore,
@@ -77,11 +78,11 @@ const handleExportData = async () => {
       statement: exportRecord.statement,
       limit: exportRecord.maxRowCount,
       format: getExportRequestFormat(exportRecord.exportFormat),
+      admin: false,
     });
 
     const blob = new Blob([content], {
-      type:
-        exportRecord.exportFormat === "CSV" ? "text/csv" : "application/json",
+      type: getExportFileType(exportRecord.exportFormat),
     });
     const url = window.URL.createObjectURL(blob);
 

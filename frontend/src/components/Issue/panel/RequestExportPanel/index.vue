@@ -100,8 +100,8 @@
             class="w-full flex flex-row justify-start items-center"
           >
             <SelectTableForm
-              :project-id="state.projectId"
-              :database-id="state.databaseId"
+              :project-id="(state.projectId as string)"
+              :database-id="state.databaseId as string"
               :selected-database-resource-list="
                 selectedTableResource ? [selectedTableResource] : []
               "
@@ -135,7 +135,8 @@
             >
               <NRadio :value="'CSV'" label="CSV" />
               <NRadio :value="'JSON'" label="JSON" />
-              <NRadio v-if="isDev" :value="'SQL'" label="SQL" />
+              <NRadio :value="'SQL'" label="SQL" />
+              <NRadio :value="'XLSX'" label="XLSX" />
             </NRadioGroup>
           </div>
         </div>
@@ -217,6 +218,7 @@ import {
 import { computed, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
+  DatabaseResource,
   IssueCreate,
   PresetRoleType,
   SQLDialect,
@@ -244,7 +246,6 @@ import { Engine } from "@/types/proto/v1/common";
 import { head } from "lodash-es";
 import { useRouter } from "vue-router";
 import SelectTableForm from "./SelectTableForm/index.vue";
-import { DatabaseResource } from "./SelectTableForm/common";
 import dayjs from "dayjs";
 import { stringifyDatabaseResources } from "@/utils/issue/cel";
 
@@ -256,7 +257,7 @@ interface LocalState {
   customDays: number;
   maxRowCount: number;
   exportMethod: "SQL" | "DATABASE";
-  exportFormat: "CSV" | "JSON" | "SQL";
+  exportFormat: "CSV" | "JSON" | "SQL" | "XLSX";
   statement: string;
   description: string;
 }
@@ -427,7 +428,11 @@ const doCreateIssue = async () => {
   expression.push(`request.export_format == "${state.exportFormat}"`);
   expression.push(`request.row_limit == ${state.maxRowCount}`);
   if (state.exportMethod === "SQL") {
-    expression.push(`request.statement == "${btoa(state.statement)}"`);
+    expression.push(
+      `request.statement == "${btoa(
+        unescape(encodeURIComponent(state.statement))
+      )}"`
+    );
     const cel = stringifyDatabaseResources([
       {
         databaseName: selectedDatabase.value!.name,
@@ -450,6 +455,9 @@ const doCreateIssue = async () => {
       condition: {
         expression: celExpressionString,
       },
+      // We need to pass a string type value to the expiration field because
+      // the type of Duration proto is string.
+      expiration: `${expireDays * 24 * 60 * 60}s`,
     },
   };
 

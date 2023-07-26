@@ -8,7 +8,7 @@
     <NDrawerContent
       :title="panelTitle"
       :closable="true"
-      class="w-[60rem] max-w-[100vw] relative"
+      class="w-[64rem] max-w-[100vw] relative"
     >
       <div v-for="role in roleList" :key="role.role" class="mb-4">
         <template v-if="role.singleBindingList.length > 0">
@@ -45,11 +45,16 @@
             class="border"
           >
             <template #item="{ item }: SingleBindingRow">
+              <div class="bb-grid-cell !p-0 items-center justify-center">
+                <RoleExpiredTip v-if="checkRoleExpired(item)" />
+              </div>
               <div class="bb-grid-cell">
-                {{ extractDatabaseName(item.databaseResource) }}
+                <span class="shrink-0 mr-1">{{
+                  extractDatabaseName(item.databaseResource)
+                }}</span>
                 <template v-if="item.databaseResource">
                   <InstanceV1Name
-                    class="text-gray-500 ml-0.5"
+                    class="text-gray-500"
                     :instance="
                       extractDatabase(item.databaseResource).instanceEntity
                     "
@@ -69,7 +74,7 @@
               <div class="bb-grid-cell">
                 <RoleDescription :description="item.description || ''" />
               </div>
-              <div class="bb-grid-cell w-12 space-x-1">
+              <div class="bb-grid-cell space-x-1">
                 <NTooltip v-if="allowAdmin" trigger="hover">
                   <template #trigger>
                     <button
@@ -129,9 +134,8 @@ import {
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
-import { PresetRoleType } from "@/types";
+import { ComposedProject, DatabaseResource, PresetRoleType } from "@/types";
 import { State } from "@/types/proto/v1/common";
-import { Project } from "@/types/proto/v1/project_service";
 import {
   useCurrentUserV1,
   useDatabaseV1Store,
@@ -150,14 +154,14 @@ import {
 } from "@/utils/issue/cel";
 import { ComposedProjectMember, SingleBinding } from "./types";
 import { BBGridColumn, BBGrid, BBGridRow } from "@/bbkit";
-import { DatabaseResource } from "@/components/Issue/form/SelectDatabaseResourceForm/common";
 import RoleDescription from "./RoleDescription.vue";
 import EditProjectMemberPanel from "../AddProjectMember/EditProjectMemberPanel.vue";
+import RoleExpiredTip from "./RoleExpiredTip.vue";
 
 export type SingleBindingRow = BBGridRow<SingleBinding>;
 
 const props = defineProps<{
-  project: Project;
+  project: ComposedProject;
   member: ComposedProjectMember;
 }>();
 
@@ -190,28 +194,32 @@ const panelTitle = computed(() => {
 const COLUMNS = computed(() => {
   const columns: BBGridColumn[] = [
     {
+      title: "",
+      width: "2rem",
+    },
+    {
       title: t("common.database"),
-      width: "1fr",
+      width: "2fr",
     },
     {
       title: t("common.schema"),
-      width: "1fr",
+      width: "6rem",
     },
     {
       title: t("common.table"),
-      width: "1fr",
+      width: "6rem",
     },
     {
       title: t("common.expiration"),
-      width: "1fr",
+      width: "12rem",
     },
     {
       title: t("common.description"),
-      width: "1fr",
+      width: "6rem",
     },
     {
       title: "",
-      width: "3rem",
+      width: "4rem",
     },
   ];
   return columns;
@@ -275,13 +283,6 @@ const handleDeleteRole = (role: string) => {
     content: t("common.cannot-undo-this-action"),
     positiveText: t("common.revoke"),
     negativeText: t("common.cancel"),
-    autoFocus: false,
-    closable: false,
-    maskClosable: false,
-    closeOnEsc: false,
-    onNegativeClick: () => {
-      // nothing to do
-    },
     onPositiveClick: async () => {
       const user = `user:${props.member.user.email}`;
       const policy = cloneDeep(iamPolicy.value);
@@ -314,7 +315,7 @@ const handleDeleteCondition = async (singleBinding: SingleBinding) => {
     const database = await databaseStore.getOrFetchDatabaseByName(
       String(singleBinding.databaseResource.databaseName)
     );
-    role = `${role} - ${database.name}`;
+    role = `${role} - ${database.databaseName}`;
   }
   const title = t("project.members.revoke-role-from-user", {
     role: role,
@@ -325,13 +326,6 @@ const handleDeleteCondition = async (singleBinding: SingleBinding) => {
     content: t("common.cannot-undo-this-action"),
     positiveText: t("common.revoke"),
     negativeText: t("common.cancel"),
-    autoFocus: false,
-    closable: false,
-    maskClosable: false,
-    closeOnEsc: false,
-    onNegativeClick: () => {
-      // nothing to do
-    },
     onPositiveClick: async () => {
       const user = `user:${props.member.user.email}`;
       const policy = cloneDeep(iamPolicy.value);
@@ -431,6 +425,13 @@ const extractExpiration = (expiration?: Date) => {
     return "*";
   }
   return expiration.toLocaleString();
+};
+
+const checkRoleExpired = (role: SingleBinding) => {
+  if (!role.expiration) {
+    return false;
+  }
+  return role.expiration < new Date();
 };
 
 watch(

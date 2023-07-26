@@ -6,6 +6,10 @@ export const NumberFactorList = [
 
   // Grant request issue related factors
   "request.row_limit",
+
+  // Request query/export factors
+  "expiration_days",
+  "export_rows",
 ] as const;
 export type NumberFactor = typeof NumberFactorList[number];
 

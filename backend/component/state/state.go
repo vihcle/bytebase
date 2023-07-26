@@ -4,7 +4,6 @@ package state
 import (
 	"sync"
 
-	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/store"
 )
 
@@ -16,7 +15,7 @@ type State struct {
 	// InstanceDatabaseSyncChan is the channel for synchronizing schemas for instances.
 	InstanceDatabaseSyncChan chan *store.InstanceMessage
 	// InstanceSlowQuerySyncChan is the channel for synchronizing slow query logs for instances.
-	InstanceSlowQuerySyncChan chan *api.Instance
+	InstanceSlowQuerySyncChan chan string
 
 	// RollbackGenerate is the set of tasks for generating rollback statements.
 	RollbackGenerate sync.Map // map[task.ID]*store.TaskMessage
@@ -37,6 +36,8 @@ type State struct {
 	RunningTaskChecks sync.Map // map[taskCheckID]bool
 	// RunningTasks is the set of running tasks.
 	RunningTasks sync.Map // map[taskID]bool
+	// RunningPlanChecks is the set of running plan checks.
+	RunningPlanChecks sync.Map
 	// RunningTasksCancel is the cancel's of running tasks.
 	RunningTasksCancel sync.Map // map[taskID]context.CancelFunc
 	// InstanceOutstandingConnections is the maximum number of connections per instance.

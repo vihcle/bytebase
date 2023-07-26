@@ -111,7 +111,7 @@ func (s *SheetService) CreateSheet(ctx context.Context, request *v1pb.CreateShee
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("failed to convert sheet: %v", err))
 	}
-	sheet, err := s.store.CreateSheetV2(ctx, storeSheetCreate)
+	sheet, err := s.store.CreateSheet(ctx, storeSheetCreate)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("failed to create sheet: %v", err))
 	}
@@ -231,10 +231,10 @@ func (s *SheetService) SearchSheets(ctx context.Context, request *v1pb.SearchShe
 			switch spec.operator {
 			case comparatorTypeEqual:
 				sheetFind.CreatorID = &user.ID
-				sheetFind.Visibilities = []api.SheetVisibility{api.ProjectSheet, api.PublicSheet, api.PrivateSheet}
+				sheetFind.Visibilities = []store.SheetVisibility{store.ProjectSheet, store.PublicSheet, store.PrivateSheet}
 			case comparatorTypeNotEqual:
 				sheetFind.ExcludedCreatorID = &user.ID
-				sheetFind.Visibilities = []api.SheetVisibility{api.ProjectSheet, api.PublicSheet}
+				sheetFind.Visibilities = []store.SheetVisibility{store.ProjectSheet, store.PublicSheet}
 				sheetFind.PrincipalID = &user.ID
 			default:
 				return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid operator %q for creator", spec.operator))
@@ -255,7 +255,7 @@ func (s *SheetService) SearchSheets(ctx context.Context, request *v1pb.SearchShe
 			return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid filter key %q", spec.key))
 		}
 	}
-	sheetList, err := s.store.ListSheetsV2(ctx, sheetFind, currentPrincipalID)
+	sheetList, err := s.store.ListSheets(ctx, sheetFind, currentPrincipalID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("failed to list sheets: %v", err))
 	}
@@ -321,7 +321,7 @@ func (s *SheetService) UpdateSheet(ctx context.Context, request *v1pb.UpdateShee
 	}
 
 	currentPrincipalID := ctx.Value(common.PrincipalIDContextKey).(int)
-	sheet, err := s.store.GetSheetV2(ctx, &store.FindSheetMessage{
+	sheet, err := s.store.GetSheet(ctx, &store.FindSheetMessage{
 		UID:        &sheetIntID,
 		ProjectUID: &project.UID,
 	}, currentPrincipalID)
@@ -352,7 +352,7 @@ func (s *SheetService) UpdateSheet(ctx context.Context, request *v1pb.UpdateShee
 			statement := string(request.Sheet.Content)
 			sheetPatch.Statement = &statement
 		case "visibility":
-			visibility, err := convertToLegacyAPISheetVisibility(request.Sheet.Visibility)
+			visibility, err := convertToStoreSheetVisibility(request.Sheet.Visibility)
 			if err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid visibility %q", request.Sheet.Visibility))
 			}
@@ -364,7 +364,7 @@ func (s *SheetService) UpdateSheet(ctx context.Context, request *v1pb.UpdateShee
 			return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid update mask path %q", path))
 		}
 	}
-	storeSheet, err := s.store.PatchSheetV2(ctx, sheetPatch)
+	storeSheet, err := s.store.PatchSheet(ctx, sheetPatch)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("failed to update sheet: %v", err))
 	}
@@ -401,7 +401,7 @@ func (s *SheetService) DeleteSheet(ctx context.Context, request *v1pb.DeleteShee
 
 	currentPrincipalID := ctx.Value(common.PrincipalIDContextKey).(int)
 
-	sheet, err := s.store.GetSheetV2(ctx, &store.FindSheetMessage{
+	sheet, err := s.store.GetSheet(ctx, &store.FindSheetMessage{
 		UID:        &sheetIDInt,
 		ProjectUID: &project.UID,
 	}, currentPrincipalID)
@@ -419,7 +419,7 @@ func (s *SheetService) DeleteSheet(ctx context.Context, request *v1pb.DeleteShee
 		return nil, status.Errorf(codes.PermissionDenied, "cannot write sheet %s", sheet.Name)
 	}
 
-	if err := s.store.DeleteSheetV2(ctx, sheetIDInt); err != nil {
+	if err := s.store.DeleteSheet(ctx, sheetIDInt); err != nil {
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("failed to delete sheet: %v", err))
 	}
 
@@ -450,6 +450,14 @@ func (s *SheetService) SyncSheets(ctx context.Context, request *v1pb.SyncSheetsR
 	}
 	if project.Workflow != api.VCSWorkflow {
 		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("project with resource id %q is not a VCS enabled project", projectResourceID))
+	}
+
+	projectRoles, err := s.findProjectRoles(ctx, project.UID, currentPrincipalID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("failed to find roles in the project: %v", err))
+	}
+	if !api.ProjectPermission(api.ProjectPermissionSyncSheet, s.licenseService.GetEffectivePlan(), projectRoles) {
+		return nil, status.Errorf(codes.PermissionDenied, "permission denied to sync sheet for project")
 	}
 
 	repo, err := s.store.GetRepositoryV2(ctx, &store.FindRepositoryMessage{ProjectResourceID: &project.ResourceID})
@@ -570,7 +578,7 @@ func (s *SheetService) SyncSheets(ctx context.Context, request *v1pb.SyncSheetsR
 				}
 				for _, database := range databases {
 					database := database // create a new var "database".
-					if database.EnvironmentID == sheetInfo.EnvironmentID {
+					if database.EffectiveEnvironmentID == sheetInfo.EnvironmentID {
 						databaseID = &database.UID
 						break
 					}
@@ -578,23 +586,23 @@ func (s *SheetService) SyncSheets(ctx context.Context, request *v1pb.SyncSheetsR
 			}
 		}
 
-		var sheetSource api.SheetSource
+		var sheetSource store.SheetSource
 		switch vcs.Type {
 		case vcsPlugin.GitLab:
-			sheetSource = api.SheetFromGitLab
+			sheetSource = store.SheetFromGitLab
 		case vcsPlugin.GitHub:
-			sheetSource = api.SheetFromGitHub
+			sheetSource = store.SheetFromGitHub
 		case vcsPlugin.Bitbucket:
-			sheetSource = api.SheetFromBitbucket
+			sheetSource = store.SheetFromBitbucket
 		}
-		vscSheetType := api.SheetForSQL
+		vscSheetType := store.SheetForSQL
 		sheetFind := &store.FindSheetMessage{
 			Name:       &sheetInfo.SheetName,
 			ProjectUID: &project.UID,
 			Source:     &sheetSource,
 			Type:       &vscSheetType,
 		}
-		sheet, err := s.store.GetSheetV2(ctx, sheetFind, currentPrincipalID)
+		sheet, err := s.store.GetSheet(ctx, sheetFind, currentPrincipalID)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Failed to find sheet with name: %s, project ID: %d", sheetInfo.SheetName, project.UID))
 		}
@@ -605,16 +613,16 @@ func (s *SheetService) SyncSheets(ctx context.Context, request *v1pb.SyncSheetsR
 				CreatorID:  currentPrincipalID,
 				Name:       sheetInfo.SheetName,
 				Statement:  fileContent,
-				Visibility: api.ProjectSheet,
+				Visibility: store.ProjectSheet,
 				Source:     sheetSource,
-				Type:       api.SheetForSQL,
+				Type:       store.SheetForSQL,
 				Payload:    string(payload),
 			}
 			if databaseID != nil {
 				sheetCreate.DatabaseUID = databaseID
 			}
 
-			if _, err := s.store.CreateSheetV2(ctx, sheetCreate); err != nil {
+			if _, err := s.store.CreateSheet(ctx, sheetCreate); err != nil {
 				return nil, status.Errorf(codes.Internal, "Failed to create sheet from VCS")
 			}
 		} else {
@@ -629,7 +637,7 @@ func (s *SheetService) SyncSheets(ctx context.Context, request *v1pb.SyncSheetsR
 				sheetPatch.DatabaseUID = databaseID
 			}
 
-			if _, err := s.store.PatchSheetV2(ctx, &sheetPatch); err != nil {
+			if _, err := s.store.PatchSheet(ctx, &sheetPatch); err != nil {
 				return nil, status.Errorf(codes.Internal, "Failed to patch sheet from VCS")
 			}
 		}
@@ -692,7 +700,7 @@ func (s *SheetService) UpdateSheetOrganizer(ctx context.Context, request *v1pb.U
 
 func (s *SheetService) findSheet(ctx context.Context, find *store.FindSheetMessage) (*store.SheetMessage, error) {
 	currentPrincipalID := ctx.Value(common.PrincipalIDContextKey).(int)
-	sheet, err := s.store.GetSheetV2(ctx, find, currentPrincipalID)
+	sheet, err := s.store.GetSheet(ctx, find, currentPrincipalID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("failed to get sheet: %v", err))
 	}
@@ -714,7 +722,7 @@ func (s *SheetService) canWriteSheet(ctx context.Context, sheet *store.SheetMess
 		return true, nil
 	}
 
-	if sheet.Visibility == api.ProjectSheet {
+	if sheet.Visibility == store.ProjectSheet {
 		projectRoles, err := s.findProjectRoles(ctx, sheet.ProjectUID, currentPrincipalID)
 		if err != nil {
 			return false, err
@@ -732,17 +740,17 @@ func (s *SheetService) canWriteSheet(ctx context.Context, sheet *store.SheetMess
 // sheet is readable when:
 // PRIVATE: the creator only.
 // PROJECT: the creator and members in the project.
-// PUBLIC: everyone.
+// PUBLIC: everyone in the workspace.
 func (s *SheetService) canReadSheet(ctx context.Context, sheet *store.SheetMessage) (bool, error) {
 	currentPrincipalID := ctx.Value(common.PrincipalIDContextKey).(int)
 	role := ctx.Value(common.RoleContextKey).(api.Role)
 
 	switch sheet.Visibility {
-	case api.PrivateSheet:
+	case store.PrivateSheet:
 		return sheet.CreatorID == currentPrincipalID, nil
-	case api.PublicSheet:
+	case store.PublicSheet:
 		return true, nil
-	case api.ProjectSheet:
+	case store.ProjectSheet:
 		if role == api.Owner || role == api.DBA {
 			return true, nil
 		}
@@ -789,31 +797,31 @@ func (s *SheetService) convertToAPISheetMessage(ctx context.Context, sheet *stor
 
 	visibility := v1pb.Sheet_VISIBILITY_UNSPECIFIED
 	switch sheet.Visibility {
-	case api.PublicSheet:
+	case store.PublicSheet:
 		visibility = v1pb.Sheet_VISIBILITY_PUBLIC
-	case api.ProjectSheet:
+	case store.ProjectSheet:
 		visibility = v1pb.Sheet_VISIBILITY_PROJECT
-	case api.PrivateSheet:
+	case store.PrivateSheet:
 		visibility = v1pb.Sheet_VISIBILITY_PRIVATE
 	}
 
 	source := v1pb.Sheet_SOURCE_UNSPECIFIED
 	switch sheet.Source {
-	case api.SheetFromBytebase:
+	case store.SheetFromBytebase:
 		source = v1pb.Sheet_SOURCE_BYTEBASE
-	case api.SheetFromBytebaseArtifact:
+	case store.SheetFromBytebaseArtifact:
 		source = v1pb.Sheet_SOURCE_BYTEBASE_ARTIFACT
-	case api.SheetFromGitLab:
+	case store.SheetFromGitLab:
 		source = v1pb.Sheet_SOURCE_GITLAB
-	case api.SheetFromGitHub:
+	case store.SheetFromGitHub:
 		source = v1pb.Sheet_SOURCE_GITHUB
-	case api.SheetFromBitbucket:
+	case store.SheetFromBitbucket:
 		source = v1pb.Sheet_SOURCE_BITBUCKET
 	}
 
 	tp := v1pb.Sheet_TYPE_UNSPECIFIED
 	switch sheet.Type {
-	case api.SheetForSQL:
+	case store.SheetForSQL:
 		tp = v1pb.Sheet_TYPE_SQL
 	default:
 	}
@@ -823,7 +831,9 @@ func (s *SheetService) convertToAPISheetMessage(ctx context.Context, sheet *stor
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("failed to get creator: %v", err))
 	}
 
-	project, err := s.store.GetProjectByID(ctx, sheet.ProjectUID)
+	project, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{
+		UID: &sheet.ProjectUID,
+	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("failed to get project: %v", err))
 	}
@@ -849,33 +859,33 @@ func (s *SheetService) convertToAPISheetMessage(ctx context.Context, sheet *stor
 }
 
 func convertToStoreSheetMessage(projectUID int, databaseUID *int, creatorID int, sheet *v1pb.Sheet) (*store.SheetMessage, error) {
-	visibility, err := convertToLegacyAPISheetVisibility(sheet.Visibility)
+	visibility, err := convertToStoreSheetVisibility(sheet.Visibility)
 	if err != nil {
 		return nil, err
 	}
-	var source api.SheetSource
+	var source store.SheetSource
 	switch sheet.Source {
 	case v1pb.Sheet_SOURCE_UNSPECIFIED:
 		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid source %q", sheet.Source))
 	case v1pb.Sheet_SOURCE_BYTEBASE:
-		source = api.SheetFromBytebase
+		source = store.SheetFromBytebase
 	case v1pb.Sheet_SOURCE_BYTEBASE_ARTIFACT:
-		source = api.SheetFromBytebaseArtifact
+		source = store.SheetFromBytebaseArtifact
 	case v1pb.Sheet_SOURCE_GITLAB:
-		source = api.SheetFromGitLab
+		source = store.SheetFromGitLab
 	case v1pb.Sheet_SOURCE_GITHUB:
-		source = api.SheetFromGitHub
+		source = store.SheetFromGitHub
 	case v1pb.Sheet_SOURCE_BITBUCKET:
-		source = api.SheetFromBitbucket
+		source = store.SheetFromBitbucket
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid source %q", sheet.Source))
 	}
-	var tp api.SheetType
+	var tp store.SheetType
 	switch sheet.Type {
 	case v1pb.Sheet_TYPE_UNSPECIFIED:
 		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid type %q", sheet.Type))
 	case v1pb.Sheet_TYPE_SQL:
-		tp = api.SheetForSQL
+		tp = store.SheetForSQL
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid type %q", sheet.Type))
 	}
@@ -893,18 +903,18 @@ func convertToStoreSheetMessage(projectUID int, databaseUID *int, creatorID int,
 	}, nil
 }
 
-func convertToLegacyAPISheetVisibility(visibility v1pb.Sheet_Visibility) (api.SheetVisibility, error) {
+func convertToStoreSheetVisibility(visibility v1pb.Sheet_Visibility) (store.SheetVisibility, error) {
 	switch visibility {
 	case v1pb.Sheet_VISIBILITY_UNSPECIFIED:
-		return api.SheetVisibility(""), status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid visibility %q", visibility))
+		return store.SheetVisibility(""), status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid visibility %q", visibility))
 	case v1pb.Sheet_VISIBILITY_PUBLIC:
-		return api.PublicSheet, nil
+		return store.PublicSheet, nil
 	case v1pb.Sheet_VISIBILITY_PROJECT:
-		return api.ProjectSheet, nil
+		return store.ProjectSheet, nil
 	case v1pb.Sheet_VISIBILITY_PRIVATE:
-		return api.PrivateSheet, nil
+		return store.PrivateSheet, nil
 	default:
-		return api.SheetVisibility(""), status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid visibility %q", visibility))
+		return store.SheetVisibility(""), status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid visibility %q", visibility))
 	}
 }
 

@@ -45,7 +45,7 @@ func extractSensitiveField(dbType db.Type, statement string, currentDatabase str
 			schemaInfo:      schemaInfo,
 		}
 		return extractor.extractMySQLSensitiveField(statement)
-	case db.Postgres:
+	case db.Postgres, db.Redshift:
 		extractor := &sensitiveFieldExtractor{
 			schemaInfo: schemaInfo,
 		}
@@ -66,6 +66,12 @@ func extractSensitiveField(dbType db.Type, statement string, currentDatabase str
 			schemaInfo:      schemaInfo,
 		}
 		return extractor.extractOracleSensitiveField(statement)
+	case db.Snowflake:
+		extractor := &sensitiveFieldExtractor{
+			currentDatabase: currentDatabase,
+			schemaInfo:      schemaInfo,
+		}
+		return extractor.extractSnowsqlSensitiveFields(statement)
 	default:
 		return nil, nil
 	}
@@ -956,6 +962,7 @@ func (extractor *sensitiveFieldExtractor) extractMySQLSensitiveField(statement s
 type fieldInfo struct {
 	name      string
 	table     string
+	schema    string
 	database  string
 	sensitive bool
 }

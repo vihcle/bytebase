@@ -84,7 +84,7 @@
                     :database-list="schemaDatabaseList"
                     :show-selection-column="true"
                     @select-database="
-                      (db) =>
+                      (db: ComposedDatabase) =>
                         toggleDatabaseSelection(db, !isDatabaseSelected(db))
                     "
                   >
@@ -279,7 +279,7 @@
   </DrawerContent>
 
   <FeatureModal
-    v-if="featureModalContext.feature"
+    :open="featureModalContext.feature"
     :feature="featureModalContext.feature"
     @cancel="featureModalContext.feature = undefined"
   />

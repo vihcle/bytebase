@@ -2,87 +2,93 @@
   <div
     class="flex flex-col md:flex-row md:justify-between md:items-center gap-2 md:gap-4"
   >
-    <div class="flex space-x-4 flex-1">
-      <div
-        class="py-2 text-sm font-medium"
-        :class="isEmpty(state.editStatement) ? 'text-red-600' : 'text-control'"
-      >
-        <template v-if="language === 'sql'">
-          {{ $t("common.sql") }}
-        </template>
-        <template v-else>
-          {{ $t("common.statement") }}
-        </template>
-        <span v-if="create" class="text-red-600 ml-1">*</span>
-        <button
+    <div class="flex items-center space-x-4 flex-1">
+      <div class="flex items-center gap-x-1 text-sm font-medium">
+        <span
+          :class="
+            isEmpty(state.editStatement) ? 'text-red-600' : 'text-control'
+          "
+        >
+          <template v-if="language === 'sql'">
+            {{ $t("common.sql") }}
+          </template>
+          <template v-else>
+            {{ $t("common.statement") }}
+          </template>
+        </span>
+        <span v-if="create" class="text-red-600">*</span>
+        <NButton
           v-if="!create && !hasFeature('bb.feature.sql-review')"
-          type="button"
-          class="ml-1 btn-small py-0.5 inline-flex items-center text-accent"
+          size="tiny"
           @click.prevent="state.showFeatureModal = true"
         >
           🎈{{ $t("sql-review.unlock-full-feature") }}
-        </button>
-        <span v-if="sqlHint && !readonly" class="ml-1 text-accent">{{
+        </NButton>
+        <span v-if="sqlHint && !readonly" class="text-accent">{{
           `(${sqlHint})`
         }}</span>
       </div>
-      <button
+      <NButton
         v-if="create && allowApplyTaskStateToOthers"
         :disabled="isEmpty(state.editStatement)"
-        type="button"
-        class="btn-small py-1 px-3 my-auto"
+        size="tiny"
         @click.prevent="applyTaskStateToOthers(selectedTask as TaskCreate)"
       >
         {{ $t("issue.apply-to-other-tasks") }}
-      </button>
+      </NButton>
     </div>
 
     <div class="space-x-2 flex items-center">
-      <template v-if="(create || state.editing) && !readonly">
-        <label
+      <template v-if="create || state.editing">
+        <NCheckbox
           v-if="allowFormatOnSave"
-          class="mt-0.5 mr-2 inline-flex items-center gap-1"
+          v-model:checked="formatOnSave"
+          size="small"
         >
-          <input
-            v-model="formatOnSave"
-            type="checkbox"
-            class="h-4 w-4 text-accent rounded disabled:cursor-not-allowed border-control-border focus:ring-accent"
-          />
-          <span class="textlabel">{{ $t("issue.format-on-save") }}</span>
-        </label>
+          {{ $t("issue.format-on-save") }}
+        </NCheckbox>
 
-        <UploadProgressButton :upload="handleUploadFile">
+        <UploadProgressButton :upload="handleUploadFile" size="tiny">
           {{ $t("issue.upload-sql") }}
         </UploadProgressButton>
       </template>
 
-      <button
-        v-if="shouldShowStatementEditButtonForUI"
-        type="button"
-        class="px-4 py-2 cursor-pointer border border-control-border rounded text-control hover:bg-control-bg-hover text-sm font-normal focus:ring-control focus:outline-none focus-visible:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed"
-        @click.prevent="beginEdit"
-      >
-        {{ $t("common.edit") }}
-      </button>
+      <template v-if="shouldShowStatementEditButtonForUI">
+        <!-- for small size sheets, show full featured UI editing button group -->
+        <NButton
+          v-if="!isTaskSheetOversize"
+          size="tiny"
+          @click.prevent="beginEdit"
+        >
+          {{ $t("common.edit") }}
+        </NButton>
+        <!-- for oversized sheets, only allow to upload and overwrite the sheet -->
+        <UploadProgressButton
+          v-else
+          :upload="handleUploadAndOverwrite"
+          size="tiny"
+        >
+          {{ $t("issue.upload-sql") }}
+        </UploadProgressButton>
+      </template>
 
       <template v-else-if="!create">
-        <button
+        <NButton
           v-if="state.editing"
-          type="button"
-          class="px-4 py-2 cursor-pointer border border-control-border rounded text-control hover:bg-control-bg-hover text-sm font-normal focus:ring-control focus:outline-none focus-visible:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed"
+          size="tiny"
           :disabled="!allowSaveSQL"
           @click.prevent="saveEdit"
         >
           {{ $t("common.save") }}
-        </button>
-        <button
+        </NButton>
+        <NButton
           v-if="state.editing"
-          type="button"
-          class="px-4 py-2 cursor-pointer rounded text-control hover:bg-control-bg-hover text-sm font-normal focus:ring-control focus:outline-none focus-visible:ring-2 focus:ring-offset-2"
+          size="tiny"
+          quaternary
           @click.prevent="cancelEdit"
         >
           {{ $t("common.cancel") }}
-        </button>
+        </NButton>
       </template>
     </div>
   </div>
@@ -92,7 +98,11 @@
     :class="'my-2'"
     :style="`WARN`"
     :title="$t('issue.statement-from-sheet-warning')"
-  />
+  >
+    <template v-if="state.taskSheetName" #action>
+      <DownloadSheetButton :sheet="state.taskSheetName" size="small" />
+    </template>
+  </BBAttention>
   <div
     class="whitespace-pre-wrap mt-2 w-full overflow-hidden"
     :class="state.editing ? 'border-t border-x' : 'border-t border-x'"
@@ -113,14 +123,14 @@
   </div>
 
   <FeatureModal
-    v-if="state.showFeatureModal"
     feature="bb.feature.sql-review"
+    :open="state.showFeatureModal"
     @cancel="state.showFeatureModal = false"
   />
 </template>
 
 <script lang="ts" setup>
-import { useDialog } from "naive-ui";
+import { useDialog, NButton, NCheckbox } from "naive-ui";
 import { onMounted, reactive, watch, computed, ref, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
 import {
@@ -151,6 +161,7 @@ import { TableMetadata } from "@/types/proto/store/database";
 import MonacoEditor from "../MonacoEditor/MonacoEditor.vue";
 import { useSQLAdviceMarkers } from "./logic/useSQLAdviceMarkers";
 import UploadProgressButton from "../misc/UploadProgressButton.vue";
+import DownloadSheetButton from "../Sheet/DownloadSheetButton.vue";
 import {
   Sheet_Visibility,
   Sheet_Source,
@@ -191,7 +202,7 @@ const {
 } = useIssueLogic();
 
 const { t } = useI18n();
-const overrideSQLDialog = useDialog();
+const overwriteSQLDialog = useDialog();
 const uiStateStore = useUIStateStore();
 const dbSchemaStore = useDBSchemaV1Store();
 const sheetV1Store = useSheetV1Store();
@@ -376,10 +387,6 @@ const shouldShowStatementEditButtonForUI = computed(() => {
   if (create.value) {
     return false;
   }
-  // For those task sheet oversized, it's readonly.
-  if (isTaskSheetOversize.value) {
-    return false;
-  }
   // Will show another button group as [Upload][Cancel][Save]
   // while editing
   if (state.editing) {
@@ -484,6 +491,51 @@ const saveEdit = async () => {
   state.editing = false;
 };
 
+const handleUploadAndOverwrite = async (event: Event) => {
+  if (!selectedDatabase.value) {
+    return;
+  }
+  if (state.isUploadingFile) {
+    return;
+  }
+  try {
+    state.isUploadingFile = true;
+    await showOverwriteConfirmDialog();
+    const { filename, content: statement } = await handleUploadFileEvent(
+      event,
+      100
+    );
+    const projectName = selectedDatabase.value.project;
+    let payload = {};
+    if (!create.value) {
+      payload = getBacktracePayloadWithIssue(issue.value as Issue);
+    }
+    // TODO: upload process
+    const sheet = await sheetV1Store.createSheet(projectName, {
+      title: filename,
+      content: new TextEncoder().encode(statement),
+      visibility: Sheet_Visibility.VISIBILITY_PROJECT,
+      source: Sheet_Source.SOURCE_BYTEBASE_ARTIFACT,
+      type: Sheet_Type.TYPE_SQL,
+      payload: JSON.stringify(payload),
+    });
+
+    resetTempEditState();
+    await updateSheetId(sheetV1Store.getSheetUid(sheet.name));
+    if (selectedTask.value) {
+      updateEditorHeight();
+    }
+
+    pushNotification({
+      module: "bytebase",
+      style: "INFO",
+      title: "File upload success",
+    });
+  } finally {
+    state.isUploadingFile = false;
+  }
+};
+
 const cancelEdit = async () => {
   state.editStatement = await getOrFetchSheetStatementByName(
     state.taskSheetName
@@ -505,6 +557,27 @@ const allowSaveSQL = computed((): boolean => {
   return true;
 });
 
+const showOverwriteConfirmDialog = () => {
+  return new Promise((resolve, reject) => {
+    // Show a confirm dialog before replacing if the editing statement is not empty.
+    overwriteSQLDialog.create({
+      positiveText: t("common.confirm"),
+      negativeText: t("common.cancel"),
+      title: t("issue.overwrite-current-statement"),
+      autoFocus: false,
+      closable: false,
+      maskClosable: false,
+      closeOnEsc: false,
+      onNegativeClick: () => {
+        reject();
+      },
+      onPositiveClick: () => {
+        resolve(undefined);
+      },
+    });
+  });
+};
+
 const handleUploadFile = async (event: Event, tick: (p: number) => void) => {
   if (!selectedDatabase.value) {
     return;
@@ -513,67 +586,31 @@ const handleUploadFile = async (event: Event, tick: (p: number) => void) => {
     return;
   }
 
-  state.isUploadingFile = true;
-  const projectName = selectedDatabase.value.project;
-  const { filename, content: statement } = await handleUploadFileEvent(
-    event,
-    100
-  );
+  const readStatementFromUploadFileEvent = async () => {
+    state.isUploadingFile = true;
+    try {
+      const { content: statement } = await handleUploadFileEvent(event, 100);
 
-  const uploadStatementAsSheet = async (statement: string) => {
-    let payload = {};
-    if (!create.value) {
-      payload = getBacktracePayloadWithIssue(issue.value as Issue);
+      // Set statement to UI state for local editing.
+      // Postpone the sheet creation when the issue is really created.
+
+      resetTempEditState();
+      await updateStatement(statement);
+      state.editing = false;
+      if (selectedTask.value) {
+        updateEditorHeight();
+      }
+    } finally {
+      state.isUploadingFile = false;
     }
-    // TODO: upload process
-    const sheet = await sheetV1Store.createSheet(projectName, {
-      title: filename,
-      content: new TextEncoder().encode(statement),
-      visibility: Sheet_Visibility.VISIBILITY_PROJECT,
-      source: Sheet_Source.SOURCE_BYTEBASE_ARTIFACT,
-      type: Sheet_Type.TYPE_SQL,
-      payload: JSON.stringify(payload),
-    });
-    state.isUploadingFile = false;
-
-    resetTempEditState();
-    updateSheetId(sheetV1Store.getSheetUid(sheet.name));
-    await updateStatement(statement);
-    state.editing = false;
-    if (selectedTask.value) {
-      updateEditorHeight();
-    }
-
-    pushNotification({
-      module: "bytebase",
-      style: "INFO",
-      title: "File upload success",
-    });
   };
 
-  return new Promise((resolve, reject) => {
-    if (state.editStatement) {
-      // Show a confirm dialog before replacing if the editing statement is not empty.
-      overrideSQLDialog.create({
-        positiveText: t("common.confirm"),
-        negativeText: t("common.cancel"),
-        title: t("issue.override-current-statement"),
-        autoFocus: false,
-        closable: false,
-        maskClosable: false,
-        closeOnEsc: false,
-        onNegativeClick: () => {
-          state.isUploadingFile = false;
-          reject();
-        },
-        onPositiveClick: () => {
-          resolve(uploadStatementAsSheet(statement));
-        },
-      });
-    } else {
-      resolve(uploadStatementAsSheet(statement));
-    }
-  });
+  if (state.editStatement) {
+    await showOverwriteConfirmDialog();
+    return readStatementFromUploadFileEvent();
+  }
+
+  return readStatementFromUploadFileEvent();
 };
 
 const handleUploadFileEvent = (
@@ -583,7 +620,7 @@ const handleUploadFileEvent = (
   filename: string;
   content: string;
 }> => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const target = event.target as HTMLInputElement;
     const file = (target.files || [])[0];
     const cleanup = () => {
@@ -601,6 +638,7 @@ const handleUploadFileEvent = (
         title: "File not found",
       });
       cleanup();
+      reject();
       return;
     }
     if (file.size > maxFileSizeMB * 1024 * 1024) {
@@ -612,6 +650,7 @@ const handleUploadFileEvent = (
         }),
       });
       cleanup();
+      reject();
       return;
     }
 
@@ -630,6 +669,7 @@ const handleUploadFileEvent = (
         title: "Read file error",
         description: String(fr.error),
       });
+      reject();
     };
     fr.readAsText(file);
     cleanup();

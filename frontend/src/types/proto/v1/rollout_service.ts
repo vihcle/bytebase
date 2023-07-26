@@ -56,7 +56,7 @@ export interface CreatePlanRequest {
    */
   parent: string;
   /** The plan to create. */
-  plan?: Plan;
+  plan?: Plan | undefined;
 }
 
 export interface UpdatePlanRequest {
@@ -66,9 +66,11 @@ export interface UpdatePlanRequest {
    * The plan's `name` field is used to identify the plan to update.
    * Format: projects/{project}/plans/{plan}
    */
-  plan?: Plan;
+  plan?:
+    | Plan
+    | undefined;
   /** The list of fields to update. */
-  updateMask?: string[];
+  updateMask?: string[] | undefined;
 }
 
 export interface Plan {
@@ -81,23 +83,24 @@ export interface Plan {
   /** The system-assigned, unique identifier for a resource. */
   uid: string;
   /**
-   * The resource name of the review associated with this plan.
-   * Format: projects/{project}/reviews/{review}
+   * The resource name of the issue associated with this plan.
+   * Format: projects/{project}/issues/{issue}
    */
-  review: string;
+  issue: string;
   title: string;
   description: string;
   steps: Plan_Step[];
 }
 
-/** FIXME(d/xz): support spec with deployment config */
 export interface Plan_Step {
   specs: Plan_Spec[];
 }
 
 export interface Plan_Spec {
   /** earliest_allowed_time the earliest execution time of the change. */
-  earliestAllowedTime?: Date;
+  earliestAllowedTime?:
+    | Date
+    | undefined;
   /** A UUID4 string that uniquely identifies the Spec. */
   id: string;
   createDatabaseConfig?: Plan_CreateDatabaseConfig | undefined;
@@ -144,7 +147,6 @@ export interface Plan_ChangeDatabaseConfig {
   /**
    * The resource name of the target.
    * Format: instances/{instance-id}/databases/{database-name}.
-   * Format: projects/{project}/deploymentConfig.
    */
   target: string;
   /**
@@ -244,10 +246,10 @@ export interface Plan_ChangeDatabaseConfig_RollbackDetail {
    */
   rollbackFromTask: string;
   /**
-   * rollback_from_review is the review containing the original task from which the rollback SQL statement is generated for this task.
-   * Format: projects/{project}/reviews/{review}
+   * rollback_from_issue is the issue containing the original task from which the rollback SQL statement is generated for this task.
+   * Format: projects/{project}/issues/{issue}
    */
-  rollbackFromReview: string;
+  rollbackFromIssue: string;
 }
 
 export interface Plan_RestoreDatabaseConfig {
@@ -298,6 +300,65 @@ export interface ListPlanCheckRunsResponse {
   nextPageToken: string;
 }
 
+export interface RunPlanChecksRequest {
+  /**
+   * The plan to run plan checks.
+   * Format: projects/{project}/plans/{plan}
+   */
+  name: string;
+}
+
+export interface RunPlanChecksResponse {
+}
+
+export interface BatchRunTasksRequest {
+  /**
+   * The name of the parent of the tasks.
+   * Format: projects/{project}/rollouts/{rollout}/stages/{stage}
+   */
+  parent: string;
+  /**
+   * The tasks to run.
+   * Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}
+   */
+  tasks: string[];
+}
+
+export interface BatchRunTasksResponse {
+}
+
+export interface BatchSkipTasksRequest {
+  /**
+   * The name of the parent of the tasks.
+   * Format: projects/{project}/rollouts/{rollout}/stages/{stage}
+   */
+  parent: string;
+  /**
+   * The tasks to skip.
+   * Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}
+   */
+  tasks: string[];
+}
+
+export interface BatchSkipTasksResponse {
+}
+
+export interface BatchCancelTaskRunsRequest {
+  /**
+   * The name of the parent of the taskRuns.
+   * Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}
+   */
+  parent: string;
+  /**
+   * The taskRuns to cancel.
+   * Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}/taskRuns/{taskRun}
+   */
+  taskRuns: string[];
+}
+
+export interface BatchCancelTaskRunsResponse {
+}
+
 export interface PlanCheckRun {
   /** Format: projects/{project}/plans/{plan}/planCheckRuns/{planCheckRun} */
   name: string;
@@ -309,8 +370,9 @@ export interface PlanCheckRun {
   target: string;
   /** Format: projects/{project}/sheets/{sheet} */
   sheet: string;
-  detail: string;
   results: PlanCheckRun_Result[];
+  /** error is set if the Status is FAILED. */
+  error: string;
 }
 
 export enum PlanCheckRun_Type {
@@ -320,11 +382,10 @@ export enum PlanCheckRun_Type {
   DATABASE_STATEMENT_COMPATIBILITY = 3,
   DATABASE_STATEMENT_ADVISE = 4,
   DATABASE_STATEMENT_TYPE = 5,
-  DATABASE_STATEMENT_TYPE_REPORT = 6,
-  DATABASE_STATEMENT_AFFECTED_ROWS_REPORT = 7,
-  DATABASE_CONNECT = 8,
-  DATABASE_GHOST_SYNC = 9,
-  DATABASE_PITR_MYSQL = 10,
+  DATABASE_STATEMENT_SUMMARY_REPORT = 6,
+  DATABASE_CONNECT = 7,
+  DATABASE_GHOST_SYNC = 8,
+  DATABASE_PITR_MYSQL = 9,
   UNRECOGNIZED = -1,
 }
 
@@ -349,18 +410,15 @@ export function planCheckRun_TypeFromJSON(object: any): PlanCheckRun_Type {
     case "DATABASE_STATEMENT_TYPE":
       return PlanCheckRun_Type.DATABASE_STATEMENT_TYPE;
     case 6:
-    case "DATABASE_STATEMENT_TYPE_REPORT":
-      return PlanCheckRun_Type.DATABASE_STATEMENT_TYPE_REPORT;
+    case "DATABASE_STATEMENT_SUMMARY_REPORT":
+      return PlanCheckRun_Type.DATABASE_STATEMENT_SUMMARY_REPORT;
     case 7:
-    case "DATABASE_STATEMENT_AFFECTED_ROWS_REPORT":
-      return PlanCheckRun_Type.DATABASE_STATEMENT_AFFECTED_ROWS_REPORT;
-    case 8:
     case "DATABASE_CONNECT":
       return PlanCheckRun_Type.DATABASE_CONNECT;
-    case 9:
+    case 8:
     case "DATABASE_GHOST_SYNC":
       return PlanCheckRun_Type.DATABASE_GHOST_SYNC;
-    case 10:
+    case 9:
     case "DATABASE_PITR_MYSQL":
       return PlanCheckRun_Type.DATABASE_PITR_MYSQL;
     case -1:
@@ -384,10 +442,8 @@ export function planCheckRun_TypeToJSON(object: PlanCheckRun_Type): string {
       return "DATABASE_STATEMENT_ADVISE";
     case PlanCheckRun_Type.DATABASE_STATEMENT_TYPE:
       return "DATABASE_STATEMENT_TYPE";
-    case PlanCheckRun_Type.DATABASE_STATEMENT_TYPE_REPORT:
-      return "DATABASE_STATEMENT_TYPE_REPORT";
-    case PlanCheckRun_Type.DATABASE_STATEMENT_AFFECTED_ROWS_REPORT:
-      return "DATABASE_STATEMENT_AFFECTED_ROWS_REPORT";
+    case PlanCheckRun_Type.DATABASE_STATEMENT_SUMMARY_REPORT:
+      return "DATABASE_STATEMENT_SUMMARY_REPORT";
     case PlanCheckRun_Type.DATABASE_CONNECT:
       return "DATABASE_CONNECT";
     case PlanCheckRun_Type.DATABASE_GHOST_SYNC:
@@ -452,52 +508,12 @@ export function planCheckRun_StatusToJSON(object: PlanCheckRun_Status): string {
 }
 
 export interface PlanCheckRun_Result {
-  namespace: PlanCheckRun_Result_Namespace;
-  code: number;
   status: PlanCheckRun_Result_Status;
   title: string;
   content: string;
-  line: number;
-  detail: string;
-}
-
-export enum PlanCheckRun_Result_Namespace {
-  NAMESPACE_UNSPECIFIED = 0,
-  BYTEBASE = 1,
-  ADVISOR = 2,
-  UNRECOGNIZED = -1,
-}
-
-export function planCheckRun_Result_NamespaceFromJSON(object: any): PlanCheckRun_Result_Namespace {
-  switch (object) {
-    case 0:
-    case "NAMESPACE_UNSPECIFIED":
-      return PlanCheckRun_Result_Namespace.NAMESPACE_UNSPECIFIED;
-    case 1:
-    case "BYTEBASE":
-      return PlanCheckRun_Result_Namespace.BYTEBASE;
-    case 2:
-    case "ADVISOR":
-      return PlanCheckRun_Result_Namespace.ADVISOR;
-    case -1:
-    case "UNRECOGNIZED":
-    default:
-      return PlanCheckRun_Result_Namespace.UNRECOGNIZED;
-  }
-}
-
-export function planCheckRun_Result_NamespaceToJSON(object: PlanCheckRun_Result_Namespace): string {
-  switch (object) {
-    case PlanCheckRun_Result_Namespace.NAMESPACE_UNSPECIFIED:
-      return "NAMESPACE_UNSPECIFIED";
-    case PlanCheckRun_Result_Namespace.BYTEBASE:
-      return "BYTEBASE";
-    case PlanCheckRun_Result_Namespace.ADVISOR:
-      return "ADVISOR";
-    case PlanCheckRun_Result_Namespace.UNRECOGNIZED:
-    default:
-      return "UNRECOGNIZED";
-  }
+  code: number;
+  sqlSummaryReport?: PlanCheckRun_Result_SqlSummaryReport | undefined;
+  sqlReviewReport?: PlanCheckRun_Result_SqlReviewReport | undefined;
 }
 
 export enum PlanCheckRun_Result_Status {
@@ -545,12 +561,78 @@ export function planCheckRun_Result_StatusToJSON(object: PlanCheckRun_Result_Sta
   }
 }
 
+export interface PlanCheckRun_Result_SqlSummaryReport {
+  statementType: string;
+  affectedRows: number;
+}
+
+export interface PlanCheckRun_Result_SqlReviewReport {
+  line: number;
+  detail: string;
+  /** Code from sql review. */
+  code: number;
+}
+
 export interface GetRolloutRequest {
   /**
    * The name of the rollout to retrieve.
    * Format: projects/{project}/rollouts/{rollout}
    */
   name: string;
+}
+
+export interface CreateRolloutRequest {
+  /**
+   * The parent project where this rollout will be created.
+   * Format: projects/{project}
+   */
+  parent: string;
+  /** The plan used to create rollout. */
+  plan: string;
+}
+
+export interface PreviewRolloutRequest {
+  /**
+   * The name of the project.
+   * Format: projects/{project}
+   */
+  project: string;
+  /** The plan used to preview rollout. */
+  plan?: Plan | undefined;
+}
+
+export interface ListTaskRunsRequest {
+  /**
+   * The parent, which owns this collection of plans.
+   * Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}
+   * Use "projects/{project}/rollouts/{rollout}/stages/-/tasks/-" to list all taskRuns from a rollout.
+   */
+  parent: string;
+  /**
+   * The maximum number of taskRuns to return. The service may return fewer than
+   * this value.
+   * If unspecified, at most 50 taskRuns will be returned.
+   * The maximum value is 1000; values above 1000 will be coerced to 1000.
+   */
+  pageSize: number;
+  /**
+   * A page token, received from a previous `ListRolloutTaskRuns` call.
+   * Provide this to retrieve the subsequent page.
+   *
+   * When paginating, all other parameters provided to `ListRolloutTaskRuns` must match
+   * the call that provided the page token.
+   */
+  pageToken: string;
+}
+
+export interface ListTaskRunsResponse {
+  /** The taskRuns from the specified request. */
+  taskRuns: TaskRun[];
+  /**
+   * A token, which can be sent as `page_token` to retrieve the next page.
+   * If this field is omitted, there are no subsequent pages.
+   */
+  nextPageToken: string;
 }
 
 export interface Rollout {
@@ -834,11 +916,11 @@ export interface Task_DatabaseDataUpdate {
    */
   rollbackSheet: string;
   /**
-   * rollback_from_review is the resource name of the review that
+   * rollback_from_issue is the resource name of the issue that
    * the rollback SQL statement is generated from.
-   * Format: projects/{project}/reviews/{review}
+   * Format: projects/{project}/issues/{issue}
    */
-  rollbackFromReview: string;
+  rollbackFromIssue: string;
   /**
    * rollback_from_task is the resource name of the task that
    * the rollback SQL statement is generated from.
@@ -933,8 +1015,8 @@ export interface TaskRun {
   creator: string;
   /** Format: user:hello@world.com */
   updater: string;
-  createTime?: Date;
-  updateTime?: Date;
+  createTime?: Date | undefined;
+  updateTime?: Date | undefined;
   title: string;
   status: TaskRun_Status;
   /** Below are the results of a task run. */
@@ -1368,7 +1450,7 @@ export const UpdatePlanRequest = {
 };
 
 function createBasePlan(): Plan {
-  return { name: "", uid: "", review: "", title: "", description: "", steps: [] };
+  return { name: "", uid: "", issue: "", title: "", description: "", steps: [] };
 }
 
 export const Plan = {
@@ -1379,8 +1461,8 @@ export const Plan = {
     if (message.uid !== "") {
       writer.uint32(18).string(message.uid);
     }
-    if (message.review !== "") {
-      writer.uint32(26).string(message.review);
+    if (message.issue !== "") {
+      writer.uint32(26).string(message.issue);
     }
     if (message.title !== "") {
       writer.uint32(34).string(message.title);
@@ -1420,7 +1502,7 @@ export const Plan = {
             break;
           }
 
-          message.review = reader.string();
+          message.issue = reader.string();
           continue;
         case 4:
           if (tag !== 34) {
@@ -1456,7 +1538,7 @@ export const Plan = {
     return {
       name: isSet(object.name) ? String(object.name) : "",
       uid: isSet(object.uid) ? String(object.uid) : "",
-      review: isSet(object.review) ? String(object.review) : "",
+      issue: isSet(object.issue) ? String(object.issue) : "",
       title: isSet(object.title) ? String(object.title) : "",
       description: isSet(object.description) ? String(object.description) : "",
       steps: Array.isArray(object?.steps) ? object.steps.map((e: any) => Plan_Step.fromJSON(e)) : [],
@@ -1467,7 +1549,7 @@ export const Plan = {
     const obj: any = {};
     message.name !== undefined && (obj.name = message.name);
     message.uid !== undefined && (obj.uid = message.uid);
-    message.review !== undefined && (obj.review = message.review);
+    message.issue !== undefined && (obj.issue = message.issue);
     message.title !== undefined && (obj.title = message.title);
     message.description !== undefined && (obj.description = message.description);
     if (message.steps) {
@@ -1486,7 +1568,7 @@ export const Plan = {
     const message = createBasePlan();
     message.name = object.name ?? "";
     message.uid = object.uid ?? "";
-    message.review = object.review ?? "";
+    message.issue = object.issue ?? "";
     message.title = object.title ?? "";
     message.description = object.description ?? "";
     message.steps = object.steps?.map((e) => Plan_Step.fromPartial(e)) || [];
@@ -2079,7 +2161,7 @@ export const Plan_ChangeDatabaseConfig = {
 };
 
 function createBasePlan_ChangeDatabaseConfig_RollbackDetail(): Plan_ChangeDatabaseConfig_RollbackDetail {
-  return { rollbackFromTask: "", rollbackFromReview: "" };
+  return { rollbackFromTask: "", rollbackFromIssue: "" };
 }
 
 export const Plan_ChangeDatabaseConfig_RollbackDetail = {
@@ -2087,8 +2169,8 @@ export const Plan_ChangeDatabaseConfig_RollbackDetail = {
     if (message.rollbackFromTask !== "") {
       writer.uint32(10).string(message.rollbackFromTask);
     }
-    if (message.rollbackFromReview !== "") {
-      writer.uint32(18).string(message.rollbackFromReview);
+    if (message.rollbackFromIssue !== "") {
+      writer.uint32(18).string(message.rollbackFromIssue);
     }
     return writer;
   },
@@ -2112,7 +2194,7 @@ export const Plan_ChangeDatabaseConfig_RollbackDetail = {
             break;
           }
 
-          message.rollbackFromReview = reader.string();
+          message.rollbackFromIssue = reader.string();
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -2126,14 +2208,14 @@ export const Plan_ChangeDatabaseConfig_RollbackDetail = {
   fromJSON(object: any): Plan_ChangeDatabaseConfig_RollbackDetail {
     return {
       rollbackFromTask: isSet(object.rollbackFromTask) ? String(object.rollbackFromTask) : "",
-      rollbackFromReview: isSet(object.rollbackFromReview) ? String(object.rollbackFromReview) : "",
+      rollbackFromIssue: isSet(object.rollbackFromIssue) ? String(object.rollbackFromIssue) : "",
     };
   },
 
   toJSON(message: Plan_ChangeDatabaseConfig_RollbackDetail): unknown {
     const obj: any = {};
     message.rollbackFromTask !== undefined && (obj.rollbackFromTask = message.rollbackFromTask);
-    message.rollbackFromReview !== undefined && (obj.rollbackFromReview = message.rollbackFromReview);
+    message.rollbackFromIssue !== undefined && (obj.rollbackFromIssue = message.rollbackFromIssue);
     return obj;
   },
 
@@ -2144,7 +2226,7 @@ export const Plan_ChangeDatabaseConfig_RollbackDetail = {
   fromPartial(object: DeepPartial<Plan_ChangeDatabaseConfig_RollbackDetail>): Plan_ChangeDatabaseConfig_RollbackDetail {
     const message = createBasePlan_ChangeDatabaseConfig_RollbackDetail();
     message.rollbackFromTask = object.rollbackFromTask ?? "";
-    message.rollbackFromReview = object.rollbackFromReview ?? "";
+    message.rollbackFromIssue = object.rollbackFromIssue ?? "";
     return message;
   },
 };
@@ -2413,8 +2495,465 @@ export const ListPlanCheckRunsResponse = {
   },
 };
 
+function createBaseRunPlanChecksRequest(): RunPlanChecksRequest {
+  return { name: "" };
+}
+
+export const RunPlanChecksRequest = {
+  encode(message: RunPlanChecksRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RunPlanChecksRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRunPlanChecksRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RunPlanChecksRequest {
+    return { name: isSet(object.name) ? String(object.name) : "" };
+  },
+
+  toJSON(message: RunPlanChecksRequest): unknown {
+    const obj: any = {};
+    message.name !== undefined && (obj.name = message.name);
+    return obj;
+  },
+
+  create(base?: DeepPartial<RunPlanChecksRequest>): RunPlanChecksRequest {
+    return RunPlanChecksRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<RunPlanChecksRequest>): RunPlanChecksRequest {
+    const message = createBaseRunPlanChecksRequest();
+    message.name = object.name ?? "";
+    return message;
+  },
+};
+
+function createBaseRunPlanChecksResponse(): RunPlanChecksResponse {
+  return {};
+}
+
+export const RunPlanChecksResponse = {
+  encode(_: RunPlanChecksResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RunPlanChecksResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRunPlanChecksResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): RunPlanChecksResponse {
+    return {};
+  },
+
+  toJSON(_: RunPlanChecksResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<RunPlanChecksResponse>): RunPlanChecksResponse {
+    return RunPlanChecksResponse.fromPartial(base ?? {});
+  },
+
+  fromPartial(_: DeepPartial<RunPlanChecksResponse>): RunPlanChecksResponse {
+    const message = createBaseRunPlanChecksResponse();
+    return message;
+  },
+};
+
+function createBaseBatchRunTasksRequest(): BatchRunTasksRequest {
+  return { parent: "", tasks: [] };
+}
+
+export const BatchRunTasksRequest = {
+  encode(message: BatchRunTasksRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    for (const v of message.tasks) {
+      writer.uint32(18).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchRunTasksRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchRunTasksRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.tasks.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BatchRunTasksRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      tasks: Array.isArray(object?.tasks) ? object.tasks.map((e: any) => String(e)) : [],
+    };
+  },
+
+  toJSON(message: BatchRunTasksRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    if (message.tasks) {
+      obj.tasks = message.tasks.map((e) => e);
+    } else {
+      obj.tasks = [];
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchRunTasksRequest>): BatchRunTasksRequest {
+    return BatchRunTasksRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<BatchRunTasksRequest>): BatchRunTasksRequest {
+    const message = createBaseBatchRunTasksRequest();
+    message.parent = object.parent ?? "";
+    message.tasks = object.tasks?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseBatchRunTasksResponse(): BatchRunTasksResponse {
+  return {};
+}
+
+export const BatchRunTasksResponse = {
+  encode(_: BatchRunTasksResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchRunTasksResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchRunTasksResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): BatchRunTasksResponse {
+    return {};
+  },
+
+  toJSON(_: BatchRunTasksResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchRunTasksResponse>): BatchRunTasksResponse {
+    return BatchRunTasksResponse.fromPartial(base ?? {});
+  },
+
+  fromPartial(_: DeepPartial<BatchRunTasksResponse>): BatchRunTasksResponse {
+    const message = createBaseBatchRunTasksResponse();
+    return message;
+  },
+};
+
+function createBaseBatchSkipTasksRequest(): BatchSkipTasksRequest {
+  return { parent: "", tasks: [] };
+}
+
+export const BatchSkipTasksRequest = {
+  encode(message: BatchSkipTasksRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    for (const v of message.tasks) {
+      writer.uint32(18).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchSkipTasksRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchSkipTasksRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.tasks.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BatchSkipTasksRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      tasks: Array.isArray(object?.tasks) ? object.tasks.map((e: any) => String(e)) : [],
+    };
+  },
+
+  toJSON(message: BatchSkipTasksRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    if (message.tasks) {
+      obj.tasks = message.tasks.map((e) => e);
+    } else {
+      obj.tasks = [];
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchSkipTasksRequest>): BatchSkipTasksRequest {
+    return BatchSkipTasksRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<BatchSkipTasksRequest>): BatchSkipTasksRequest {
+    const message = createBaseBatchSkipTasksRequest();
+    message.parent = object.parent ?? "";
+    message.tasks = object.tasks?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseBatchSkipTasksResponse(): BatchSkipTasksResponse {
+  return {};
+}
+
+export const BatchSkipTasksResponse = {
+  encode(_: BatchSkipTasksResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchSkipTasksResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchSkipTasksResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): BatchSkipTasksResponse {
+    return {};
+  },
+
+  toJSON(_: BatchSkipTasksResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchSkipTasksResponse>): BatchSkipTasksResponse {
+    return BatchSkipTasksResponse.fromPartial(base ?? {});
+  },
+
+  fromPartial(_: DeepPartial<BatchSkipTasksResponse>): BatchSkipTasksResponse {
+    const message = createBaseBatchSkipTasksResponse();
+    return message;
+  },
+};
+
+function createBaseBatchCancelTaskRunsRequest(): BatchCancelTaskRunsRequest {
+  return { parent: "", taskRuns: [] };
+}
+
+export const BatchCancelTaskRunsRequest = {
+  encode(message: BatchCancelTaskRunsRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    for (const v of message.taskRuns) {
+      writer.uint32(18).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchCancelTaskRunsRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchCancelTaskRunsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.taskRuns.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BatchCancelTaskRunsRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      taskRuns: Array.isArray(object?.taskRuns) ? object.taskRuns.map((e: any) => String(e)) : [],
+    };
+  },
+
+  toJSON(message: BatchCancelTaskRunsRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    if (message.taskRuns) {
+      obj.taskRuns = message.taskRuns.map((e) => e);
+    } else {
+      obj.taskRuns = [];
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchCancelTaskRunsRequest>): BatchCancelTaskRunsRequest {
+    return BatchCancelTaskRunsRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<BatchCancelTaskRunsRequest>): BatchCancelTaskRunsRequest {
+    const message = createBaseBatchCancelTaskRunsRequest();
+    message.parent = object.parent ?? "";
+    message.taskRuns = object.taskRuns?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseBatchCancelTaskRunsResponse(): BatchCancelTaskRunsResponse {
+  return {};
+}
+
+export const BatchCancelTaskRunsResponse = {
+  encode(_: BatchCancelTaskRunsResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchCancelTaskRunsResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchCancelTaskRunsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): BatchCancelTaskRunsResponse {
+    return {};
+  },
+
+  toJSON(_: BatchCancelTaskRunsResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchCancelTaskRunsResponse>): BatchCancelTaskRunsResponse {
+    return BatchCancelTaskRunsResponse.fromPartial(base ?? {});
+  },
+
+  fromPartial(_: DeepPartial<BatchCancelTaskRunsResponse>): BatchCancelTaskRunsResponse {
+    const message = createBaseBatchCancelTaskRunsResponse();
+    return message;
+  },
+};
+
 function createBasePlanCheckRun(): PlanCheckRun {
-  return { name: "", uid: "", type: 0, status: 0, target: "", sheet: "", detail: "", results: [] };
+  return { name: "", uid: "", type: 0, status: 0, target: "", sheet: "", results: [], error: "" };
 }
 
 export const PlanCheckRun = {
@@ -2437,11 +2976,11 @@ export const PlanCheckRun = {
     if (message.sheet !== "") {
       writer.uint32(50).string(message.sheet);
     }
-    if (message.detail !== "") {
-      writer.uint32(58).string(message.detail);
-    }
     for (const v of message.results) {
-      PlanCheckRun_Result.encode(v!, writer.uint32(66).fork()).ldelim();
+      PlanCheckRun_Result.encode(v!, writer.uint32(58).fork()).ldelim();
+    }
+    if (message.error !== "") {
+      writer.uint32(66).string(message.error);
     }
     return writer;
   },
@@ -2500,14 +3039,14 @@ export const PlanCheckRun = {
             break;
           }
 
-          message.detail = reader.string();
+          message.results.push(PlanCheckRun_Result.decode(reader, reader.uint32()));
           continue;
         case 8:
           if (tag !== 66) {
             break;
           }
 
-          message.results.push(PlanCheckRun_Result.decode(reader, reader.uint32()));
+          message.error = reader.string();
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -2526,8 +3065,8 @@ export const PlanCheckRun = {
       status: isSet(object.status) ? planCheckRun_StatusFromJSON(object.status) : 0,
       target: isSet(object.target) ? String(object.target) : "",
       sheet: isSet(object.sheet) ? String(object.sheet) : "",
-      detail: isSet(object.detail) ? String(object.detail) : "",
       results: Array.isArray(object?.results) ? object.results.map((e: any) => PlanCheckRun_Result.fromJSON(e)) : [],
+      error: isSet(object.error) ? String(object.error) : "",
     };
   },
 
@@ -2539,12 +3078,12 @@ export const PlanCheckRun = {
     message.status !== undefined && (obj.status = planCheckRun_StatusToJSON(message.status));
     message.target !== undefined && (obj.target = message.target);
     message.sheet !== undefined && (obj.sheet = message.sheet);
-    message.detail !== undefined && (obj.detail = message.detail);
     if (message.results) {
       obj.results = message.results.map((e) => e ? PlanCheckRun_Result.toJSON(e) : undefined);
     } else {
       obj.results = [];
     }
+    message.error !== undefined && (obj.error = message.error);
     return obj;
   },
 
@@ -2560,38 +3099,35 @@ export const PlanCheckRun = {
     message.status = object.status ?? 0;
     message.target = object.target ?? "";
     message.sheet = object.sheet ?? "";
-    message.detail = object.detail ?? "";
     message.results = object.results?.map((e) => PlanCheckRun_Result.fromPartial(e)) || [];
+    message.error = object.error ?? "";
     return message;
   },
 };
 
 function createBasePlanCheckRun_Result(): PlanCheckRun_Result {
-  return { namespace: 0, code: 0, status: 0, title: "", content: "", line: 0, detail: "" };
+  return { status: 0, title: "", content: "", code: 0, sqlSummaryReport: undefined, sqlReviewReport: undefined };
 }
 
 export const PlanCheckRun_Result = {
   encode(message: PlanCheckRun_Result, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.namespace !== 0) {
-      writer.uint32(8).int32(message.namespace);
-    }
-    if (message.code !== 0) {
-      writer.uint32(16).int64(message.code);
-    }
     if (message.status !== 0) {
-      writer.uint32(24).int32(message.status);
+      writer.uint32(8).int32(message.status);
     }
     if (message.title !== "") {
-      writer.uint32(34).string(message.title);
+      writer.uint32(18).string(message.title);
     }
     if (message.content !== "") {
-      writer.uint32(42).string(message.content);
+      writer.uint32(26).string(message.content);
     }
-    if (message.line !== 0) {
-      writer.uint32(48).int64(message.line);
+    if (message.code !== 0) {
+      writer.uint32(32).int64(message.code);
     }
-    if (message.detail !== "") {
-      writer.uint32(58).string(message.detail);
+    if (message.sqlSummaryReport !== undefined) {
+      PlanCheckRun_Result_SqlSummaryReport.encode(message.sqlSummaryReport, writer.uint32(42).fork()).ldelim();
+    }
+    if (message.sqlReviewReport !== undefined) {
+      PlanCheckRun_Result_SqlReviewReport.encode(message.sqlReviewReport, writer.uint32(50).fork()).ldelim();
     }
     return writer;
   },
@@ -2608,49 +3144,42 @@ export const PlanCheckRun_Result = {
             break;
           }
 
-          message.namespace = reader.int32() as any;
-          continue;
-        case 2:
-          if (tag !== 16) {
-            break;
-          }
-
-          message.code = longToNumber(reader.int64() as Long);
-          continue;
-        case 3:
-          if (tag !== 24) {
-            break;
-          }
-
           message.status = reader.int32() as any;
           continue;
-        case 4:
-          if (tag !== 34) {
+        case 2:
+          if (tag !== 18) {
             break;
           }
 
           message.title = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.content = reader.string();
+          continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.code = longToNumber(reader.int64() as Long);
           continue;
         case 5:
           if (tag !== 42) {
             break;
           }
 
-          message.content = reader.string();
+          message.sqlSummaryReport = PlanCheckRun_Result_SqlSummaryReport.decode(reader, reader.uint32());
           continue;
         case 6:
-          if (tag !== 48) {
+          if (tag !== 50) {
             break;
           }
 
-          message.line = longToNumber(reader.int64() as Long);
-          continue;
-        case 7:
-          if (tag !== 58) {
-            break;
-          }
-
-          message.detail = reader.string();
+          message.sqlReviewReport = PlanCheckRun_Result_SqlReviewReport.decode(reader, reader.uint32());
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -2663,25 +3192,31 @@ export const PlanCheckRun_Result = {
 
   fromJSON(object: any): PlanCheckRun_Result {
     return {
-      namespace: isSet(object.namespace) ? planCheckRun_Result_NamespaceFromJSON(object.namespace) : 0,
-      code: isSet(object.code) ? Number(object.code) : 0,
       status: isSet(object.status) ? planCheckRun_Result_StatusFromJSON(object.status) : 0,
       title: isSet(object.title) ? String(object.title) : "",
       content: isSet(object.content) ? String(object.content) : "",
-      line: isSet(object.line) ? Number(object.line) : 0,
-      detail: isSet(object.detail) ? String(object.detail) : "",
+      code: isSet(object.code) ? Number(object.code) : 0,
+      sqlSummaryReport: isSet(object.sqlSummaryReport)
+        ? PlanCheckRun_Result_SqlSummaryReport.fromJSON(object.sqlSummaryReport)
+        : undefined,
+      sqlReviewReport: isSet(object.sqlReviewReport)
+        ? PlanCheckRun_Result_SqlReviewReport.fromJSON(object.sqlReviewReport)
+        : undefined,
     };
   },
 
   toJSON(message: PlanCheckRun_Result): unknown {
     const obj: any = {};
-    message.namespace !== undefined && (obj.namespace = planCheckRun_Result_NamespaceToJSON(message.namespace));
-    message.code !== undefined && (obj.code = Math.round(message.code));
     message.status !== undefined && (obj.status = planCheckRun_Result_StatusToJSON(message.status));
     message.title !== undefined && (obj.title = message.title);
     message.content !== undefined && (obj.content = message.content);
-    message.line !== undefined && (obj.line = Math.round(message.line));
-    message.detail !== undefined && (obj.detail = message.detail);
+    message.code !== undefined && (obj.code = Math.round(message.code));
+    message.sqlSummaryReport !== undefined && (obj.sqlSummaryReport = message.sqlSummaryReport
+      ? PlanCheckRun_Result_SqlSummaryReport.toJSON(message.sqlSummaryReport)
+      : undefined);
+    message.sqlReviewReport !== undefined && (obj.sqlReviewReport = message.sqlReviewReport
+      ? PlanCheckRun_Result_SqlReviewReport.toJSON(message.sqlReviewReport)
+      : undefined);
     return obj;
   },
 
@@ -2691,13 +3226,171 @@ export const PlanCheckRun_Result = {
 
   fromPartial(object: DeepPartial<PlanCheckRun_Result>): PlanCheckRun_Result {
     const message = createBasePlanCheckRun_Result();
-    message.namespace = object.namespace ?? 0;
-    message.code = object.code ?? 0;
     message.status = object.status ?? 0;
     message.title = object.title ?? "";
     message.content = object.content ?? "";
+    message.code = object.code ?? 0;
+    message.sqlSummaryReport = (object.sqlSummaryReport !== undefined && object.sqlSummaryReport !== null)
+      ? PlanCheckRun_Result_SqlSummaryReport.fromPartial(object.sqlSummaryReport)
+      : undefined;
+    message.sqlReviewReport = (object.sqlReviewReport !== undefined && object.sqlReviewReport !== null)
+      ? PlanCheckRun_Result_SqlReviewReport.fromPartial(object.sqlReviewReport)
+      : undefined;
+    return message;
+  },
+};
+
+function createBasePlanCheckRun_Result_SqlSummaryReport(): PlanCheckRun_Result_SqlSummaryReport {
+  return { statementType: "", affectedRows: 0 };
+}
+
+export const PlanCheckRun_Result_SqlSummaryReport = {
+  encode(message: PlanCheckRun_Result_SqlSummaryReport, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.statementType !== "") {
+      writer.uint32(10).string(message.statementType);
+    }
+    if (message.affectedRows !== 0) {
+      writer.uint32(16).int64(message.affectedRows);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PlanCheckRun_Result_SqlSummaryReport {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePlanCheckRun_Result_SqlSummaryReport();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.statementType = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.affectedRows = longToNumber(reader.int64() as Long);
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PlanCheckRun_Result_SqlSummaryReport {
+    return {
+      statementType: isSet(object.statementType) ? String(object.statementType) : "",
+      affectedRows: isSet(object.affectedRows) ? Number(object.affectedRows) : 0,
+    };
+  },
+
+  toJSON(message: PlanCheckRun_Result_SqlSummaryReport): unknown {
+    const obj: any = {};
+    message.statementType !== undefined && (obj.statementType = message.statementType);
+    message.affectedRows !== undefined && (obj.affectedRows = Math.round(message.affectedRows));
+    return obj;
+  },
+
+  create(base?: DeepPartial<PlanCheckRun_Result_SqlSummaryReport>): PlanCheckRun_Result_SqlSummaryReport {
+    return PlanCheckRun_Result_SqlSummaryReport.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<PlanCheckRun_Result_SqlSummaryReport>): PlanCheckRun_Result_SqlSummaryReport {
+    const message = createBasePlanCheckRun_Result_SqlSummaryReport();
+    message.statementType = object.statementType ?? "";
+    message.affectedRows = object.affectedRows ?? 0;
+    return message;
+  },
+};
+
+function createBasePlanCheckRun_Result_SqlReviewReport(): PlanCheckRun_Result_SqlReviewReport {
+  return { line: 0, detail: "", code: 0 };
+}
+
+export const PlanCheckRun_Result_SqlReviewReport = {
+  encode(message: PlanCheckRun_Result_SqlReviewReport, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.line !== 0) {
+      writer.uint32(8).int64(message.line);
+    }
+    if (message.detail !== "") {
+      writer.uint32(18).string(message.detail);
+    }
+    if (message.code !== 0) {
+      writer.uint32(24).int64(message.code);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PlanCheckRun_Result_SqlReviewReport {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePlanCheckRun_Result_SqlReviewReport();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.line = longToNumber(reader.int64() as Long);
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.detail = reader.string();
+          continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.code = longToNumber(reader.int64() as Long);
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PlanCheckRun_Result_SqlReviewReport {
+    return {
+      line: isSet(object.line) ? Number(object.line) : 0,
+      detail: isSet(object.detail) ? String(object.detail) : "",
+      code: isSet(object.code) ? Number(object.code) : 0,
+    };
+  },
+
+  toJSON(message: PlanCheckRun_Result_SqlReviewReport): unknown {
+    const obj: any = {};
+    message.line !== undefined && (obj.line = Math.round(message.line));
+    message.detail !== undefined && (obj.detail = message.detail);
+    message.code !== undefined && (obj.code = Math.round(message.code));
+    return obj;
+  },
+
+  create(base?: DeepPartial<PlanCheckRun_Result_SqlReviewReport>): PlanCheckRun_Result_SqlReviewReport {
+    return PlanCheckRun_Result_SqlReviewReport.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<PlanCheckRun_Result_SqlReviewReport>): PlanCheckRun_Result_SqlReviewReport {
+    const message = createBasePlanCheckRun_Result_SqlReviewReport();
     message.line = object.line ?? 0;
     message.detail = object.detail ?? "";
+    message.code = object.code ?? 0;
     return message;
   },
 };
@@ -2754,6 +3447,307 @@ export const GetRolloutRequest = {
   fromPartial(object: DeepPartial<GetRolloutRequest>): GetRolloutRequest {
     const message = createBaseGetRolloutRequest();
     message.name = object.name ?? "";
+    return message;
+  },
+};
+
+function createBaseCreateRolloutRequest(): CreateRolloutRequest {
+  return { parent: "", plan: "" };
+}
+
+export const CreateRolloutRequest = {
+  encode(message: CreateRolloutRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    if (message.plan !== "") {
+      writer.uint32(18).string(message.plan);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CreateRolloutRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCreateRolloutRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.plan = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CreateRolloutRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      plan: isSet(object.plan) ? String(object.plan) : "",
+    };
+  },
+
+  toJSON(message: CreateRolloutRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    message.plan !== undefined && (obj.plan = message.plan);
+    return obj;
+  },
+
+  create(base?: DeepPartial<CreateRolloutRequest>): CreateRolloutRequest {
+    return CreateRolloutRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<CreateRolloutRequest>): CreateRolloutRequest {
+    const message = createBaseCreateRolloutRequest();
+    message.parent = object.parent ?? "";
+    message.plan = object.plan ?? "";
+    return message;
+  },
+};
+
+function createBasePreviewRolloutRequest(): PreviewRolloutRequest {
+  return { project: "", plan: undefined };
+}
+
+export const PreviewRolloutRequest = {
+  encode(message: PreviewRolloutRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.project !== "") {
+      writer.uint32(10).string(message.project);
+    }
+    if (message.plan !== undefined) {
+      Plan.encode(message.plan, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PreviewRolloutRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePreviewRolloutRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.project = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.plan = Plan.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PreviewRolloutRequest {
+    return {
+      project: isSet(object.project) ? String(object.project) : "",
+      plan: isSet(object.plan) ? Plan.fromJSON(object.plan) : undefined,
+    };
+  },
+
+  toJSON(message: PreviewRolloutRequest): unknown {
+    const obj: any = {};
+    message.project !== undefined && (obj.project = message.project);
+    message.plan !== undefined && (obj.plan = message.plan ? Plan.toJSON(message.plan) : undefined);
+    return obj;
+  },
+
+  create(base?: DeepPartial<PreviewRolloutRequest>): PreviewRolloutRequest {
+    return PreviewRolloutRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<PreviewRolloutRequest>): PreviewRolloutRequest {
+    const message = createBasePreviewRolloutRequest();
+    message.project = object.project ?? "";
+    message.plan = (object.plan !== undefined && object.plan !== null) ? Plan.fromPartial(object.plan) : undefined;
+    return message;
+  },
+};
+
+function createBaseListTaskRunsRequest(): ListTaskRunsRequest {
+  return { parent: "", pageSize: 0, pageToken: "" };
+}
+
+export const ListTaskRunsRequest = {
+  encode(message: ListTaskRunsRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    if (message.pageSize !== 0) {
+      writer.uint32(16).int32(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      writer.uint32(26).string(message.pageToken);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListTaskRunsRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListTaskRunsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.pageSize = reader.int32();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.pageToken = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListTaskRunsRequest {
+    return {
+      parent: isSet(object.parent) ? String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+    };
+  },
+
+  toJSON(message: ListTaskRunsRequest): unknown {
+    const obj: any = {};
+    message.parent !== undefined && (obj.parent = message.parent);
+    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
+    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListTaskRunsRequest>): ListTaskRunsRequest {
+    return ListTaskRunsRequest.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<ListTaskRunsRequest>): ListTaskRunsRequest {
+    const message = createBaseListTaskRunsRequest();
+    message.parent = object.parent ?? "";
+    message.pageSize = object.pageSize ?? 0;
+    message.pageToken = object.pageToken ?? "";
+    return message;
+  },
+};
+
+function createBaseListTaskRunsResponse(): ListTaskRunsResponse {
+  return { taskRuns: [], nextPageToken: "" };
+}
+
+export const ListTaskRunsResponse = {
+  encode(message: ListTaskRunsResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.taskRuns) {
+      TaskRun.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.nextPageToken !== "") {
+      writer.uint32(18).string(message.nextPageToken);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListTaskRunsResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListTaskRunsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.taskRuns.push(TaskRun.decode(reader, reader.uint32()));
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.nextPageToken = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListTaskRunsResponse {
+    return {
+      taskRuns: Array.isArray(object?.taskRuns) ? object.taskRuns.map((e: any) => TaskRun.fromJSON(e)) : [],
+      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+    };
+  },
+
+  toJSON(message: ListTaskRunsResponse): unknown {
+    const obj: any = {};
+    if (message.taskRuns) {
+      obj.taskRuns = message.taskRuns.map((e) => e ? TaskRun.toJSON(e) : undefined);
+    } else {
+      obj.taskRuns = [];
+    }
+    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    return obj;
+  },
+
+  create(base?: DeepPartial<ListTaskRunsResponse>): ListTaskRunsResponse {
+    return ListTaskRunsResponse.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<ListTaskRunsResponse>): ListTaskRunsResponse {
+    const message = createBaseListTaskRunsResponse();
+    message.taskRuns = object.taskRuns?.map((e) => TaskRun.fromPartial(e)) || [];
+    message.nextPageToken = object.nextPageToken ?? "";
     return message;
   },
 };
@@ -3621,7 +4615,7 @@ function createBaseTask_DatabaseDataUpdate(): Task_DatabaseDataUpdate {
     rollbackSqlStatus: 0,
     rollbackError: "",
     rollbackSheet: "",
-    rollbackFromReview: "",
+    rollbackFromIssue: "",
     rollbackFromTask: "",
   };
 }
@@ -3646,8 +4640,8 @@ export const Task_DatabaseDataUpdate = {
     if (message.rollbackSheet !== "") {
       writer.uint32(50).string(message.rollbackSheet);
     }
-    if (message.rollbackFromReview !== "") {
-      writer.uint32(58).string(message.rollbackFromReview);
+    if (message.rollbackFromIssue !== "") {
+      writer.uint32(58).string(message.rollbackFromIssue);
     }
     if (message.rollbackFromTask !== "") {
       writer.uint32(66).string(message.rollbackFromTask);
@@ -3709,7 +4703,7 @@ export const Task_DatabaseDataUpdate = {
             break;
           }
 
-          message.rollbackFromReview = reader.string();
+          message.rollbackFromIssue = reader.string();
           continue;
         case 8:
           if (tag !== 66) {
@@ -3737,7 +4731,7 @@ export const Task_DatabaseDataUpdate = {
         : 0,
       rollbackError: isSet(object.rollbackError) ? String(object.rollbackError) : "",
       rollbackSheet: isSet(object.rollbackSheet) ? String(object.rollbackSheet) : "",
-      rollbackFromReview: isSet(object.rollbackFromReview) ? String(object.rollbackFromReview) : "",
+      rollbackFromIssue: isSet(object.rollbackFromIssue) ? String(object.rollbackFromIssue) : "",
       rollbackFromTask: isSet(object.rollbackFromTask) ? String(object.rollbackFromTask) : "",
     };
   },
@@ -3751,7 +4745,7 @@ export const Task_DatabaseDataUpdate = {
       (obj.rollbackSqlStatus = task_DatabaseDataUpdate_RollbackSqlStatusToJSON(message.rollbackSqlStatus));
     message.rollbackError !== undefined && (obj.rollbackError = message.rollbackError);
     message.rollbackSheet !== undefined && (obj.rollbackSheet = message.rollbackSheet);
-    message.rollbackFromReview !== undefined && (obj.rollbackFromReview = message.rollbackFromReview);
+    message.rollbackFromIssue !== undefined && (obj.rollbackFromIssue = message.rollbackFromIssue);
     message.rollbackFromTask !== undefined && (obj.rollbackFromTask = message.rollbackFromTask);
     return obj;
   },
@@ -3768,7 +4762,7 @@ export const Task_DatabaseDataUpdate = {
     message.rollbackSqlStatus = object.rollbackSqlStatus ?? 0;
     message.rollbackError = object.rollbackError ?? "";
     message.rollbackSheet = object.rollbackSheet ?? "";
-    message.rollbackFromReview = object.rollbackFromReview ?? "";
+    message.rollbackFromIssue = object.rollbackFromIssue ?? "";
     message.rollbackFromTask = object.rollbackFromTask ?? "";
     return message;
   },
@@ -4379,19 +5373,25 @@ export const RolloutServiceDefinition = {
         },
       },
     },
-    listRolloutTaskRuns: {
-      name: "ListRolloutTaskRuns",
-      requestType: ListPlansRequest,
+    createRollout: {
+      name: "CreateRollout",
+      requestType: CreateRolloutRequest,
       requestStream: false,
-      responseType: ListPlansResponse,
+      responseType: Rollout,
       responseStream: false,
       options: {
         _unknownFields: {
-          8410: [new Uint8Array([6, 112, 97, 114, 101, 110, 116])],
+          8410: [new Uint8Array([0])],
           578365826: [
             new Uint8Array([
+              40,
+              58,
+              4,
+              112,
+              108,
+              97,
+              110,
               34,
-              18,
               32,
               47,
               118,
@@ -4424,6 +5424,146 @@ export const RolloutServiceDefinition = {
               111,
               117,
               116,
+              115,
+            ]),
+          ],
+        },
+      },
+    },
+    previewRollout: {
+      name: "PreviewRollout",
+      requestType: PreviewRolloutRequest,
+      requestStream: false,
+      responseType: Rollout,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([4, 110, 97, 109, 101])],
+          578365826: [
+            new Uint8Array([
+              44,
+              58,
+              1,
+              42,
+              34,
+              39,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              125,
+              58,
+              112,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+              82,
+              111,
+              108,
+              108,
+              111,
+              117,
+              116,
+            ]),
+          ],
+        },
+      },
+    },
+    listTaskRuns: {
+      name: "ListTaskRuns",
+      requestType: ListTaskRunsRequest,
+      requestStream: false,
+      responseType: ListTaskRunsResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([6, 112, 97, 114, 101, 110, 116])],
+          578365826: [
+            new Uint8Array([
+              62,
+              18,
+              60,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              114,
+              111,
+              108,
+              108,
+              111,
+              117,
+              116,
+              115,
+              47,
+              42,
+              47,
+              115,
+              116,
+              97,
+              103,
+              101,
+              115,
+              47,
+              42,
+              47,
+              116,
+              97,
+              115,
+              107,
+              115,
+              47,
+              42,
+              125,
+              47,
+              116,
+              97,
+              115,
+              107,
+              82,
+              117,
+              110,
               115,
             ]),
           ],
@@ -4494,6 +5634,325 @@ export const RolloutServiceDefinition = {
         },
       },
     },
+    runPlanChecks: {
+      name: "RunPlanChecks",
+      requestType: RunPlanChecksRequest,
+      requestStream: false,
+      responseType: RunPlanChecksResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([4, 110, 97, 109, 101])],
+          578365826: [
+            new Uint8Array([
+              47,
+              58,
+              1,
+              42,
+              34,
+              42,
+              47,
+              118,
+              49,
+              47,
+              123,
+              110,
+              97,
+              109,
+              101,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              112,
+              108,
+              97,
+              110,
+              115,
+              47,
+              42,
+              125,
+              58,
+              114,
+              117,
+              110,
+              80,
+              108,
+              97,
+              110,
+              67,
+              104,
+              101,
+              107,
+              115,
+            ]),
+          ],
+        },
+      },
+    },
+    batchRunTasks: {
+      name: "BatchRunTasks",
+      requestType: BatchRunTasksRequest,
+      requestStream: false,
+      responseType: BatchRunTasksResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([6, 112, 97, 114, 101, 110, 116])],
+          578365826: [
+            new Uint8Array([
+              63,
+              58,
+              1,
+              42,
+              34,
+              58,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              114,
+              111,
+              108,
+              108,
+              111,
+              117,
+              116,
+              115,
+              47,
+              42,
+              47,
+              115,
+              116,
+              97,
+              103,
+              101,
+              115,
+              47,
+              42,
+              125,
+              47,
+              116,
+              97,
+              115,
+              107,
+              115,
+              58,
+              98,
+              97,
+              116,
+              99,
+              104,
+              82,
+              117,
+              110,
+            ]),
+          ],
+        },
+      },
+    },
+    batchSkipTasks: {
+      name: "BatchSkipTasks",
+      requestType: BatchSkipTasksRequest,
+      requestStream: false,
+      responseType: BatchSkipTasksResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([6, 112, 97, 114, 101, 110, 116])],
+          578365826: [
+            new Uint8Array([
+              64,
+              58,
+              1,
+              42,
+              34,
+              59,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              114,
+              111,
+              108,
+              108,
+              111,
+              117,
+              116,
+              115,
+              47,
+              42,
+              47,
+              115,
+              116,
+              97,
+              103,
+              101,
+              115,
+              47,
+              42,
+              125,
+              47,
+              116,
+              97,
+              115,
+              107,
+              115,
+              58,
+              98,
+              97,
+              116,
+              99,
+              104,
+              83,
+              107,
+              105,
+              112,
+            ]),
+          ],
+        },
+      },
+    },
+    batchCancelTaskRuns: {
+      name: "BatchCancelTaskRuns",
+      requestType: BatchCancelTaskRunsRequest,
+      requestStream: false,
+      responseType: BatchCancelTaskRunsResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          8410: [new Uint8Array([6, 112, 97, 114, 101, 110, 116])],
+          578365826: [
+            new Uint8Array([
+              77,
+              58,
+              1,
+              42,
+              34,
+              72,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              114,
+              111,
+              108,
+              108,
+              111,
+              117,
+              116,
+              115,
+              47,
+              42,
+              47,
+              115,
+              116,
+              97,
+              103,
+              101,
+              115,
+              47,
+              42,
+              47,
+              116,
+              97,
+              115,
+              107,
+              115,
+              47,
+              42,
+              125,
+              47,
+              116,
+              97,
+              115,
+              107,
+              82,
+              117,
+              110,
+              115,
+              58,
+              98,
+              97,
+              116,
+              99,
+              104,
+              67,
+              97,
+              110,
+              99,
+              101,
+              108,
+            ]),
+          ],
+        },
+      },
+    },
   },
 } as const;
 
@@ -4503,14 +5962,32 @@ export interface RolloutServiceImplementation<CallContextExt = {}> {
   createPlan(request: CreatePlanRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Plan>>;
   updatePlan(request: UpdatePlanRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Plan>>;
   getRollout(request: GetRolloutRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Rollout>>;
-  listRolloutTaskRuns(
-    request: ListPlansRequest,
+  createRollout(request: CreateRolloutRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Rollout>>;
+  previewRollout(request: PreviewRolloutRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Rollout>>;
+  listTaskRuns(
+    request: ListTaskRunsRequest,
     context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListPlansResponse>>;
+  ): Promise<DeepPartial<ListTaskRunsResponse>>;
   listPlanCheckRuns(
     request: ListPlanCheckRunsRequest,
     context: CallContext & CallContextExt,
   ): Promise<DeepPartial<ListPlanCheckRunsResponse>>;
+  runPlanChecks(
+    request: RunPlanChecksRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<RunPlanChecksResponse>>;
+  batchRunTasks(
+    request: BatchRunTasksRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<BatchRunTasksResponse>>;
+  batchSkipTasks(
+    request: BatchSkipTasksRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<BatchSkipTasksResponse>>;
+  batchCancelTaskRuns(
+    request: BatchCancelTaskRunsRequest,
+    context: CallContext & CallContextExt,
+  ): Promise<DeepPartial<BatchCancelTaskRunsResponse>>;
 }
 
 export interface RolloutServiceClient<CallOptionsExt = {}> {
@@ -4519,20 +5996,38 @@ export interface RolloutServiceClient<CallOptionsExt = {}> {
   createPlan(request: DeepPartial<CreatePlanRequest>, options?: CallOptions & CallOptionsExt): Promise<Plan>;
   updatePlan(request: DeepPartial<UpdatePlanRequest>, options?: CallOptions & CallOptionsExt): Promise<Plan>;
   getRollout(request: DeepPartial<GetRolloutRequest>, options?: CallOptions & CallOptionsExt): Promise<Rollout>;
-  listRolloutTaskRuns(
-    request: DeepPartial<ListPlansRequest>,
+  createRollout(request: DeepPartial<CreateRolloutRequest>, options?: CallOptions & CallOptionsExt): Promise<Rollout>;
+  previewRollout(request: DeepPartial<PreviewRolloutRequest>, options?: CallOptions & CallOptionsExt): Promise<Rollout>;
+  listTaskRuns(
+    request: DeepPartial<ListTaskRunsRequest>,
     options?: CallOptions & CallOptionsExt,
-  ): Promise<ListPlansResponse>;
+  ): Promise<ListTaskRunsResponse>;
   listPlanCheckRuns(
     request: DeepPartial<ListPlanCheckRunsRequest>,
     options?: CallOptions & CallOptionsExt,
   ): Promise<ListPlanCheckRunsResponse>;
+  runPlanChecks(
+    request: DeepPartial<RunPlanChecksRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<RunPlanChecksResponse>;
+  batchRunTasks(
+    request: DeepPartial<BatchRunTasksRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<BatchRunTasksResponse>;
+  batchSkipTasks(
+    request: DeepPartial<BatchSkipTasksRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<BatchSkipTasksResponse>;
+  batchCancelTaskRuns(
+    request: DeepPartial<BatchCancelTaskRunsRequest>,
+    options?: CallOptions & CallOptionsExt,
+  ): Promise<BatchCancelTaskRunsResponse>;
 }
 
-declare var self: any | undefined;
-declare var window: any | undefined;
-declare var global: any | undefined;
-var tsProtoGlobalThis: any = (() => {
+declare const self: any | undefined;
+declare const window: any | undefined;
+declare const global: any | undefined;
+const tsProtoGlobalThis: any = (() => {
   if (typeof globalThis !== "undefined") {
     return globalThis;
   }

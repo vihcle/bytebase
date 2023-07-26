@@ -150,7 +150,7 @@
       <DatabaseBackupCreateForm
         :database="database"
         @create="
-          (backupName) => {
+          (backupName: string) => {
             createBackup(backupName);
             state.showCreateBackupModal = false;
           }
@@ -460,7 +460,7 @@ const updateBackupHookUrl = () => {
         style: "SUCCESS",
         title: t(
           "database.updated-backup-webhook-url-for-database-props-database-name",
-          [props.database.name]
+          [props.database.databaseName]
         ),
       });
     });

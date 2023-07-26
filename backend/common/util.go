@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	// MaxSheetSize is the maximum size of a sheet for displaying.
-	MaxSheetSize = 10240
+	// MaxSheetSize is the maximum size (1M) of a sheet for displaying.
+	MaxSheetSize = 1024 * 1024
 	// MaxSheetSizeForTaskCheck is the maximum size of a sheet for task check to run.
 	MaxSheetSizeForTaskCheck = 10 * 1024 * 1024
 	// MaxSheetSizeForRollback is the maximum size of a sheet for rollback generator to run.
@@ -76,14 +76,14 @@ func GetPostgresDataDir(dataDir string, demoName string) string {
 	// we reset the demo data when starting Bytebase and this can prevent accidentally removing the
 	// production data.
 	if demoName != "" {
-		return path.Join(dataDir, fmt.Sprintf("pgdata-demo/%s", demoName))
+		return path.Join(dataDir, "pgdata-demo", demoName)
 	}
 	return path.Join(dataDir, "pgdata")
 }
 
 // GetPostgresSampleDataDir returns the data directory of postgres sample instance.
-func GetPostgresSampleDataDir(dataDir string) string {
-	return path.Join(dataDir, "pgdata-sample")
+func GetPostgresSampleDataDir(dataDir string, subDir string) string {
+	return path.Join(dataDir, "pgdata-sample", subDir)
 }
 
 // GetPostgresSocketDir returns the postgres socket directory of Bytebase.

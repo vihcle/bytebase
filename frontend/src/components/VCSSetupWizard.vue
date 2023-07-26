@@ -94,7 +94,8 @@ const eventListener = (event: Event) => {
     if (
       state.config.type === ExternalVersionControl_Type.GITLAB ||
       state.config.type === ExternalVersionControl_Type.GITHUB ||
-      state.config.type === ExternalVersionControl_Type.BITBUCKET
+      state.config.type === ExternalVersionControl_Type.BITBUCKET ||
+      state.config.type === ExternalVersionControl_Type.AZURE_DEVOPS
     ) {
       vcsV1Store
         .exchangeToken({
@@ -143,6 +144,8 @@ const attentionText = computed((): string => {
     return t("gitops.setting.add-git-provider.github-com-admin-requirement");
   } else if (state.config.type === ExternalVersionControl_Type.BITBUCKET) {
     return t("gitops.setting.add-git-provider.bitbucket-admin-requirement");
+  } else if (state.config.type === ExternalVersionControl_Type.AZURE_DEVOPS) {
+    return t("gitops.setting.add-git-provider.azure-admin-requirement");
   }
   return "";
 });
@@ -163,9 +166,11 @@ const tryChangeStep = (
   if (state.currentStep == OAUTH_INFO_STEP && newStep > oldStep) {
     let authorizeUrl = `${state.config.instanceUrl}/oauth/authorize`;
     if (state.config.type === ExternalVersionControl_Type.GITHUB) {
-      authorizeUrl = `https://github.com/login/oauth/authorize`;
+      authorizeUrl = `${state.config.instanceUrl}/login/oauth/authorize`;
     } else if (state.config.type === ExternalVersionControl_Type.BITBUCKET) {
       authorizeUrl = `https://bitbucket.org/site/oauth2/authorize`;
+    } else if (state.config.type === ExternalVersionControl_Type.AZURE_DEVOPS) {
+      authorizeUrl = "https://app.vssps.visualstudio.com/oauth2/authorize";
     }
     const newWindow = openWindowForOAuth(
       authorizeUrl,

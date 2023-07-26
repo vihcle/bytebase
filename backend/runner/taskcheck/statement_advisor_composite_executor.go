@@ -3,11 +3,13 @@ package taskcheck
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/component/dbfactory"
+	enterpriseAPI "github.com/bytebase/bytebase/backend/enterprise/api"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	advisorDB "github.com/bytebase/bytebase/backend/plugin/advisor/db"
@@ -22,17 +24,23 @@ import (
 //   3. Each [db.Type][AdvisorType] maps an advisor.
 
 // NewStatementAdvisorCompositeExecutor creates a task check statement advisor composite executor.
-func NewStatementAdvisorCompositeExecutor(store *store.Store, dbFactory *dbfactory.DBFactory) Executor {
+func NewStatementAdvisorCompositeExecutor(
+	store *store.Store,
+	dbFactory *dbfactory.DBFactory,
+	licenseService enterpriseAPI.LicenseService,
+) Executor {
 	return &StatementAdvisorCompositeExecutor{
-		store:     store,
-		dbFactory: dbFactory,
+		store:          store,
+		dbFactory:      dbFactory,
+		licenseService: licenseService,
 	}
 }
 
 // StatementAdvisorCompositeExecutor is the task check statement advisor composite executor with has sub-advisor.
 type StatementAdvisorCompositeExecutor struct {
-	store     *store.Store
-	dbFactory *dbfactory.DBFactory
+	store          *store.Store
+	dbFactory      *dbfactory.DBFactory
+	licenseService enterpriseAPI.LicenseService
 }
 
 // Run will run the task check statement advisor composite executor once, and run its sub-advisor one-by-one.
@@ -48,17 +56,33 @@ func (e *StatementAdvisorCompositeExecutor) Run(ctx context.Context, taskCheckRu
 	if database == nil {
 		return nil, errors.Errorf("database %v not found", *task.DatabaseID)
 	}
-	environment, err := e.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{ResourceID: &database.EnvironmentID})
+	environment, err := e.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{ResourceID: &database.EffectiveEnvironmentID})
 	if err != nil {
 		return nil, err
 	}
 	if environment == nil {
-		return nil, errors.Errorf("environment %q not found", database.EnvironmentID)
+		return nil, errors.Errorf("environment %q not found", database.EffectiveEnvironmentID)
 	}
 	instance, err := e.store.GetInstanceV2(ctx, &store.FindInstanceMessage{UID: &task.InstanceID})
 	if err != nil {
 		return nil, err
 	}
+	if instance == nil {
+		return nil, errors.Errorf("instance %q not found", task.InstanceID)
+	}
+	if err := e.licenseService.IsFeatureEnabledForInstance(api.FeatureSQLReview, instance); err != nil {
+		// nolint:nilerr
+		return []api.TaskCheckResult{
+			{
+				Status:    api.TaskCheckStatusWarn,
+				Namespace: api.AdvisorNamespace,
+				Code:      advisor.Unsupported.Int(),
+				Title:     fmt.Sprintf("SQL review disabled for instance %s", instance.ResourceID),
+				Content:   err.Error(),
+			},
+		}, nil
+	}
+
 	dbSchema, err := e.store.GetDBSchema(ctx, database.UID)
 	if err != nil {
 		return nil, err
@@ -68,7 +92,7 @@ func (e *StatementAdvisorCompositeExecutor) Run(ctx context.Context, taskCheckRu
 		return nil, err
 	}
 
-	sheet, err := e.store.GetSheetV2(ctx, &store.FindSheetMessage{UID: &payload.SheetID}, api.SystemBotID)
+	sheet, err := e.store.GetSheet(ctx, &store.FindSheetMessage{UID: &payload.SheetID}, api.SystemBotID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get sheet %d", payload.SheetID)
 	}
@@ -94,17 +118,13 @@ func (e *StatementAdvisorCompositeExecutor) Run(ctx context.Context, taskCheckRu
 	policy, err := e.store.GetSQLReviewPolicy(ctx, environment.UID)
 	if err != nil {
 		if e, ok := err.(*common.Error); ok && e.Code == common.NotFound {
-			return []api.TaskCheckResult{
-				{
-					Status:    api.TaskCheckStatusSuccess,
-					Namespace: api.AdvisorNamespace,
-					Code:      common.Ok.Int(),
-					Title:     "Empty SQL review policy or disabled",
-					Content:   "",
-				},
-			}, nil
+			policy = &advisor.SQLReviewPolicy{
+				Name:     "Default",
+				RuleList: []*advisor.SQLReviewRule{},
+			}
+		} else {
+			return nil, common.Wrapf(err, common.Internal, "failed to get SQL review policy")
 		}
-		return nil, common.Wrapf(err, common.Internal, "failed to get SQL review policy")
 	}
 
 	catalog, err := e.store.NewCatalog(ctx, *task.DatabaseID, instance.Engine, task.GetSyntaxMode())

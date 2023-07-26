@@ -36,18 +36,21 @@
 <script lang="ts">
 import { reactive, watchEffect } from "vue";
 import InboxList from "../components/InboxList.vue";
-import { ComposedInbox, UNKNOWN_ID } from "@/types";
+import { UNKNOWN_ID } from "@/types";
 import { useRouter } from "vue-router";
 import { useCurrentUser, useInboxV1Store } from "@/store";
-import { InboxMessage_Status } from "@/types/proto/v1/inbox_service";
+import {
+  InboxMessage,
+  InboxMessage_Status,
+} from "@/types/proto/v1/inbox_service";
 
 // We alway fetch all "UNREAD" items. But for "READ" items, by default, we only fetch the most recent 7 days.
 // And each time clicking "View older" will extend 7 days further.
 const READ_INBOX_DURATION_STEP = 3600 * 24 * 7;
 
 interface LocalState {
-  readList: ComposedInbox[];
-  unreadList: ComposedInbox[];
+  readList: InboxMessage[];
+  unreadList: InboxMessage[];
   readCreatedAfterTs: number;
 }
 
@@ -91,26 +94,18 @@ export default {
 
     watchEffect(prepareInboxList);
 
-    const markAllAsRead = () => {
-      let count = state.unreadList.length;
-      const inboxList = state.unreadList.map((item) => item);
-
-      inboxList.forEach((item) => {
-        item.status = InboxMessage_Status.STATUS_READ;
-        inboxV1Store.patchInbox(item).then(() => {
-          const i = state.unreadList.findIndex(
-            (unreadItem) => unreadItem.name == item.name
-          );
-          if (i >= 0) {
-            state.unreadList.splice(i, 1);
-          }
-          count--;
-          if (count == 0) {
-            inboxV1Store.fetchInboxSummary();
-          }
-          state.readList.push(item);
-        });
-      });
+    const markAllAsRead = async () => {
+      const list = await Promise.all(
+        state.unreadList.map(async (item) => {
+          item.status = InboxMessage_Status.STATUS_READ;
+          // TODO: use batch instead.
+          await inboxV1Store.patchInbox(item);
+          return item;
+        })
+      );
+      state.readList.push(...list);
+      state.unreadList = [];
+      await inboxV1Store.fetchInboxSummary();
     };
 
     const viewOlder = () => {

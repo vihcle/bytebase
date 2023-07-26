@@ -34,6 +34,7 @@ type InstanceChangeHistoryMessage struct {
 	Version             string
 	Description         string
 	Statement           string
+	SheetID             *int
 	Schema              string
 	SchemaPrev          string
 	ExecutionDurationNs int64
@@ -49,13 +50,15 @@ type InstanceChangeHistoryMessage struct {
 	IssueProjectID string
 }
 
-const instanceChangeHistoryTruncateLength = 10240
+// instanceChangeHistoryTruncateLength is the maximum size (1M) of a sheet for displaying.
+const instanceChangeHistoryTruncateLength = 1024 * 1024
 
 // FindInstanceChangeHistoryMessage is for listing a list of instance change history.
 type FindInstanceChangeHistoryMessage struct {
-	ID         *int64
+	ID         *string
 	InstanceID *int
 	DatabaseID *int
+	SheetID    *int
 	Source     *db.MigrationSource
 	Version    *string
 	Limit      *int
@@ -72,36 +75,87 @@ type UpdateInstanceChangeHistoryMessage struct {
 	Status              *db.MigrationStatus
 	ExecutionDurationNs *int64
 	Schema              *string
+	Sheet               *int
 }
 
 // CreateInstanceChangeHistory creates instance change history in batch.
-func (s *Store) CreateInstanceChangeHistory(ctx context.Context, creates ...*InstanceChangeHistoryMessage) ([]*InstanceChangeHistoryMessage, error) {
+func (s *Store) CreateInstanceChangeHistory(ctx context.Context, create *InstanceChangeHistoryMessage) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer tx.Rollback()
 
-	list, err := s.createInstanceChangeHistoryImpl(ctx, tx, creates...)
-	if err != nil {
-		return nil, err
+	if create.InstanceUID == nil {
+		if _, err := s.createInstanceChangeHistoryImplForMigrator(ctx, tx, create); err != nil {
+			return err
+		}
+	} else {
+		if _, err := s.createInstanceChangeHistoryImpl(ctx, tx, create); err != nil {
+			return err
+		}
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-
-	return list, nil
+	return tx.Commit()
 }
 
-func (*Store) createInstanceChangeHistoryImpl(ctx context.Context, tx *Tx, creates ...*InstanceChangeHistoryMessage) ([]*InstanceChangeHistoryMessage, error) {
-	if len(creates) == 0 {
-		return nil, nil
-	}
-	var query strings.Builder
-	var values []any
-	var queryValues []string
+func (*Store) createInstanceChangeHistoryImpl(ctx context.Context, tx *Tx, create *InstanceChangeHistoryMessage) (string, error) {
+	query := `
+		INSERT INTO instance_change_history (
+			creator_id,
+			updater_id,
+			instance_id,
+			database_id,
+			issue_id,
+			release_version,
+			sequence,
+			source,
+			type,
+			status,
+			version,
+			description,
+			statement,
+			"schema",
+			sheet_id,
+			schema_prev,
+			execution_duration_ns,
+			payload
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		RETURNING id`
 
-	_, _ = query.WriteString(`
+	payload, err := protojson.Marshal(create.Payload)
+	if err != nil {
+		return "", err
+	}
+
+	var uid string
+	if err := tx.QueryRowContext(ctx, query,
+		create.CreatorID,
+		create.CreatorID,
+		create.InstanceUID,
+		create.DatabaseUID,
+		create.IssueUID,
+		create.ReleaseVersion,
+		create.Sequence,
+		create.Source,
+		create.Type,
+		create.Status,
+		create.Version,
+		create.Description,
+		create.Statement,
+		create.Schema,
+		create.SheetID,
+		create.SchemaPrev,
+		create.ExecutionDurationNs,
+		payload,
+	).Scan(&uid); err != nil {
+		return "", err
+	}
+
+	return uid, nil
+}
+
+func (*Store) createInstanceChangeHistoryImplForMigrator(ctx context.Context, tx *Tx, create *InstanceChangeHistoryMessage) (string, error) {
+	query := `
 		INSERT INTO instance_change_history (
 			creator_id,
 			updater_id,
@@ -119,109 +173,39 @@ func (*Store) createInstanceChangeHistoryImpl(ctx context.Context, tx *Tx, creat
 			"schema",
 			schema_prev,
 			execution_duration_ns,
-			payload,
-			created_ts,
-			updated_ts
-		) VALUES `)
+			payload
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		RETURNING id`
 
-	count := 1
-	for _, create := range creates {
-		payload, err := protojson.Marshal(create.Payload)
-		if err != nil {
-			return nil, err
-		}
-		values = append(values,
-			create.CreatorID,
-			create.CreatorID,
-			create.InstanceUID,
-			create.DatabaseUID,
-			create.IssueUID,
-			create.ReleaseVersion,
-			create.Sequence,
-			create.Source,
-			create.Type,
-			create.Status,
-			create.Version,
-			create.Description,
-			create.Statement,
-			create.Schema,
-			create.SchemaPrev,
-			create.ExecutionDurationNs,
-			payload,
-		)
-		const countToPayload = 17
-		var valueStr []string
-		for i := 0; i < countToPayload; i++ {
-			valueStr = append(valueStr, fmt.Sprintf("$%d", count))
-			count++
-		}
-		if create.CreatedTs == 0 {
-			valueStr = append(valueStr, "DEFAULT")
-		} else {
-			valueStr = append(valueStr, fmt.Sprintf("$%d", count))
-			values = append(values, create.CreatedTs)
-			count++
-		}
-		if create.UpdatedTs == 0 {
-			valueStr = append(valueStr, "DEFAULT")
-		} else {
-			valueStr = append(valueStr, fmt.Sprintf("$%d", count))
-			values = append(values, create.UpdatedTs)
-			count++
-		}
-		queryValues = append(queryValues, fmt.Sprintf("(%s)", strings.Join(valueStr, " , ")))
-	}
-
-	_, _ = query.WriteString(strings.Join(queryValues, ", "))
-	_, _ = query.WriteString(` RETURNING id, created_ts`)
-
-	rows, err := tx.QueryContext(ctx, query.String(), values...)
+	payload, err := protojson.Marshal(create.Payload)
 	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var list []*InstanceChangeHistoryMessage
-
-	i := 0
-	for rows.Next() {
-		var id string
-		var createdTs int64
-		if err := rows.Scan(&id, &createdTs); err != nil {
-			return nil, err
-		}
-
-		create := creates[i]
-		list = append(list, &InstanceChangeHistoryMessage{
-			CreatorID:           create.CreatorID,
-			UpdaterID:           create.CreatorID,
-			InstanceUID:         create.InstanceUID,
-			DatabaseUID:         create.DatabaseUID,
-			IssueUID:            create.IssueUID,
-			ReleaseVersion:      create.ReleaseVersion,
-			Sequence:            create.Sequence,
-			Source:              create.Source,
-			Type:                create.Type,
-			Status:              create.Status,
-			Version:             create.Version,
-			Description:         create.Description,
-			Statement:           create.Statement,
-			Schema:              create.Schema,
-			SchemaPrev:          create.SchemaPrev,
-			ExecutionDurationNs: create.ExecutionDurationNs,
-			Payload:             create.Payload,
-
-			UID:       id,
-			CreatedTs: createdTs,
-			UpdatedTs: createdTs,
-		})
-		i++
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return list, nil
+	var uid string
+	if err := tx.QueryRowContext(ctx, query,
+		create.CreatorID,
+		create.CreatorID,
+		create.InstanceUID,
+		create.DatabaseUID,
+		create.IssueUID,
+		create.ReleaseVersion,
+		create.Sequence,
+		create.Source,
+		create.Type,
+		create.Status,
+		create.Version,
+		create.Description,
+		create.Statement,
+		create.Schema,
+		create.SchemaPrev,
+		create.ExecutionDurationNs,
+		payload,
+	).Scan(&uid); err != nil {
+		return "", err
+	}
+
+	return uid, nil
 }
 
 func convertInstanceChangeHistoryToMigrationHistory(change *InstanceChangeHistoryMessage) (*db.MigrationHistory, error) {
@@ -256,6 +240,7 @@ func convertInstanceChangeHistoryToMigrationHistory(change *InstanceChangeHistor
 		Description:           change.Description,
 		Statement:             change.Statement,
 		Schema:                change.Schema,
+		SheetID:               change.SheetID,
 		SchemaPrev:            change.SchemaPrev,
 		ExecutionDurationNs:   change.ExecutionDurationNs,
 		IssueID:               issueID,
@@ -268,19 +253,13 @@ func convertInstanceChangeHistoryToMigrationHistory(change *InstanceChangeHistor
 // FindInstanceChangeHistoryList finds a list of instance change history and returns as a list of migration history.
 func (s *Store) FindInstanceChangeHistoryList(ctx context.Context, find *db.MigrationHistoryFind) ([]*db.MigrationHistory, error) {
 	findMessage := &FindInstanceChangeHistoryMessage{
+		ID:         find.ID,
 		InstanceID: find.InstanceID,
 		DatabaseID: find.DatabaseID,
 		Source:     find.Source,
 		Version:    find.Version,
 		Limit:      find.Limit,
 		ShowFull:   true,
-	}
-	if v := find.ID; v != nil {
-		id, err := strconv.ParseInt(*v, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		findMessage.ID = &id
 	}
 
 	list, err := s.ListInstanceChangeHistory(ctx, findMessage)
@@ -320,15 +299,24 @@ func (s *Store) FindInstanceChangeHistoryList(ctx context.Context, find *db.Migr
 func (s *Store) ListInstanceChangeHistory(ctx context.Context, find *FindInstanceChangeHistoryMessage) ([]*InstanceChangeHistoryMessage, error) {
 	where, args := []string{"TRUE"}, []any{}
 	if v := find.ID; v != nil {
-		where, args = append(where, fmt.Sprintf("instance_change_history.id = $%d", len(args)+1)), append(args, *v)
+		id, err := strconv.Atoi(*v)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to convert id %q to int", *v)
+		}
+		where, args = append(where, fmt.Sprintf("instance_change_history.id = $%d", len(args)+1)), append(args, id)
 	}
+	sheetField := "instance_change_history.sheet_id"
 	if v := find.InstanceID; v != nil {
 		where, args = append(where, fmt.Sprintf("instance_change_history.instance_id = $%d", len(args)+1)), append(args, *v)
 	} else {
 		where = append(where, "instance_change_history.instance_id is NULL AND instance_change_history.database_id is NULL")
+		sheetField = "NULL"
 	}
 	if v := find.DatabaseID; v != nil {
 		where, args = append(where, fmt.Sprintf("instance_change_history.database_id = $%d", len(args)+1)), append(args, *v)
+	}
+	if v := find.SheetID; v != nil {
+		where, args = append(where, fmt.Sprintf("instance_change_history.sheet_id = $%d", len(args)+1)), append(args, *v)
 	}
 	if v := find.Source; v != nil {
 		where, args = append(where, fmt.Sprintf("instance_change_history.source = $%d", len(args)+1)), append(args, *v)
@@ -371,6 +359,7 @@ func (s *Store) ListInstanceChangeHistory(ctx context.Context, find *FindInstanc
 			%s,
 			%s,
 			%s,
+			%s,
 			instance_change_history.execution_duration_ns,
 			instance_change_history.payload,
 			COALESCE(instance.resource_id, ''),
@@ -378,7 +367,7 @@ func (s *Store) ListInstanceChangeHistory(ctx context.Context, find *FindInstanc
 		FROM instance_change_history
 		LEFT JOIN instance on instance.id = instance_change_history.instance_id
 		LEFT JOIN db on db.id = instance_change_history.database_id
-		WHERE `+strings.Join(where, " AND ")+` ORDER BY instance_change_history.instance_id, instance_change_history.database_id, instance_change_history.sequence DESC`, statementField, schemaField, schemaPrevField)
+		WHERE `+strings.Join(where, " AND ")+` ORDER BY instance_change_history.instance_id, instance_change_history.database_id, instance_change_history.sequence DESC`, statementField, schemaField, schemaPrevField, sheetField)
 	if v := find.Limit; v != nil {
 		query += fmt.Sprintf(" LIMIT %d", *v)
 	}
@@ -402,7 +391,7 @@ func (s *Store) ListInstanceChangeHistory(ctx context.Context, find *FindInstanc
 	for rows.Next() {
 		var changeHistory InstanceChangeHistoryMessage
 		var rowStatus, payload string
-		var instanceID, databaseID, issueID sql.NullInt32
+		var instanceID, databaseID, issueID, sheetID sql.NullInt32
 		if err := rows.Scan(
 			&changeHistory.UID,
 			&rowStatus,
@@ -423,6 +412,7 @@ func (s *Store) ListInstanceChangeHistory(ctx context.Context, find *FindInstanc
 			&changeHistory.Statement,
 			&changeHistory.Schema,
 			&changeHistory.SchemaPrev,
+			&sheetID,
 			&changeHistory.ExecutionDurationNs,
 			&payload,
 			&changeHistory.InstanceID,
@@ -441,6 +431,10 @@ func (s *Store) ListInstanceChangeHistory(ctx context.Context, find *FindInstanc
 		if issueID.Valid {
 			n := int(issueID.Int32)
 			changeHistory.IssueUID = &n
+		}
+		if sheetID.Valid {
+			n := int(sheetID.Int32)
+			changeHistory.SheetID = &n
 		}
 		changeHistory.Payload = &storepb.InstanceChangeHistoryPayload{}
 		if err := protojson.Unmarshal([]byte(payload), changeHistory.Payload); err != nil {
@@ -479,6 +473,22 @@ func (s *Store) ListInstanceChangeHistory(ctx context.Context, find *FindInstanc
 	}
 
 	return list, nil
+}
+
+// GetInstanceChangeHistory gets the instance change history.
+func (s *Store) GetInstanceChangeHistory(ctx context.Context, find *FindInstanceChangeHistoryMessage) (*InstanceChangeHistoryMessage, error) {
+	list, err := s.ListInstanceChangeHistory(ctx, find)
+	if err != nil {
+		return nil, err
+	}
+	if len(list) == 0 {
+		return nil, nil
+	}
+	if len(list) > 1 {
+		return nil, errors.Errorf("expected 1 change history, got %d", len(list))
+	}
+
+	return list[0], nil
 }
 
 // UpdateInstanceChangeHistory updates an instance change history.
@@ -539,7 +549,7 @@ func (*Store) getNextInstanceChangeHistorySequence(ctx context.Context, tx *Tx, 
 
 // CreatePendingInstanceChangeHistory creates an instance change history.
 // it deprecates the old InsertPendingHistory.
-func (s *Store) CreatePendingInstanceChangeHistory(ctx context.Context, prevSchema string, m *db.MigrationInfo, storedVersion, statement string) (string, error) {
+func (s *Store) CreatePendingInstanceChangeHistory(ctx context.Context, prevSchema string, m *db.MigrationInfo, storedVersion, statement string, sheetID *int) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
@@ -550,7 +560,7 @@ func (s *Store) CreatePendingInstanceChangeHistory(ctx context.Context, prevSche
 	if err != nil {
 		return "", err
 	}
-	list, err := s.createInstanceChangeHistoryImpl(ctx, tx, &InstanceChangeHistoryMessage{
+	instanceChange := &InstanceChangeHistoryMessage{
 		CreatorID:           m.CreatorID,
 		InstanceUID:         m.InstanceID,
 		DatabaseUID:         m.DatabaseID,
@@ -563,24 +573,37 @@ func (s *Store) CreatePendingInstanceChangeHistory(ctx context.Context, prevSche
 		Version:             storedVersion,
 		Description:         m.Description,
 		Statement:           statement,
+		SheetID:             sheetID,
 		Schema:              prevSchema,
 		SchemaPrev:          prevSchema,
 		ExecutionDurationNs: 0,
 		Payload:             m.Payload,
-	})
-	if err != nil {
-		return "", err
+	}
+	var uid string
+	if instanceChange.InstanceUID == nil {
+		id, err := s.createInstanceChangeHistoryImplForMigrator(ctx, tx, instanceChange)
+		if err != nil {
+			return "", err
+		}
+		uid = id
+	} else {
+		id, err := s.createInstanceChangeHistoryImpl(ctx, tx, instanceChange)
+		if err != nil {
+			return "", err
+		}
+		uid = id
 	}
 
 	if err := tx.Commit(); err != nil {
 		return "", err
 	}
 
-	return list[0].UID, nil
+	return uid, nil
 }
 
 // ListInstanceChangeHistoryForMigrator finds the instance change history for the migrator,
 // the users are not composed.
+// The sheet_id is not loaded.
 func (s *Store) ListInstanceChangeHistoryForMigrator(ctx context.Context, find *FindInstanceChangeHistoryMessage) ([]*InstanceChangeHistoryMessage, error) {
 	where, args := []string{"TRUE"}, []any{}
 	if v := find.ID; v != nil {

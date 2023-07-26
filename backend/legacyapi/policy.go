@@ -31,6 +31,8 @@ const (
 	// DefaultPolicyID is the ID of the default policy.
 	DefaultPolicyID int = 0
 
+	// PolicyTypeWorkspaceIAM is the workspace IAM policy type.
+	PolicyTypeWorkspaceIAM PolicyType = "bb.policy.workspace-iam"
 	// PolicyTypePipelineApproval is the approval policy type.
 	PolicyTypePipelineApproval PolicyType = "bb.policy.pipeline-approval"
 	// PolicyTypeBackupPlan is the backup plan policy type.
@@ -41,10 +43,10 @@ const (
 	PolicyTypeEnvironmentTier PolicyType = "bb.policy.environment-tier"
 	// PolicyTypeSensitiveData is the sensitive data policy type.
 	PolicyTypeSensitiveData PolicyType = "bb.policy.sensitive-data"
-	// PolicyTypeAccessControl is the access control policy type.
-	PolicyTypeAccessControl PolicyType = "bb.policy.access-control"
 	// PolicyTypeSlowQuery is the slow query policy type.
 	PolicyTypeSlowQuery PolicyType = "bb.policy.slow-query"
+	// PolicyTypeDisableCopyData is the disable copy data policy type.
+	PolicyTypeDisableCopyData PolicyType = "bb.policy.disable-copy-data"
 
 	// PipelineApprovalValueManualNever means the pipeline will automatically be approved without user intervention.
 	PipelineApprovalValueManualNever PipelineApprovalValue = "MANUAL_APPROVAL_NEVER"
@@ -85,13 +87,14 @@ const (
 var (
 	// AllowedResourceTypes includes allowed resource types for each policy type.
 	AllowedResourceTypes = map[PolicyType][]PolicyResourceType{
+		PolicyTypeWorkspaceIAM:     {PolicyResourceTypeWorkspace},
 		PolicyTypePipelineApproval: {PolicyResourceTypeEnvironment},
 		PolicyTypeBackupPlan:       {PolicyResourceTypeEnvironment},
 		PolicyTypeSQLReview:        {PolicyResourceTypeEnvironment},
 		PolicyTypeEnvironmentTier:  {PolicyResourceTypeEnvironment},
 		PolicyTypeSensitiveData:    {PolicyResourceTypeDatabase},
-		PolicyTypeAccessControl:    {PolicyResourceTypeEnvironment, PolicyResourceTypeDatabase},
 		PolicyTypeSlowQuery:        {PolicyResourceTypeInstance},
+		PolicyTypeDisableCopyData:  {PolicyResourceTypeEnvironment},
 	}
 )
 
@@ -221,38 +224,6 @@ func (p *SensitiveDataPolicy) String() (string, error) {
 	return string(s), nil
 }
 
-// AccessControlPolicy is the policy configuration for database access control.
-// It is only applicable to database and environment resource type.
-// For environment resource type, DisallowRuleList defines the access control rule.
-// For database resource type, the AccessControlPolicy struct itself means allow to access.
-type AccessControlPolicy struct {
-	// Environment resource type specific fields.
-	DisallowRuleList []AccessControlRule `json:"disallowRuleList"`
-}
-
-// AccessControlRule is the disallow rule for access control policy.
-type AccessControlRule struct {
-	// FullDatabase will apply to the full database.
-	FullDatabase bool `json:"fullDatabase"`
-}
-
-// UnmarshalAccessControlPolicy will unmarshal payload to access control policy.
-func UnmarshalAccessControlPolicy(payload string) (*AccessControlPolicy, error) {
-	var p AccessControlPolicy
-	if err := json.Unmarshal([]byte(payload), &p); err != nil {
-		return nil, errors.Wrapf(err, "failed to unmarshal access control policy %q", payload)
-	}
-	return &p, nil
-}
-
-func (p *AccessControlPolicy) String() (string, error) {
-	s, err := json.Marshal(p)
-	if err != nil {
-		return "", err
-	}
-	return string(s), nil
-}
-
 // SlowQueryPolicy is the policy configuration for slow query.
 type SlowQueryPolicy struct {
 	Active bool `json:"active"`
@@ -269,6 +240,29 @@ func UnmarshalSlowQueryPolicy(payload string) (*SlowQueryPolicy, error) {
 
 // String will return the string representation of the policy.
 func (p *SlowQueryPolicy) String() (string, error) {
+	s, err := json.Marshal(p)
+	if err != nil {
+		return "", err
+	}
+	return string(s), nil
+}
+
+// DisableCopyDataPolicy is the policy configuration for disabling copying data.
+type DisableCopyDataPolicy struct {
+	Active bool `json:"active"`
+}
+
+// UnmarshalDisableCopyDataPolicyPolicy will unmarshal payload to disable copy data policy.
+func UnmarshalDisableCopyDataPolicyPolicy(payload string) (*DisableCopyDataPolicy, error) {
+	var p DisableCopyDataPolicy
+	if err := json.Unmarshal([]byte(payload), &p); err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal disable copy data policy %q", payload)
+	}
+	return &p, nil
+}
+
+// String will return the string representation of the policy.
+func (p *DisableCopyDataPolicy) String() (string, error) {
 	s, err := json.Marshal(p)
 	if err != nil {
 		return "", err
@@ -362,6 +356,24 @@ func FlattenSQLReviewRulesWithEngine(policy *advisor.SQLReviewPolicy) *advisor.S
 					Type:    rule.Type,
 					Level:   rule.Level,
 					Engine:  db.OceanBase,
+					Comment: rule.Comment,
+					Payload: rule.Payload,
+				})
+			}
+			if advisor.RuleExists(rule.Type, db.Snowflake) {
+				ruleList = append(ruleList, &advisor.SQLReviewRule{
+					Type:    rule.Type,
+					Level:   rule.Level,
+					Engine:  db.Snowflake,
+					Comment: rule.Comment,
+					Payload: rule.Payload,
+				})
+			}
+			if advisor.RuleExists(rule.Type, db.MSSQL) {
+				ruleList = append(ruleList, &advisor.SQLReviewRule{
+					Type:    rule.Type,
+					Level:   rule.Level,
+					Engine:  db.MSSQL,
 					Comment: rule.Comment,
 					Payload: rule.Payload,
 				})

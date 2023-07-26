@@ -18,6 +18,7 @@ import (
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
@@ -253,9 +254,21 @@ func (driver *Driver) getVersion(ctx context.Context) (string, error) {
 	return version, nil
 }
 
+func (driver *Driver) getPGStatStatementsVersion(ctx context.Context) (string, error) {
+	query := "select extversion from pg_extension where extname = 'pg_stat_statements'"
+	var version string
+	if err := driver.db.QueryRowContext(ctx, query).Scan(&version); err != nil {
+		if err == sql.ErrNoRows {
+			return "", common.FormatDBErrorEmptyRowWithQuery(query)
+		}
+		return "", util.FormatErrorWithQuery(err, query)
+	}
+	return version, nil
+}
+
 // Execute will execute the statement. For CREATE DATABASE statement, some types of databases such as Postgres
 // will not use transactions to execute the statement but will still use transactions to execute the rest of statements.
-func (driver *Driver) Execute(ctx context.Context, statement string, createDatabase bool) (int64, error) {
+func (driver *Driver) Execute(ctx context.Context, statement string, createDatabase bool, _ db.ExecuteOptions) (int64, error) {
 	if createDatabase {
 		databases, err := driver.getDatabases(ctx)
 		if err != nil {
@@ -353,7 +366,7 @@ func (driver *Driver) Execute(ctx context.Context, statement string, createDatab
 
 	// Run non-transaction statements at the end.
 	for _, stmt := range nonTransactionStmts {
-		if _, err := driver.db.Exec(stmt); err != nil {
+		if _, err := driver.db.ExecContext(ctx, stmt); err != nil {
 			return 0, err
 		}
 	}
@@ -493,13 +506,21 @@ func getStatementWithResultLimit(stmt string, limit int) string {
 }
 
 func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL parser.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
-	statement := singleSQL.Text
-	statement = strings.TrimRight(statement, " \n\t;")
-	if !strings.HasPrefix(statement, "EXPLAIN") && queryContext.Limit > 0 {
-		statement = getStatementWithResultLimit(statement, queryContext.Limit)
+	statement := strings.TrimRight(singleSQL.Text, " \n\t;")
+
+	stmt := statement
+	if !strings.HasPrefix(stmt, "EXPLAIN") && queryContext.Limit > 0 {
+		stmt = getStatementWithResultLimit(stmt, queryContext.Limit)
 	}
 
-	return util.Query2(ctx, db.Postgres, conn, statement, queryContext)
+	startTime := time.Now()
+	result, err := util.Query2(ctx, db.Postgres, conn, stmt, queryContext)
+	if err != nil {
+		return nil, err
+	}
+	result.Latency = durationpb.New(time.Since(startTime))
+	result.Statement = statement
+	return result, nil
 }
 
 // RunStatement runs a SQL statement in a given connection.

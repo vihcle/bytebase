@@ -96,6 +96,18 @@ func TestExternalApprovalFeishu_AllUserCanBeFound(t *testing.T) {
 
 	prodEnvironment, err := ctl.getEnvironment(ctx, "prod")
 	a.NoError(err)
+	_, err = ctl.orgPolicyServiceClient.CreatePolicy(ctx, &v1pb.CreatePolicyRequest{
+		Parent: prodEnvironment.Name,
+		Policy: &v1pb.Policy{
+			Type: v1pb.PolicyType_DEPLOYMENT_APPROVAL,
+			Policy: &v1pb.Policy_DeploymentApprovalPolicy{
+				DeploymentApprovalPolicy: &v1pb.DeploymentApprovalPolicy{
+					DefaultStrategy: v1pb.ApprovalStrategy_MANUAL,
+				},
+			},
+		},
+	})
+	a.NoError(err)
 
 	// Add an instance.
 	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
@@ -104,6 +116,7 @@ func TestExternalApprovalFeishu_AllUserCanBeFound(t *testing.T) {
 			Title:       instanceName,
 			Engine:      v1pb.Engine_SQLITE,
 			Environment: prodEnvironment.Name,
+			Activation:  true,
 			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: instanceDir}},
 		},
 	})
@@ -157,11 +170,11 @@ func TestExternalApprovalFeishu_AllUserCanBeFound(t *testing.T) {
 	a.NoError(err)
 
 	for {
-		review, err := ctl.reviewServiceClient.GetReview(ctx, &v1pb.GetReviewRequest{
-			Name: fmt.Sprintf("projects/%d/reviews/%d", issue.ProjectID, issue.ID),
+		issue, err := ctl.issueServiceClient.GetIssue(ctx, &v1pb.GetIssueRequest{
+			Name: fmt.Sprintf("projects/%d/issues/%d", issue.ProjectID, issue.ID),
 		})
 		a.NoError(err)
-		if review.ApprovalFindingDone {
+		if issue.ApprovalFindingDone {
 			break
 		}
 		time.Sleep(time.Second)
@@ -274,6 +287,18 @@ func TestExternalApprovalFeishu_AssigneeCanBeFound(t *testing.T) {
 
 	prodEnvironment, err := ctl.getEnvironment(ctx, "prod")
 	a.NoError(err)
+	_, err = ctl.orgPolicyServiceClient.CreatePolicy(ctx, &v1pb.CreatePolicyRequest{
+		Parent: prodEnvironment.Name,
+		Policy: &v1pb.Policy{
+			Type: v1pb.PolicyType_DEPLOYMENT_APPROVAL,
+			Policy: &v1pb.Policy_DeploymentApprovalPolicy{
+				DeploymentApprovalPolicy: &v1pb.DeploymentApprovalPolicy{
+					DefaultStrategy: v1pb.ApprovalStrategy_MANUAL,
+				},
+			},
+		},
+	})
+	a.NoError(err)
 
 	// Add an instance.
 	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
@@ -282,6 +307,7 @@ func TestExternalApprovalFeishu_AssigneeCanBeFound(t *testing.T) {
 			Title:       instanceName,
 			Engine:      v1pb.Engine_SQLITE,
 			Environment: prodEnvironment.Name,
+			Activation:  true,
 			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: instanceDir}},
 		},
 	})
@@ -335,11 +361,11 @@ func TestExternalApprovalFeishu_AssigneeCanBeFound(t *testing.T) {
 	a.NoError(err)
 
 	for {
-		review, err := ctl.reviewServiceClient.GetReview(ctx, &v1pb.GetReviewRequest{
-			Name: fmt.Sprintf("projects/%d/reviews/%d", issue.ProjectID, issue.ID),
+		issue, err := ctl.issueServiceClient.GetIssue(ctx, &v1pb.GetIssueRequest{
+			Name: fmt.Sprintf("projects/%d/issues/%d", issue.ProjectID, issue.ID),
 		})
 		a.NoError(err)
-		if review.ApprovalFindingDone {
+		if issue.ApprovalFindingDone {
 			break
 		}
 		time.Sleep(time.Second)

@@ -75,7 +75,7 @@
         >
           <FeatureBadge
             feature="bb.feature.branding"
-            class="text-white pointer-events-none"
+            custom-class="text-white pointer-events-none"
           />
           {{ $t("common.update") }}
         </button>
@@ -84,8 +84,8 @@
   </div>
 
   <FeatureModal
-    v-if="state.showFeatureModal"
     feature="bb.feature.branding"
+    :open="state.showFeatureModal"
     @cancel="state.showFeatureModal = false"
   />
 </template>

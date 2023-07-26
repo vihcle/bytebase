@@ -130,8 +130,9 @@
     </BBModal>
 
     <FeatureModal
-      v-if="state.showFeatureModal"
       feature="bb.feature.pitr"
+      :open="state.showFeatureModal"
+      :instance="database.instanceEntity"
       @cancel="state.showFeatureModal = false"
     />
   </div>
@@ -151,7 +152,7 @@ import {
   SYSTEM_BOT_ID,
 } from "@/types";
 import { issueSlug, extractBackupResourceName } from "@/utils";
-import { featureToRef, useIssueStore } from "@/store";
+import { useSubscriptionV1Store, useIssueStore } from "@/store";
 import { Drawer, DrawerContent } from "@/components/v2";
 import {
   CreateDatabasePrepForm,
@@ -218,7 +219,13 @@ const allowRestoreInPlace = computed((): boolean => {
   return props.database.instanceEntity.engine === Engine.POSTGRES;
 });
 
-const hasPITRFeature = featureToRef("bb.feature.pitr");
+const hasPITRFeature = computed(() => {
+  return useSubscriptionV1Store().hasInstanceFeature(
+    "bb.feature.pitr",
+    props.database.instanceEntity
+  );
+});
+
 const createDatabasePrepForm =
   ref<InstanceType<typeof CreateDatabasePrepForm>>();
 
@@ -326,9 +333,12 @@ const doRestoreInPlace = async () => {
   try {
     const { backup } = restoreBackupContext;
     const { database } = props;
+
     const issueNameParts: string[] = [
-      `Restore database [${database.name}]`,
-      `to backup snapshot [${restoreBackupContext.backup.name}]`,
+      `Restore database [${database.databaseName}]`,
+      `to backup snapshot [${extractBackupResourceName(
+        restoreBackupContext.backup.name
+      )}]`,
     ];
 
     const issueStore = useIssueStore();

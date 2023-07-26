@@ -36,6 +36,9 @@ import (
 	mapperparser "github.com/bytebase/bytebase/backend/plugin/parser/mybatis/mapper"
 	"github.com/bytebase/bytebase/backend/plugin/parser/mybatis/mapper/ast"
 	"github.com/bytebase/bytebase/backend/plugin/vcs"
+
+	// Register azure plugin.
+	_ "github.com/bytebase/bytebase/backend/plugin/vcs/azure"
 	"github.com/bytebase/bytebase/backend/plugin/vcs/bitbucket"
 	"github.com/bytebase/bytebase/backend/plugin/vcs/github"
 	"github.com/bytebase/bytebase/backend/plugin/vcs/gitlab"
@@ -408,7 +411,7 @@ func (s *Server) registerWebhookRoutes(g *echo.Group) {
 
 		sqlFileName2Advice := s.sqlAdviceForSQLFiles(ctx, repositoryList, prFiles, setting.ExternalUrl)
 
-		if s.licenseService.IsFeatureEnabled(api.FeatureMybatisSQLReview) {
+		if s.licenseService.IsFeatureEnabled(api.FeatureMybatisSQLReview) == nil {
 			// If the commit file list contains the file which extension is xml and the content
 			// contains "https://mybatis.org/dtd/mybatis-3-mapper.dtd", we will try to apply
 			// sql-review to it.
@@ -420,7 +423,7 @@ func (s *Server) registerWebhookRoutes(g *echo.Group) {
 			// of the xml file
 			// 2. If we can find it, then we will extract the sql from the mapper xml
 			// 3. match the environments in the configuration xml, look for the sql-review policy in the environment and apply it.
-			var isMybatisMapperXMLRegex = regexp.MustCompile(`(?i)http(s)?://mybatis.org/dtd/mybatis-3-mapper.dtd`)
+			var isMybatisMapperXMLRegex = regexp.MustCompile(`(?i)http(s)?://mybatis\.org/dtd/mybatis-3-mapper\.dtd`)
 
 			mybatisMapperXMLFiles := make(map[string]string)
 			var commitID string
@@ -738,14 +741,25 @@ func (s *Server) sqlAdviceForFile(
 		if err != nil {
 			return nil, err
 		}
+		if instance == nil {
+			return nil, errors.Errorf("cannot found instance %s", database.InstanceID)
+		}
+		if err := s.licenseService.IsFeatureEnabledForInstance(api.FeatureVCSSQLReviewWorkflow, instance); err != nil {
+			log.Debug(err.Error(), zap.String("instance", instance.ResourceID))
+			continue
+		}
+
 		environment, err := s.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{ResourceID: &instance.EnvironmentID})
 		if err != nil {
 			return nil, err
 		}
+		if environment == nil {
+			return nil, errors.Errorf("cannot found environment %s", instance.EnvironmentID)
+		}
 		policy, err := s.store.GetSQLReviewPolicy(ctx, environment.UID)
 		if err != nil {
 			if e, ok := err.(*common.Error); ok && e.Code == common.NotFound {
-				log.Debug("Cannot found SQL review policy in environment", zap.String("Environment", database.EnvironmentID), zap.Error(err))
+				log.Debug("Cannot found SQL review policy in environment", zap.String("Environment", database.EffectiveEnvironmentID), zap.Error(err))
 				continue
 			}
 			return nil, errors.Errorf("Failed to get SQL review policy in environment %v with error: %v", instance.EnvironmentID, err)
@@ -793,9 +807,9 @@ func (s *Server) sqlAdviceForFile(
 	return []advisor.Advice{
 		{
 			Status:  advisor.Warn,
-			Code:    advisor.NotFound,
-			Title:   "SQL review policy not found",
-			Content: fmt.Sprintf("You can configure the SQL review policy on %s/setting/sql-review", externalURL),
+			Code:    advisor.Unsupported,
+			Title:   "SQL review is disabled",
+			Content: fmt.Sprintf("Cannot found SQL review policy or instance license. You can configure the SQL review policy on %s/setting/sql-review, and assign license to the instance", externalURL),
 			Line:    1,
 		},
 	}, nil
@@ -1175,8 +1189,10 @@ func getFileInfo(fileItem vcs.DistinctFileItem, repoInfoList []*repoInfo) (*db.M
 // along with the creation message to be presented in the UI. An *echo.HTTPError
 // is returned in case of the error during the process.
 func (s *Server) processFilesInProject(ctx context.Context, pushEvent vcs.PushEvent, repoInfo *repoInfo, fileInfoList []fileInfo) (string, bool, []*store.ActivityMessage, *echo.HTTPError) {
-	if repoInfo.project.TenantMode == api.TenantModeTenant && !s.licenseService.IsFeatureEnabled(api.FeatureMultiTenancy) {
-		return "", false, nil, echo.NewHTTPError(http.StatusForbidden, api.FeatureMultiTenancy.AccessErrorMessage())
+	if repoInfo.project.TenantMode == api.TenantModeTenant {
+		if err := s.licenseService.IsFeatureEnabled(api.FeatureMultiTenancy); err != nil {
+			return "", false, nil, echo.NewHTTPError(http.StatusForbidden, err.Error())
+		}
 	}
 
 	var migrationDetailList []*api.MigrationDetail
@@ -1387,7 +1403,7 @@ func (s *Server) findProjectDatabases(ctx context.Context, projectID int, dbName
 	if environmentResourceID != "" {
 		for _, database := range foundDatabases {
 			// Environment resource ID comparison is case-sensitive.
-			if database.EnvironmentID == environmentResourceID {
+			if database.EffectiveEnvironmentID == environmentResourceID {
 				filteredDatabases = append(filteredDatabases, database)
 			}
 		}
@@ -1401,10 +1417,10 @@ func (s *Server) findProjectDatabases(ctx context.Context, projectID int, dbName
 	// In case there are databases with identical name in a project for the same environment.
 	marked := make(map[string]bool)
 	for _, database := range filteredDatabases {
-		if _, ok := marked[database.EnvironmentID]; ok {
+		if _, ok := marked[database.EffectiveEnvironmentID]; ok {
 			return nil, errors.Errorf("project %d has multiple databases %q for environment %q", projectID, dbName, environmentResourceID)
 		}
-		marked[database.EnvironmentID] = true
+		marked[database.EffectiveEnvironmentID] = true
 	}
 	return filteredDatabases, nil
 }
@@ -1490,14 +1506,14 @@ func (s *Server) prepareIssueFromSDLFile(ctx context.Context, repoInfo *repoInfo
 		return nil, []*store.ActivityMessage{activityCreate}
 	}
 
-	sheet, err := s.store.CreateSheetV2(ctx, &store.SheetMessage{
+	sheet, err := s.store.CreateSheet(ctx, &store.SheetMessage{
 		CreatorID:  api.SystemBotID,
 		ProjectUID: repoInfo.project.UID,
 		Name:       file,
 		Statement:  sdl,
-		Visibility: api.ProjectSheet,
-		Source:     api.SheetFromBytebaseArtifact,
-		Type:       api.SheetForSQL,
+		Visibility: store.ProjectSheet,
+		Source:     store.SheetFromBytebaseArtifact,
+		Type:       store.SheetForSQL,
 	})
 	if err != nil {
 		activityCreate := getIgnoredFileActivityCreate(repoInfo.project.UID, pushEvent, file, errors.Wrap(err, "Failed to create a sheet"))
@@ -1557,14 +1573,14 @@ func (s *Server) prepareIssueFromFile(
 	if repoInfo.project.TenantMode == api.TenantModeTenant {
 		// A non-YAML file means the whole file content is the SQL statement
 		if !fileInfo.item.IsYAML {
-			sheet, err := s.store.CreateSheetV2(ctx, &store.SheetMessage{
+			sheet, err := s.store.CreateSheet(ctx, &store.SheetMessage{
 				CreatorID:  api.SystemBotID,
 				ProjectUID: repoInfo.project.UID,
 				Name:       fileInfo.item.FileName,
 				Statement:  content,
-				Visibility: api.ProjectSheet,
-				Source:     api.SheetFromBytebaseArtifact,
-				Type:       api.SheetForSQL,
+				Visibility: store.ProjectSheet,
+				Source:     store.SheetFromBytebaseArtifact,
+				Type:       store.SheetForSQL,
 			})
 			if err != nil {
 				activityCreate := getIgnoredFileActivityCreate(repoInfo.project.UID, pushEvent, fileInfo.item.FileName, errors.Wrap(err, "Failed to create a sheet"))
@@ -1593,14 +1609,14 @@ func (s *Server) prepareIssueFromFile(
 			}
 		}
 
-		sheet, err := s.store.CreateSheetV2(ctx, &store.SheetMessage{
+		sheet, err := s.store.CreateSheet(ctx, &store.SheetMessage{
 			CreatorID:  api.SystemBotID,
 			ProjectUID: repoInfo.project.UID,
 			Name:       fileInfo.item.FileName,
 			Statement:  migrationFile.Statement,
-			Visibility: api.ProjectSheet,
-			Source:     api.SheetFromBytebaseArtifact,
-			Type:       api.SheetForSQL,
+			Visibility: store.ProjectSheet,
+			Source:     store.SheetFromBytebaseArtifact,
+			Type:       store.SheetForSQL,
 		})
 		if err != nil {
 			activityCreate := getIgnoredFileActivityCreate(repoInfo.project.UID, pushEvent, fileInfo.item.FileName, errors.Wrap(err, "Failed to create a sheet"))
@@ -1643,14 +1659,14 @@ func (s *Server) prepareIssueFromFile(
 	}
 
 	if fileInfo.item.ItemType == vcs.FileItemTypeAdded {
-		sheet, err := s.store.CreateSheetV2(ctx, &store.SheetMessage{
+		sheet, err := s.store.CreateSheet(ctx, &store.SheetMessage{
 			CreatorID:  api.SystemBotID,
 			ProjectUID: repoInfo.project.UID,
 			Name:       fileInfo.item.FileName,
 			Statement:  content,
-			Visibility: api.ProjectSheet,
-			Source:     api.SheetFromBytebaseArtifact,
-			Type:       api.SheetForSQL,
+			Visibility: store.ProjectSheet,
+			Source:     store.SheetFromBytebaseArtifact,
+			Type:       store.SheetForSQL,
 		})
 		if err != nil {
 			activityCreate := getIgnoredFileActivityCreate(repoInfo.project.UID, pushEvent, fileInfo.item.FileName, errors.Wrap(err, "Failed to create a sheet"))
@@ -1717,14 +1733,14 @@ func (s *Server) tryUpdateTasksFromModifiedFile(ctx context.Context, databases [
 			return nil
 		}
 
-		sheet, err := s.store.CreateSheetV2(ctx, &store.SheetMessage{
+		sheet, err := s.store.CreateSheet(ctx, &store.SheetMessage{
 			CreatorID:  api.SystemBotID,
 			ProjectUID: issue.Project.UID,
 			Name:       fileName,
 			Statement:  statement,
-			Visibility: api.ProjectSheet,
-			Source:     api.SheetFromBytebaseArtifact,
-			Type:       api.SheetForSQL,
+			Visibility: store.ProjectSheet,
+			Source:     store.SheetFromBytebaseArtifact,
+			Type:       store.SheetForSQL,
 		})
 		if err != nil {
 			return err
@@ -1748,13 +1764,16 @@ func (s *Server) tryUpdateTasksFromModifiedFile(ctx context.Context, databases [
 			if task.Status != api.TaskPendingApproval {
 				return nil
 			}
-			payloadBytes, err := protojson.Marshal(&storepb.IssuePayload{
-				Approval: &storepb.IssuePayloadApproval{
-					ApprovalFindingDone: false,
-				},
-			})
+			payload := &storepb.IssuePayload{}
+			if err := protojson.Unmarshal([]byte(issue.Payload), payload); err != nil {
+				return errors.Wrapf(err, "failed to unmarshal original issue payload")
+			}
+			payload.Approval = &storepb.IssuePayloadApproval{
+				ApprovalFindingDone: false,
+			}
+			payloadBytes, err := protojson.Marshal(payload)
 			if err != nil {
-				return errors.Wrap(err, "failed to marshal issue payload")
+				return errors.Wrapf(err, "failed to marshal issue payload")
 			}
 			payloadStr := string(payloadBytes)
 			issue, err := s.store.UpdateIssueV2(ctx, issue.UID, &store.UpdateIssueMessage{
@@ -1779,12 +1798,7 @@ func convertSQLAdviceToGitLabCIResult(adviceMap map[string][]advisor.Advice) *ap
 	testsuiteList := []string{}
 	status := advisor.Success
 
-	fileList := []string{}
-	for filePath := range adviceMap {
-		fileList = append(fileList, filePath)
-	}
-	sort.Strings(fileList)
-
+	fileList := getSQLAdviceFileList(adviceMap)
 	for _, filePath := range fileList {
 		adviceList := adviceMap[filePath]
 		testcaseList := []string{}
@@ -1807,7 +1821,7 @@ func convertSQLAdviceToGitLabCIResult(adviceMap map[string][]advisor.Advice) *ap
 				status = advice.Status
 			}
 
-			content := fmt.Sprintf("Error: %s.\nYou can check the docs at %s#%d",
+			content := fmt.Sprintf("Error: %s.\nPlease check the docs at %s#%d",
 				advice.Content,
 				sqlReviewDocs,
 				advice.Code,
@@ -1850,12 +1864,7 @@ func convertSQLAdviceToGitHubActionResult(adviceMap map[string][]advisor.Advice)
 	messageList := []string{}
 	status := advisor.Success
 
-	fileList := []string{}
-	for filePath := range adviceMap {
-		fileList = append(fileList, filePath)
-	}
-	sort.Strings(fileList)
-
+	fileList := getSQLAdviceFileList(adviceMap)
 	for _, filePath := range fileList {
 		adviceList := adviceMap[filePath]
 		for _, advice := range adviceList {
@@ -1898,6 +1907,31 @@ func convertSQLAdviceToGitHubActionResult(adviceMap map[string][]advisor.Advice)
 		Status:  status,
 		Content: messageList,
 	}
+}
+
+func getSQLAdviceFileList(adviceMap map[string][]advisor.Advice) []string {
+	fileList := []string{}
+	fileToErrorCount := map[string]int{}
+	for filePath, adviceList := range adviceMap {
+		fileList = append(fileList, filePath)
+
+		errorCount := 0
+		for _, advice := range adviceList {
+			if advice.Status == advisor.Error {
+				errorCount++
+			}
+		}
+		fileToErrorCount[filePath] = errorCount
+	}
+	sort.Strings(fileList)
+	sort.Slice(fileList, func(i int, j int) bool {
+		if fileToErrorCount[fileList[i]] == fileToErrorCount[fileList[j]] {
+			return i < j
+		}
+		return fileToErrorCount[fileList[i]] > fileToErrorCount[fileList[j]]
+	})
+
+	return fileList
 }
 
 func filterGitHubBytebaseCommit(list []github.WebhookCommit) []github.WebhookCommit {
@@ -1996,7 +2030,7 @@ func (s *Server) buildMybatisMapperXMLFileData(ctx context.Context, repoInfo *re
 	var mybatisMapperXMLFileData []*mybatisMapperXMLFileDatum
 	// isMybatisConfigXMLRegex is the regex to match the mybatis configuration XML file, if it can match the file content,
 	// we regard the file as the mybatis configuration XML file.
-	var isMybatisConfigXMLRegex = regexp.MustCompile(`(?i)http(s)?://mybatis.org/dtd/mybatis-3-config.dtd`)
+	var isMybatisConfigXMLRegex = regexp.MustCompile(`(?i)http(s)?://mybatis\.org/dtd/mybatis-3-config\.dtd`)
 	// configPathCache is the cache of the mybatis configuration XML file directory,
 	// the key is the mybatis mapper XML file ls-tree syntax directory, and value is the mybatis configuration XML file ls-tree syntax path.
 	configPathCache := make(map[string]string)

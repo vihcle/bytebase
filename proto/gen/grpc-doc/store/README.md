@@ -31,6 +31,8 @@
 - [store/common.proto](#store_common-proto)
     - [PageToken](#bytebase-store-PageToken)
   
+    - [Engine](#bytebase-store-Engine)
+  
 - [store/data_source.proto](#store_data_source-proto)
     - [DataSourceOptions](#bytebase-store-DataSourceOptions)
   
@@ -46,8 +48,14 @@
     - [SchemaMetadata](#bytebase-store-SchemaMetadata)
     - [SecretItem](#bytebase-store-SecretItem)
     - [Secrets](#bytebase-store-Secrets)
+    - [StreamMetadata](#bytebase-store-StreamMetadata)
     - [TableMetadata](#bytebase-store-TableMetadata)
+    - [TaskMetadata](#bytebase-store-TaskMetadata)
     - [ViewMetadata](#bytebase-store-ViewMetadata)
+  
+    - [StreamMetadata.Mode](#bytebase-store-StreamMetadata-Mode)
+    - [StreamMetadata.Type](#bytebase-store-StreamMetadata-Type)
+    - [TaskMetadata.State](#bytebase-store-TaskMetadata-State)
   
 - [store/idp.proto](#store_idp-proto)
     - [FieldMapping](#bytebase-store-FieldMapping)
@@ -57,6 +65,9 @@
     - [OIDCIdentityProviderConfig](#bytebase-store-OIDCIdentityProviderConfig)
   
     - [IdentityProviderType](#bytebase-store-IdentityProviderType)
+  
+- [store/instance.proto](#store_instance-proto)
+    - [InstanceOptions](#bytebase-store-InstanceOptions)
   
 - [store/vcs.proto](#store_vcs-proto)
     - [Commit](#bytebase-store-Commit)
@@ -85,11 +96,26 @@
   
     - [PlanConfig.ChangeDatabaseConfig.Type](#bytebase-store-PlanConfig-ChangeDatabaseConfig-Type)
   
+- [store/plan_check_run.proto](#store_plan_check_run-proto)
+    - [PlanCheckRunConfig](#bytebase-store-PlanCheckRunConfig)
+    - [PlanCheckRunResult](#bytebase-store-PlanCheckRunResult)
+    - [PlanCheckRunResult.Result](#bytebase-store-PlanCheckRunResult-Result)
+    - [PlanCheckRunResult.Result.SqlReviewReport](#bytebase-store-PlanCheckRunResult-Result-SqlReviewReport)
+    - [PlanCheckRunResult.Result.SqlSummaryReport](#bytebase-store-PlanCheckRunResult-Result-SqlSummaryReport)
+  
+    - [PlanCheckRunResult.Result.Status](#bytebase-store-PlanCheckRunResult-Result-Status)
+  
+- [store/policy.proto](#store_policy-proto)
+    - [Binding](#bytebase-store-Binding)
+    - [IamPolicy](#bytebase-store-IamPolicy)
+  
 - [store/setting.proto](#store_setting-proto)
     - [AgentPluginSetting](#bytebase-store-AgentPluginSetting)
     - [ExternalApprovalSetting](#bytebase-store-ExternalApprovalSetting)
     - [ExternalApprovalSetting.Node](#bytebase-store-ExternalApprovalSetting-Node)
     - [SMTPMailDeliverySetting](#bytebase-store-SMTPMailDeliverySetting)
+    - [SchemaTemplateSetting](#bytebase-store-SchemaTemplateSetting)
+    - [SchemaTemplateSetting.FieldTemplate](#bytebase-store-SchemaTemplateSetting-FieldTemplate)
     - [WorkspaceApprovalSetting](#bytebase-store-WorkspaceApprovalSetting)
     - [WorkspaceApprovalSetting.Rule](#bytebase-store-WorkspaceApprovalSetting-Rule)
     - [WorkspaceProfileSetting](#bytebase-store-WorkspaceProfileSetting)
@@ -99,13 +125,19 @@
   
 - [store/sheet.proto](#store_sheet-proto)
     - [SheetPayload](#bytebase-store-SheetPayload)
+    - [SheetPayload.SchemaDesign](#bytebase-store-SheetPayload-SchemaDesign)
     - [SheetPayload.UsedByIssue](#bytebase-store-SheetPayload-UsedByIssue)
     - [SheetPayload.VCSPayload](#bytebase-store-SheetPayload-VCSPayload)
+  
+    - [SheetPayload.Type](#bytebase-store-SheetPayload-Type)
   
 - [store/slow_query.proto](#store_slow_query-proto)
     - [SlowQueryDetails](#bytebase-store-SlowQueryDetails)
     - [SlowQueryStatistics](#bytebase-store-SlowQueryStatistics)
     - [SlowQueryStatisticsItem](#bytebase-store-SlowQueryStatisticsItem)
+  
+- [store/task_run.proto](#store_task_run-proto)
+    - [TaskRunResult](#bytebase-store-TaskRunResult)
   
 - [store/user.proto](#store_user-proto)
     - [MFAConfig](#bytebase-store-MFAConfig)
@@ -477,6 +509,31 @@ Used internally for obfuscating the page token.
 
  
 
+
+<a name="bytebase-store-Engine"></a>
+
+### Engine
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| ENGINE_UNSPECIFIED | 0 |  |
+| CLICKHOUSE | 1 |  |
+| MYSQL | 2 |  |
+| POSTGRES | 3 |  |
+| SNOWFLAKE | 4 |  |
+| SQLITE | 5 |  |
+| TIDB | 6 |  |
+| MONGODB | 7 |  |
+| REDIS | 8 |  |
+| ORACLE | 9 |  |
+| SPANNER | 10 |  |
+| MSSQL | 11 |  |
+| REDSHIFT | 12 |  |
+| MARIADB | 13 |  |
+| OCEANBASE | 14 |  |
+
+
  
 
  
@@ -547,6 +604,7 @@ ColumnMetadata is the metadata for columns.
 | character_set | [string](#string) |  | The character_set is the character_set of a column. |
 | collation | [string](#string) |  | The collation is the collation of a column. |
 | comment | [string](#string) |  | The comment is the comment of a column. |
+| category | [string](#string) |  | The category is the category of a table from the comment. |
 
 
 
@@ -567,6 +625,7 @@ DatabaseMetadata is the metadata for databases.
 | collation | [string](#string) |  | The collation is the collation of a database. |
 | extensions | [ExtensionMetadata](#bytebase-store-ExtensionMetadata) | repeated | The extensions is the list of extensions in a database. |
 | datashare | [bool](#bool) |  | The database belongs to a datashare. |
+| service_name | [string](#string) |  | The service name of the database. It&#39;s the Oracle specific concept. |
 
 
 
@@ -696,6 +755,8 @@ This is the concept of schema in Postgres, but it&#39;s a no-op for MySQL.
 | tables | [TableMetadata](#bytebase-store-TableMetadata) | repeated | The tables is the list of tables in a schema. |
 | views | [ViewMetadata](#bytebase-store-ViewMetadata) | repeated | The views is the list of views in a schema. |
 | functions | [FunctionMetadata](#bytebase-store-FunctionMetadata) | repeated | The functions is the list of functions in a schema. |
+| streams | [StreamMetadata](#bytebase-store-StreamMetadata) | repeated | The streams is the list of streams in a schema, currently, only used for Snowflake. |
+| tasks | [TaskMetadata](#bytebase-store-TaskMetadata) | repeated | The routines is the list of routines in a schema, currently, only used for Snowflake. |
 
 
 
@@ -734,6 +795,28 @@ This is the concept of schema in Postgres, but it&#39;s a no-op for MySQL.
 
 
 
+<a name="bytebase-store-StreamMetadata"></a>
+
+### StreamMetadata
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name is the name of a stream. |
+| table_name | [string](#string) |  | The table_name is the name of the table/view that the stream is created on. |
+| owner | [string](#string) |  | The owner of the stream. |
+| comment | [string](#string) |  | The comment of the stream. |
+| type | [StreamMetadata.Type](#bytebase-store-StreamMetadata-Type) |  | The type of the stream. |
+| stale | [bool](#bool) |  | Indicates whether the stream was last read before the `stale_after` time. |
+| mode | [StreamMetadata.Mode](#bytebase-store-StreamMetadata-Mode) |  | The mode of the stream. |
+| definition | [string](#string) |  | The definition of the stream. |
+
+
+
+
+
+
 <a name="bytebase-store-TableMetadata"></a>
 
 ### TableMetadata
@@ -753,7 +836,32 @@ TableMetadata is the metadata for tables.
 | data_free | [int64](#int64) |  | The data_free is the estimated free data size of a table. |
 | create_options | [string](#string) |  | The create_options is the create option of a table. |
 | comment | [string](#string) |  | The comment is the comment of a table. |
+| category | [string](#string) |  | The category is the category of a table from the comment. |
 | foreign_keys | [ForeignKeyMetadata](#bytebase-store-ForeignKeyMetadata) | repeated | The foreign_keys is the list of foreign keys in a table. |
+
+
+
+
+
+
+<a name="bytebase-store-TaskMetadata"></a>
+
+### TaskMetadata
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name is the name of a task. |
+| id | [string](#string) |  | The id is the snowflake-generated id of a task. Example: 01ad32a0-1bb6-5e93-0000-000000000001 |
+| owner | [string](#string) |  | The owner of the task. |
+| comment | [string](#string) |  | The comment of the task. |
+| warehouse | [string](#string) |  | The warehouse of the task. |
+| schedule | [string](#string) |  | The schedule interval of the task. |
+| predecessors | [string](#string) | repeated | The predecessor tasks of the task. |
+| state | [TaskMetadata.State](#bytebase-store-TaskMetadata-State) |  | The state of the task. |
+| condition | [string](#string) |  | The condition of the task. |
+| definition | [string](#string) |  | The definition of the task. |
 
 
 
@@ -778,6 +886,45 @@ ViewMetadata is the metadata for views.
 
 
  
+
+
+<a name="bytebase-store-StreamMetadata-Mode"></a>
+
+### StreamMetadata.Mode
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| MODE_UNSPECIFIED | 0 |  |
+| MODE_DEFAULT | 1 |  |
+| MODE_APPEND_ONLY | 2 |  |
+| MODE_INSERT_ONLY | 3 |  |
+
+
+
+<a name="bytebase-store-StreamMetadata-Type"></a>
+
+### StreamMetadata.Type
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| TYPE_UNSPECIFIED | 0 |  |
+| TYPE_DELTA | 1 |  |
+
+
+
+<a name="bytebase-store-TaskMetadata-State"></a>
+
+### TaskMetadata.State
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| STATE_UNSPECIFIED | 0 |  |
+| STATE_STARTED | 1 |  |
+| STATE_SUSPENDED | 2 |  |
+
 
  
 
@@ -905,6 +1052,37 @@ OIDCIdentityProviderConfig is the structure for OIDC identity provider config.
 | OAUTH2 | 1 |  |
 | OIDC | 2 |  |
 
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="store_instance-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## store/instance.proto
+
+
+
+<a name="bytebase-store-InstanceOptions"></a>
+
+### InstanceOptions
+InstanceOptions is the option for instances.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| schema_tenant_mode | [bool](#bool) |  | The schema tenant mode is used to determine whether the instance is in schema tenant mode. For Oracle schema tenant mode, the instance a Oracle database and the database is the Oracle schema. |
+
+
+
+
+
+ 
 
  
 
@@ -1063,6 +1241,7 @@ OIDCIdentityProviderConfig is the structure for OIDC identity provider config.
 | role | [string](#string) |  | The requested role, e.g. roles/EXPORTER. |
 | user | [string](#string) |  | The requested user, e.g. users/hello@bytebase.com. |
 | condition | [google.type.Expr](#google-type-Expr) |  |  |
+| expiration | [google.protobuf.Duration](#google-protobuf-Duration) |  |  |
 
 
 
@@ -1161,7 +1340,7 @@ OIDCIdentityProviderConfig is the structure for OIDC identity provider config.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | rollback_from_task | [string](#string) |  | rollback_from_task is the task from which the rollback SQL statement is generated for this task. Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task} |
-| rollback_from_review | [string](#string) |  | rollback_from_review is the review containing the original task from which the rollback SQL statement is generated for this task. Format: projects/{project}/reviews/{review} |
+| rollback_from_issue | [string](#string) |  | rollback_from_issue is the issue containing the original task from which the rollback SQL statement is generated for this task. Format: projects/{project}/issues/{issue} |
 
 
 
@@ -1287,6 +1466,171 @@ Type is the database change type.
 
 
 
+<a name="store_plan_check_run-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## store/plan_check_run.proto
+
+
+
+<a name="bytebase-store-PlanCheckRunConfig"></a>
+
+### PlanCheckRunConfig
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| sheet_id | [int32](#int32) |  |  |
+| database_id | [int32](#int32) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-PlanCheckRunResult"></a>
+
+### PlanCheckRunResult
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| results | [PlanCheckRunResult.Result](#bytebase-store-PlanCheckRunResult-Result) | repeated |  |
+| error | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-PlanCheckRunResult-Result"></a>
+
+### PlanCheckRunResult.Result
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| status | [PlanCheckRunResult.Result.Status](#bytebase-store-PlanCheckRunResult-Result-Status) |  |  |
+| title | [string](#string) |  |  |
+| content | [string](#string) |  |  |
+| code | [int64](#int64) |  |  |
+| sql_summary_report | [PlanCheckRunResult.Result.SqlSummaryReport](#bytebase-store-PlanCheckRunResult-Result-SqlSummaryReport) |  |  |
+| sql_review_report | [PlanCheckRunResult.Result.SqlReviewReport](#bytebase-store-PlanCheckRunResult-Result-SqlReviewReport) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-PlanCheckRunResult-Result-SqlReviewReport"></a>
+
+### PlanCheckRunResult.Result.SqlReviewReport
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| line | [int64](#int64) |  |  |
+| detail | [string](#string) |  |  |
+| code | [int64](#int64) |  | Code from sql review. |
+
+
+
+
+
+
+<a name="bytebase-store-PlanCheckRunResult-Result-SqlSummaryReport"></a>
+
+### PlanCheckRunResult.Result.SqlSummaryReport
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| statement_type | [string](#string) |  |  |
+| affected_rows | [int64](#int64) |  |  |
+
+
+
+
+
+ 
+
+
+<a name="bytebase-store-PlanCheckRunResult-Result-Status"></a>
+
+### PlanCheckRunResult.Result.Status
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| STATUS_UNSPECIFIED | 0 |  |
+| ERROR | 1 |  |
+| WARNING | 2 |  |
+| SUCCESS | 3 |  |
+
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="store_policy-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## store/policy.proto
+
+
+
+<a name="bytebase-store-Binding"></a>
+
+### Binding
+Reference: https://cloud.google.com/pubsub/docs/reference/rpc/google.iam.v1#binding
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| role | [string](#string) |  | Role that is assigned to the list of members. Format: roles/{role} |
+| members | [string](#string) | repeated | Specifies the principals requesting access for a Bytebase resource. `members` can have the following values:
+
+* `allUsers`: A special identifier that represents anyone. * `user:{emailid}`: An email address that represents a specific Bytebase account. For example, `alice@example.com`. |
+| condition | [google.type.Expr](#google-type-Expr) |  | The condition that is associated with this binding. If the condition evaluates to true, then this binding applies to the current request. If the condition evaluates to false, then this binding does not apply to the current request. However, a different role binding might grant the same role to one or more of the principals in this binding. |
+
+
+
+
+
+
+<a name="bytebase-store-IamPolicy"></a>
+
+### IamPolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| bindings | [Binding](#bytebase-store-Binding) | repeated | Collection of binding. |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+ 
+
+
+
 <a name="store_setting-proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
@@ -1360,6 +1704,39 @@ Type is the database change type.
 | username | [string](#string) |  |  |
 | password | [string](#string) |  |  |
 | from | [string](#string) |  | The sender email address. |
+
+
+
+
+
+
+<a name="bytebase-store-SchemaTemplateSetting"></a>
+
+### SchemaTemplateSetting
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| field_templates | [SchemaTemplateSetting.FieldTemplate](#bytebase-store-SchemaTemplateSetting-FieldTemplate) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-SchemaTemplateSetting-FieldTemplate"></a>
+
+### SchemaTemplateSetting.FieldTemplate
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  |  |
+| engine | [Engine](#bytebase-store-Engine) |  |  |
+| category | [string](#string) |  |  |
+| column | [ColumnMetadata](#bytebase-store-ColumnMetadata) |  |  |
 
 
 
@@ -1472,8 +1849,26 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
+| type | [SheetPayload.Type](#bytebase-store-SheetPayload-Type) |  |  |
 | vcs_payload | [SheetPayload.VCSPayload](#bytebase-store-SheetPayload-VCSPayload) |  |  |
 | used_by_issues | [SheetPayload.UsedByIssue](#bytebase-store-SheetPayload-UsedByIssue) | repeated | used_by_issues link to the issues where the sheet is used. |
+| schema_design | [SheetPayload.SchemaDesign](#bytebase-store-SheetPayload-SchemaDesign) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-SheetPayload-SchemaDesign"></a>
+
+### SheetPayload.SchemaDesign
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| baseline_change_history_id | [string](#string) |  | The baseline instance change history id of the schema design. |
+| engine | [Engine](#bytebase-store-Engine) |  |  |
 
 
 
@@ -1516,6 +1911,18 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 
 
  
+
+
+<a name="bytebase-store-SheetPayload-Type"></a>
+
+### SheetPayload.Type
+Type of the SheetPayload.
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| TYPE_UNSPECIFIED | 0 |  |
+| SCHEMA_DESIGN | 1 |  |
+
 
  
 
@@ -1585,6 +1992,39 @@ SlowQueryStatisticsItem is the item of slow query statistics.
 | total_rows_examined | [int64](#int64) |  | The total rows examined of the slow query log. |
 | maximum_rows_examined | [int64](#int64) |  | The maximum rows examined of the slow query log. |
 | samples | [SlowQueryDetails](#bytebase-store-SlowQueryDetails) | repeated | samples are the details of the sample slow queries with the same fingerprint. |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="store_task_run-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## store/task_run.proto
+
+
+
+<a name="bytebase-store-TaskRunResult"></a>
+
+### TaskRunResult
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| detail | [string](#string) |  |  |
+| change_history | [string](#string) |  | Format: instances/{instance}/databases/{database}/changeHistories/{changeHistory} |
+| version | [string](#string) |  |  |
 
 
 

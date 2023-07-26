@@ -18,10 +18,7 @@
             $t("settings.general.workspace.plugin.openai.openai-key.self")
           }}</span>
 
-          <FeatureBadge
-            feature="bb.feature.plugin.openai"
-            class="text-accent"
-          />
+          <FeatureBadge feature="bb.feature.plugin.openai" />
 
           <span
             v-if="!allowEdit"
@@ -39,7 +36,11 @@
                 href="https://platform.openai.com/account/api-keys"
                 class="normal-link"
                 target="_blank"
-                >{{ $t("common.view-doc") }}</a
+                >{{
+                  $t(
+                    "settings.general.workspace.plugin.openai.openai-key.find-my-key"
+                  )
+                }}</a
               >
             </template>
           </i18n-t>
@@ -63,10 +64,7 @@
             $t("settings.general.workspace.plugin.openai.openai-endpoint.self")
           }}</span>
 
-          <FeatureBadge
-            feature="bb.feature.plugin.openai"
-            class="text-accent"
-          />
+          <FeatureBadge feature="bb.feature.plugin.openai" />
 
           <span
             v-if="!allowEdit"
@@ -102,8 +100,8 @@
     </div>
 
     <FeatureModal
-      v-if="state.showFeatureModal"
       feature="bb.feature.plugin.openai"
+      :open="state.showFeatureModal"
       @cancel="state.showFeatureModal = false"
     />
   </div>
@@ -114,8 +112,6 @@ import { computed, onMounted, reactive, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { hasFeature, pushNotification, useCurrentUserV1 } from "@/store";
 import { hasWorkspacePermissionV1 } from "@/utils";
-import FeatureBadge from "@/components/FeatureBadge.vue";
-import FeatureModal from "@/components/FeatureModal.vue";
 import scrollIntoView from "scroll-into-view-if-needed";
 import { useSettingV1Store } from "@/store/modules/v1/setting";
 

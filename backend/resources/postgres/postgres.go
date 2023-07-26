@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"sort"
 
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -37,44 +36,36 @@ import (
 var sampleFS embed.FS
 
 const (
-	// SampleInstanceResourceID is the resource id for the sample database.
-	SampleInstanceResourceID = "postgres-sample"
+	// TestSampleInstanceResourceID is the resource id for the test sample database.
+	TestSampleInstanceResourceID = "test-sample-instance"
+	// ProdSampleInstanceResourceID is the resource id for the prod sample database.
+	ProdSampleInstanceResourceID = "prod-sample-instance"
 	// SampleUser is the user name for the sample database.
 	SampleUser = "bbsample"
 	// SampleDatabase is the sample database name.
 	SampleDatabase = "employee"
 )
 
-// isPgDump15 returns true if the pg_dump binary is version 15.
-func isPgDump15(pgDumpPath string) (bool, error) {
-	var cmd *exec.Cmd
-	var version bytes.Buffer
-	cmd = exec.Command(pgDumpPath, "-V")
-	cmd.Stdout = &version
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return false, err
-	}
-	pgDump15 := "pg_dump (PostgreSQL) 15.1\n"
-	return pgDump15 == version.String(), nil
-}
-
 // Install will extract the postgres and utility tar in resourceDir.
 // Returns the bin directory on success.
 func Install(resourceDir string) (string, error) {
 	var tarName string
-	switch runtime.GOOS {
-	case "darwin":
-		tarName = "postgres-darwin-x86_64.txz"
-	case "linux":
-		tarName = "postgres-linux-x86_64.txz"
+	switch {
+	case runtime.GOOS == "darwin" && runtime.GOARCH == "amd64":
+		tarName = "postgres-darwin-amd64.txz"
+	case runtime.GOOS == "darwin" && runtime.GOARCH == "arm64":
+		tarName = "postgres-darwin-arm64.txz"
+	case runtime.GOOS == "linux" && runtime.GOARCH == "amd64":
+		tarName = "postgres-linux-amd64.txz"
+	case runtime.GOOS == "linux" && runtime.GOARCH == "arm64":
+		tarName = "postgres-linux-arm64.txz"
 	default:
-		return "", errors.Errorf("OS %q is not supported", runtime.GOOS)
+		return "", errors.Errorf("unsupported combination of OS %q and ARCH %q", runtime.GOOS, runtime.GOARCH)
 	}
-	version := strings.TrimRight(tarName, ".txz")
+
+	version := strings.TrimSuffix(tarName, ".txz")
 	pgBaseDir := path.Join(resourceDir, version)
 	pgBinDir := path.Join(pgBaseDir, "bin")
-	pgDumpPath := path.Join(pgBinDir, "pg_dump")
 	needInstall := false
 
 	if _, err := os.Stat(pgBaseDir); err != nil {
@@ -83,23 +74,6 @@ func Install(resourceDir string) (string, error) {
 		}
 		// Install if not exist yet.
 		needInstall = true
-	} else {
-		// TODO(zp): remove this when pg_dump 15 is populated to all users.
-		// Bytebase bump the pg_dump version to 15 to support PostgreSQL 15.
-		// We need to reinstall the PostgreSQL resources if md5sum of pg_dump is different.
-		// Check if pg_dump is version 15.
-		isPgDump15, err := isPgDump15(pgDumpPath)
-		if err != nil {
-			return "", err
-		}
-		if !isPgDump15 {
-			needInstall = true
-			// Reinstall if pg_dump is not version 15.
-			log.Info("Remove old postgres binary before installing new pg_dump...")
-			if err := os.RemoveAll(pgBaseDir); err != nil {
-				return "", errors.Wrapf(err, "failed to remove postgres binary base directory %q", pgBaseDir)
-			}
-		}
 	}
 	if needInstall {
 		log.Info("Installing PostgreSQL utilities...")
@@ -124,9 +98,10 @@ func Start(port int, binDir, dataDir string, serverLog bool) (err error) {
 
 	// See -p -k -h option definitions in the link below.
 	// https://www.postgresql.org/docs/current/app-postgres.html
+	// We also set max_connections to 500 for tests.
 	p := exec.Command(pgbin, "start", "-w",
 		"-D", dataDir,
-		"-o", fmt.Sprintf(`-p %d -k %s -h "" -c stats_temp_directory=/tmp`, port, common.GetPostgresSocketDir()))
+		"-o", fmt.Sprintf(`-p %d -k %s -N 500 -h "" -c stats_temp_directory=/tmp`, port, common.GetPostgresSocketDir()))
 
 	uid, _, sameUser, err := shouldSwitchUser()
 	if err != nil {
@@ -194,6 +169,23 @@ func InitDB(pgBinDir, pgDataDir, pgUser string) error {
 		return nil
 	}
 
+	// For pgDataDir and every intermediate to be created by MkdirAll, we need to prepare to chown
+	// it to the bytebase user. Otherwise, initdb will complain file permission error.
+	dirListToChown := []string{pgDataDir}
+	path := filepath.Dir(pgDataDir)
+	for path != "/" {
+		_, err := os.Stat(path)
+		if err == nil {
+			break
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return errors.Wrapf(err, "failed to check data directory path existence %q", path)
+		}
+		dirListToChown = append(dirListToChown, path)
+		path = filepath.Dir(path)
+	}
+	log.Debug("Data directory list to Chown", zap.Any("dirListToChown", dirListToChown))
+
 	if err := os.MkdirAll(pgDataDir, 0700); err != nil {
 		return errors.Wrapf(err, "failed to make postgres data directory %q", pgDataDir)
 	}
@@ -217,8 +209,12 @@ func InitDB(pgBinDir, pgDataDir, pgUser string) error {
 			Setpgid:    true,
 			Credential: &syscall.Credential{Uid: uint32(uid)},
 		}
-		if err := os.Chown(pgDataDir, int(uid), int(gid)); err != nil {
-			return errors.Wrapf(err, "failed to change owner of data directory %q to bytebase", pgDataDir)
+		log.Info(fmt.Sprintf("Recursively change owner of data directory %q to bytebase...", pgDataDir))
+		for _, dir := range dirListToChown {
+			log.Info(fmt.Sprintf("Change owner of %q to bytebase", dir))
+			if err := os.Chown(dir, int(uid), int(gid)); err != nil {
+				return errors.Wrapf(err, "failed to change owner of %q to bytebase", dir)
+			}
 		}
 	}
 
@@ -345,39 +341,12 @@ func prepareSampleDatabaseIfNeeded(ctx context.Context, pgUser, host, port, data
 	}
 
 	// Connect the default postgres database created by initdb.
-	driver, err := db.Open(
-		ctx,
-		db.Postgres,
-		db.DriverConfig{},
-		db.ConnectionConfig{
-			Username: pgUser,
-			Password: "",
-			Host:     host,
-			Port:     port,
-			Database: "postgres",
-		},
-		db.ConnectionContext{},
-	)
-	if err != nil {
-		return errors.Wrapf(err, "failed to connect sample instance")
+	if err := prepareDemoDatabase(ctx, pgUser, host, port, database); err != nil {
+		return err
 	}
-
-	// Create the sample database.
-	_, err = driver.Execute(
-		context.Background(),
-		fmt.Sprintf("CREATE DATABASE %s", database),
-		true)
-	if err != nil {
-		driver.Close(ctx)
-		return errors.Wrapf(err, "failed to create sample database")
-	}
-
-	// We are going to drop the default postgres database afterwards, so we need to close the
-	// connection first to avoid "database is being accessed by other users" error.
-	driver.Close(ctx)
 
 	// Connect the just created sample database to load data.
-	driver, err = db.Open(
+	driver, err := db.Open(
 		ctx,
 		db.Postgres,
 		db.DriverConfig{},
@@ -406,18 +375,42 @@ func prepareSampleDatabaseIfNeeded(ctx context.Context, pgUser, host, port, data
 	for _, name := range names {
 		if buf, err := fs.ReadFile(sampleFS, name); err != nil {
 			return errors.Wrapf(err, fmt.Sprintf("failed to read sample database data: %s", name))
-		} else if _, err := driver.Execute(context.Background(), string(buf), false); err != nil {
+		} else if _, err := driver.Execute(ctx, string(buf), false, db.ExecuteOptions{}); err != nil {
 			return errors.Wrapf(err, fmt.Sprintf("failed to load sample database data: %s", name))
 		}
 	}
 
 	// Drop the default postgres database, this is to present a cleaner database list to the user.
-	_, err = driver.Execute(
-		context.Background(),
-		"DROP DATABASE postgres",
-		true)
-	if err != nil {
+	if _, err := driver.Execute(ctx, "DROP DATABASE postgres", true, db.ExecuteOptions{}); err != nil {
 		return errors.Wrapf(err, "failed to drop default postgres database")
+	}
+
+	return nil
+}
+
+func prepareDemoDatabase(ctx context.Context, pgUser, host, port, database string) error {
+	// Connect the default postgres database created by initdb.
+	driver, err := db.Open(
+		ctx,
+		db.Postgres,
+		db.DriverConfig{},
+		db.ConnectionConfig{
+			Username: pgUser,
+			Password: "",
+			Host:     host,
+			Port:     port,
+			Database: "postgres",
+		},
+		db.ConnectionContext{},
+	)
+	if err != nil {
+		return errors.Wrapf(err, "failed to connect sample instance")
+	}
+	defer driver.Close(ctx)
+
+	// Create the sample database.
+	if _, err := driver.Execute(ctx, fmt.Sprintf("CREATE DATABASE %s", database), true, db.ExecuteOptions{}); err != nil {
+		return errors.Wrapf(err, "failed to create sample database")
 	}
 
 	return nil
@@ -468,7 +461,7 @@ func createPGStatStatementsExtension(ctx context.Context, pgUser, host, port, da
 	}
 	defer driver.Close(ctx)
 
-	if _, err := driver.Execute(context.Background(), "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;", false); err != nil {
+	if _, err := driver.Execute(ctx, "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;", false, db.ExecuteOptions{}); err != nil {
 		return errors.Wrapf(err, "failed to create pg_stat_statements extension")
 	}
 	log.Info("Successfully created pg_stat_statements extension")

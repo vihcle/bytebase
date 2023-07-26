@@ -6,4 +6,6 @@ export type SettingName =
   | "bb.workspace.approval"
   | "bb.workspace.approval.external"
   | "bb.plugin.openai.key"
-  | "bb.plugin.openai.endpoint";
+  | "bb.plugin.openai.endpoint"
+  | "bb.enterprise.trial"
+  | "bb.workspace.schema-template";

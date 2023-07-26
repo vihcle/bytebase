@@ -7,7 +7,9 @@ import "google/api/client.proto";
 import "google/api/field_behavior.proto";
 import "google/protobuf/timestamp.proto";
 import "google/type/expr.proto";
-import "v1/review_service.proto";
+import "v1/common.proto";
+import "v1/database_service.proto";
+import "v1/issue_service.proto";
 import "v1/subscription_service.proto";
 
 option go_package = "generated-go/v1";
@@ -101,6 +103,7 @@ message Value {
     WorkspaceApprovalSetting workspace_approval_setting_value = 6;
     WorkspaceTrialSetting workspace_trial_setting_value = 7;
     ExternalApprovalSetting external_approval_setting_value = 8;
+    SchemaTemplateSetting schema_template_setting_value = 9;
   }
 }
 
@@ -216,6 +219,22 @@ message ExternalApprovalSetting {
   repeated Node nodes = 1;
 }
 
+message SchemaTemplateSetting {
+  message FieldTemplate {
+    string id = 1;
+
+    Engine engine = 2;
+
+    string category = 3;
+
+    ColumnMetadata column = 4;
+  }
+
+  repeated FieldTemplate field_templates = 1;
+
+  // TODO: support table_templates
+}
+
 message WorkspaceTrialSetting {
   int32 instance_count = 1;
 
@@ -228,4 +247,16 @@ message WorkspaceTrialSetting {
   string org_name = 5;
 
   PlanType plan = 6;
+}
+
+message DataCategorySetting {
+  // Hard-coded schema comment format: [0-9]+-[0-9]+-[0-9]+
+  message DataCategoryConfig {
+    string id = 1;
+    string title = 2;
+    // Maps category to level.
+    map<string, string> category_level = 3;
+    // TODO(ed): store the actual config.
+  }
+  repeated DataCategoryConfig configs = 1;
 }

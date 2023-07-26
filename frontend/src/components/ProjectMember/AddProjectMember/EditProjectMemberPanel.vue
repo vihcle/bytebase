@@ -33,7 +33,7 @@
             clearable
           />
           <span v-if="!state.expirationTimestamp" class="textinfolabel">{{
-            $t("project.members.role-never-expired")
+            $t("project.members.role-never-expires")
           }}</span>
         </div>
       </div>
@@ -70,7 +70,7 @@ import {
 } from "@/utils/issue/cel";
 import { extractUserUID } from "@/utils";
 import { Expr } from "@/types/proto/google/api/expr/v1alpha1/syntax";
-import { Binding } from "@/types/proto/v1/project_service";
+import { Binding } from "@/types/proto/v1/iam_policy";
 
 const props = defineProps<{
   project: ComposedProject;

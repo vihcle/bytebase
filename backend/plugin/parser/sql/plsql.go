@@ -408,13 +408,32 @@ func (*ParseErrorListener) ReportContextSensitivity(recognizer antlr.Parser, dfa
 	antlr.ConsoleErrorListenerINSTANCE.ReportContextSensitivity(recognizer, dfa, startIndex, stopIndex, prediction, configs)
 }
 
-// ParsePLSQL parses the given PLSQL.
-func ParsePLSQL(sql string) (antlr.Tree, error) {
-	// The antlr parser requires a semicolon at the end of the SQL.
-	sql = strings.TrimRight(sql, " \t\n\r\f;") + "\n;"
+func addSemicolonIfNeeded(sql string) string {
 	lexer := parser.NewPlSqlLexer(antlr.NewInputStream(sql))
-	steam := antlr.NewCommonTokenStream(lexer, 0)
-	p := parser.NewPlSqlParser(steam)
+	stream := antlr.NewCommonTokenStream(lexer, 0)
+	stream.Fill()
+	tokens := stream.GetAllTokens()
+	for i := len(tokens) - 1; i >= 0; i-- {
+		if tokens[i].GetChannel() != antlr.TokenDefaultChannel || tokens[i].GetTokenType() == parser.PlSqlParserEOF {
+			continue
+		}
+
+		// The last default channel token is a semicolon.
+		if tokens[i].GetTokenType() == parser.PlSqlParserSEMICOLON {
+			return sql
+		}
+
+		return stream.GetTextFromInterval(antlr.NewInterval(0, tokens[i].GetTokenIndex())) + ";"
+	}
+	return sql
+}
+
+// ParsePLSQL parses the given PLSQL.
+func ParsePLSQL(sql string) (antlr.Tree, *antlr.CommonTokenStream, error) {
+	sql = addSemicolonIfNeeded(sql)
+	lexer := parser.NewPlSqlLexer(antlr.NewInputStream(sql))
+	stream := antlr.NewCommonTokenStream(lexer, 0)
+	p := parser.NewPlSqlParser(stream)
 	p.SetVersion12(true)
 
 	lexerErrorListener := &ParseErrorListener{}
@@ -429,14 +448,14 @@ func ParsePLSQL(sql string) (antlr.Tree, error) {
 	tree := p.Sql_script()
 
 	if lexerErrorListener.err != nil {
-		return nil, lexerErrorListener.err
+		return nil, nil, lexerErrorListener.err
 	}
 
 	if parserErrorListener.err != nil {
-		return nil, parserErrorListener.err
+		return nil, nil, parserErrorListener.err
 	}
 
-	return tree, nil
+	return tree, stream, nil
 }
 
 // PLSQLValidateForEditor validates the given PLSQL for editor.
@@ -480,7 +499,7 @@ func (l *plsqlValidateForEditorListener) EnterData_manipulation_language_stateme
 
 // PLSQLEquivalentType returns true if the given type is equivalent to the given text.
 func PLSQLEquivalentType(tp parser.IDatatypeContext, text string) (bool, error) {
-	tree, err := ParsePLSQL(fmt.Sprintf(`CREATE TABLE t(a %s);`, text))
+	tree, _, err := ParsePLSQL(fmt.Sprintf(`CREATE TABLE t(a %s);`, text))
 	if err != nil {
 		return false, err
 	}
@@ -643,12 +662,12 @@ func IsOracleKeyword(text string) bool {
 }
 
 func extractOracleResourceList(currentDatabase string, currentSchema string, statement string) ([]SchemaResource, error) {
-	tree, err := ParsePLSQL(statement)
+	tree, _, err := ParsePLSQL(statement)
 	if err != nil {
 		return nil, err
 	}
 
-	l := &resourceExtractListener{
+	l := &plsqlResourceExtractListener{
 		currentDatabase: currentDatabase,
 		currentSchema:   currentSchema,
 		resourceMap:     make(map[string]SchemaResource),
@@ -667,7 +686,7 @@ func extractOracleResourceList(currentDatabase string, currentSchema string, sta
 	return result, nil
 }
 
-type resourceExtractListener struct {
+type plsqlResourceExtractListener struct {
 	*parser.BasePlSqlParserListener
 
 	currentDatabase string
@@ -675,7 +694,7 @@ type resourceExtractListener struct {
 	resourceMap     map[string]SchemaResource
 }
 
-func (l *resourceExtractListener) EnterTableview_name(ctx *parser.Tableview_nameContext) {
+func (l *plsqlResourceExtractListener) EnterTableview_name(ctx *parser.Tableview_nameContext) {
 	if ctx.Identifier() == nil {
 		return
 	}

@@ -8,7 +8,7 @@ import { Timestamp } from "../google/protobuf/timestamp";
 export const protobufPackage = "bytebase.v1";
 
 export interface CreateExternalVersionControlRequest {
-  externalVersionControl?: ExternalVersionControl;
+  externalVersionControl?: ExternalVersionControl | undefined;
 }
 
 export interface GetExternalVersionControlRequest {
@@ -44,9 +44,11 @@ export interface ListExternalVersionControlsResponse {
 }
 
 export interface UpdateExternalVersionControlRequest {
-  externalVersionControl?: ExternalVersionControl;
+  externalVersionControl?:
+    | ExternalVersionControl
+    | undefined;
   /** The list of fields to be updated. */
-  updateMask?: string[];
+  updateMask?: string[] | undefined;
 }
 
 export interface DeleteExternalVersionControlRequest {
@@ -126,6 +128,8 @@ export enum ExternalVersionControl_Type {
   GITLAB = 2,
   /** BITBUCKET - BitBucket type. Using for BitBucket cloud or BitBucket server. */
   BITBUCKET = 3,
+  /** AZURE_DEVOPS - Azure DevOps. Using for Azure DevOps GitOps workflow. */
+  AZURE_DEVOPS = 4,
   UNRECOGNIZED = -1,
 }
 
@@ -143,6 +147,9 @@ export function externalVersionControl_TypeFromJSON(object: any): ExternalVersio
     case 3:
     case "BITBUCKET":
       return ExternalVersionControl_Type.BITBUCKET;
+    case 4:
+    case "AZURE_DEVOPS":
+      return ExternalVersionControl_Type.AZURE_DEVOPS;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -160,6 +167,8 @@ export function externalVersionControl_TypeToJSON(object: ExternalVersionControl
       return "GITLAB";
     case ExternalVersionControl_Type.BITBUCKET:
       return "BITBUCKET";
+    case ExternalVersionControl_Type.AZURE_DEVOPS:
+      return "AZURE_DEVOPS";
     case ExternalVersionControl_Type.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -209,12 +218,12 @@ export interface ProjectGitOpsInfo {
   /** The webhook endpoint ID of the repository. */
   webhookEndpointId: string;
   accessToken: string;
-  expiresTime?: Date;
+  expiresTime?: Date | undefined;
   refreshToken: string;
 }
 
 export interface ExchangeTokenRequest {
-  exchangeToken?: ExchangeToken;
+  exchangeToken?: ExchangeToken | undefined;
 }
 
 export interface ExchangeToken {
@@ -233,7 +242,7 @@ export interface ExchangeToken {
 export interface OAuthToken {
   accessToken: string;
   refreshToken: string;
-  expiresTime?: Date;
+  expiresTime?: Date | undefined;
 }
 
 function createBaseCreateExternalVersionControlRequest(): CreateExternalVersionControlRequest {

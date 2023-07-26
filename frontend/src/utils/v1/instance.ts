@@ -1,19 +1,27 @@
 import slug from "slug";
 import { keyBy, orderBy } from "lodash-es";
 
+import { useI18n } from "vue-i18n";
 import { DataSourceType, Instance } from "@/types/proto/v1/instance_service";
 import { Engine, State } from "@/types/proto/v1/common";
 import { Environment } from "@/types/proto/v1/environment_service";
 import { ComposedInstance } from "@/types";
+import { useSubscriptionV1Store } from "@/store";
+import { PlanType } from "@/types/proto/v1/subscription_service";
 
 export const instanceV1Slug = (instance: Instance): string => {
   return [slug(instance.title), instance.uid].join("-");
 };
 
 export function instanceV1Name(instance: Instance) {
+  const { t } = useI18n();
+  const store = useSubscriptionV1Store();
   let name = instance.title;
+  // instance cannot be deleted and activated at the same time.
   if (instance.state === State.DELETED) {
-    name += " (Archived)";
+    name += ` (${t("common.archived")})`;
+  } else if (!instance.activation && store.currentPlan !== PlanType.FREE) {
+    name += ` (${t("common.no-license")})`;
   }
   return name;
 }
@@ -120,9 +128,7 @@ export const instanceV1HasBackupRestore = (
 export const instanceV1HasReadonlyMode = (
   instanceOrEngine: Instance | Engine
 ): boolean => {
-  const engine = engineOfInstanceV1(instanceOrEngine);
-  if (engine === Engine.MONGODB) return false;
-  if (engine === Engine.REDIS) return false;
+  // For MongoDB and Redis, we rely on users setting up read-only data source for queries.
   return true;
 };
 

@@ -8,7 +8,7 @@
       </template>
     </RiskFilter>
 
-    <div class="space-y-4">
+    <div class="space-y-4 pb-4">
       <RiskSection
         v-for="{ source, riskList } in riskListGroupBySource"
         :key="source"
@@ -33,7 +33,7 @@ import { useRiskStore } from "@/store";
 const riskStore = useRiskStore();
 const context = useRiskCenterContext();
 const filter = useRiskFilter();
-const { allowAdmin } = context;
+const { allowAdmin, hasFeature, showFeatureModal } = context;
 
 const filteredRiskList = computed(() => {
   let list = [...riskStore.riskList];
@@ -76,6 +76,10 @@ const addRisk = () => {
     source: filter.source.value || SupportedSourceList[0],
     active: true,
   });
+  if (!hasFeature.value) {
+    showFeatureModal.value = true;
+    return;
+  }
   context.dialog.value = {
     mode: "CREATE",
     risk,

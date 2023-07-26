@@ -443,20 +443,6 @@ func (s *Scheduler) PatchTask(ctx context.Context, task *store.TaskMessage, task
 		if err != nil {
 			return err
 		}
-		if api.IsSyntaxCheckSupported(instance.Engine) {
-			if err := s.store.CreateTaskCheckRun(ctx, &store.TaskCheckRunMessage{
-				CreatorID: taskPatched.CreatorID,
-				TaskID:    task.ID,
-				Type:      api.TaskCheckDatabaseStatementSyntax,
-			}); err != nil {
-				// It's OK if we failed to trigger a check, just emit an error log
-				log.Error("Failed to trigger syntax check after changing the task statement",
-					zap.Int("task_id", task.ID),
-					zap.String("task_name", task.Name),
-					zap.Error(err),
-				)
-			}
-		}
 
 		if api.IsSQLReviewSupported(instance.Engine) {
 			if err := s.triggerDatabaseStatementAdviseTask(ctx, taskPatched); err != nil {
@@ -1133,7 +1119,7 @@ func (s *Scheduler) CanPrincipalBeAssignee(ctx context.Context, principalID int,
 		if user == nil {
 			return false, common.Errorf(common.NotFound, "principal not found by ID %d", principalID)
 		}
-		if !s.licenseService.IsFeatureEnabled(api.FeatureRBAC) {
+		if s.licenseService.IsFeatureEnabled(api.FeatureRBAC) != nil {
 			user.Role = api.Owner
 		}
 		if user.Role == api.Owner || user.Role == api.DBA {
@@ -1141,7 +1127,8 @@ func (s *Scheduler) CanPrincipalBeAssignee(ctx context.Context, principalID int,
 		}
 	} else if *groupValue == api.AssigneeGroupValueProjectOwner {
 		// the assignee group is the project owner.
-		if !s.licenseService.IsFeatureEnabled(api.FeatureRBAC) {
+		if s.licenseService.IsFeatureEnabled(api.FeatureRBAC) != nil {
+			// nolint:nilerr
 			return true, nil
 		}
 		policy, err := s.store.GetProjectPolicy(ctx, &store.GetProjectPolicyMessage{UID: &projectID})
@@ -1399,4 +1386,58 @@ func (s *Scheduler) onTaskStatusPatched(ctx context.Context, issue *store.IssueM
 	}
 
 	return nil
+}
+
+// CanPrincipalChangeIssueStageTaskStatus returns whether the principal can change the task status.
+func (s *Scheduler) CanPrincipalChangeIssueStageTaskStatus(ctx context.Context, user *store.UserMessage, issue *store.IssueMessage, stageEnvironmentID int, toStatus api.TaskStatus) (bool, error) {
+	// the workspace owner and DBA roles can always change task status.
+	if user.Role == api.Owner || user.Role == api.DBA {
+		return true, nil
+	}
+	// The creator can cancel task.
+	if toStatus == api.TaskCanceled {
+		if user.ID == issue.Creator.ID {
+			return true, nil
+		}
+	}
+	groupValue, err := s.getGroupValueForIssueTypeEnvironment(ctx, issue.Type, stageEnvironmentID)
+	if err != nil {
+		return false, errors.Wrapf(err, "failed to get assignee group value for issueID %d", issue.UID)
+	}
+	// as the policy says, the project owner has the privilege to change task status.
+	if groupValue == api.AssigneeGroupValueProjectOwner {
+		policy, err := s.store.GetProjectPolicy(ctx, &store.GetProjectPolicyMessage{UID: &issue.Project.UID})
+		if err != nil {
+			return false, common.Wrapf(err, common.Internal, "failed to get project %d policy", issue.Project.UID)
+		}
+		for _, binding := range policy.Bindings {
+			if binding.Role != api.Owner {
+				continue
+			}
+			for _, member := range binding.Members {
+				if member.ID == user.ID {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
+}
+
+func (s *Scheduler) getGroupValueForIssueTypeEnvironment(ctx context.Context, issueType api.IssueType, environmentID int) (api.AssigneeGroupValue, error) {
+	defaultGroupValue := api.AssigneeGroupValueWorkspaceOwnerOrDBA
+	policy, err := s.store.GetPipelineApprovalPolicy(ctx, environmentID)
+	if err != nil {
+		return defaultGroupValue, errors.Wrapf(err, "failed to get pipeline approval policy by environmentID %d", environmentID)
+	}
+	if policy == nil {
+		return defaultGroupValue, nil
+	}
+
+	for _, assigneeGroup := range policy.AssigneeGroupList {
+		if assigneeGroup.IssueType == issueType {
+			return assigneeGroup.Value, nil
+		}
+	}
+	return defaultGroupValue, nil
 }

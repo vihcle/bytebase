@@ -230,6 +230,25 @@ func (s *DatabaseService) UpdateDatabase(ctx context.Context, request *v1pb.Upda
 			patch.ProjectID = &project.ResourceID
 		case "labels":
 			patch.Labels = &request.Database.Labels
+		case "environment":
+			environmentID, err := getEnvironmentID(request.Database.Environment)
+			if err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, err.Error())
+			}
+			environment, err := s.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{
+				ResourceID:  &environmentID,
+				ShowDeleted: true,
+			})
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, err.Error())
+			}
+			if environment == nil {
+				return nil, status.Errorf(codes.NotFound, "environment %q not found", environmentID)
+			}
+			if environment.Deleted {
+				return nil, status.Errorf(codes.FailedPrecondition, "environment %q is deleted", environmentID)
+			}
+			patch.EnvironmentID = &environment.ResourceID
 		}
 	}
 
@@ -307,6 +326,7 @@ func (s *DatabaseService) BatchUpdateDatabases(ctx context.Context, request *v1p
 		projectURI = req.Database.Project
 		databases = append(databases, database)
 	}
+	// TODO(d): support batch update environment.
 	projectID, err := getProjectID(projectURI)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
@@ -362,6 +382,19 @@ func (s *DatabaseService) GetDatabaseMetadata(ctx context.Context, request *v1pb
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
+	if dbSchema == nil {
+		if err := s.schemaSyncer.SyncDatabaseSchema(ctx, database, true /* force */); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to sync database schema for database %q, error %v", databaseName, err)
+		}
+		newDBSchema, err := s.store.GetDBSchema(ctx, database.UID)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+		if newDBSchema == nil {
+			return nil, status.Errorf(codes.NotFound, "database schema %q not found", databaseName)
+		}
+		dbSchema = newDBSchema
+	}
 	return convertDatabaseMetadata(dbSchema.Metadata), nil
 }
 
@@ -386,7 +419,17 @@ func (s *DatabaseService) GetDatabaseSchema(ctx context.Context, request *v1pb.G
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 	if dbSchema == nil {
-		return nil, status.Errorf(codes.NotFound, "database schema %q not found", databaseName)
+		if err := s.schemaSyncer.SyncDatabaseSchema(ctx, database, true /* force */); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to sync database schema for database %q, error %v", databaseName, err)
+		}
+		newDBSchema, err := s.store.GetDBSchema(ctx, database.UID)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, err.Error())
+		}
+		if newDBSchema == nil {
+			return nil, status.Errorf(codes.NotFound, "database schema %q not found", databaseName)
+		}
+		dbSchema = newDBSchema
 	}
 	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{ResourceID: &database.InstanceID})
 	if err != nil {
@@ -595,19 +638,18 @@ func (s *DatabaseService) ListChangeHistories(ctx context.Context, request *v1pb
 		return nil, status.Errorf(codes.NotFound, "database %q not found", databaseName)
 	}
 
-	var pageToken storepb.PageToken
+	var limit, offset int
 	if request.PageToken != "" {
+		var pageToken storepb.PageToken
 		if err := unmarshalPageToken(request.PageToken, &pageToken); err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "invalid page token: %v", err)
 		}
-		if pageToken.Limit != request.PageSize {
-			return nil, status.Errorf(codes.InvalidArgument, "request page size does not match the page token")
+		if pageToken.Limit < 0 {
+			return nil, status.Errorf(codes.InvalidArgument, "page size cannot be negative")
 		}
-	} else {
-		pageToken.Limit = request.PageSize
+		limit = int(pageToken.Limit)
+		offset = int(pageToken.Offset)
 	}
-
-	limit := int(pageToken.Limit)
 	if limit <= 0 {
 		limit = 10
 	}
@@ -615,7 +657,6 @@ func (s *DatabaseService) ListChangeHistories(ctx context.Context, request *v1pb
 		limit = 1000
 	}
 	limitPlusOne := limit + 1
-	offset := int(pageToken.Offset)
 
 	find := &store.FindInstanceChangeHistoryMessage{
 		InstanceID: &instance.UID,
@@ -632,12 +673,9 @@ func (s *DatabaseService) ListChangeHistories(ctx context.Context, request *v1pb
 	}
 
 	if len(changeHistories) == limitPlusOne {
-		nextPageToken, err := marshalPageToken(&storepb.PageToken{
-			Limit:  int32(limit),
-			Offset: int32(limit + offset),
-		})
+		nextPageToken, err := getPageToken(limit, offset+limit)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to marshal next page token, error: %v", err)
+			return nil, status.Errorf(codes.Internal, "failed to get next page token, error: %v", err)
 		}
 		converted, err := convertToChangeHistories(changeHistories[:limit])
 		if err != nil {
@@ -666,10 +704,6 @@ func (s *DatabaseService) GetChangeHistory(ctx context.Context, request *v1pb.Ge
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
-	changeHistoryID, err := strconv.ParseInt(changeHistoryIDStr, 10, 64)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "cannot parse change history id %q", changeHistoryIDStr)
-	}
 	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
 		ResourceID: &instanceID,
 	})
@@ -692,7 +726,7 @@ func (s *DatabaseService) GetChangeHistory(ctx context.Context, request *v1pb.Ge
 	find := &store.FindInstanceChangeHistoryMessage{
 		InstanceID: &instance.UID,
 		DatabaseID: &database.UID,
-		ID:         &changeHistoryID,
+		ID:         &changeHistoryIDStr,
 	}
 	if request.View == v1pb.ChangeHistoryView_CHANGE_HISTORY_VIEW_FULL {
 		find.ShowFull = true
@@ -764,10 +798,10 @@ func convertToChangeHistory(h *store.InstanceChangeHistoryMessage) (*v1pb.Change
 		PrevSchema:        h.SchemaPrev,
 		ExecutionDuration: durationpb.New(time.Duration(h.ExecutionDurationNs)),
 		PushEvent:         convertToPushEvent(h.Payload.GetPushEvent()),
-		Review:            "",
+		Issue:             "",
 	}
 	if h.IssueUID != nil {
-		v1pbHistory.Review = fmt.Sprintf("%s%s/%s%d", projectNamePrefix, h.IssueProjectID, reviewPrefix, *h.IssueUID)
+		v1pbHistory.Issue = fmt.Sprintf("%s%s/%s%d", projectNamePrefix, h.IssueProjectID, issuePrefix, *h.IssueUID)
 	}
 	return v1pbHistory, nil
 }
@@ -915,9 +949,6 @@ func (s *DatabaseService) ListSecrets(ctx context.Context, request *v1pb.ListSec
 
 // UpdateSecret updates a secret of a database.
 func (s *DatabaseService) UpdateSecret(ctx context.Context, request *v1pb.UpdateSecretRequest) (*v1pb.Secret, error) {
-	if !s.licenseService.IsFeatureEnabled(api.FeatureEncryptedSecrets) {
-		return nil, status.Errorf(codes.PermissionDenied, api.FeatureEncryptedSecrets.AccessErrorMessage())
-	}
 	if request.Secret == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "secret is required")
 	}
@@ -938,6 +969,11 @@ func (s *DatabaseService) UpdateSecret(ctx context.Context, request *v1pb.Update
 	if instance == nil {
 		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
 	}
+
+	if err := s.licenseService.IsFeatureEnabledForInstance(api.FeatureEncryptedSecrets, instance); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, err.Error())
+	}
+
 	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
 		InstanceID:   &instanceID,
 		DatabaseName: &databaseName,
@@ -1018,10 +1054,6 @@ func (s *DatabaseService) UpdateSecret(ctx context.Context, request *v1pb.Update
 
 // DeleteSecret deletes a secret of a database.
 func (s *DatabaseService) DeleteSecret(ctx context.Context, request *v1pb.DeleteSecretRequest) (*emptypb.Empty, error) {
-	if !s.licenseService.IsFeatureEnabled(api.FeatureEncryptedSecrets) {
-		return nil, status.Errorf(codes.PermissionDenied, api.FeatureEncryptedSecrets.AccessErrorMessage())
-	}
-
 	instanceID, databaseName, secretName, err := getInstanceDatabaseIDSecretName(request.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
@@ -1036,6 +1068,11 @@ func (s *DatabaseService) DeleteSecret(ctx context.Context, request *v1pb.Delete
 	if instance == nil {
 		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
 	}
+
+	if err := s.licenseService.IsFeatureEnabledForInstance(api.FeatureEncryptedSecrets, instance); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, err.Error())
+	}
+
 	database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
 		InstanceID:   &instanceID,
 		DatabaseName: &databaseName,
@@ -1110,7 +1147,7 @@ func (s *DatabaseService) ListSlowQueries(ctx context.Context, request *v1pb.Lis
 			if len(match) != 2 {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid environment filter %q", expr.value)
 			}
-			findDatabase.EnvironmentID = &match[1]
+			findDatabase.EffectiveEnvironmentID = &match[1]
 		case filterKeyProject:
 			reg := regexp.MustCompile(`^projects/(.+)`)
 			match := reg.FindStringSubmatch(expr.value)
@@ -1420,12 +1457,17 @@ func convertToDatabase(database *store.DatabaseMessage) *v1pb.Database {
 	case api.NotFound:
 		syncState = v1pb.State_DELETED
 	}
+	environment := ""
+	if database.EffectiveEnvironmentID != "" {
+		environment = fmt.Sprintf("%s%s", environmentNamePrefix, database.EffectiveEnvironmentID)
+	}
 	return &v1pb.Database{
 		Name:               fmt.Sprintf("instances/%s/databases/%s", database.InstanceID, database.DatabaseName),
 		Uid:                fmt.Sprintf("%d", database.UID),
 		SyncState:          syncState,
 		SuccessfulSyncTime: timestamppb.New(time.Unix(database.SuccessfulSyncTimeTs, 0)),
 		Project:            fmt.Sprintf("%s%s", projectNamePrefix, database.ProjectID),
+		Environment:        environment,
 		SchemaVersion:      database.SchemaVersion,
 		Labels:             database.Labels,
 	}
@@ -1511,6 +1553,32 @@ func convertDatabaseMetadata(metadata *storepb.DatabaseMetadata) *v1pb.DatabaseM
 			s.Functions = append(s.Functions, &v1pb.FunctionMetadata{
 				Name:       function.Name,
 				Definition: function.Definition,
+			})
+		}
+		for _, task := range schema.Tasks {
+			s.Tasks = append(s.Tasks, &v1pb.TaskMetadata{
+				Name:         task.Name,
+				Id:           task.Id,
+				Owner:        task.Owner,
+				Comment:      task.Comment,
+				Warehouse:    task.Warehouse,
+				Schedule:     task.Schedule,
+				Predecessors: task.Predecessors,
+				State:        v1pb.TaskMetadata_State(task.State),
+				Condition:    task.Condition,
+				Definition:   task.Definition,
+			})
+		}
+		for _, stream := range schema.Streams {
+			s.Streams = append(s.Streams, &v1pb.StreamMetadata{
+				Name:       stream.Name,
+				TableName:  stream.TableName,
+				Owner:      stream.Owner,
+				Comment:    stream.Comment,
+				Type:       v1pb.StreamMetadata_Type(stream.Type),
+				Stale:      stream.Stale,
+				Mode:       v1pb.StreamMetadata_Mode(stream.Mode),
+				Definition: stream.Definition,
 			})
 		}
 		m.Schemas = append(m.Schemas, s)
@@ -1620,14 +1688,14 @@ func (s *DatabaseService) validateAndConvertToStoreBackupSetting(ctx context.Con
 	}
 
 	environment, err := s.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{
-		ResourceID:  &database.EnvironmentID,
+		ResourceID:  &database.EffectiveEnvironmentID,
 		ShowDeleted: true,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 	if environment == nil {
-		return nil, status.Errorf(codes.NotFound, "environment %q not found", database.EnvironmentID)
+		return nil, status.Errorf(codes.NotFound, "environment %q not found", database.EffectiveEnvironmentID)
 	}
 	backupPlanPolicy, err := s.store.GetBackupPlanPolicyByEnvID(ctx, environment.UID)
 	if err != nil {
@@ -1771,8 +1839,8 @@ func isUpperCaseLetter(c rune) bool {
 
 // AdviseIndex advises the index of a table.
 func (s *DatabaseService) AdviseIndex(ctx context.Context, request *v1pb.AdviseIndexRequest) (*v1pb.AdviseIndexResponse, error) {
-	if !s.licenseService.IsFeatureEnabled(api.FeaturePluginOpenAI) {
-		return nil, status.Errorf(codes.PermissionDenied, api.FeaturePluginOpenAI.AccessErrorMessage())
+	if err := s.licenseService.IsFeatureEnabled(api.FeaturePluginOpenAI); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, err.Error())
 	}
 	instanceID, databaseName, err := getInstanceDatabaseID(request.Parent)
 	if err != nil {
@@ -1819,7 +1887,7 @@ func (s *DatabaseService) mysqlAdviseIndex(ctx context.Context, request *v1pb.Ad
 	var schemas []*store.DBSchema
 
 	// Deal with the cross database query
-	dbList, err := parser.ExtractDatabaseList(parser.MySQL, request.Statement)
+	dbList, err := parser.ExtractDatabaseList(parser.MySQL, request.Statement, "")
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "Failed to extract database list: %v", err)
 	}

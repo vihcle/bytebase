@@ -41,11 +41,14 @@ func TestDataSource(t *testing.T) {
 			Title:       "test",
 			Engine:      v1pb.Engine_SQLITE,
 			Environment: prodEnvironment.Name,
+			Activation:  true,
 			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Title: api.AdminDataSourceName, Host: instanceDir}},
 		},
 	})
 	a.NoError(err)
 
+	err = ctl.removeLicense()
+	a.NoError(err)
 	_, err = ctl.instanceServiceClient.AddDataSource(ctx, &v1pb.AddDataSourceRequest{
 		Instance: instance.Name,
 		DataSource: &v1pb.DataSource{

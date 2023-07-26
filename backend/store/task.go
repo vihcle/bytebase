@@ -41,6 +41,10 @@ type TaskMessage struct {
 	Payload           string
 	EarliestAllowedTs int64
 	BlockedBy         []int
+
+	DatabaseName string
+	// Statement used by grouping batch change, Bytebase use it to render.
+	Statement string
 }
 
 func (task *TaskMessage) toTask() *api.Task {
@@ -209,7 +213,7 @@ func (s *Store) GetTaskV2ByID(ctx context.Context, id int) (*TaskMessage, error)
 }
 
 // CreateTasksV2 creates a new task.
-func (s *Store) CreateTasksV2(ctx context.Context, creates ...*api.TaskCreate) ([]*TaskMessage, error) {
+func (s *Store) CreateTasksV2(ctx context.Context, creates ...*TaskMessage) ([]*TaskMessage, error) {
 	var query strings.Builder
 	var values []any
 	var queryValues []string
@@ -349,11 +353,6 @@ func (s *Store) ListTasks(ctx context.Context, find *api.TaskFind) ([]*TaskMessa
 		where = append(where, "(NOT (task.type='bb.task.database.data.update' AND task.payload->>'rollbackFromTaskId' IS NOT NULL))")
 	}
 
-	payloadField := "task.payload"
-	if find.StripPayload {
-		payloadField = "''"
-	}
-
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
@@ -374,14 +373,14 @@ func (s *Store) ListTasks(ctx context.Context, find *api.TaskFind) ([]*TaskMessa
 			task.name,
 			task.status,
 			task.type,
-			%s,
+			task.payload,
 			task.earliest_allowed_ts,
 			ARRAY_AGG (task_dag.from_task_id) blocked_by
 		FROM task
 		LEFT JOIN task_dag ON task.id = task_dag.to_task_id
 		WHERE %s
 		GROUP BY task.id
-		ORDER BY task.id ASC`, payloadField, strings.Join(where, " AND ")),
+		ORDER BY task.id ASC`, strings.Join(where, " AND ")),
 		args...,
 	)
 	if err != nil {
@@ -548,9 +547,9 @@ func (s *Store) UpdateTaskStatusV2(ctx context.Context, patch *api.TaskStatusPat
 	if taskRun == nil {
 		if patch.Status == api.TaskRunning {
 			if err := s.createTaskRunImpl(ctx, tx, &TaskRunMessage{
-				TaskID: task.ID,
-				Name:   fmt.Sprintf("%s %d", task.Name, time.Now().Unix()),
-				Type:   task.Type,
+				TaskUID: task.ID,
+				Name:    fmt.Sprintf("%s %d", task.Name, time.Now().Unix()),
+				Type:    task.Type,
 			}, patch.UpdaterID); err != nil {
 				return nil, err
 			}
@@ -560,7 +559,7 @@ func (s *Store) UpdateTaskStatusV2(ctx context.Context, patch *api.TaskStatusPat
 			return nil, errors.Errorf("task is already running: %v", task.Name)
 		}
 		taskRunStatusPatch := &TaskRunStatusPatch{
-			ID:        &taskRun.ID,
+			ID:        taskRun.ID,
 			UpdaterID: patch.UpdaterID,
 			Code:      patch.Code,
 			Result:    patch.Result,
@@ -571,8 +570,8 @@ func (s *Store) UpdateTaskStatusV2(ctx context.Context, patch *api.TaskStatusPat
 			taskRunStatusPatch.Status = api.TaskRunDone
 		case api.TaskFailed:
 			taskRunStatusPatch.Status = api.TaskRunFailed
-		case api.TaskPending:
-		case api.TaskPendingApproval:
+		case api.TaskPending, api.TaskPendingApproval:
+			// Do nothing.
 		case api.TaskCanceled:
 			taskRunStatusPatch.Status = api.TaskRunCanceled
 		}

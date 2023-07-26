@@ -18,7 +18,10 @@
         :placeholder="$t('instance.search-instance-name')"
       />
     </div>
-    <InstanceV1Table :instance-list="filteredInstanceV1List" />
+    <InstanceV1Table
+      :instance-list="filteredInstanceV1List"
+      :can-assign-license="subscriptionStore.currentPlan !== PlanType.FREE"
+    />
   </div>
 </template>
 
@@ -40,13 +43,16 @@ import {
   useEnvironmentV1Store,
   useEnvironmentV1List,
   useInstanceV1List,
+  useInstanceV1Store,
 } from "@/store";
+import { PlanType } from "@/types/proto/v1/subscription_service";
 
 interface LocalState {
   searchText: string;
 }
 
 const subscriptionStore = useSubscriptionV1Store();
+const instanceV1Store = useInstanceV1Store();
 const uiStateStore = useUIStateStore();
 const router = useRouter();
 const { t } = useI18n();
@@ -103,26 +109,58 @@ const filteredInstanceV1List = computed(() => {
   return sortInstanceV1ListByEnvironmentV1(list, environmentList.value);
 });
 
-const instanceQuota = computed((): number => {
-  return subscriptionStore.instanceCount;
-});
-
 const remainingInstanceCount = computed((): number => {
-  return Math.max(0, instanceQuota.value - rawInstanceV1List.value.length);
+  if (subscriptionStore.currentPlan === PlanType.FREE) {
+    return Math.max(
+      0,
+      subscriptionStore.instanceCountLimit -
+        instanceV1Store.activeInstanceList.length
+    );
+  }
+
+  return Math.max(
+    0,
+    subscriptionStore.instanceLicenseCount -
+      instanceV1Store.activateInstanceCount
+  );
 });
 
 const instanceCountAttention = computed((): string => {
   const upgrade = t("subscription.features.bb-feature-instance-count.upgrade");
   let status = "";
-  if (remainingInstanceCount.value > 0) {
-    status = t("subscription.features.bb-feature-instance-count.remaining", {
-      total: instanceQuota.value,
-      count: remainingInstanceCount.value,
-    });
-  } else {
-    status = t("subscription.features.bb-feature-instance-count.runoutof", {
-      total: instanceQuota.value,
-    });
+
+  switch (subscriptionStore.currentPlan) {
+    case PlanType.FREE:
+      if (remainingInstanceCount.value > 0) {
+        status = t(
+          "subscription.features.bb-feature-instance-count.remaining",
+          {
+            total: subscriptionStore.instanceCountLimit,
+            count: remainingInstanceCount.value,
+          }
+        );
+      } else {
+        status = t("subscription.features.bb-feature-instance-count.runoutof", {
+          total: subscriptionStore.instanceCountLimit,
+        });
+      }
+      break;
+    case PlanType.TEAM:
+    case PlanType.ENTERPRISE:
+      if (remainingInstanceCount.value > 0) {
+        status = t(
+          "subscription.features.bb-feature-instance-count.remaining",
+          {
+            total: subscriptionStore.instanceLicenseCount,
+            count: remainingInstanceCount.value,
+          }
+        );
+      } else {
+        status = t("subscription.features.bb-feature-instance-count.runoutof", {
+          total: subscriptionStore.instanceLicenseCount,
+        });
+      }
+      break;
   }
 
   return `${status} ${upgrade}`;

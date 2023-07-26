@@ -115,7 +115,7 @@ func (s *ProjectService) UpdateProject(ctx context.Context, request *v1pb.Update
 		return nil, err
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", request.Project.Name)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", request.Project.Name)
 	}
 	if project.ResourceID == api.DefaultProjectID {
 		return nil, status.Errorf(codes.InvalidArgument, "default project cannot be updated")
@@ -160,7 +160,7 @@ func (s *ProjectService) DeleteProject(ctx context.Context, request *v1pb.Delete
 		return nil, err
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", request.Name)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", request.Name)
 	}
 	if project.ResourceID == api.DefaultProjectID {
 		return nil, status.Errorf(codes.InvalidArgument, "default project cannot be deleted")
@@ -323,7 +323,7 @@ func (s *ProjectService) SetIamPolicy(ctx context.Context, request *v1pb.SetIamP
 		return nil, status.Errorf(codes.NotFound, "project %q not found", request.Project)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", request.Project)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", request.Project)
 	}
 
 	policy, err := s.convertToIAMPolicyMessage(ctx, request.Policy)
@@ -634,9 +634,6 @@ func (s *ProjectService) GetDeploymentConfig(ctx context.Context, request *v1pb.
 	if project == nil {
 		return nil, status.Errorf(codes.NotFound, "project %q not found", request.Name)
 	}
-	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", request.Name)
-	}
 
 	deploymentConfig, err := s.store.GetDeploymentConfigV2(ctx, project.UID)
 	if err != nil {
@@ -668,7 +665,7 @@ func (s *ProjectService) UpdateDeploymentConfig(ctx context.Context, request *v1
 		return nil, status.Errorf(codes.NotFound, "project %q not found", projectID)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", projectID)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", projectID)
 	}
 
 	storeDeploymentConfig, err := validateAndConvertToStoreDeploymentSchedule(request.Config)
@@ -707,7 +704,7 @@ func (s *ProjectService) AddWebhook(ctx context.Context, request *v1pb.AddWebhoo
 		return nil, status.Errorf(codes.NotFound, "project %q not found", request.Project)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", request.Project)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", request.Project)
 	}
 
 	create, err := convertToStoreProjectWebhookMessage(request.Webhook)
@@ -749,7 +746,7 @@ func (s *ProjectService) UpdateWebhook(ctx context.Context, request *v1pb.Update
 		return nil, status.Errorf(codes.NotFound, "project %q not found", projectID)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", projectID)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", projectID)
 	}
 
 	webhook, err := s.store.GetProjectWebhookV2(ctx, &store.FindProjectWebhookMessage{
@@ -830,7 +827,7 @@ func (s *ProjectService) createProjectGitOpsInfo(ctx context.Context, request *v
 		return nil, status.Errorf(codes.FailedPrecondition, setupExternalURLError)
 	}
 
-	vcsID, err := strconv.ParseInt(request.ProjectGitopsInfo.VcsUid, 10, 64)
+	vcsID, err := strconv.Atoi(request.ProjectGitopsInfo.VcsUid)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid vcs id: %s", request.ProjectGitopsInfo.VcsUid)
 	}
@@ -980,7 +977,11 @@ func (s *ProjectService) setupVCSSQLReviewCI(ctx context.Context, repository *st
 		return nil, err
 	}
 
-	sqlReviewEndpoint := fmt.Sprintf("%s/hook/sql-review/%s", setting.ExternalUrl, repository.WebhookEndpointID)
+	endpoint := setting.ExternalUrl
+	if setting.GitopsWebhookUrl != "" {
+		endpoint = setting.GitopsWebhookUrl
+	}
+	sqlReviewEndpoint := fmt.Sprintf("%s/hook/sql-review/%s", endpoint, repository.WebhookEndpointID)
 
 	switch vcs.Type {
 	case vcsPlugin.GitHub:
@@ -1276,7 +1277,7 @@ func (s *ProjectService) RemoveWebhook(ctx context.Context, request *v1pb.Remove
 		return nil, status.Errorf(codes.NotFound, "project %q not found", webhookID)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", projectID)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", projectID)
 	}
 
 	webhook, err := s.store.GetProjectWebhookV2(ctx, &store.FindProjectWebhookMessage{
@@ -1327,7 +1328,7 @@ func (s *ProjectService) TestWebhook(ctx context.Context, request *v1pb.TestWebh
 		return nil, status.Errorf(codes.NotFound, "project %q not found", request.Project)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", request.Project)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", request.Project)
 	}
 
 	webhook, err := s.store.GetProjectWebhookV2(ctx, &store.FindProjectWebhookMessage{
@@ -1363,8 +1364,8 @@ func (s *ProjectService) TestWebhook(ctx context.Context, request *v1pb.TestWebh
 
 // CreateDatabaseGroup creates a database group.
 func (s *ProjectService) CreateDatabaseGroup(ctx context.Context, request *v1pb.CreateDatabaseGroupRequest) (*v1pb.DatabaseGroup, error) {
-	if !s.licenseService.IsFeatureEnabled(api.FeatureDatabaseGrouping) {
-		return nil, status.Errorf(codes.PermissionDenied, api.FeatureDatabaseGrouping.AccessErrorMessage())
+	if err := s.licenseService.IsFeatureEnabled(api.FeatureDatabaseGrouping); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, err.Error())
 	}
 	projectResourceID, err := getProjectID(request.Parent)
 	if err != nil {
@@ -1380,7 +1381,7 @@ func (s *ProjectService) CreateDatabaseGroup(ctx context.Context, request *v1pb.
 		return nil, status.Errorf(codes.NotFound, "project %q not found", request.Parent)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", request.Parent)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", request.Parent)
 	}
 
 	if !isValidResourceID(request.DatabaseGroupId) {
@@ -1419,8 +1420,8 @@ func (s *ProjectService) CreateDatabaseGroup(ctx context.Context, request *v1pb.
 
 // UpdateDatabaseGroup updates a database group.
 func (s *ProjectService) UpdateDatabaseGroup(ctx context.Context, request *v1pb.UpdateDatabaseGroupRequest) (*v1pb.DatabaseGroup, error) {
-	if !s.licenseService.IsFeatureEnabled(api.FeatureDatabaseGrouping) {
-		return nil, status.Errorf(codes.PermissionDenied, api.FeatureDatabaseGrouping.AccessErrorMessage())
+	if err := s.licenseService.IsFeatureEnabled(api.FeatureDatabaseGrouping); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, err.Error())
 	}
 	projectResourceID, databaseGroupResourceID, err := getProjectIDDatabaseGroupID(request.DatabaseGroup.Name)
 	if err != nil {
@@ -1436,7 +1437,7 @@ func (s *ProjectService) UpdateDatabaseGroup(ctx context.Context, request *v1pb.
 		return nil, status.Errorf(codes.NotFound, "project %q not found", projectResourceID)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", projectResourceID)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", projectResourceID)
 	}
 	existedDatabaseGroup, err := s.store.GetDatabaseGroup(ctx, &store.FindDatabaseGroupMessage{
 		ProjectUID: &project.UID,
@@ -1496,7 +1497,7 @@ func (s *ProjectService) DeleteDatabaseGroup(ctx context.Context, request *v1pb.
 		return nil, status.Errorf(codes.NotFound, "project %q not found", projectResourceID)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", projectResourceID)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", projectResourceID)
 	}
 	existedDatabaseGroup, err := s.store.GetDatabaseGroup(ctx, &store.FindDatabaseGroupMessage{
 		ProjectUID: &project.UID,
@@ -1558,9 +1559,6 @@ func (s *ProjectService) ListDatabaseGroups(ctx context.Context, request *v1pb.L
 	if project == nil {
 		return nil, status.Errorf(codes.NotFound, "project %q not found", projectResourceID)
 	}
-	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", projectResourceID)
-	}
 	databaseGroups, err := s.store.ListDatabaseGroups(ctx, &store.FindDatabaseGroupMessage{
 		ProjectUID: &project.UID,
 	})
@@ -1591,9 +1589,6 @@ func (s *ProjectService) GetDatabaseGroup(ctx context.Context, request *v1pb.Get
 	if project == nil {
 		return nil, status.Errorf(codes.NotFound, "project %q not found", projectResourceID)
 	}
-	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", projectResourceID)
-	}
 	databaseGroup, err := s.store.GetDatabaseGroup(ctx, &store.FindDatabaseGroupMessage{
 		ProjectUID: &project.UID,
 		ResourceID: &databaseGroupResourceID,
@@ -1612,8 +1607,8 @@ func (s *ProjectService) GetDatabaseGroup(ctx context.Context, request *v1pb.Get
 
 // CreateSchemaGroup creates a database group.
 func (s *ProjectService) CreateSchemaGroup(ctx context.Context, request *v1pb.CreateSchemaGroupRequest) (*v1pb.SchemaGroup, error) {
-	if !s.licenseService.IsFeatureEnabled(api.FeatureDatabaseGrouping) {
-		return nil, status.Errorf(codes.PermissionDenied, api.FeatureDatabaseGrouping.AccessErrorMessage())
+	if err := s.licenseService.IsFeatureEnabled(api.FeatureDatabaseGrouping); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, err.Error())
 	}
 	projectResourceID, databaseGroupResourceID, err := getProjectIDDatabaseGroupID(request.Parent)
 	if err != nil {
@@ -1629,7 +1624,7 @@ func (s *ProjectService) CreateSchemaGroup(ctx context.Context, request *v1pb.Cr
 		return nil, status.Errorf(codes.NotFound, "project %q not found", request.Parent)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", request.Parent)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", request.Parent)
 	}
 	databaseGroup, err := s.store.GetDatabaseGroup(ctx, &store.FindDatabaseGroupMessage{
 		ResourceID: &databaseGroupResourceID,
@@ -1677,8 +1672,8 @@ func (s *ProjectService) CreateSchemaGroup(ctx context.Context, request *v1pb.Cr
 
 // UpdateSchemaGroup updates a schema group.
 func (s *ProjectService) UpdateSchemaGroup(ctx context.Context, request *v1pb.UpdateSchemaGroupRequest) (*v1pb.SchemaGroup, error) {
-	if !s.licenseService.IsFeatureEnabled(api.FeatureDatabaseGrouping) {
-		return nil, status.Errorf(codes.PermissionDenied, api.FeatureDatabaseGrouping.AccessErrorMessage())
+	if err := s.licenseService.IsFeatureEnabled(api.FeatureDatabaseGrouping); err != nil {
+		return nil, status.Errorf(codes.PermissionDenied, err.Error())
 	}
 	projectResourceID, databaseGroupResourceID, schemaGroupResourceID, err := getProjectIDDatabaseGroupIDSchemaGroupID(request.SchemaGroup.Name)
 	if err != nil {
@@ -1694,7 +1689,7 @@ func (s *ProjectService) UpdateSchemaGroup(ctx context.Context, request *v1pb.Up
 		return nil, status.Errorf(codes.NotFound, "project %q not found", projectResourceID)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", projectResourceID)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", projectResourceID)
 	}
 	databaseGroup, err := s.store.GetDatabaseGroup(ctx, &store.FindDatabaseGroupMessage{
 		ProjectUID: &project.UID,
@@ -1764,7 +1759,7 @@ func (s *ProjectService) DeleteSchemaGroup(ctx context.Context, request *v1pb.De
 		return nil, status.Errorf(codes.NotFound, "project %q not found", projectResourceID)
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", projectResourceID)
+		return nil, status.Errorf(codes.NotFound, "project %q has been deleted", projectResourceID)
 	}
 	databaseGroup, err := s.store.GetDatabaseGroup(ctx, &store.FindDatabaseGroupMessage{
 		ProjectUID: &project.UID,
@@ -1809,9 +1804,6 @@ func (s *ProjectService) ListSchemaGroups(ctx context.Context, request *v1pb.Lis
 	if project == nil {
 		return nil, status.Errorf(codes.NotFound, "project %q not found", projectResourceID)
 	}
-	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", projectResourceID)
-	}
 	databaseGroup, err := s.store.GetDatabaseGroup(ctx, &store.FindDatabaseGroupMessage{
 		ProjectUID: &project.UID,
 		ResourceID: &databaseResourceID,
@@ -1853,9 +1845,6 @@ func (s *ProjectService) GetSchemaGroup(ctx context.Context, request *v1pb.GetSc
 	if project == nil {
 		return nil, status.Errorf(codes.NotFound, "project %q not found", projectResourceID)
 	}
-	if project.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "project %q has been deleted", projectResourceID)
-	}
 	databaseGroup, err := s.store.GetDatabaseGroup(ctx, &store.FindDatabaseGroupMessage{
 		ProjectUID: &project.UID,
 		ResourceID: &databaseGroupResourceID,
@@ -1890,11 +1879,13 @@ func getMatchedAndUnmatchedDatabasesInDatabaseGroup(ctx context.Context, databas
 	var matches []*store.DatabaseMessage
 	var unmatches []*store.DatabaseMessage
 
+	// DONOT check bb.feature.database-grouping for instance. The API here is read-only in the frontend, we need to show if the instance is matched but missing required license.
+	// The feature guard will works during issue creation.
 	for _, database := range allDatabases {
 		res, _, err := prog.ContextEval(ctx, map[string]any{
 			"resource": map[string]any{
 				"database_name":    database.DatabaseName,
-				"environment_name": fmt.Sprintf("%s%s", environmentNamePrefix, database.EnvironmentID),
+				"environment_name": fmt.Sprintf("%s%s", environmentNamePrefix, database.EffectiveEnvironmentID),
 				"instance_id":      database.InstanceID,
 			},
 		})
@@ -1922,6 +1913,7 @@ func (s *ProjectService) convertStoreToAPIDatabaseGroupFull(ctx context.Context,
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
+
 	matches, unmatches, err := getMatchedAndUnmatchedDatabasesInDatabaseGroup(ctx, databaseGroup, databases)
 	if err != nil {
 		return nil, err
@@ -2279,17 +2271,6 @@ func (s *ProjectService) getProjectMessage(ctx context.Context, name string) (*s
 	return project, nil
 }
 
-var iamPolicyCELAttributes = []cel.EnvOption{
-	cel.Variable("request.time", cel.TimestampType),
-	cel.Variable("request.statement", cel.StringType),
-	cel.Variable("request.row_limit", cel.IntType),
-	cel.Variable("request.export_format", cel.StringType),
-	cel.Variable("resource.environment", cel.StringType),
-	cel.Variable("resource.database", cel.StringType),
-	cel.Variable("resource.schema", cel.StringType),
-	cel.Variable("resource.table", cel.StringType),
-}
-
 func convertToIamPolicy(iamPolicy *store.IAMPolicyMessage) (*v1pb.IamPolicy, error) {
 	var bindings []*v1pb.Binding
 
@@ -2304,7 +2285,7 @@ func convertToIamPolicy(iamPolicy *store.IAMPolicyMessage) (*v1pb.IamPolicy, err
 			Condition: binding.Condition,
 		}
 		if binding.Condition.Expression != "" {
-			e, err := cel.NewEnv(iamPolicyCELAttributes...)
+			e, err := cel.NewEnv(common.QueryExportPolicyCELAttributes...)
 			if err != nil {
 				return nil, errors.Wrap(err, "failed to create cel environment")
 			}
@@ -2426,10 +2407,8 @@ func convertToProject(projectMessage *store.ProjectMessage) *v1pb.Project {
 		Visibility:     visibility,
 		TenantMode:     tenantMode,
 		DbNameTemplate: projectMessage.DBNameTemplate,
-		// TODO(d): schema_version_type for project.
-		SchemaVersion: v1pb.SchemaVersion_SCHEMA_VERSION_UNSPECIFIED,
-		SchemaChange:  schemaChange,
-		Webhooks:      projectWebhooks,
+		SchemaChange:   schemaChange,
+		Webhooks:       projectWebhooks,
 	}
 }
 

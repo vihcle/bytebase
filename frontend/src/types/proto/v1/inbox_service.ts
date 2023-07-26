@@ -2,6 +2,7 @@
 import type { CallContext, CallOptions } from "nice-grpc-common";
 import * as _m0 from "protobufjs/minimal";
 import { FieldMask } from "../google/protobuf/field_mask";
+import { LogEntity } from "./logging_service";
 
 export const protobufPackage = "bytebase.v1";
 
@@ -44,9 +45,11 @@ export interface GetInboxSummaryRequest {
 
 export interface UpdateInboxRequest {
   /** The inbox message to update. */
-  inboxMessage?: InboxMessage;
+  inboxMessage?:
+    | InboxMessage
+    | undefined;
   /** The list of fields to update. */
-  updateMask?: string[];
+  updateMask?: string[] | undefined;
 }
 
 export interface InboxMessage {
@@ -54,6 +57,7 @@ export interface InboxMessage {
   name: string;
   activityUid: string;
   status: InboxMessage_Status;
+  activity?: LogEntity | undefined;
 }
 
 export enum InboxMessage_Status {
@@ -96,8 +100,8 @@ export function inboxMessage_StatusToJSON(object: InboxMessage_Status): string {
 }
 
 export interface InboxSummary {
-  hasUnread: boolean;
-  hasUnreadError: boolean;
+  unread: number;
+  unreadError: number;
 }
 
 function createBaseListInboxRequest(): ListInboxRequest {
@@ -380,7 +384,7 @@ export const UpdateInboxRequest = {
 };
 
 function createBaseInboxMessage(): InboxMessage {
-  return { name: "", activityUid: "", status: 0 };
+  return { name: "", activityUid: "", status: 0, activity: undefined };
 }
 
 export const InboxMessage = {
@@ -393,6 +397,9 @@ export const InboxMessage = {
     }
     if (message.status !== 0) {
       writer.uint32(24).int32(message.status);
+    }
+    if (message.activity !== undefined) {
+      LogEntity.encode(message.activity, writer.uint32(34).fork()).ldelim();
     }
     return writer;
   },
@@ -425,6 +432,13 @@ export const InboxMessage = {
 
           message.status = reader.int32() as any;
           continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.activity = LogEntity.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -439,6 +453,7 @@ export const InboxMessage = {
       name: isSet(object.name) ? String(object.name) : "",
       activityUid: isSet(object.activityUid) ? String(object.activityUid) : "",
       status: isSet(object.status) ? inboxMessage_StatusFromJSON(object.status) : 0,
+      activity: isSet(object.activity) ? LogEntity.fromJSON(object.activity) : undefined,
     };
   },
 
@@ -447,6 +462,8 @@ export const InboxMessage = {
     message.name !== undefined && (obj.name = message.name);
     message.activityUid !== undefined && (obj.activityUid = message.activityUid);
     message.status !== undefined && (obj.status = inboxMessage_StatusToJSON(message.status));
+    message.activity !== undefined &&
+      (obj.activity = message.activity ? LogEntity.toJSON(message.activity) : undefined);
     return obj;
   },
 
@@ -459,21 +476,24 @@ export const InboxMessage = {
     message.name = object.name ?? "";
     message.activityUid = object.activityUid ?? "";
     message.status = object.status ?? 0;
+    message.activity = (object.activity !== undefined && object.activity !== null)
+      ? LogEntity.fromPartial(object.activity)
+      : undefined;
     return message;
   },
 };
 
 function createBaseInboxSummary(): InboxSummary {
-  return { hasUnread: false, hasUnreadError: false };
+  return { unread: 0, unreadError: 0 };
 }
 
 export const InboxSummary = {
   encode(message: InboxSummary, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.hasUnread === true) {
-      writer.uint32(8).bool(message.hasUnread);
+    if (message.unread !== 0) {
+      writer.uint32(8).int32(message.unread);
     }
-    if (message.hasUnreadError === true) {
-      writer.uint32(16).bool(message.hasUnreadError);
+    if (message.unreadError !== 0) {
+      writer.uint32(16).int32(message.unreadError);
     }
     return writer;
   },
@@ -490,14 +510,14 @@ export const InboxSummary = {
             break;
           }
 
-          message.hasUnread = reader.bool();
+          message.unread = reader.int32();
           continue;
         case 2:
           if (tag !== 16) {
             break;
           }
 
-          message.hasUnreadError = reader.bool();
+          message.unreadError = reader.int32();
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -510,15 +530,15 @@ export const InboxSummary = {
 
   fromJSON(object: any): InboxSummary {
     return {
-      hasUnread: isSet(object.hasUnread) ? Boolean(object.hasUnread) : false,
-      hasUnreadError: isSet(object.hasUnreadError) ? Boolean(object.hasUnreadError) : false,
+      unread: isSet(object.unread) ? Number(object.unread) : 0,
+      unreadError: isSet(object.unreadError) ? Number(object.unreadError) : 0,
     };
   },
 
   toJSON(message: InboxSummary): unknown {
     const obj: any = {};
-    message.hasUnread !== undefined && (obj.hasUnread = message.hasUnread);
-    message.hasUnreadError !== undefined && (obj.hasUnreadError = message.hasUnreadError);
+    message.unread !== undefined && (obj.unread = Math.round(message.unread));
+    message.unreadError !== undefined && (obj.unreadError = Math.round(message.unreadError));
     return obj;
   },
 
@@ -528,8 +548,8 @@ export const InboxSummary = {
 
   fromPartial(object: DeepPartial<InboxSummary>): InboxSummary {
     const message = createBaseInboxSummary();
-    message.hasUnread = object.hasUnread ?? false;
-    message.hasUnreadError = object.hasUnreadError ?? false;
+    message.unread = object.unread ?? 0;
+    message.unreadError = object.unreadError ?? 0;
     return message;
   },
 };

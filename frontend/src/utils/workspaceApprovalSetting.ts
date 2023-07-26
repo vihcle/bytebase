@@ -27,7 +27,7 @@ import {
   approvalNode_GroupValueToJSON,
   ApprovalNode_Type,
   ApprovalStep_Type,
-} from "@/types/proto/v1/review_service";
+} from "@/types/proto/v1/issue_service";
 import { useSettingV1Store, useUserStore } from "@/store";
 import {
   buildCELExpr,
@@ -162,7 +162,12 @@ const resolveApprovalConfigRules = (rules: LocalApprovalRule[]) => {
     if (!args || args.length === 0) return fail(expr, rule);
 
     for (let i = 0; i < args.length; i++) {
-      resolveLogicAndExpr(args[i], rule);
+      if (args[i].operator === "_&&_") {
+        resolveLogicAndExpr(args[i], rule);
+      }
+      if (args[i].operator === "_||_") {
+        resolveLogicOrExpr(args[i], rule);
+      }
     }
   };
 

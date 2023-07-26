@@ -14,7 +14,7 @@
     @update-policy="updatePolicy"
   />
   <FeatureModal
-    v-if="state.missingRequiredFeature != undefined"
+    :open="state.missingRequiredFeature != undefined"
     :feature="state.missingRequiredFeature"
     @cancel="state.missingRequiredFeature = undefined"
   />
@@ -176,32 +176,6 @@ const doUpdate = (environmentPatch: Environment) => {
     .updateEnvironment(pendingUpdate)
     .then((environment) => {
       assignEnvironment(environment);
-
-      const disallowed = environment.tier === EnvironmentTier.PROTECTED;
-      if (disallowed) {
-        return policyV1Store.upsertPolicy({
-          parentPath: environment.name,
-          updateMask: ["payload", "inherit_from_parent"],
-          policy: {
-            type: PolicyTypeV1.ACCESS_CONTROL,
-            inheritFromParent: true,
-            accessControlPolicy: {
-              disallowRules: [{ fullDatabase: true }],
-            },
-          },
-        });
-      } else {
-        policyV1Store
-          .getOrFetchPolicyByParentAndType({
-            parentPath: environment.name,
-            policyType: PolicyTypeV1.ACCESS_CONTROL,
-          })
-          .then((existingPolicy) => {
-            if (existingPolicy) {
-              policyV1Store.deletePolicy(existingPolicy.name);
-            }
-          });
-      }
     })
     .then(() => {
       pushNotification({

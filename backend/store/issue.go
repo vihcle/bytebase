@@ -56,7 +56,7 @@ func (s *Store) FindIssueStripped(ctx context.Context, find *FindIssueMessage) (
 
 // CreateIssueValidateOnly creates an issue for validation purpose
 // Do NOT write to the database.
-func (s *Store) CreateIssueValidateOnly(ctx context.Context, pipelineCreate *api.PipelineCreate, create *IssueMessage, creatorID int) (*api.Issue, error) {
+func (s *Store) CreateIssueValidateOnly(ctx context.Context, pipelineCreate *PipelineMessage, create *IssueMessage, creatorID int) (*api.Issue, error) {
 	pipeline, err := s.createPipelineValidateOnly(ctx, pipelineCreate)
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func (s *Store) CreateIssueValidateOnly(ctx context.Context, pipelineCreate *api
 
 // createPipelineValidateOnly creates a pipeline for validation purpose
 // Do NOT write to the database.
-func (s *Store) createPipelineValidateOnly(ctx context.Context, create *api.PipelineCreate) (*api.Pipeline, error) {
+func (s *Store) createPipelineValidateOnly(ctx context.Context, create *PipelineMessage) (*api.Pipeline, error) {
 	creator, err := s.GetPrincipalByID(ctx, api.SystemBotID)
 	if err != nil {
 		return nil, err
@@ -118,7 +118,7 @@ func (s *Store) createPipelineValidateOnly(ctx context.Context, create *api.Pipe
 		ID:   id,
 		Name: create.Name,
 	}
-	for _, sc := range create.StageList {
+	for _, sc := range create.Stages {
 		id++
 		env, err := s.GetEnvironmentByID(ctx, sc.EnvironmentID)
 		if err != nil {
@@ -366,7 +366,7 @@ func (s *Store) composePipeline(ctx context.Context, pipeline *PipelineMessage) 
 		composedTask.Updater = updater
 
 		for _, taskRun := range taskRuns {
-			if taskRun.TaskID == task.ID {
+			if taskRun.TaskUID == task.ID {
 				composedTaskRun := taskRun.toTaskRun()
 				creator, err := s.GetPrincipalByID(ctx, composedTaskRun.CreatorID)
 				if err != nil {
@@ -453,8 +453,7 @@ func (s *Store) composePipeline(ctx context.Context, pipeline *PipelineMessage) 
 }
 
 func (s *Store) composeSimplePipeline(ctx context.Context, pipeline *PipelineMessage) (*api.Pipeline, error) {
-	// Strip the task payload statement to reduce the response size.
-	tasks, err := s.ListTasks(ctx, &api.TaskFind{PipelineID: &pipeline.ID, StripPayload: true})
+	tasks, err := s.ListTasks(ctx, &api.TaskFind{PipelineID: &pipeline.ID})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to find tasks for pipeline %d", pipeline.ID)
 	}
@@ -504,6 +503,7 @@ type IssueMessage struct {
 	Payload       string
 	Subscribers   []*UserMessage
 	PipelineUID   *int
+	PlanUID       *int
 
 	// The following fields are output only and not used for create().
 	UID         int
@@ -603,6 +603,7 @@ func (s *Store) CreateIssueV2(ctx context.Context, create *IssueMessage, creator
 			updater_id,
 			project_id,
 			pipeline_id,
+			plan_id,
 			name,
 			status,
 			type,
@@ -611,7 +612,7 @@ func (s *Store) CreateIssueV2(ctx context.Context, create *IssueMessage, creator
 			assignee_need_attention,
 			payload
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_ts, updated_ts
 	`
 
@@ -626,6 +627,7 @@ func (s *Store) CreateIssueV2(ctx context.Context, create *IssueMessage, creator
 		creatorID,
 		create.Project.UID,
 		create.PipelineUID,
+		create.PlanUID,
 		create.Title,
 		create.Status,
 		create.Type,
@@ -852,6 +854,7 @@ func (s *Store) ListIssueV2(ctx context.Context, find *FindIssueMessage) ([]*Iss
 			issue.updated_ts,
 			issue.project_id,
 			issue.pipeline_id,
+			issue.plan_id,
 			issue.name,
 			issue.status,
 			issue.type,
@@ -886,6 +889,7 @@ func (s *Store) ListIssueV2(ctx context.Context, find *FindIssueMessage) ([]*Iss
 			&issue.updatedTs,
 			&issue.projectUID,
 			&pipelineUID,
+			&issue.PlanUID,
 			&issue.Title,
 			&issue.Status,
 			&issue.Type,

@@ -54,6 +54,8 @@
     "bookmarks": "Bookmarks",
     "quick-action": "Quick Action",
     "archive": "Archive",
+    "archived": "Archived",
+    "no-license": "No license",
     "logout": "Logout",
     "close": "Close",
     "latest": "Latest",
@@ -90,6 +92,7 @@
     "id": "ID",
     "name": "Name",
     "creator": "Creator",
+    "updater": "Updater",
     "version": "Version",
     "issue": "Issue",
     "issues": "Issues",
@@ -254,7 +257,11 @@
     "expiration": "Expiration",
     "configure": "Configure",
     "database-groups": "Database Groups",
-    "members": "Members"
+    "members": "Members",
+    "warehouse": "Warehouse",
+    "schedule": "Schedule",
+    "state": "State",
+    "condition": "Condition"
   },
   "error-page": {
     "go-back-home": "Go back home"
@@ -356,6 +363,7 @@
     "update-license": "Update license",
     "license-expires": "Your license for {plan} has expired on {expireAt}.",
     "trial-expires": "Your free trial for {plan} will expire in {days} days on {expireAt}.",
+    "trial-expired": "Your free trial for {plan} has expired.",
     "extend-trial": "Extend trialing time",
     "deploy": "Self Host",
     "cloud": "Sign Up for Cloud",
@@ -544,6 +552,7 @@
             "openai-key": {
               "self": "OpenAI API Key",
               "description": "Supply OpenAI API Key to enable ChatSQL capability in SQL Editor. {viewDoc}",
+              "find-my-key": "Find my key",
               "placeholder": "An OpenAI API Key usually starts with sk-*****"
             },
             "openai-endpoint": {
@@ -559,12 +568,12 @@
       "remove-sensitive-column-tips": "Expose this column?"
     },
     "access-control": {
-      "description": "Allow developers to execute queries for the following databases in the production environments from SQL Editor. {link}",
-      "add-rule": "Add rule",
-      "remove-policy-tips": "Remove this rule?",
-      "inactive-rules": "Inactive rules",
-      "inactive-rules-description": "These rules are inactive because environment is not production.",
-      "no-database-in-production-environment": "Make sure there are databases in the {production_environment}."
+      "description": "Configure approval flow to control data query and export. {link}",
+      "skip-approval": "Skip approval",
+      "query-data": "Query Data",
+      "export-data": "Export Data",
+      "disallowed": "Disallowed",
+      "copy-data-from-sql-editor": "Copy Data From SQL Editor"
     },
     "release": {
       "new-version-available": "New version is available",
@@ -690,6 +699,18 @@
     "add-a-comment": "Add a comment",
     "edit-comment": "Edit comment",
     "leave-a-comment": "Leave a comment...",
+    "comment-editor": {
+      "write": "Write",
+      "preview": "Preview",
+      "nothing-to-preview": "Nothing to preview",
+      "toolbar": {
+        "header": "Insert heading text",
+        "bold": "Insert bold text",
+        "code": "Insert SQL code snippet",
+        "link": "Insert a link",
+        "hashtag": "Insert issue's link by id. Type the issue id after the hashtag \"#\""
+      }
+    },
     "view-commit": "View commit",
     "search-issue-name": "Search issue name",
     "table": {
@@ -728,8 +749,8 @@
     "edit-sql-statement": "Edit SQL statement",
     "upload-sql": "Upload SQL",
     "upload-sql-as-sheet": "Upload SQL as Sheet",
-    "statement-from-sheet-warning": "The current SQL statement comes from a sheet. It is read-only and only part of it is displayed.",
-    "override-current-statement": "Override current SQL statement",
+    "statement-from-sheet-warning": "SQL is oversized and inline-editing is disallowed. You can upload a new SQL file to overwrite it.",
+    "overwrite-current-statement": "Overwrite current SQL statement",
     "upload-sql-file-max-size-exceeded": "Max file size ({size}) exceeded.",
     "waiting-earliest-allowed-time": "Will run after {time}",
     "batch-transition": {
@@ -807,12 +828,11 @@
     "troubleshoot": "Troubleshoot",
     "transfer-in-db": "Transfer in DB",
     "request-db": "Request DB",
-    "from-unassigned-databases": "From unassigned databases",
-    "from-projects": "From projects",
+    "from-unassigned-databases": "Transfer unassigned databases",
+    "from-projects": "Transfer from other projects",
     "transfer-in-db-title": "Transfer in database",
-    "default-db-hint": "Bytebase periodically syncs the instance schema. Newly synced databases are first placed in the default project.",
     "transfer-in-db-alert": "Are you sure to transfer \"{ dbName }\" into our project?",
-    "unassigned-db-hint": "Bytebase periodically syncs the instance schema. Newly synced databases are first placed in unassigned databases.",
+    "unassigned-db-hint": "Bytebase periodically syncs the instance schema. Newly synced databases are unassigned at first, and they need to be transferred to a project before they can be used.",
     "transfer-out-db": "Transfer out DB",
     "transfer-out-db-title": "Transfer out database",
     "request-query": "Request Query",
@@ -840,6 +860,8 @@
     "views": "Views",
     "extensions": "Extensions",
     "functions": "Functions",
+    "streams": "Streams",
+    "tasks": "Tasks",
     "parent": "Parent",
     "last-successful-sync": "Last successful sync",
     "sync-status": "Sync status",
@@ -952,7 +974,19 @@
     "find-gcp-project-id-and-instance-id": "To find GCP Project ID and instance ID, see",
     "create-gcp-credentials": "To create Credentials, see",
     "used-for-testing-connection": "Used for testing connections only",
-    "all": "All instances"
+    "all": "All instances",
+    "force-archive-description": "Force to archive. All releated issues will be resolved, and all related sheets will be deleted.",
+    "sync-mode": {
+      "self": "Sync Mode",
+      "database": {
+        "self": "Manage based on database",
+        "description": "The entire database is treated as a managed object, with CDB and PDB being regarded as distinct databases. (Supports CDB and non-CDB mode)"
+      },
+      "schema": {
+        "self": "Manage based on schema",
+        "description": "Each schema is treated as a managed object. (Only supports non-CDB mode)"
+      }
+    }
   },
   "environment": {
     "id": "Environment ID",
@@ -1051,7 +1085,7 @@
     },
     "environment-tier": {
       "name": "Environment tier",
-      "description": "The environment will appear differently from other environments.{newline}Developers cannot execute any query on this environment's databases \nusing SQL Editor by default. ",
+      "description": "The environment will appear differently from other environments.",
       "mark-env-as-production": "Mark as production environment"
     }
   },
@@ -1082,7 +1116,9 @@
     "establish-database-baseline": "Establish \"{name}\" baseline",
     "instance-missing-change-schema": "Missing change history schema on instance \"{name}\".",
     "instance-bad-connection": "Unable to connect instance \"{name}\" to retrieve change history.",
-    "contact-dba": "Please contact your DBA to config it"
+    "contact-dba": "Please contact your DBA to config it",
+    "export": "Export Change History",
+    "need-to-select-first": "Need to select change history first"
   },
   "database": {
     "select": "Select database",
@@ -1098,6 +1134,7 @@
     "alter-schema-in-vcs": "Alter Schema in VCS",
     "change-data": "Change Data",
     "change-data-in-vcs": "Change Data in VCS",
+    "design-schema": "Design Schema",
     "successfully-transferred-updateddatabase-name-to-project-updateddatabase-project-name": "Successfully transferred '{0}' to project '{1}'.",
     "backup-name": "Backup name",
     "create-backup": "Create backup",
@@ -1240,6 +1277,7 @@
     "doesnt-match-tenant-value": "Doesn't match label value",
     "should-follow-database-name-template": "Should follow tenant database name template",
     "all": "All databases",
+    "unassigned": "Unassigned",
     "show-schemaless-databases": "Show schemaless databases. (Alter Schema is not applicable for schemaless databases.)",
     "secret": {
       "self": "Secret",
@@ -1266,8 +1304,10 @@
       "errors": {
         "select-target-project": "Select target project",
         "select-at-least-one-database": "Select at least one database"
-      }
-    }
+      },
+      "select-target-project": "Select target project"
+    },
+    "transfer-database-from-to": "Transfer database from source project to target project"
   },
   "repository": {
     "branch-observe-file-change": "The branch where Bytebase observes the file change.",
@@ -1455,7 +1495,10 @@
       "archive": {
         "title": "Archive project",
         "description": "Archived project will not be shown on the normal interface. You can click \"Archive\" on the bottom left to find and restore it.",
-        "btn-text": "Archive this @.lower:{'common.project'}"
+        "btn-text": "Archive this @.lower:{'common.project'}",
+        "force": {
+          "description": "Force to archive. All releated issues will be resolved, and all related sheets will be deleted."
+        }
       },
       "restore": {
         "title": "Restore project",
@@ -1484,7 +1527,7 @@
     },
     "mode": {
       "standard": "Standard Mode",
-      "tenant": "Tenant Mode"
+      "batch": "Batch Mode"
     },
     "db-name-template": "Tenant Database Name Template",
     "select": "Select project",
@@ -1513,17 +1556,20 @@
         "gitlab-com-admin-requirement": "Your account needs to have Admin access to any of the repositories to be linked. Usually this account corresponds to a dedicated service user instead of a human user.",
         "github-com-admin-requirement": "You need to be an admin of your chosen GitHub organization to configure this. Otherwise, you need to ask your GitHub organization admin to register Bytebase as a GitHub organization-wide OAuth application, then provide you that Application ID and Secret to fill at the 'OAuth application info' step.",
         "bitbucket-admin-requirement": "You need to be an admin of your chosen Bitbucket workspace to configure this. Otherwise, you need to ask your Bitbucket workspace admin to register Bytebase as a Bitbucket workspace-wide OAuth application, then provide you that Application ID and Secret to fill at the 'OAuth application info' step.",
+        "azure-admin-requirement": "You need to be an admin of your chosen Azure DevOps organization to configure this. Otherwise, you need to ask your Bitbucket workspace admin to register Bytebase as a Azure DevOps organization-wide OAuth application, then provide you that Application ID and Client Secret to fill at the 'OAuth application info' step.",
         "oauth-info-correct": "Verified OAuth info is correct",
         "check-oauth-info-match": "Please make sure Secret matches the one from your GitLab instance Application.",
         "add-success": "Successfully added Git provider {vcs}",
         "choose": "Choose Git provider",
         "gitlab-self-host-ce-ee": "Self-host GitLab Enterprise Edition (EE) or Community Edition (CE)",
+        "github-self-host-ee": "Self-host GitHub Enterprise Edition (EE)",
         "basic-info": {
           "self": "Basic info",
           "gitlab-instance-url": "GitLab instance URL",
           "gitlab-instance-url-label": "The VCS instance URL. Make sure this instance and Bytebase are network reachable from each other.",
           "github-instance-url": "GitHub instance URL",
           "bitbucket-instance-url": "Bitbucket instance URL",
+          "azure-instance-url": "Azure DevOps instance URL",
           "instance-url-error": "Instance URL must begin with https:// or http://",
           "display-name": "Display name",
           "display-name-label": "An optional display name to help identifying among different configs using the same Git provider."
@@ -1535,13 +1581,18 @@
           "gitlab-self-host-visit-admin-page": "Go to the Admin page by clicking the wrench icon, then navigate to \"Applications\" section and click \"New application\" button.",
           "gitlab-com-register-oauth-application": "Register Bytebase as a GitLab user OAuth application.",
           "gitlab-com-login": "Log in as whichever account you want Bytebase to act as. Usually this account corresponds to a dedicated service user instead of a human user.",
+          "azure-devops-login": "Log in as whichever account you want Bytebase to act as. Usually this account corresponds to a dedicated service user instead of a human user.",
           "gitlab-com-visit-application-page": "Go to Preferences -> Applications page. You can reach it through your profile picture on the top right corner.",
+          "azure-devops-visit-application-page": "Go to the applications page.",
           "gitlab-paste-oauth-info": "Paste the Application ID and Secret from that just created application into fields below.",
+          "azure-paste-oauth-info": "Paste the Application ID and Client Secret from that just created application into fields below.",
           "github-register-oauth-application": "Register Bytebase as a GitHub organization-wide OAuth application.",
           "github-login-as-admin": "Log in as an organization admin user to the GitHub.com. The account must be an organization admin of the GitHub organization (able to access the organization Settings page).",
           "github-visit-admin-page": "Go to the Settings page, then navigate to \"Developer settings > OAuth Apps\" section and click \"Register an application\" button.",
           "github-paste-oauth-info": "Paste the Client ID and Client secret from that just created application into fields below.",
+          "github-enterprise-login-as-admin": "Log in as an organization admin user to your hosted GitHub Enterprise site. The account must be an organization admin of the GitHub organization (able to access the organization Settings page).",
           "bitbucket-register-oauth-application": "Register Bytebase as a Bitbucket workspace-wide OAuth consumer.",
+          "azure-register-oauth-application": "Register Bytebase as a Azure DevOps organization-wide OAuth consumer.",
           "bitbucket-login-as-admin": "Log in as an workspace admin user to the Bitbucket.org. The account must be an workspace admin of the Bitbucket workspace (able to access the workspace Settings page).",
           "bitbucket-visit-admin-page": "Go to the Settings page, then navigate to \"APPS AND FEATURES > OAuth consumers\" section and click \"Add a consumer\" button.",
           "bitbucket-paste-oauth-info": "Paste the Key and Secret from that just created consumer into fields below.",
@@ -1686,8 +1737,7 @@
     "loading-data": "Loading Data...",
     "table-empty-placeholder": "Click Run to execute the query.",
     "no-rows-found": "No rows found",
-    "download-as-csv": "Download as CSV",
-    "download-as-json": "Download as JSON",
+    "download-as-file": "Download as {file}",
     "only-select-allowed": "Only {select} statements are allowed to execute.",
     "want-to-action": "If you want to {want}, click the {action} button and submit an issue.",
     "table-schema-placeholder": "Select a table to see its schema",
@@ -1748,7 +1798,10 @@
     },
     "allow-admin-mode-only": "Instance {instance} is accessible in admin mode only.",
     "run-selected": "Run selected",
-    "clear-screen": "Clear screen"
+    "clear-screen": "Clear screen",
+    "query-time": "Query time",
+    "request-query": "Request Query",
+    "connection-lost": "Connection lost. Will try to reconnect when executing next query."
   },
   "schema-editor": {
     "self": "Schema Editor",
@@ -1767,6 +1820,7 @@
       "drop-table": "Drop table",
       "restore": "Restore",
       "add-column": "Add column",
+      "add-from-template": "Add from template",
       "drop-column": "Drop column",
       "sql-preview": "SQL Preview",
       "reset": "Reset",
@@ -1797,7 +1851,8 @@
       "default": "Default",
       "comment": "Comment",
       "not-null": "Not Null",
-      "primary": "Primary"
+      "primary": "Primary",
+      "foreign-key": "Foreign Key"
     },
     "nothing-changed": "Nothing changed",
     "message": {
@@ -1865,7 +1920,7 @@
       "subscription-page": "subscription page",
       "subscription": "Go to the {page} to learn these features and our plans."
     },
-    "description": "You can upload your Bytebase license to unlock team/enterprise features.",
+    "description": "You can upload your Bytebase license to unlock pro/enterprise features.",
     "upload-license": "Upload license",
     "upgrade-trial-button": "Upgrade trial",
     "start-n-days-trial": "Start {days} days trial (no credit card required)",
@@ -1877,7 +1932,20 @@
     "trial-for-plan": "You can start a free trial for {plan} with {days} days - no credit card required",
     "trial-for-days": "You can start a free trial for {days} days - no credit card required",
     "upgrade-trial": "You can upgrade your free trial to this plan",
+    "contact-to-upgrade": "Contact your Workspace Owner or DBA to upgrade the plan",
     "upgrade-now": "Upgrade Now",
+    "instance-assignment": {
+      "license": "License",
+      "assign-license": "Assign License",
+      "require-license": "Require instance license",
+      "missing-license-attention": "You need to assign license to the instance to enable this feature.",
+      "n-license-remain": "remain {n}",
+      "manage-license": "Manage Instance License",
+      "used-and-total-license": "Assigned / Total Instance License",
+      "success-notification": "Successfully update license assignment",
+      "missing-license-for-instances": "You have {count} instances ({name}) missing required license to unlock this feature.",
+      "missing-license-for-feature": "Missing instance license to enable {feature}. Click to assign now."
+    },
     "update": {
       "success": {
         "title": "Successfully updated license",
@@ -1906,9 +1974,16 @@
         "runoutof": "Your have run out of your {total} instance quota.",
         "upgrade": "@:{'subscription.upgrade'} to get more instance quota."
       },
+      "bb-feature-user-count": {
+        "title": "User count limit",
+        "desc": "You have reached the maximum user count limit. Please upgrade to get unlimited user quota.",
+        "remaining": "Your total user quota is {total}, only have {count} user remained.",
+        "runoutof": "Your have run out of your {total} user quota.",
+        "upgrade": "@:{'subscription.upgrade'} to get unlimited user quota."
+      },
       "bb-feature-multi-tenancy": {
-        "title": "Multi-tenancy",
-        "desc": "Intelligent database management for tenants using identical schemas."
+        "title": "Batch mode",
+        "desc": "Batch changing a group of databases from different tenants or partitions."
       },
       "bb-feature-approval-policy": {
         "title": "Rollout policy",
@@ -1927,8 +2002,8 @@
         "desc": "Mark table columns as sensitive data and the query result of them will be displayed as \"******\"."
       },
       "bb-feature-access-control": {
-        "title": "Access control",
-        "desc": "Change query permission for databases in the production environments."
+        "title": "Data Access control",
+        "desc": "Configure approval flow to control data query and export."
       },
       "bb-feature-lgtm": {
         "title": "LGTM check",
@@ -2033,6 +2108,10 @@
       "bb-feature-disallow-signup": {
         "title": "Disable self-service signup",
         "desc": "Once disabled, users cannot self-service signup and can only be invited by the workspace owner."
+      },
+      "bb-feature-schema-template": {
+        "title": "Schema Template",
+        "desc": "Pre-define the field template, then apply the template during the schema change."
       }
     }
   },
@@ -2054,7 +2133,7 @@
     },
     "linked-issue": "Linked issue",
     "from-issue-warning": "The sheet comes from issue {issue} in read-only mode. {oversize}",
-    "content-oversize-warning": "Only display part of the sheet due to oversize."
+    "content-oversize-warning": "SQL is oversized and inline-editing is disallowed. "
   },
   "engine": {
     "mysql": "MySQL",
@@ -2348,7 +2427,9 @@
         "namespace": {
           "dml": "DML",
           "ddl": "DDL",
-          "create_database": "Create Database"
+          "create_database": "Create Database",
+          "query": "Request Query",
+          "export": "Request Export"
         },
         "factor": {
           "affected_rows": "Affected rows",
@@ -2356,7 +2437,10 @@
           "project_id": "Project ID",
           "database_name": "Database name",
           "db_engine": "DB engine",
-          "sql_type": "SQL type"
+          "sql_type": "SQL type",
+          "expiration_days": "Expiration days",
+          "export_rows": "Export rows",
+          "table_name": "Table name"
         }
       },
       "condition": {
@@ -2481,7 +2565,8 @@
       "re-request-review": "Re-request review",
       "re-request-review-issue": "Re-request review issue?",
       "sent-back-issue": "Sent back issue",
-      "re-requested-review": "re-requested issue review"
+      "re-requested-review": "re-requested issue review",
+      "no-one-matches-role": "No one matches the role, contact project owner to assign one."
     },
     "send-back": "Send back"
   },
@@ -2520,6 +2605,27 @@
       "suggestion": "Suggestion",
       "create-index": "Create Index",
       "setup-openai-key-to-enable": "Setup OpenAI key to enable index advisor"
+    },
+    "no-log-placeholder": {
+      "admin": "Click the \"Configure\" button to fetch slow queries from the database instances or click the \"Sync Now\" button to sync slow query logs immediately",
+      "developer": "Click the \"Sync Now\" button to sync slow query logs immediately or contact Bytebase owners/DBAs to configure slow queries"
+    }
+  },
+  "schema-template": {
+    "self": "Schema template",
+    "field-template": "Field Template",
+    "add-field": "Add field template",
+    "description": "You can pre-define the field template, then apply the template during the schema change.",
+    "search-by-name-or-comment": "Search by name or comment",
+    "form": {
+      "category": "Category",
+      "category-desc": "Select an existed category or create a new one",
+      "unclassified": "Unclassified",
+      "column-name": "Column name",
+      "column-type": "Column Type",
+      "default-value": "Default value",
+      "comment": "Comment",
+      "nullable": "Nullable"
     }
   },
   "principal": {
@@ -2557,7 +2663,8 @@
     "querier": {
       "description": "System defined project querier role"
     },
-    "select-role": "Select role"
+    "select-role": "Select role",
+    "expired-tip": "The role might has been expired."
   },
   "database-group": {
     "self": "Database Group",
@@ -2586,5 +2693,22 @@
   },
   "export-center": {
     "self": "Export Center"
+  },
+  "schema-designer": {
+    "self": "Schema Designer",
+    "quick-action": "Design Schema",
+    "schema-design": "Schema Design",
+    "schema-design-list": "Schema Design List",
+    "new-schema-design": "New Schema Design",
+    "baseline-database": "Baseline database",
+    "schema-version": "Schema version",
+    "tables": "Tables",
+    "search-tables": "Search tables",
+    "use-tips": "Click a table to start.",
+    "apply-to-database": "Apply to database",
+    "message": {
+      "created-succeed": "Schema design created successfully",
+      "updated-succeed": "Schema design updated successfully"
+    }
   }
 }

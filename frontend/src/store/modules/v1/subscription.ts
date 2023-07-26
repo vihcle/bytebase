@@ -3,13 +3,21 @@ import dayjs from "dayjs";
 import { computed, Ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { subscriptionServiceClient } from "@/grpcweb";
-import { FeatureType, planTypeToString } from "@/types";
+import {
+  FeatureType,
+  planTypeToString,
+  instanceCountLimit,
+  userCountLimit,
+  instanceLimitFeature,
+} from "@/types";
 import {
   PlanType,
   Subscription,
   planTypeFromJSON,
   planTypeToJSON,
 } from "@/types/proto/v1/subscription_service";
+import { Instance } from "@/types/proto/v1/instance_service";
+import { useSettingV1Store } from "./setting";
 
 interface SubscriptionState {
   subscription: Subscription | undefined;
@@ -24,9 +32,15 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
     featureMatrix: new Map<FeatureType, boolean[]>(),
   }),
   getters: {
-    instanceCount(state): number {
+    instanceCountLimit(state): number {
+      return instanceCountLimit.get(this.currentPlan) ?? 0;
+    },
+    userCountLimit(state): number {
+      return userCountLimit.get(this.currentPlan) ?? 0;
+    },
+    instanceLicenseCount(state): number {
       const count = state.subscription?.instanceCount ?? 0;
-      if (count <= 0) {
+      if (count < 0) {
         return Number.MAX_VALUE;
       }
       return count;
@@ -92,7 +106,14 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
       const total = trialEndTime.diff(state.subscription.startedTime, "day");
       return daysBeforeExpire / total < 0.5;
     },
+    existTrialLicense(state): boolean {
+      const settingStore = useSettingV1Store();
+      return !!settingStore.getSettingByName("bb.enterprise.trial");
+    },
     canTrial(state): boolean {
+      if (this.existTrialLicense) {
+        return false;
+      }
       if (!state.subscription || this.isFreePlan) {
         return true;
       }
@@ -113,6 +134,31 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
       }
 
       return !this.isExpired && matrix[this.currentPlan - 1];
+    },
+    hasInstanceFeature(
+      type: FeatureType,
+      instance: Instance | undefined = undefined
+    ) {
+      // DONOT check instance license fo FREE plan.
+      if (this.currentPlan === PlanType.FREE) {
+        return this.hasFeature(type);
+      }
+      if (!instanceLimitFeature.has(type) || !instance) {
+        return this.hasFeature(type);
+      }
+      return this.hasFeature(type) && instance.activation;
+    },
+    instanceMissingLicense(
+      type: FeatureType,
+      instance: Instance | undefined = undefined
+    ) {
+      if (!instanceLimitFeature.has(type)) {
+        return false;
+      }
+      if (!instance) {
+        return false;
+      }
+      return hasFeature(type) && !instance.activation;
     },
     getMinimumRequiredPlan(type: FeatureType): PlanType {
       const matrix = this.featureMatrix.get(type);
@@ -176,7 +222,8 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
         trial: {
           plan: planType,
           days: this.trialingDays,
-          instanceCount: -1,
+          // Instance license count.
+          instanceCount: 10,
         },
       });
       this.setSubscription(subscription);
@@ -212,9 +259,12 @@ export const hasFeature = (type: FeatureType) => {
   return store.hasFeature(type);
 };
 
-export const featureToRef = (type: FeatureType): Ref<boolean> => {
+export const featureToRef = (
+  type: FeatureType,
+  instance: Instance | undefined = undefined
+): Ref<boolean> => {
   const store = useSubscriptionV1Store();
-  return computed(() => store.hasFeature(type));
+  return computed(() => store.hasInstanceFeature(type, instance));
 };
 
 export const useCurrentPlan = () => {

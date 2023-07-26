@@ -171,9 +171,10 @@ func (exec *PITRRestoreExecutor) doBackupRestore(ctx context.Context, stores *st
 	}
 
 	return &api.TaskRunResultPayload{
-		Detail:      fmt.Sprintf("Restored database %q from backup %q", targetDatabase.DatabaseName, backup.Name),
-		MigrationID: migrationID,
-		Version:     version,
+		Detail:        fmt.Sprintf("Restored database %q from backup %q", targetDatabase.DatabaseName, backup.Name),
+		MigrationID:   migrationID,
+		ChangeHistory: fmt.Sprintf("instances/%s/databases/%s/migrations/%s", instance.ResourceID, targetDatabase.DatabaseName, migrationID),
+		Version:       version,
 	}, nil
 }
 
@@ -554,7 +555,8 @@ func createBranchMigrationHistory(ctx context.Context, stores *store.Store, dbFa
 		return "", "", err
 	}
 	defer targetDriver.Close(ctx)
-	migrationID, _, err := utils.ExecuteMigrationDefault(ctx, stores, targetDriver, m, "", nil /* executeBeforeCommitTx */)
+
+	migrationID, _, err := utils.ExecuteMigrationDefault(ctx, stores, targetDriver, m, "", nil, db.ExecuteOptions{})
 	if err != nil {
 		return "", "", errors.Wrap(err, "failed to create migration history")
 	}

@@ -161,7 +161,7 @@ type controller struct {
 	profile                  componentConfig.Profile
 	client                   *http.Client
 	grpcConn                 *grpc.ClientConn
-	reviewServiceClient      v1pb.ReviewServiceClient
+	issueServiceClient       v1pb.IssueServiceClient
 	orgPolicyServiceClient   v1pb.OrgPolicyServiceClient
 	projectServiceClient     v1pb.ProjectServiceClient
 	authServiceClient        v1pb.AuthServiceClient
@@ -211,21 +211,21 @@ var (
 	resourceDir string
 )
 
-// getTestPort reserves two ports, one for server, one for sample pg instance.
+// getTestPort reserves 3 ports, 1 for server, 2 for sample pg instance.
 func getTestPort() int {
 	mu.Lock()
 	defer mu.Unlock()
 	p := nextPort
-	nextPort += 3
+	nextPort += 4
 	return p
 }
 
-// getTestPortForEmbeddedPg reserves three ports, one for server, one for sample pg instance, one for postgres server.
+// getTestPortForEmbeddedPg reserves 4 ports, 1 for server, 2 for sample pg instance, 1 for embedded postgres server.
 func getTestPortForEmbeddedPg() int {
 	mu.Lock()
 	defer mu.Unlock()
 	p := nextPort
-	nextPort += 4
+	nextPort += 5
 	return p
 }
 
@@ -271,6 +271,9 @@ func (ctl *controller) StartServerWithExternalPg(ctx context.Context, config *co
 		return nil, err
 	}
 	if err := ctl.initWorkspaceProfile(metaCtx); err != nil {
+		return nil, err
+	}
+	if err := ctl.setLicense(); err != nil {
 		return nil, err
 	}
 	return metaCtx, nil
@@ -432,7 +435,7 @@ func (ctl *controller) start(ctx context.Context, port int) (context.Context, er
 		return nil, errors.Wrap(err, "failed to dial grpc")
 	}
 	ctl.grpcConn = grpcConn
-	ctl.reviewServiceClient = v1pb.NewReviewServiceClient(ctl.grpcConn)
+	ctl.issueServiceClient = v1pb.NewIssueServiceClient(ctl.grpcConn)
 	ctl.orgPolicyServiceClient = v1pb.NewOrgPolicyServiceClient(ctl.grpcConn)
 	ctl.projectServiceClient = v1pb.NewProjectServiceClient(ctl.grpcConn)
 	ctl.authServiceClient = v1pb.NewAuthServiceClient(ctl.grpcConn)

@@ -6,17 +6,19 @@ import { Empty } from "../google/protobuf/empty";
 import { FieldMask } from "../google/protobuf/field_mask";
 import { Engine, engineFromJSON, engineToJSON } from "./common";
 import { DeploymentType, deploymentTypeFromJSON, deploymentTypeToJSON } from "./deployment";
+import { IamPolicy } from "./iam_policy";
 
 export const protobufPackage = "bytebase.v1";
 
 export enum PolicyType {
   POLICY_TYPE_UNSPECIFIED = 0,
-  DEPLOYMENT_APPROVAL = 1,
-  BACKUP_PLAN = 2,
-  SQL_REVIEW = 3,
-  SENSITIVE_DATA = 4,
-  ACCESS_CONTROL = 5,
-  SLOW_QUERY = 6,
+  WORKSPACE_IAM = 1,
+  DEPLOYMENT_APPROVAL = 2,
+  BACKUP_PLAN = 3,
+  SQL_REVIEW = 4,
+  SENSITIVE_DATA = 5,
+  SLOW_QUERY = 7,
+  DISABLE_COPY_DATA = 8,
   UNRECOGNIZED = -1,
 }
 
@@ -26,23 +28,26 @@ export function policyTypeFromJSON(object: any): PolicyType {
     case "POLICY_TYPE_UNSPECIFIED":
       return PolicyType.POLICY_TYPE_UNSPECIFIED;
     case 1:
+    case "WORKSPACE_IAM":
+      return PolicyType.WORKSPACE_IAM;
+    case 2:
     case "DEPLOYMENT_APPROVAL":
       return PolicyType.DEPLOYMENT_APPROVAL;
-    case 2:
+    case 3:
     case "BACKUP_PLAN":
       return PolicyType.BACKUP_PLAN;
-    case 3:
+    case 4:
     case "SQL_REVIEW":
       return PolicyType.SQL_REVIEW;
-    case 4:
+    case 5:
     case "SENSITIVE_DATA":
       return PolicyType.SENSITIVE_DATA;
-    case 5:
-    case "ACCESS_CONTROL":
-      return PolicyType.ACCESS_CONTROL;
-    case 6:
+    case 7:
     case "SLOW_QUERY":
       return PolicyType.SLOW_QUERY;
+    case 8:
+    case "DISABLE_COPY_DATA":
+      return PolicyType.DISABLE_COPY_DATA;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -54,6 +59,8 @@ export function policyTypeToJSON(object: PolicyType): string {
   switch (object) {
     case PolicyType.POLICY_TYPE_UNSPECIFIED:
       return "POLICY_TYPE_UNSPECIFIED";
+    case PolicyType.WORKSPACE_IAM:
+      return "WORKSPACE_IAM";
     case PolicyType.DEPLOYMENT_APPROVAL:
       return "DEPLOYMENT_APPROVAL";
     case PolicyType.BACKUP_PLAN:
@@ -62,10 +69,10 @@ export function policyTypeToJSON(object: PolicyType): string {
       return "SQL_REVIEW";
     case PolicyType.SENSITIVE_DATA:
       return "SENSITIVE_DATA";
-    case PolicyType.ACCESS_CONTROL:
-      return "ACCESS_CONTROL";
     case PolicyType.SLOW_QUERY:
       return "SLOW_QUERY";
+    case PolicyType.DISABLE_COPY_DATA:
+      return "DISABLE_COPY_DATA";
     case PolicyType.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -340,7 +347,7 @@ export interface CreatePolicyRequest {
    */
   parent: string;
   /** The policy to create. */
-  policy?: Policy;
+  policy?: Policy | undefined;
   type: PolicyType;
 }
 
@@ -355,9 +362,13 @@ export interface UpdatePolicyRequest {
    * Instance resource name: instances/instance-id.
    * Database resource name: instances/instance-id/databases/database-name.
    */
-  policy?: Policy;
+  policy?:
+    | Policy
+    | undefined;
   /** The list of fields to update. */
-  updateMask?: string[];
+  updateMask?:
+    | string[]
+    | undefined;
   /**
    * If set to true, and the policy is not found, a new policy will be created.
    * In this situation, `update_mask` is ignored.
@@ -437,12 +448,13 @@ export interface Policy {
   uid: string;
   inheritFromParent: boolean;
   type: PolicyType;
+  workspaceIamPolicy?: IamPolicy | undefined;
   deploymentApprovalPolicy?: DeploymentApprovalPolicy | undefined;
   backupPlanPolicy?: BackupPlanPolicy | undefined;
   sensitiveDataPolicy?: SensitiveDataPolicy | undefined;
-  accessControlPolicy?: AccessControlPolicy | undefined;
   sqlReviewPolicy?: SQLReviewPolicy | undefined;
   slowQueryPolicy?: SlowQueryPolicy | undefined;
+  disableCopyDataPolicy?: DisableCopyDataPolicy | undefined;
   enforce: boolean;
   /** The resource type for the policy. */
   resourceType: PolicyResourceType;
@@ -463,10 +475,14 @@ export interface DeploymentApprovalStrategy {
 
 export interface BackupPlanPolicy {
   schedule: BackupPlanSchedule;
-  retentionDuration?: Duration;
+  retentionDuration?: Duration | undefined;
 }
 
 export interface SlowQueryPolicy {
+  active: boolean;
+}
+
+export interface DisableCopyDataPolicy {
   active: boolean;
 }
 
@@ -479,14 +495,6 @@ export interface SensitiveData {
   table: string;
   column: string;
   maskType: SensitiveDataMaskType;
-}
-
-export interface AccessControlPolicy {
-  disallowRules: AccessControlRule[];
-}
-
-export interface AccessControlRule {
-  fullDatabase: boolean;
 }
 
 export interface SQLReviewPolicy {
@@ -978,12 +986,13 @@ function createBasePolicy(): Policy {
     uid: "",
     inheritFromParent: false,
     type: 0,
+    workspaceIamPolicy: undefined,
     deploymentApprovalPolicy: undefined,
     backupPlanPolicy: undefined,
     sensitiveDataPolicy: undefined,
-    accessControlPolicy: undefined,
     sqlReviewPolicy: undefined,
     slowQueryPolicy: undefined,
+    disableCopyDataPolicy: undefined,
     enforce: false,
     resourceType: 0,
     resourceUid: "",
@@ -1004,32 +1013,35 @@ export const Policy = {
     if (message.type !== 0) {
       writer.uint32(40).int32(message.type);
     }
+    if (message.workspaceIamPolicy !== undefined) {
+      IamPolicy.encode(message.workspaceIamPolicy, writer.uint32(50).fork()).ldelim();
+    }
     if (message.deploymentApprovalPolicy !== undefined) {
-      DeploymentApprovalPolicy.encode(message.deploymentApprovalPolicy, writer.uint32(50).fork()).ldelim();
+      DeploymentApprovalPolicy.encode(message.deploymentApprovalPolicy, writer.uint32(58).fork()).ldelim();
     }
     if (message.backupPlanPolicy !== undefined) {
-      BackupPlanPolicy.encode(message.backupPlanPolicy, writer.uint32(58).fork()).ldelim();
+      BackupPlanPolicy.encode(message.backupPlanPolicy, writer.uint32(66).fork()).ldelim();
     }
     if (message.sensitiveDataPolicy !== undefined) {
-      SensitiveDataPolicy.encode(message.sensitiveDataPolicy, writer.uint32(66).fork()).ldelim();
-    }
-    if (message.accessControlPolicy !== undefined) {
-      AccessControlPolicy.encode(message.accessControlPolicy, writer.uint32(74).fork()).ldelim();
+      SensitiveDataPolicy.encode(message.sensitiveDataPolicy, writer.uint32(74).fork()).ldelim();
     }
     if (message.sqlReviewPolicy !== undefined) {
-      SQLReviewPolicy.encode(message.sqlReviewPolicy, writer.uint32(82).fork()).ldelim();
+      SQLReviewPolicy.encode(message.sqlReviewPolicy, writer.uint32(90).fork()).ldelim();
     }
     if (message.slowQueryPolicy !== undefined) {
-      SlowQueryPolicy.encode(message.slowQueryPolicy, writer.uint32(90).fork()).ldelim();
+      SlowQueryPolicy.encode(message.slowQueryPolicy, writer.uint32(98).fork()).ldelim();
+    }
+    if (message.disableCopyDataPolicy !== undefined) {
+      DisableCopyDataPolicy.encode(message.disableCopyDataPolicy, writer.uint32(130).fork()).ldelim();
     }
     if (message.enforce === true) {
-      writer.uint32(96).bool(message.enforce);
+      writer.uint32(104).bool(message.enforce);
     }
     if (message.resourceType !== 0) {
-      writer.uint32(104).int32(message.resourceType);
+      writer.uint32(112).int32(message.resourceType);
     }
     if (message.resourceUid !== "") {
-      writer.uint32(114).string(message.resourceUid);
+      writer.uint32(122).string(message.resourceUid);
     }
     return writer;
   },
@@ -1074,59 +1086,66 @@ export const Policy = {
             break;
           }
 
-          message.deploymentApprovalPolicy = DeploymentApprovalPolicy.decode(reader, reader.uint32());
+          message.workspaceIamPolicy = IamPolicy.decode(reader, reader.uint32());
           continue;
         case 7:
           if (tag !== 58) {
             break;
           }
 
-          message.backupPlanPolicy = BackupPlanPolicy.decode(reader, reader.uint32());
+          message.deploymentApprovalPolicy = DeploymentApprovalPolicy.decode(reader, reader.uint32());
           continue;
         case 8:
           if (tag !== 66) {
             break;
           }
 
-          message.sensitiveDataPolicy = SensitiveDataPolicy.decode(reader, reader.uint32());
+          message.backupPlanPolicy = BackupPlanPolicy.decode(reader, reader.uint32());
           continue;
         case 9:
           if (tag !== 74) {
             break;
           }
 
-          message.accessControlPolicy = AccessControlPolicy.decode(reader, reader.uint32());
-          continue;
-        case 10:
-          if (tag !== 82) {
-            break;
-          }
-
-          message.sqlReviewPolicy = SQLReviewPolicy.decode(reader, reader.uint32());
+          message.sensitiveDataPolicy = SensitiveDataPolicy.decode(reader, reader.uint32());
           continue;
         case 11:
           if (tag !== 90) {
             break;
           }
 
-          message.slowQueryPolicy = SlowQueryPolicy.decode(reader, reader.uint32());
+          message.sqlReviewPolicy = SQLReviewPolicy.decode(reader, reader.uint32());
           continue;
         case 12:
-          if (tag !== 96) {
+          if (tag !== 98) {
             break;
           }
 
-          message.enforce = reader.bool();
+          message.slowQueryPolicy = SlowQueryPolicy.decode(reader, reader.uint32());
+          continue;
+        case 16:
+          if (tag !== 130) {
+            break;
+          }
+
+          message.disableCopyDataPolicy = DisableCopyDataPolicy.decode(reader, reader.uint32());
           continue;
         case 13:
           if (tag !== 104) {
             break;
           }
 
-          message.resourceType = reader.int32() as any;
+          message.enforce = reader.bool();
           continue;
         case 14:
-          if (tag !== 114) {
+          if (tag !== 112) {
+            break;
+          }
+
+          message.resourceType = reader.int32() as any;
+          continue;
+        case 15:
+          if (tag !== 122) {
             break;
           }
 
@@ -1147,6 +1166,7 @@ export const Policy = {
       uid: isSet(object.uid) ? String(object.uid) : "",
       inheritFromParent: isSet(object.inheritFromParent) ? Boolean(object.inheritFromParent) : false,
       type: isSet(object.type) ? policyTypeFromJSON(object.type) : 0,
+      workspaceIamPolicy: isSet(object.workspaceIamPolicy) ? IamPolicy.fromJSON(object.workspaceIamPolicy) : undefined,
       deploymentApprovalPolicy: isSet(object.deploymentApprovalPolicy)
         ? DeploymentApprovalPolicy.fromJSON(object.deploymentApprovalPolicy)
         : undefined,
@@ -1154,11 +1174,11 @@ export const Policy = {
       sensitiveDataPolicy: isSet(object.sensitiveDataPolicy)
         ? SensitiveDataPolicy.fromJSON(object.sensitiveDataPolicy)
         : undefined,
-      accessControlPolicy: isSet(object.accessControlPolicy)
-        ? AccessControlPolicy.fromJSON(object.accessControlPolicy)
-        : undefined,
       sqlReviewPolicy: isSet(object.sqlReviewPolicy) ? SQLReviewPolicy.fromJSON(object.sqlReviewPolicy) : undefined,
       slowQueryPolicy: isSet(object.slowQueryPolicy) ? SlowQueryPolicy.fromJSON(object.slowQueryPolicy) : undefined,
+      disableCopyDataPolicy: isSet(object.disableCopyDataPolicy)
+        ? DisableCopyDataPolicy.fromJSON(object.disableCopyDataPolicy)
+        : undefined,
       enforce: isSet(object.enforce) ? Boolean(object.enforce) : false,
       resourceType: isSet(object.resourceType) ? policyResourceTypeFromJSON(object.resourceType) : 0,
       resourceUid: isSet(object.resourceUid) ? String(object.resourceUid) : "",
@@ -1171,6 +1191,8 @@ export const Policy = {
     message.uid !== undefined && (obj.uid = message.uid);
     message.inheritFromParent !== undefined && (obj.inheritFromParent = message.inheritFromParent);
     message.type !== undefined && (obj.type = policyTypeToJSON(message.type));
+    message.workspaceIamPolicy !== undefined &&
+      (obj.workspaceIamPolicy = message.workspaceIamPolicy ? IamPolicy.toJSON(message.workspaceIamPolicy) : undefined);
     message.deploymentApprovalPolicy !== undefined && (obj.deploymentApprovalPolicy = message.deploymentApprovalPolicy
       ? DeploymentApprovalPolicy.toJSON(message.deploymentApprovalPolicy)
       : undefined);
@@ -1179,13 +1201,13 @@ export const Policy = {
     message.sensitiveDataPolicy !== undefined && (obj.sensitiveDataPolicy = message.sensitiveDataPolicy
       ? SensitiveDataPolicy.toJSON(message.sensitiveDataPolicy)
       : undefined);
-    message.accessControlPolicy !== undefined && (obj.accessControlPolicy = message.accessControlPolicy
-      ? AccessControlPolicy.toJSON(message.accessControlPolicy)
-      : undefined);
     message.sqlReviewPolicy !== undefined &&
       (obj.sqlReviewPolicy = message.sqlReviewPolicy ? SQLReviewPolicy.toJSON(message.sqlReviewPolicy) : undefined);
     message.slowQueryPolicy !== undefined &&
       (obj.slowQueryPolicy = message.slowQueryPolicy ? SlowQueryPolicy.toJSON(message.slowQueryPolicy) : undefined);
+    message.disableCopyDataPolicy !== undefined && (obj.disableCopyDataPolicy = message.disableCopyDataPolicy
+      ? DisableCopyDataPolicy.toJSON(message.disableCopyDataPolicy)
+      : undefined);
     message.enforce !== undefined && (obj.enforce = message.enforce);
     message.resourceType !== undefined && (obj.resourceType = policyResourceTypeToJSON(message.resourceType));
     message.resourceUid !== undefined && (obj.resourceUid = message.resourceUid);
@@ -1202,6 +1224,9 @@ export const Policy = {
     message.uid = object.uid ?? "";
     message.inheritFromParent = object.inheritFromParent ?? false;
     message.type = object.type ?? 0;
+    message.workspaceIamPolicy = (object.workspaceIamPolicy !== undefined && object.workspaceIamPolicy !== null)
+      ? IamPolicy.fromPartial(object.workspaceIamPolicy)
+      : undefined;
     message.deploymentApprovalPolicy =
       (object.deploymentApprovalPolicy !== undefined && object.deploymentApprovalPolicy !== null)
         ? DeploymentApprovalPolicy.fromPartial(object.deploymentApprovalPolicy)
@@ -1212,15 +1237,16 @@ export const Policy = {
     message.sensitiveDataPolicy = (object.sensitiveDataPolicy !== undefined && object.sensitiveDataPolicy !== null)
       ? SensitiveDataPolicy.fromPartial(object.sensitiveDataPolicy)
       : undefined;
-    message.accessControlPolicy = (object.accessControlPolicy !== undefined && object.accessControlPolicy !== null)
-      ? AccessControlPolicy.fromPartial(object.accessControlPolicy)
-      : undefined;
     message.sqlReviewPolicy = (object.sqlReviewPolicy !== undefined && object.sqlReviewPolicy !== null)
       ? SQLReviewPolicy.fromPartial(object.sqlReviewPolicy)
       : undefined;
     message.slowQueryPolicy = (object.slowQueryPolicy !== undefined && object.slowQueryPolicy !== null)
       ? SlowQueryPolicy.fromPartial(object.slowQueryPolicy)
       : undefined;
+    message.disableCopyDataPolicy =
+      (object.disableCopyDataPolicy !== undefined && object.disableCopyDataPolicy !== null)
+        ? DisableCopyDataPolicy.fromPartial(object.disableCopyDataPolicy)
+        : undefined;
     message.enforce = object.enforce ?? false;
     message.resourceType = object.resourceType ?? 0;
     message.resourceUid = object.resourceUid ?? "";
@@ -1522,6 +1548,62 @@ export const SlowQueryPolicy = {
   },
 };
 
+function createBaseDisableCopyDataPolicy(): DisableCopyDataPolicy {
+  return { active: false };
+}
+
+export const DisableCopyDataPolicy = {
+  encode(message: DisableCopyDataPolicy, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.active === true) {
+      writer.uint32(8).bool(message.active);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): DisableCopyDataPolicy {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDisableCopyDataPolicy();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.active = reader.bool();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DisableCopyDataPolicy {
+    return { active: isSet(object.active) ? Boolean(object.active) : false };
+  },
+
+  toJSON(message: DisableCopyDataPolicy): unknown {
+    const obj: any = {};
+    message.active !== undefined && (obj.active = message.active);
+    return obj;
+  },
+
+  create(base?: DeepPartial<DisableCopyDataPolicy>): DisableCopyDataPolicy {
+    return DisableCopyDataPolicy.fromPartial(base ?? {});
+  },
+
+  fromPartial(object: DeepPartial<DisableCopyDataPolicy>): DisableCopyDataPolicy {
+    const message = createBaseDisableCopyDataPolicy();
+    message.active = object.active ?? false;
+    return message;
+  },
+};
+
 function createBaseSensitiveDataPolicy(): SensitiveDataPolicy {
   return { sensitiveData: [] };
 }
@@ -1679,126 +1761,6 @@ export const SensitiveData = {
     message.table = object.table ?? "";
     message.column = object.column ?? "";
     message.maskType = object.maskType ?? 0;
-    return message;
-  },
-};
-
-function createBaseAccessControlPolicy(): AccessControlPolicy {
-  return { disallowRules: [] };
-}
-
-export const AccessControlPolicy = {
-  encode(message: AccessControlPolicy, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    for (const v of message.disallowRules) {
-      AccessControlRule.encode(v!, writer.uint32(10).fork()).ldelim();
-    }
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): AccessControlPolicy {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseAccessControlPolicy();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 10) {
-            break;
-          }
-
-          message.disallowRules.push(AccessControlRule.decode(reader, reader.uint32()));
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): AccessControlPolicy {
-    return {
-      disallowRules: Array.isArray(object?.disallowRules)
-        ? object.disallowRules.map((e: any) => AccessControlRule.fromJSON(e))
-        : [],
-    };
-  },
-
-  toJSON(message: AccessControlPolicy): unknown {
-    const obj: any = {};
-    if (message.disallowRules) {
-      obj.disallowRules = message.disallowRules.map((e) => e ? AccessControlRule.toJSON(e) : undefined);
-    } else {
-      obj.disallowRules = [];
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<AccessControlPolicy>): AccessControlPolicy {
-    return AccessControlPolicy.fromPartial(base ?? {});
-  },
-
-  fromPartial(object: DeepPartial<AccessControlPolicy>): AccessControlPolicy {
-    const message = createBaseAccessControlPolicy();
-    message.disallowRules = object.disallowRules?.map((e) => AccessControlRule.fromPartial(e)) || [];
-    return message;
-  },
-};
-
-function createBaseAccessControlRule(): AccessControlRule {
-  return { fullDatabase: false };
-}
-
-export const AccessControlRule = {
-  encode(message: AccessControlRule, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.fullDatabase === true) {
-      writer.uint32(8).bool(message.fullDatabase);
-    }
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): AccessControlRule {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseAccessControlRule();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 8) {
-            break;
-          }
-
-          message.fullDatabase = reader.bool();
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): AccessControlRule {
-    return { fullDatabase: isSet(object.fullDatabase) ? Boolean(object.fullDatabase) : false };
-  },
-
-  toJSON(message: AccessControlRule): unknown {
-    const obj: any = {};
-    message.fullDatabase !== undefined && (obj.fullDatabase = message.fullDatabase);
-    return obj;
-  },
-
-  create(base?: DeepPartial<AccessControlRule>): AccessControlRule {
-    return AccessControlRule.fromPartial(base ?? {});
-  },
-
-  fromPartial(object: DeepPartial<AccessControlRule>): AccessControlRule {
-    const message = createBaseAccessControlRule();
-    message.fullDatabase = object.fullDatabase ?? false;
     return message;
   },
 };

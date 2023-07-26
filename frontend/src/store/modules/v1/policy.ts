@@ -100,22 +100,18 @@ export const usePolicyV1Store = defineStore("policy_v1", {
     }) {
       const name = `${parentPath}/${policyNamePrefix}${policyTypeToJSON(
         policyType
-      )}`;
+      ).toLowerCase()}`;
       return this.getOrFetchPolicyByName(name, refresh);
     },
     async getOrFetchPolicyByName(name: string, refresh = false) {
-      const cachedData = this.getPolicyByName(name);
+      const cachedData = this.getPolicyByName(name.toLowerCase());
       if (cachedData && !refresh) {
         return cachedData;
       }
       try {
         const policy = await policyServiceClient.getPolicy(
-          {
-            name: name.toLowerCase(),
-          },
-          {
-            silent: true,
-          }
+          { name },
+          { silent: true }
         );
         this.policyMapByName.set(policy.name, policy);
         return policy;
@@ -132,7 +128,7 @@ export const usePolicyV1Store = defineStore("policy_v1", {
     }) {
       const name = `${parentPath}/${policyNamePrefix}${policyTypeToJSON(
         policyType
-      )}`;
+      ).toLowerCase()}`;
       return this.getPolicyByName(name);
     },
     getPolicyByName(name: string) {
@@ -226,7 +222,9 @@ export const usePolicyByParentAndType = (
   return computed(() => {
     const { parentPath, policyType } = unref(params);
     const res = store.getPolicyByName(
-      `${parentPath}/${policyNamePrefix}${policyTypeToJSON(policyType)}`
+      `${parentPath}/${policyNamePrefix}${policyTypeToJSON(
+        policyType
+      ).toLowerCase()}`
     );
     return res;
   });
@@ -254,7 +252,7 @@ export const getDefaultBackupPlanPolicy = (
   };
 };
 
-export const defaultApprovalStrategy = ApprovalStrategy.MANUAL;
+export const defaultApprovalStrategy = ApprovalStrategy.AUTOMATIC;
 
 export const getDefaultDeploymentApprovalPolicy = (
   parentPath: string,

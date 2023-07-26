@@ -23,7 +23,8 @@ func TestExtractTiDBUnsupportStmts(t *testing.T) {
 					VALUES (NEW.order_id, NEW.order_date, NEW.customer_id, NEW.order_amount);
 				END;`,
 			wantUnsupport: []string{
-				`CREATE TRIGGER order_insert_audit 
+				`
+CREATE TRIGGER order_insert_audit 
 				AFTER INSERT ON orders
 				FOR EACH ROW 
 				BEGIN
@@ -189,7 +190,7 @@ func TestExtractDelimiter(t *testing.T) {
 	}
 }
 
-func TestExtractDatabaseList(t *testing.T) {
+func TestMySQLExtractDatabaseList(t *testing.T) {
 	tests := []struct {
 		stmt string
 		want []string
@@ -220,7 +221,7 @@ func TestExtractDatabaseList(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		res, err := ExtractDatabaseList(MySQL, test.stmt)
+		res, err := ExtractDatabaseList(MySQL, test.stmt, "")
 		require.NoError(t, err)
 		require.Equal(t, test.want, res)
 	}

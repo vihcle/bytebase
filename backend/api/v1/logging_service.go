@@ -127,7 +127,8 @@ func (s *LoggingService) ListLogs(ctx context.Context, request *v1pb.ListLogsReq
 				return nil, status.Errorf(codes.InvalidArgument, "invalid empty creator identifier")
 			}
 			user, err := s.store.GetUser(ctx, &store.FindUserMessage{
-				Email: &creatorEmail,
+				Email:       &creatorEmail,
+				ShowDeleted: true,
 			})
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, `failed to find user "%s" with error: %v`, creatorEmail, err.Error())
@@ -256,7 +257,7 @@ func (s *LoggingService) ListLogs(ctx context.Context, request *v1pb.ListLogsReq
 		NextPageToken: nextPageToken,
 	}
 	for _, activity := range activityList {
-		logEntity, err := s.convertToLogEntity(ctx, activity)
+		logEntity, err := convertToLogEntity(ctx, s.store, activity)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to convert log entity, error: %v", err)
 		}
@@ -281,14 +282,14 @@ func (s *LoggingService) GetLog(ctx context.Context, request *v1pb.GetLogRequest
 		return nil, status.Errorf(codes.NotFound, "cannot found activity %s", request.Name)
 	}
 
-	logEntity, err := s.convertToLogEntity(ctx, activity)
+	logEntity, err := convertToLogEntity(ctx, s.store, activity)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to convert log entity, error: %v", err)
 	}
 	return logEntity, nil
 }
 
-func (s *LoggingService) convertToLogEntity(ctx context.Context, activity *store.ActivityMessage) (*v1pb.LogEntity, error) {
+func convertToLogEntity(ctx context.Context, db *store.Store, activity *store.ActivityMessage) (*v1pb.LogEntity, error) {
 	resource := ""
 	switch activity.Type {
 	case
@@ -296,7 +297,7 @@ func (s *LoggingService) convertToLogEntity(ctx context.Context, activity *store
 		api.ActivityMemberRoleUpdate,
 		api.ActivityMemberActivate,
 		api.ActivityMemberDeactivate:
-		user, err := s.store.GetUserByID(ctx, activity.ContainerUID)
+		user, err := db.GetUserByID(ctx, activity.ContainerUID)
 		if err != nil {
 			return nil, err
 		}
@@ -325,7 +326,9 @@ func (s *LoggingService) convertToLogEntity(ctx context.Context, activity *store
 		api.ActivityProjectMemberDelete,
 		api.ActivityProjectMemberRoleUpdate,
 		api.ActivityDatabaseRecoveryPITRDone:
-		project, err := s.store.GetProjectByID(ctx, activity.ContainerUID)
+		project, err := db.GetProjectV2(ctx, &store.FindProjectMessage{
+			UID: &activity.ContainerUID,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -336,7 +339,9 @@ func (s *LoggingService) convertToLogEntity(ctx context.Context, activity *store
 	case
 		api.ActivitySQLEditorQuery,
 		api.ActivitySQLExport:
-		instance, err := s.store.GetInstanceByID(ctx, activity.ContainerUID)
+		instance, err := db.GetInstanceV2(ctx, &store.FindInstanceMessage{
+			UID: &activity.ContainerUID,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -346,7 +351,7 @@ func (s *LoggingService) convertToLogEntity(ctx context.Context, activity *store
 		resource = fmt.Sprintf("%s%s", instanceNamePrefix, instance.ResourceID)
 	}
 
-	user, err := s.store.GetUserByID(ctx, activity.CreatorUID)
+	user, err := db.GetUserByID(ctx, activity.CreatorUID)
 	if err != nil {
 		return nil, err
 	}

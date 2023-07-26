@@ -1,19 +1,26 @@
 import { orderBy } from "lodash-es";
 import slug from "slug";
 
-import { ComposedDatabase, unknownEnvironment, UNKNOWN_ID } from "@/types";
-import { EnvironmentTier } from "@/types/proto/v1/environment_service";
-import { Policy, PolicyType } from "@/types/proto/v1/org_policy_service";
+import { ComposedDatabase, UNKNOWN_ID } from "@/types";
 import { User } from "@/types/proto/v1/auth_service";
 import {
   hasFeature,
   useCurrentUserIamPolicy,
-  useEnvironmentV1Store,
+  usePolicyV1Store,
+  useSubscriptionV1Store,
 } from "@/store";
 import { hasWorkspacePermissionV1 } from "../role";
 import { Engine, State } from "@/types/proto/v1/common";
 import { isDev, semverCompare } from "../util";
 import { DataSourceType } from "@/types/proto/v1/instance_service";
+import { Expr } from "@/types/proto/google/api/expr/v1alpha1/syntax";
+import { SimpleExpr, resolveCELExpr } from "@/plugins/cel";
+import { isDeveloperOfProjectV1, isOwnerOfProjectV1 } from "./project";
+import { policyNamePrefix } from "@/store/modules/v1/common";
+import {
+  PolicyType,
+  policyTypeToJSON,
+} from "@/types/proto/v1/org_policy_service";
 
 export const databaseV1Slug = (db: ComposedDatabase) => {
   return [slug(db.databaseName), db.uid].join("-");
@@ -69,9 +76,10 @@ export const isArchivedDatabaseV1 = (db: ComposedDatabase): boolean => {
   }
   return false;
 };
+
+// isDatabaseV1Accessible checks if database accessible for user.
 export const isDatabaseV1Accessible = (
   database: ComposedDatabase,
-  policyList: Policy[],
   user: User
 ): boolean => {
   if (!hasFeature("bb.feature.access-control")) {
@@ -91,27 +99,122 @@ export const isDatabaseV1Accessible = (
     return true;
   }
 
-  const environment =
-    useEnvironmentV1Store().getEnvironmentByName(
-      database.instanceEntity.environment
-    ) ?? unknownEnvironment();
-  if (environment.tier === EnvironmentTier.PROTECTED) {
-    const policy = policyList.find((policy) => {
-      const { type, resourceUid, enforce } = policy;
-      return (
-        type === PolicyType.ACCESS_CONTROL &&
-        resourceUid === `${database.uid}` &&
-        enforce
-      );
-    });
+  // If user is owner or developer of its projects, we will show the database in the UI.
+  if (
+    isOwnerOfProjectV1(database.projectEntity.iamPolicy, user) ||
+    isDeveloperOfProjectV1(database.projectEntity.iamPolicy, user)
+  ) {
+    return true;
+  }
+
+  if (isDatabaseV1Queryable(database, user)) {
+    return true;
+  }
+
+  return false;
+};
+
+// isDatabaseV1Queryable checks if database allowed to query in SQL Editor.
+export const isDatabaseV1Queryable = (
+  database: ComposedDatabase,
+  user: User
+): boolean => {
+  if (!hasFeature("bb.feature.access-control")) {
+    // The current plan doesn't have access control feature.
+    // Fallback to true.
+    return true;
+  } else {
+    const name = `${policyNamePrefix}${policyTypeToJSON(
+      PolicyType.WORKSPACE_IAM
+    )}`;
+    const policy = usePolicyV1Store().getPolicyByName(name);
     if (policy) {
-      // The database is in the allowed list
-      return true;
+      const bindings = policy.workspaceIamPolicy?.bindings;
+      if (bindings) {
+        const querierBinding = bindings.find(
+          (binding) => binding.role === "roles/QUERIER"
+        );
+        if (querierBinding) {
+          const simpleExpr = resolveCELExpr(
+            querierBinding.parsedExpr?.expr || Expr.fromPartial({})
+          );
+          const envNameList = extractEnvironmentNameListFromExpr(simpleExpr);
+          if (envNameList.includes(database.instanceEntity.environment)) {
+            return true;
+          }
+        }
+      }
     }
+  }
+
+  if (
+    hasWorkspacePermissionV1(
+      "bb.permission.workspace.manage-access-control",
+      user.userRole
+    )
+  ) {
+    // The current user has the super privilege to access all databases.
+    // AKA. Owners and DBAs
+    return true;
   }
 
   const currentUserIamPolicy = useCurrentUserIamPolicy();
   if (currentUserIamPolicy.allowToQueryDatabaseV1(database)) {
+    return true;
+  }
+
+  // denied otherwise
+  return false;
+};
+
+// isTableQueryable checks if table allowed to query in SQL Editor.
+export const isTableQueryable = (
+  database: ComposedDatabase,
+  schema: string,
+  table: string,
+  user: User
+): boolean => {
+  if (!hasFeature("bb.feature.access-control")) {
+    // The current plan doesn't have access control feature.
+    // Fallback to true.
+    return true;
+  } else {
+    const name = `${policyNamePrefix}${policyTypeToJSON(
+      PolicyType.WORKSPACE_IAM
+    )}`;
+    const policy = usePolicyV1Store().getPolicyByName(name);
+    if (policy) {
+      const bindings = policy.workspaceIamPolicy?.bindings;
+      if (bindings) {
+        const querierBinding = bindings.find(
+          (binding) => binding.role === "roles/QUERIER"
+        );
+        if (querierBinding) {
+          const simpleExpr = resolveCELExpr(
+            querierBinding.parsedExpr?.expr || Expr.fromPartial({})
+          );
+          const envNameList = extractEnvironmentNameListFromExpr(simpleExpr);
+          if (envNameList.includes(database.instanceEntity.environment)) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  if (
+    hasWorkspacePermissionV1(
+      "bb.permission.workspace.manage-access-control",
+      user.userRole
+    )
+  ) {
+    // The current user has the super privilege to access all databases.
+    // AKA. Owners and DBAs
+    return true;
+  }
+
+  const currentUserIamPolicy = useCurrentUserIamPolicy();
+  if (currentUserIamPolicy.allowToQueryDatabaseV1(database, schema, table)) {
     return true;
   }
 
@@ -179,9 +282,14 @@ const MIN_GHOST_SUPPORT_MYSQL_VERSION = "5.7.0";
 export function allowGhostMigrationV1(
   databaseList: ComposedDatabase[]
 ): boolean {
+  const subscriptionV1Store = useSubscriptionV1Store();
   return databaseList.every((db) => {
     return (
       db.instanceEntity.engine === Engine.MYSQL &&
+      subscriptionV1Store.hasInstanceFeature(
+        "bb.feature.online-migration",
+        db.instanceEntity
+      ) &&
       semverCompare(
         db.instanceEntity.engineVersion,
         MIN_GHOST_SUPPORT_MYSQL_VERSION,
@@ -221,3 +329,13 @@ export function allowDatabaseV1Access(
 
   return false;
 }
+
+export const extractEnvironmentNameListFromExpr = (
+  expr: SimpleExpr
+): string[] => {
+  const [left, right] = expr.args;
+  if (expr.operator === "@in" && left === "resource.environment_name") {
+    return right as any as string[];
+  }
+  return [];
+};

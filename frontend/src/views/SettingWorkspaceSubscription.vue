@@ -39,11 +39,31 @@
           </div>
         </dd>
       </div>
-      <div class="my-3">
+      <div v-if="subscriptionStore.currentPlan === PlanType.FREE" class="my-3">
         <dt class="text-gray-400">
           {{ $t("subscription.instance-count") }}
         </dt>
-        <dd class="mt-1 text-4xl">{{ instanceCount }}</dd>
+        <dd
+          class="mt-1 text-4xl flex items-center gap-x-2 cursor-pointer group"
+        >
+          <span class="group-hover:underline">{{
+            subscriptionStore.instanceCountLimit
+          }}</span>
+        </dd>
+      </div>
+      <div v-else class="my-3">
+        <dt class="text-gray-400">
+          {{ $t("subscription.instance-assignment.used-and-total-license") }}
+        </dt>
+        <dd
+          class="mt-1 text-4xl flex items-center gap-x-2 cursor-pointer group"
+          @click="state.showInstanceAssignmentDrawer = true"
+        >
+          <span class="group-hover:underline">{{ activateLicenseCount }}</span>
+          <span class="text-xl">/</span>
+          <span class="group-hover:underline">{{ totalLicenseCount }}</span>
+          <heroicons-outline:pencil class="h-6 w-6" />
+        </dd>
       </div>
       <div v-if="!subscriptionStore.isFreePlan" class="my-3">
         <dt class="text-gray-400">
@@ -51,7 +71,10 @@
         </dt>
         <dd class="mt-1 text-4xl">{{ expireAt || "n/a" }}</dd>
       </div>
-      <div v-if="subscriptionStore.canTrial" class="my-3">
+      <div
+        v-if="subscriptionStore.canTrial && canManageSubscription"
+        class="my-3"
+      >
         <dt class="text-gray-400">
           {{ $t("subscription.try-for-free") }}
         </dt>
@@ -123,16 +146,22 @@
       @cancel="state.showTrialModal = false"
     />
   </div>
+
+  <InstanceAssignment
+    :show="state.showInstanceAssignmentDrawer"
+    @dismiss="state.showInstanceAssignmentDrawer = false"
+  />
 </template>
 
 <script lang="ts" setup>
-import { computed, reactive } from "vue";
+import { computed, reactive, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import PricingTable from "../components/PricingTable/";
 import { PlanType } from "@/types/proto/v1/subscription_service";
 import {
   pushNotification,
   useCurrentUserV1,
+  useInstanceV1Store,
   useSubscriptionV1Store,
 } from "@/store";
 import { storeToRefs } from "pinia";
@@ -142,9 +171,11 @@ interface LocalState {
   loading: boolean;
   license: string;
   showTrialModal: boolean;
+  showInstanceAssignmentDrawer: boolean;
 }
 
 const subscriptionStore = useSubscriptionV1Store();
+const instanceV1Store = useInstanceV1Store();
 const { t } = useI18n();
 const currentUserV1 = useCurrentUserV1();
 
@@ -152,6 +183,14 @@ const state = reactive<LocalState>({
   loading: false,
   license: "",
   showTrialModal: false,
+  showInstanceAssignmentDrawer: false,
+});
+
+onMounted(() => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("manageLicense")) {
+    state.showInstanceAssignmentDrawer = true;
+  }
 });
 
 const disabled = computed((): boolean => {
@@ -183,15 +222,18 @@ const uploadLicense = async () => {
   }
 };
 
-const { subscription, expireAt, isTrialing, isExpired } =
+const { expireAt, isTrialing, isExpired, instanceLicenseCount } =
   storeToRefs(subscriptionStore);
 
-const instanceCount = computed((): string => {
-  const count = subscription.value?.instanceCount ?? 5;
-  if (count > 0) {
-    return `${count}`;
+const totalLicenseCount = computed((): string => {
+  if (instanceLicenseCount.value === Number.MAX_VALUE) {
+    return t("subscription.unlimited");
   }
-  return t("subscription.unlimited");
+  return `${instanceLicenseCount.value}`;
+});
+
+const activateLicenseCount = computed((): string => {
+  return `${instanceV1Store.activateInstanceCount}`;
 });
 
 const currentPlan = computed((): string => {

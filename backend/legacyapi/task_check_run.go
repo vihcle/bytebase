@@ -59,8 +59,6 @@ type TaskCheckType string
 const (
 	// TaskCheckDatabaseStatementFakeAdvise is the task check type for fake advise.
 	TaskCheckDatabaseStatementFakeAdvise TaskCheckType = "bb.task-check.database.statement.fake-advise"
-	// TaskCheckDatabaseStatementSyntax is the task check type for statement syntax.
-	TaskCheckDatabaseStatementSyntax TaskCheckType = "bb.task-check.database.statement.syntax"
 	// TaskCheckDatabaseStatementCompatibility is the task check type for statement compatibility.
 	TaskCheckDatabaseStatementCompatibility TaskCheckType = "bb.task-check.database.statement.compatibility"
 	// TaskCheckDatabaseStatementAdvise is the task check type for schema system review policy.
@@ -130,23 +128,9 @@ type TaskCheckRun struct {
 	Payload string             `jsonapi:"attr,payload"`
 }
 
-// IsSyntaxCheckSupported checks the engine type if syntax check supports it.
-func IsSyntaxCheckSupported(dbType db.Type) bool {
-	if dbType == db.Postgres || dbType == db.MySQL || dbType == db.TiDB || dbType == db.MariaDB || dbType == db.Oracle || dbType == db.OceanBase {
-		advisorDB, err := advisorDB.ConvertToAdvisorDBType(string(dbType))
-		if err != nil {
-			return false
-		}
-
-		return advisor.IsSyntaxCheckSupported(advisorDB)
-	}
-
-	return false
-}
-
 // IsSQLReviewSupported checks the engine type if SQL review supports it.
 func IsSQLReviewSupported(dbType db.Type) bool {
-	if dbType == db.Postgres || dbType == db.MySQL || dbType == db.TiDB || dbType == db.MariaDB || dbType == db.Oracle || dbType == db.OceanBase {
+	if dbType == db.Postgres || dbType == db.MySQL || dbType == db.TiDB || dbType == db.MariaDB || dbType == db.Oracle || dbType == db.OceanBase || dbType == db.Snowflake || dbType == db.MSSQL {
 		advisorDB, err := advisorDB.ConvertToAdvisorDBType(string(dbType))
 		if err != nil {
 			return false

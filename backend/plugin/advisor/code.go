@@ -22,6 +22,7 @@ const (
 	CompatibilityAddCheck      Code = 109
 	CompatibilityAlterCheck    Code = 110
 	CompatibilityAlterColumn   Code = 111
+	CompatibilityDropSchema    Code = 112
 
 	// 201 ~ 299 statement error code.
 	StatementSyntaxError             Code = 201
@@ -80,6 +81,7 @@ const (
 	NoDefault                                  Code = 420
 	ColumnIsReferencedByView                   Code = 421
 	VarcharLengthExceedsLimit                  Code = 422
+	InvalidColumnDefault                       Code = 423
 
 	// 501 engine error code.
 	NotInnoDBEngine Code = 501

@@ -26,9 +26,11 @@ export type FeatureType =
   | "bb.feature.online-migration"
   | "bb.feature.schema-drift"
   | "bb.feature.sql-review"
+  | "bb.feature.mybatis-sql-review"
   | "bb.feature.task-schedule-time"
   | "bb.feature.encrypted-secrets"
   | "bb.feature.database-grouping"
+  | "bb.feature.schema-template"
   // VCS Integration
   | "bb.feature.vcs-schema-write-back"
   | "bb.feature.vcs-sheet-sync"
@@ -50,6 +52,30 @@ export type FeatureType =
   | "bb.feature.shared-sql-script"
   // Plugins
   | "bb.feature.plugin.openai";
+
+export const instanceLimitFeature = new Set<FeatureType>([
+  // Change Workflow
+  "bb.feature.im.approval",
+  "bb.feature.schema-drift",
+  "bb.feature.encrypted-secrets",
+  "bb.feature.sql-review",
+  "bb.feature.task-schedule-time",
+  "bb.feature.online-migration",
+  // Database Management
+  "bb.feature.pitr",
+  "bb.feature.read-replica-connection",
+  "bb.feature.instance-ssh-connection",
+  "bb.feature.sync-schema-all-versions",
+  "bb.feature.index-advisor",
+  "bb.feature.database-grouping",
+  // Policy Control
+  "bb.feature.sensitive-data",
+  "bb.feature.custom-approval",
+  // VCS Integration
+  "bb.feature.vcs-sql-review",
+  "bb.feature.mybatis-sql-review",
+  "bb.feature.vcs-schema-write-back",
+]);
 
 export const planTypeToString = (planType: PlanType): string => {
   switch (planType) {
@@ -94,6 +120,19 @@ export const PLANS: Plan[] = planData.planList.map((raw: Plan) => ({
   ...raw,
   type: planTypeFromJSON(raw.type + 1),
 }));
+
+// TODO: it's better to get the count limit from the backend.
+export const userCountLimit = new Map<PlanType, number>([
+  [PlanType.FREE, 20],
+  [PlanType.TEAM, Number.MAX_VALUE],
+  [PlanType.ENTERPRISE, Number.MAX_VALUE],
+]);
+
+export const instanceCountLimit = new Map<PlanType, number>([
+  [PlanType.FREE, 20],
+  [PlanType.TEAM, 20],
+  [PlanType.ENTERPRISE, Number.MAX_VALUE],
+]);
 
 export const getFeatureLocalization = (feature: PlanFeature): PlanFeature => {
   const { t } = useI18n();

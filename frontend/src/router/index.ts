@@ -159,12 +159,14 @@ const routes: Array<RouteRecordRaw> = [
               quickActionListByRole: () => {
                 const DBA_AND_OWNER_QUICK_ACTION_LIST: QuickActionType[] = [
                   "quickaction.bb.database.schema.update",
+                  "quickaction.bb.database.schema.design",
                   "quickaction.bb.database.data.update",
                   "quickaction.bb.database.create",
                   "quickaction.bb.instance.create",
                 ];
                 const DEVELOPER_QUICK_ACTION_LIST: QuickActionType[] = [
                   "quickaction.bb.database.schema.update",
+                  "quickaction.bb.database.schema.design",
                   "quickaction.bb.database.data.update",
                   "quickaction.bb.database.create",
                   "quickaction.bb.issue.grant.request.querier",
@@ -463,6 +465,14 @@ const routes: Array<RouteRecordRaw> = [
                 props: true,
               },
               {
+                path: "schema-template",
+                name: "setting.workspace.schema-template",
+                meta: { title: () => startCase(t("schema-template.self")) },
+                component: () =>
+                  import("../views/SettingWorkspaceSchemaTemplate.vue"),
+                props: true,
+              },
+              {
                 path: "gitops",
                 name: "setting.workspace.gitops",
                 meta: { title: () => t("settings.sidebar.gitops") },
@@ -662,6 +672,7 @@ const routes: Array<RouteRecordRaw> = [
                 if (project.state === State.ACTIVE) {
                   const DBA_AND_OWNER_QUICK_ACTION_LIST: QuickActionType[] = [
                     "quickaction.bb.database.schema.update",
+                    "quickaction.bb.database.schema.design",
                     "quickaction.bb.database.data.update",
                     "quickaction.bb.database.create",
                     "quickaction.bb.project.database.transfer",
@@ -682,6 +693,7 @@ const routes: Array<RouteRecordRaw> = [
                     // to be changed.
                     DEVELOPER_QUICK_ACTION_LIST.push(
                       "quickaction.bb.database.schema.update",
+                      "quickaction.bb.database.schema.design",
                       "quickaction.bb.database.data.update",
                       "quickaction.bb.database.create"
                     );
@@ -797,7 +809,13 @@ const routes: Array<RouteRecordRaw> = [
               title: () => t("common.instances"),
               quickActionListByRole: () => {
                 return new Map([
-                  ["OWNER", ["quickaction.bb.instance.create"]],
+                  [
+                    "OWNER",
+                    [
+                      "quickaction.bb.instance.create",
+                      "quickaction.bb.subscription.license-assignment",
+                    ],
+                  ],
                   ["DBA", ["quickaction.bb.instance.create"]],
                 ]);
               },
@@ -816,11 +834,13 @@ const routes: Array<RouteRecordRaw> = [
               quickActionListByRole: () => {
                 const DBA_AND_OWNER_QUICK_ACTION_LIST: QuickActionType[] = [
                   "quickaction.bb.database.schema.update",
+                  "quickaction.bb.database.schema.design",
                   "quickaction.bb.database.data.update",
                   "quickaction.bb.database.create",
                 ];
                 const DEVELOPER_QUICK_ACTION_LIST: QuickActionType[] = [
                   "quickaction.bb.database.schema.update",
+                  "quickaction.bb.database.schema.design",
                   "quickaction.bb.database.data.update",
                   "quickaction.bb.database.create",
                   "quickaction.bb.issue.grant.request.querier",

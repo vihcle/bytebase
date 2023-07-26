@@ -19,11 +19,13 @@
             class="textfield"
           />
         </dd>
-        <ResourceIdField
-          resource-type="project"
-          :value="extractProjectResourceName(project.name)"
-          :readonly="true"
-        />
+        <div class="mt-1">
+          <ResourceIdField
+            resource-type="project"
+            :value="extractProjectResourceName(project.name)"
+            :readonly="true"
+          />
+        </div>
       </dl>
 
       <dl class="">
@@ -62,7 +64,7 @@
             />
             <span class="label">{{ $t("project.mode.standard") }}</span>
           </label>
-          <label class="radio">
+          <label class="radio space-x-1">
             <input
               v-model="state.tenantMode"
               :disabled="!allowEdit"
@@ -71,11 +73,11 @@
               class="btn disabled:opacity-50 disabled:cursor-not-allowed"
               :value="TenantMode.TENANT_MODE_ENABLED"
             />
-            <span class="label">{{ $t("project.mode.tenant") }}</span>
-            <FeatureBadge
-              feature="bb.feature.multi-tenancy"
-              class="text-accent"
+            <span class="label">{{ $t("project.mode.batch") }}</span>
+            <LearnMoreLink
+              url="https://www.bytebase.com/docs/concepts/batch-mode/?source=console"
             />
+            <FeatureBadge feature="bb.feature.multi-tenancy" />
           </label>
         </div>
       </div>
@@ -93,7 +95,7 @@
     </div>
 
     <FeatureModal
-      v-if="state.requiredFeature"
+      :open="state.requiredFeature"
       :feature="state.requiredFeature"
       @cancel="state.requiredFeature = undefined"
     />
@@ -107,7 +109,6 @@ import { useI18n } from "vue-i18n";
 
 import { DEFAULT_PROJECT_ID, FeatureType } from "@/types";
 import { hasFeature, pushNotification, useProjectV1Store } from "@/store";
-import FeatureModal from "@/components/FeatureModal.vue";
 import ResourceIdField from "@/components/v2/Form/ResourceIdField.vue";
 import { Project, TenantMode } from "@/types/proto/v1/project_service";
 import { extractProjectResourceName } from "@/utils";

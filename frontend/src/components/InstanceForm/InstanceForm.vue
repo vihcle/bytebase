@@ -61,6 +61,32 @@
           </div>
 
           <div
+            v-if="subscriptionStore.currentPlan !== PlanType.FREE"
+            class="sm:col-span-2 ml-0 sm:ml-3"
+          >
+            <label for="activation" class="textlabel block">
+              {{ $t("subscription.instance-assignment.assign-license") }}
+              (<router-link to="/setting/subscription" class="accent-link">
+                {{
+                  $t("subscription.instance-assignment.n-license-remain", {
+                    n: availableLicenseCountText,
+                  })
+                }}</router-link
+              >)
+            </label>
+            <BBSwitch
+              class="mt-2"
+              :text="false"
+              :value="basicInfo.activation"
+              :disabled="
+                !allowEdit ||
+                (!basicInfo.activation && availableLicenseCount === 0)
+              "
+              @toggle="changeInstanceActivation"
+            />
+          </div>
+
+          <div
             :key="basicInfo.environment"
             class="sm:col-span-3 sm:col-start-1 -mt-4"
           >
@@ -88,6 +114,13 @@
               @select-environment-id="handleSelectEnvironmentUID"
             />
           </div>
+
+          <OracleSyncModeInput
+            v-if="basicInfo.engine === Engine.ORACLE"
+            :schema-tenant-mode="basicInfo.options?.schemaTenantMode ?? false"
+            :allow-edit="allowEdit"
+            @update:schema-tenant-mode="changeSyncMode"
+          />
 
           <div class="sm:col-span-3 sm:col-start-1">
             <template v-if="basicInfo.engine !== Engine.SPANNER">
@@ -485,12 +518,13 @@
               </label>
               <FeatureBadge
                 feature="bb.feature.instance-ssh-connection"
-                class="text-accent"
+                :instance="instance"
               />
             </div>
             <template v-if="currentDataSource.pendingCreate">
               <SshConnectionForm
                 :value="currentDataSource"
+                :instance="instance"
                 @change="handleCurrentDataSourceSshChange"
               />
             </template>
@@ -498,6 +532,7 @@
               <template v-if="currentDataSource.updateSsh">
                 <SshConnectionForm
                   :value="currentDataSource"
+                  :instance="instance"
                   @change="handleCurrentDataSourceSshChange"
                 />
               </template>
@@ -580,8 +615,9 @@
   </component>
 
   <FeatureModal
-    v-if="state.showFeatureModal"
     feature="bb.feature.read-replica-connection"
+    :open="state.showFeatureModal"
+    :instance="instance"
     @cancel="state.showFeatureModal = false"
   />
 
@@ -634,12 +670,12 @@ import {
   useActuatorV1Store,
   useEnvironmentV1Store,
   useInstanceV1Store,
+  useSubscriptionV1Store,
   useGracefulRequest,
-  featureToRef,
 } from "@/store";
 import { getErrorCode, extractGrpcErrorMessage } from "@/utils/grpcweb";
 import EnvironmentSelect from "@/components/EnvironmentSelect.vue";
-import FeatureBadge from "@/components/FeatureBadge.vue";
+import OracleSyncModeInput from "./OracleSyncModeInput.vue";
 import SslCertificateForm from "./SslCertificateForm.vue";
 import SshConnectionForm from "./SshConnectionForm.vue";
 import SpannerHostInput from "./SpannerHostInput.vue";
@@ -652,9 +688,11 @@ import {
   DataSource,
   DataSourceType,
   Instance,
+  InstanceOptions,
 } from "@/types/proto/v1/instance_service";
 import { Engine, State } from "@/types/proto/v1/common";
 import { instanceServiceClient } from "@/grpcweb";
+import { PlanType } from "@/types/proto/v1/subscription_service";
 
 const props = defineProps({
   instance: {
@@ -707,6 +745,7 @@ const instanceV1Store = useInstanceV1Store();
 const settingV1Store = useSettingV1Store();
 const currentUserV1 = useCurrentUserV1();
 const actuatorStore = useActuatorV1Store();
+const subscriptionStore = useSubscriptionV1Store();
 
 const state = reactive<LocalState>({
   currentDataSourceType: DataSourceType.ADMIN,
@@ -717,9 +756,27 @@ const state = reactive<LocalState>({
   createInstanceWarning: "",
 });
 
-const hasReadonlyReplicaFeature = featureToRef(
-  "bb.feature.read-replica-connection"
-);
+const hasReadonlyReplicaFeature = computed(() => {
+  return subscriptionStore.hasInstanceFeature(
+    "bb.feature.read-replica-connection",
+    props.instance
+  );
+});
+
+const availableLicenseCount = computed(() => {
+  return Math.max(
+    0,
+    subscriptionStore.instanceLicenseCount -
+      instanceV1Store.activateInstanceCount
+  );
+});
+
+const availableLicenseCountText = computed((): string => {
+  if (subscriptionStore.instanceLicenseCount === Number.MAX_VALUE) {
+    return t("subscription.unlimited");
+  }
+  return `${availableLicenseCount.value}`;
+});
 
 const extractBasicInfo = (instance: Instance | undefined): BasicInfo => {
   return {
@@ -730,6 +787,16 @@ const extractBasicInfo = (instance: Instance | undefined): BasicInfo => {
     engine: instance?.engine ?? Engine.MYSQL,
     externalLink: instance?.externalLink ?? "",
     environment: instance?.environment ?? UNKNOWN_ENVIRONMENT_NAME,
+    activation: instance
+      ? instance.activation
+      : subscriptionStore.currentPlan !== PlanType.FREE &&
+        availableLicenseCount.value > 0,
+    options: instance?.options
+      ? cloneDeep(instance.options)
+      : {
+          // default to false (Manage based on database, aka CDB + non-CDB)
+          schemaTenantMode: false,
+        },
   };
 };
 
@@ -840,6 +907,15 @@ watch(
   },
   {
     immediate: true,
+  }
+);
+
+watch(
+  () => props.instance?.activation,
+  (val) => {
+    if (val !== undefined) {
+      basicInfo.value.activation = val;
+    }
   }
 );
 
@@ -1006,13 +1082,9 @@ const allowUpdate = computed((): boolean => {
 });
 
 const isEngineBeta = (engine: Engine): boolean => {
-  return [
-    Engine.ORACLE,
-    Engine.MSSQL,
-    Engine.REDSHIFT,
-    Engine.MARIADB,
-    Engine.OCEANBASE,
-  ].includes(engine);
+  return false;
+  // return [
+  // ].includes(engine);
 };
 
 const handleSelectEnvironmentUID = (uid: number | string) => {
@@ -1038,6 +1110,13 @@ const changeInstanceEngine = (engine: Engine) => {
     }
   }
   basicInfo.value.engine = engine;
+};
+
+const changeSyncMode = (schemaTenantMode: boolean) => {
+  if (!basicInfo.value.options) {
+    basicInfo.value.options = InstanceOptions.fromJSON({});
+  }
+  basicInfo.value.options.schemaTenantMode = schemaTenantMode;
 };
 
 const trimInputValue = (target: Event["target"]) => {
@@ -1302,6 +1381,15 @@ const doUpdate = async () => {
     if (instancePatch.externalLink !== instance.externalLink) {
       updateMask.push("external_link");
     }
+    if (instancePatch.activation !== instance.activation) {
+      updateMask.push("activation");
+    }
+    if (
+      instancePatch.options?.schemaTenantMode !==
+      instance.options?.schemaTenantMode
+    ) {
+      updateMask.push("options.schema_tenant_mode");
+    }
     return await instanceV1Store.updateInstance(instancePatch, updateMask);
   };
   const updateDataSource = async (
@@ -1421,11 +1509,16 @@ const testConnection = async (
     );
     instance.dataSources = [adminDataSourceCreate];
     try {
-      await instanceServiceClient.createInstance({
-        instance,
-        instanceId: extractInstanceResourceName(instance.name),
-        validateOnly: true,
-      });
+      await instanceServiceClient.createInstance(
+        {
+          instance,
+          instanceId: extractInstanceResourceName(instance.name),
+          validateOnly: true,
+        },
+        {
+          silent: true,
+        }
+      );
       return ok();
     } catch (err) {
       return fail(adminDataSourceCreate.host, err);
@@ -1438,11 +1531,16 @@ const testConnection = async (
       // When read-only data source is about to be created, use
       // AddDataSourceRequest.validateOnly = true
       try {
-        await instanceServiceClient.addDataSource({
-          instance: instance.name,
-          dataSource: ds,
-          validateOnly: true,
-        });
+        await instanceServiceClient.addDataSource(
+          {
+            instance: instance.name,
+            dataSource: ds,
+            validateOnly: true,
+          },
+          {
+            silent: true,
+          }
+        );
         return ok();
       } catch (err) {
         return fail(ds.host, err);
@@ -1459,12 +1557,17 @@ const testConnection = async (
           original,
           currentDataSource.value
         );
-        await instanceServiceClient.updateDataSource({
-          instance: instance.name,
-          dataSource: ds,
-          updateMask,
-          validateOnly: true,
-        });
+        await instanceServiceClient.updateDataSource(
+          {
+            instance: instance.name,
+            dataSource: ds,
+            updateMask,
+            validateOnly: true,
+          },
+          {
+            silent: true,
+          }
+        );
         return ok();
       } catch (err) {
         return fail(ds.host, err);
@@ -1598,5 +1701,16 @@ const checkRODataSourceFeature = (instance: Instance) => {
     }
   }
   return true;
+};
+
+const changeInstanceActivation = async (on: boolean) => {
+  basicInfo.value.activation = on;
+  if (props.instance) {
+    const instancePatch = {
+      ...props.instance,
+      activation: on,
+    };
+    await instanceV1Store.updateInstance(instancePatch, ["activation"]);
+  }
 };
 </script>

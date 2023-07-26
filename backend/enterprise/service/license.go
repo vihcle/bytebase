@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -83,8 +84,9 @@ func (s *LicenseService) LoadSubscription(ctx context.Context) enterpriseAPI.Sub
 		return enterpriseAPI.Subscription{
 			Plan: api.FREE,
 			// -1 means not expire, just for free plan
-			ExpiresTs:     -1,
-			InstanceCount: config.MaximumInstanceForFreePlan,
+			ExpiresTs: -1,
+			// Instance license count.
+			InstanceCount: 0,
 		}
 	}
 
@@ -102,8 +104,40 @@ func (s *LicenseService) LoadSubscription(ctx context.Context) enterpriseAPI.Sub
 }
 
 // IsFeatureEnabled returns whether a feature is enabled.
-func (s *LicenseService) IsFeatureEnabled(feature api.FeatureType) bool {
-	return api.Feature(feature, s.GetEffectivePlan())
+func (s *LicenseService) IsFeatureEnabled(feature api.FeatureType) error {
+	if !api.Feature(feature, s.GetEffectivePlan()) {
+		return errors.Errorf(feature.AccessErrorMessage())
+	}
+	return nil
+}
+
+// IsFeatureEnabledForInstance returns whether a feature is enabled for the instance.
+func (s *LicenseService) IsFeatureEnabledForInstance(feature api.FeatureType, instance *store.InstanceMessage) error {
+	plan := s.GetEffectivePlan()
+	// DONOT check instance license fo FREE plan.
+	if plan == api.FREE {
+		return s.IsFeatureEnabled(feature)
+	}
+	if err := s.IsFeatureEnabled(feature); err != nil {
+		return err
+	}
+	if !api.InstanceLimitFeature[feature] {
+		// If the feature not exists in the limit map, we just need to check the feature for current plan.
+		return nil
+	}
+	if !instance.Activation {
+		return errors.Errorf(`feature "%s" is not available for instance %s, please assign license to the instance to enable it`, feature.Name(), instance.ResourceID)
+	}
+	return nil
+}
+
+// GetInstanceLicenseCount returns the instance count limit for current subscription.
+func (s *LicenseService) GetInstanceLicenseCount(ctx context.Context) int {
+	instanceCount := s.LoadSubscription(ctx).InstanceCount
+	if instanceCount < 0 {
+		return math.MaxInt
+	}
+	return instanceCount
 }
 
 // GetEffectivePlan gets the effective plan.
@@ -117,12 +151,16 @@ func (s *LicenseService) GetEffectivePlan() api.PlanType {
 }
 
 // GetPlanLimitValue gets the limit value for the plan.
-func (s *LicenseService) GetPlanLimitValue(name api.PlanLimit) int64 {
-	v, ok := api.PlanLimitValues[name]
+func (s *LicenseService) GetPlanLimitValue(name enterpriseAPI.PlanLimit) int64 {
+	v, ok := enterpriseAPI.PlanLimitValues[name]
 	if !ok {
 		return 0
 	}
-	return v[s.GetEffectivePlan()]
+	limit := v[s.GetEffectivePlan()]
+	if limit == -1 {
+		return math.MaxInt64
+	}
+	return limit
 }
 
 // RefreshCache will invalidate and refresh the subscription cache.

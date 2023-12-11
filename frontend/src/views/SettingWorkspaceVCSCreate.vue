@@ -1,5 +1,5 @@
 <template>
-  <div class="mt-4 space-y-4 divide-y divide-block-border">
+  <div class="space-y-4 divide-y divide-block-border">
     <div class="textinfolabel">
       <i18n-t keypath="gitops.setting.add-git-provider.description">
         <template #guide>
@@ -21,7 +21,7 @@
 
 <script lang="ts">
 import { reactive } from "vue";
-import VCSSetupWizard from "../components/VCSSetupWizard.vue";
+import VCSSetupWizard from "@/components/VCS/VCSSetupWizard.vue";
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 interface LocalState {}

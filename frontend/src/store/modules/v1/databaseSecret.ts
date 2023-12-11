@@ -1,5 +1,6 @@
-import { reactive } from "vue";
+import { Status } from "nice-grpc-common";
 import { defineStore } from "pinia";
+import { reactive } from "vue";
 import { databaseServiceClient } from "@/grpcweb";
 import { Secret } from "@/types/proto/v1/database_service";
 import { secretNamePrefix } from "./common";
@@ -12,9 +13,14 @@ export const useDatabaseSecretStore = defineStore("database-secret", () => {
   };
 
   const fetchSecretList = async (parent: string) => {
-    const res = await databaseServiceClient.listSecrets({
-      parent,
-    });
+    const res = await databaseServiceClient.listSecrets(
+      {
+        parent,
+      },
+      {
+        ignoredCodes: [Status.NOT_FOUND, Status.PERMISSION_DENIED],
+      }
+    );
     secretMapByDatabase.set(parent, res.secrets);
     return res.secrets;
   };

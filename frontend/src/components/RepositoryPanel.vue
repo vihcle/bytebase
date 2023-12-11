@@ -1,18 +1,23 @@
 <template>
-  <div class="text-lg leading-6 font-medium text-main">
-    <i18n-t keypath="repository.gitops-status">
-      <template #status>
-        <span class="text-success"> {{ $t("common.enabled") }} </span>
-      </template>
-    </i18n-t>
+  <div class="flex justify-between">
+    <div class="text-lg leading-6 font-medium text-main">
+      <i18n-t keypath="repository.gitops-status">
+        <template #status>
+          <span class="text-success"> {{ $t("common.enabled") }} </span>
+        </template>
+      </i18n-t>
+    </div>
+    <TroubleshootLink
+      url="https://www.bytebase.com/docs/vcs-integration/troubleshoot/?source=console"
+    />
   </div>
   <div class="mt-2 textinfolabel">
     <template v-if="isProjectSchemaChangeTypeDDL">
       <i18n-t keypath="repository.gitops-description-file-path">
         <template #fullPath>
-          <a class="normal-link" :href="repository.webUrl" target="_blank">{{
-            repository.fullPath
-          }}</a>
+          <a class="normal-link" :href="repository.webUrl" target="_blank">
+            {{ repositoryFormattedFullPath }}
+          </a>
         </template>
         <template #fullPathTemplate>
           <span class="font-medium text-main"
@@ -50,7 +55,7 @@
       <i18n-t keypath="repository.gitops-description-sdl">
         <template #fullPath>
           <a class="normal-link" :href="repository.webUrl" target="_blank">
-            {{ repository.fullPath }}
+            {{ repositoryFormattedFullPath }}
           </a>
         </template>
         <template #branch>
@@ -169,7 +174,7 @@
     v-if="supportSQLReviewCI && state.showLoadingSQLReviewPRModal"
     class="relative overflow-hidden"
     :show-close="false"
-    :esc-closable="false"
+    :close-on-esc="false"
     :title="$t('repository.sql-review-ci-setup')"
   >
     <div
@@ -203,9 +208,9 @@
             }}
           </template>
           <template #repository>
-            <a class="normal-link" :href="repository.webUrl" target="_blank">{{
-              repository.fullPath
-            }}</a>
+            <a class="normal-link" :href="repository.webUrl" target="_blank">
+              {{ repositoryFormattedFullPath }}
+            </a>
           </template>
         </i18n-t>
       </div>
@@ -238,9 +243,9 @@
             }}
           </template>
           <template #repository>
-            <a class="normal-link" :href="repository.webUrl" target="_blank">{{
-              repository.fullPath
-            }}</a>
+            <a class="normal-link" :href="repository.webUrl" target="_blank">
+              {{ repositoryFormattedFullPath }}
+            </a>
           </template>
         </i18n-t>
       </div>
@@ -264,9 +269,9 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, PropType, reactive, watch } from "vue";
+import { cloneDeep } from "lodash-es";
 import isEmpty from "lodash-es/isEmpty";
-import { ExternalRepositoryInfo, RepositoryConfig } from "../types";
+import { computed, PropType, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   hasFeature,
@@ -274,13 +279,14 @@ import {
   useProjectV1Store,
   useRepositoryV1Store,
 } from "@/store";
-import { Project, SchemaChange } from "@/types/proto/v1/project_service";
-import { cloneDeep } from "lodash-es";
+import { getVCSUid } from "@/store/modules/v1/common";
 import {
   ProjectGitOpsInfo,
   ExternalVersionControl,
   ExternalVersionControl_Type,
 } from "@/types/proto/v1/externalvs_service";
+import { Project, SchemaChange } from "@/types/proto/v1/project_service";
+import { ExternalRepositoryInfo, RepositoryConfig } from "../types";
 
 interface LocalState {
   repositoryConfig: RepositoryConfig;
@@ -356,6 +362,17 @@ watch(
   }
 );
 
+const repositoryFormattedFullPath = computed(() => {
+  const fullPath = props.repository.fullPath;
+  if (props.vcs.type !== ExternalVersionControl_Type.AZURE_DEVOPS) {
+    return fullPath;
+  }
+  if (!fullPath.includes("@dev.azure.com")) {
+    return fullPath;
+  }
+  return `https://dev.azure.com${fullPath.split("@dev.azure.com")[1]}`;
+});
+
 const repositoryInfo = computed((): ExternalRepositoryInfo => {
   return {
     externalId: props.repository.externalId,
@@ -377,7 +394,8 @@ const supportSQLReviewCI = computed(() => {
   const { type } = props.vcs;
   return (
     type == ExternalVersionControl_Type.GITHUB ||
-    type === ExternalVersionControl_Type.GITLAB
+    type === ExternalVersionControl_Type.GITLAB ||
+    type === ExternalVersionControl_Type.AZURE_DEVOPS
   );
 });
 
@@ -475,6 +493,9 @@ const doUpdate = async () => {
     state.repositoryConfig.enableSQLReviewCI;
 
   const repositoryPatch: Partial<ProjectGitOpsInfo> = {};
+
+  repositoryPatch.vcsUid = `${getVCSUid(props.vcs.name)}`;
+
   if (props.repository.branchFilter != state.repositoryConfig.branchFilter) {
     repositoryPatch.branchFilter = state.repositoryConfig.branchFilter;
   }

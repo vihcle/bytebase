@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pkg/errors"
+
 	"github.com/bytebase/bytebase/backend/common"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/metric"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // CountInstanceMessage is the message for counting instances.
@@ -49,8 +52,8 @@ func (s *Store) CountInstance(ctx context.Context, find *CountInstanceMessage) (
 	return count, nil
 }
 
-// CountPrincipal counts the number of endusers.
-func (s *Store) CountPrincipal(ctx context.Context) (int, error) {
+// CountActiveUsers counts the number of endusers.
+func (s *Store) CountActiveUsers(ctx context.Context) (int, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -61,14 +64,10 @@ func (s *Store) CountPrincipal(ctx context.Context) (int, error) {
 		SELECT
 			count(1)
 		FROM principal
-		WHERE principal.type = $1`
+		LEFT JOIN member ON principal.id = member.principal_id
+		WHERE (principal.type = $1 OR principal.type = $2) AND member.row_status = $3`
 	var count int
-	if err := tx.QueryRowContext(ctx, `
-		SELECT
-			count(1)
-		FROM principal
-		WHERE principal.type = $1
-	`, api.EndUser).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, query, api.EndUser, api.ServiceAccount, api.Normal).Scan(&count); err != nil {
 		if err == sql.ErrNoRows {
 			return 0, common.FormatDBErrorEmptyRowWithQuery(query)
 		}
@@ -286,9 +285,15 @@ func (s *Store) CountInstanceGroupByEngineAndEnvironmentID(ctx context.Context) 
 	var res []*metric.InstanceCountMetric
 	for rows.Next() {
 		var metric metric.InstanceCountMetric
-		if err := rows.Scan(&metric.Engine, &metric.EnvironmentID, &metric.RowStatus, &metric.Count); err != nil {
+		var engine string
+		if err := rows.Scan(&engine, &metric.EnvironmentID, &metric.RowStatus, &metric.Count); err != nil {
 			return nil, err
 		}
+		engineTypeValue, ok := storepb.Engine_value[engine]
+		if !ok {
+			return nil, errors.Errorf("invalid engine %s", engine)
+		}
+		metric.Engine = storepb.Engine(engineTypeValue)
 		res = append(res, &metric)
 	}
 	if err := rows.Err(); err != nil {
@@ -347,9 +352,9 @@ func (s *Store) CountSheetGroupByRowstatusVisibilitySourceAndType(ctx context.Co
 	defer tx.Rollback()
 
 	rows, err := tx.QueryContext(ctx, `
-		SELECT row_status, visibility, source, type, COUNT(*) AS count
+		SELECT row_status, visibility, source, COUNT(*) AS count
 		FROM sheet
-		GROUP BY row_status, visibility, source, type`)
+		GROUP BY row_status, visibility, source`)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +367,6 @@ func (s *Store) CountSheetGroupByRowstatusVisibilitySourceAndType(ctx context.Co
 			&sheetCount.RowStatus,
 			&sheetCount.Visibility,
 			&sheetCount.Source,
-			&sheetCount.Type,
 			&sheetCount.Count,
 		); err != nil {
 			return nil, err

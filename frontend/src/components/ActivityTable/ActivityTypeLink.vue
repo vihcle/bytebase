@@ -17,14 +17,8 @@
 
 <script lang="ts" setup>
 import { computed, PropType } from "vue";
-import { head } from "lodash-es";
-
-import {
-  ActivityProjectRepositoryPushPayload,
-  ActivityProjectDatabaseTransferPayload,
-} from "../../types";
-import { Link } from "./types";
-import { LogEntity, LogEntity_Action } from "@/types/proto/v1/logging_service";
+import { LogEntity } from "@/types/proto/v1/logging_service";
+import { getLinkFromActivity } from "./utils";
 
 const props = defineProps({
   activity: {
@@ -33,36 +27,5 @@ const props = defineProps({
   },
 });
 
-const link = computed((): Link | undefined => {
-  const { activity } = props;
-  switch (activity.action) {
-    case LogEntity_Action.ACTION_PROJECT_REPOSITORY_PUSH: {
-      const payload = JSON.parse(
-        activity.payload
-      ) as ActivityProjectRepositoryPushPayload;
-      const commit =
-        head(payload.pushEvent.commits) ?? payload.pushEvent.fileCommit;
-      if (commit && commit.id && commit.url) {
-        return {
-          title: commit.id.substring(0, 7),
-          path: commit.url,
-          external: true,
-        };
-      }
-      // Downgrade for legacy data.
-      return undefined;
-    }
-    case LogEntity_Action.ACTION_PROJECT_DATABASE_TRANSFER: {
-      const payload = JSON.parse(
-        activity.payload
-      ) as ActivityProjectDatabaseTransferPayload;
-      return {
-        title: payload.databaseName,
-        path: `/db/${payload.databaseId}`,
-        external: false,
-      };
-    }
-  }
-  return undefined;
-});
+const link = computed(() => getLinkFromActivity(props.activity));
 </script>

@@ -1,5 +1,4 @@
 //go:build mysql
-// +build mysql
 
 // Package mysql provides the resource for MySQL server and utility packages.
 package mysql
@@ -100,13 +99,21 @@ func Install(resourceDir string) (string, error) {
 	// Mysql uses both tar.gz and tar.xz, so we use this ugly hack.
 	var extractFn func(io.Reader, string) error
 	switch {
+	case runtime.GOOS == "darwin" && runtime.GOARCH == "amd64":
+		tarName = "mysql-8.0.33-macos13-x86_64.tar.gz"
+		version = "mysql-8.0.33-macos13-x86_64"
+		extractFn = utils.ExtractTarGz
 	case runtime.GOOS == "darwin" && runtime.GOARCH == "arm64":
-		tarName = "mysql-8.0.28-macos11-arm64.tar.gz"
-		version = "mysql-8.0.28-macos11-arm64"
+		tarName = "mysql-8.0.33-macos13-arm64.tar.gz"
+		version = "mysql-8.0.33-macos13-arm64"
 		extractFn = utils.ExtractTarGz
 	case runtime.GOOS == "linux" && runtime.GOARCH == "amd64":
-		tarName = "mysql-8.0.28-linux-glibc2.17-x86_64-minimal.tar.xz"
-		version = "mysql-8.0.28-linux-glibc2.17-x86_64-minimal"
+		tarName = "mysql-8.0.33-linux-glibc2.17-x86_64-minimal.tar.xz"
+		version = "mysql-8.0.33-linux-glibc2.17-x86_64-minimal"
+		extractFn = utils.ExtractTarXz
+	case runtime.GOOS == "linux" && runtime.GOARCH == "arm64":
+		tarName = "mysql-8.0.33-linux-glibc2.17-aarch64.tar.gz"
+		version = "mysql-8.0.33-linux-glibc2.17-aarch64"
 		extractFn = utils.ExtractTarXz
 	default:
 		return "", errors.Errorf("unsupported os %q and arch %q", runtime.GOOS, runtime.GOARCH)

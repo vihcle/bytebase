@@ -26,6 +26,10 @@ const (
 	ConstraintTypeExclusion
 	// ConstraintTypeDefault is the default constraint.
 	ConstraintTypeDefault
+	// ConstraintTypeGenerated is the generated constraint.
+	ConstraintTypeGenerated
+	// ConstraintTypeNull is the null constraint.
+	ConstraintTypeNull
 )
 
 // ConstraintDef is struct for constraint definition.

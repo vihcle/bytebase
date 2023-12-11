@@ -1,5 +1,5 @@
 <template>
-  <div class="mx-auto">
+  <div class="mx-auto space-y-4">
     <div class="textinfolabel">
       {{ $t("sql-review.description") }}
       <a
@@ -11,19 +11,15 @@
         <heroicons-outline:external-link class="w-4 h-4" />
       </a>
     </div>
-    <FeatureAttentionForInstanceLicense
-      custom-class="mt-5"
-      feature="bb.feature.sql-review"
-    />
 
-    <SQLReviewPolicyTable class="my-5" />
+    <SQLReviewPolicyTable />
   </div>
 </template>
 
 <script lang="ts" setup>
 import { watchEffect } from "vue";
-import { useSQLReviewStore } from "@/store";
 import SQLReviewPolicyTable from "@/components/SQLReview/SQLReviewPolicyTable.vue";
+import { useSQLReviewStore } from "@/store";
 
 const store = useSQLReviewStore();
 

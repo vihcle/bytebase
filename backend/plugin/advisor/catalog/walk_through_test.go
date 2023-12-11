@@ -7,15 +7,14 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"gopkg.in/yaml.v3"
 
-	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-
-	// Register pingcap parser driver.
-	_ "github.com/pingcap/tidb/types/parser_driver"
 
 	// Register postgresql parser driver.
 	_ "github.com/bytebase/bytebase/backend/plugin/parser/sql/engine/pg"
@@ -23,12 +22,28 @@ import (
 
 type testData struct {
 	Statement string
-	Want      *storepb.DatabaseMetadata
-	Err       *WalkThroughError
+	// Use custom yaml tag to avoid generate field name `ignorecasesensitive`.
+	IgnoreCaseSensitive bool `yaml:"ignore_case_sensitive"`
+	Want                string
+	Err                 *WalkThroughError
+}
+
+func TestTiDBWalkThrough(t *testing.T) {
+	originDatabase := &storepb.DatabaseSchemaMetadata{
+		Name: "test",
+	}
+
+	tests := []string{
+		"tidb_walk_through",
+	}
+
+	for _, test := range tests {
+		runWalkThroughTest(t, test, storepb.Engine_TIDB, originDatabase, false /* record */)
+	}
 }
 
 func TestMySQLWalkThrough(t *testing.T) {
-	originDatabase := &storepb.DatabaseMetadata{
+	originDatabase := &storepb.DatabaseSchemaMetadata{
 		Name: "test",
 	}
 
@@ -37,7 +52,7 @@ func TestMySQLWalkThrough(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		runWalkThroughTest(t, test, db.MySQL, originDatabase, false /* record */)
+		runWalkThroughTest(t, test, storepb.Engine_MYSQL, originDatabase, false /* record */)
 	}
 }
 
@@ -47,12 +62,12 @@ func TestMySQLWalkThroughForIncomplete(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		runWalkThroughTest(t, test, db.MySQL, nil, false /* record */)
+		runWalkThroughTest(t, test, storepb.Engine_MYSQL, nil, false /* record */)
 	}
 }
 
 func TestPostgreSQLWalkThrough(t *testing.T) {
-	originDatabase := &storepb.DatabaseMetadata{
+	originDatabase := &storepb.DatabaseSchemaMetadata{
 		Name: "postgres",
 		Schemas: []*storepb.SchemaMetadata{
 			{
@@ -101,7 +116,7 @@ func TestPostgreSQLWalkThrough(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		runWalkThroughTest(t, test, db.Postgres, originDatabase, false /* record */)
+		runWalkThroughTest(t, test, storepb.Engine_POSTGRES, originDatabase, false /* record */)
 	}
 }
 
@@ -113,7 +128,7 @@ func convertInterfaceSliceToStringSlice(slice []any) []string {
 	return res
 }
 
-func runWalkThroughTest(t *testing.T, file string, engineType db.Type, originDatabase *storepb.DatabaseMetadata, record bool) {
+func runWalkThroughTest(t *testing.T, file string, engineType storepb.Engine, originDatabase *storepb.DatabaseSchemaMetadata, record bool) {
 	tests := []testData{}
 	filepath := filepath.Join("test", file+".yaml")
 	yamlFile, err := os.Open(filepath)
@@ -128,9 +143,9 @@ func runWalkThroughTest(t *testing.T, file string, engineType db.Type, originDat
 	for i, test := range tests {
 		var state *DatabaseState
 		if originDatabase != nil {
-			state = newDatabaseState(originDatabase, &FinderContext{CheckIntegrity: true, EngineType: engineType})
+			state = newDatabaseState(originDatabase, &FinderContext{CheckIntegrity: true, EngineType: engineType, IgnoreCaseSensitive: test.IgnoreCaseSensitive})
 		} else {
-			finder := NewEmptyFinder(&FinderContext{CheckIntegrity: false, EngineType: engineType})
+			finder := NewEmptyFinder(&FinderContext{CheckIntegrity: false, EngineType: engineType, IgnoreCaseSensitive: test.IgnoreCaseSensitive})
 			state = finder.Origin
 		}
 
@@ -140,6 +155,7 @@ func runWalkThroughTest(t *testing.T, file string, engineType db.Type, originDat
 				walkThroughError, ok := err.(*WalkThroughError)
 				require.True(t, ok)
 				tests[i].Err = walkThroughError
+				tests[i].Want = ""
 			} else {
 				err, yes := err.(*WalkThroughError)
 				require.True(t, yes)
@@ -160,9 +176,15 @@ func runWalkThroughTest(t *testing.T, file string, engineType db.Type, originDat
 		require.NoError(t, err, test.Statement)
 
 		if record {
-			tests[i].Want = state.convertToDatabaseMetadata()
+			tests[i].Want = protojson.Format(state.convertToDatabaseMetadata())
+			tests[i].Err = nil
 		} else {
-			require.Equal(t, test.Want, state.convertToDatabaseMetadata(), test.Statement)
+			want := &storepb.DatabaseSchemaMetadata{}
+			err = protojson.Unmarshal([]byte(test.Want), want)
+			require.NoError(t, err)
+			result := state.convertToDatabaseMetadata()
+			diff := cmp.Diff(want, result, protocmp.Transform())
+			require.Equal(t, "", diff, test.Statement)
 		}
 	}
 
@@ -175,11 +197,11 @@ func runWalkThroughTest(t *testing.T, file string, engineType db.Type, originDat
 }
 
 // convertToDatabaseMetadata only used for tests.
-func (d *DatabaseState) convertToDatabaseMetadata() *storepb.DatabaseMetadata {
+func (d *DatabaseState) convertToDatabaseMetadata() *storepb.DatabaseSchemaMetadata {
 	if d.deleted {
 		return nil
 	}
-	return &storepb.DatabaseMetadata{
+	return &storepb.DatabaseSchemaMetadata{
 		Name:         d.name,
 		CharacterSet: d.characterSet,
 		Collation:    d.collation,
@@ -199,6 +221,8 @@ func (d *DatabaseState) convertToSchemaMetadataList() []*storepb.SchemaMetadata 
 			// TODO(rebelice): convert views if needed.
 			Views:     []*storepb.ViewMetadata{},
 			Functions: []*storepb.FunctionMetadata{},
+			Streams:   []*storepb.StreamMetadata{},
+			Tasks:     []*storepb.TaskMetadata{},
 		}
 
 		result = append(result, schemaMeta)
@@ -291,7 +315,7 @@ func (t *TableState) convertToColumnMetadataList() []*storepb.ColumnMetadata {
 		}
 
 		if column.defaultValue != nil {
-			columnMeta.Default = &wrapperspb.StringValue{Value: *column.defaultValue}
+			columnMeta.DefaultValue = &storepb.ColumnMetadata_Default{Default: &wrapperspb.StringValue{Value: *column.defaultValue}}
 		}
 
 		if column.characterSet != nil {

@@ -25,12 +25,6 @@ service ProjectService {
     option (google.api.method_signature) = "";
   }
 
-  // Search for projects that the caller has both projects.get permission on, and also satisfy the specified query.
-  rpc SearchProjects(SearchProjectsRequest) returns (SearchProjectsResponse) {
-    option (google.api.http) = {get: "/v1/projects:search"};
-    option (google.api.method_signature) = "";
-  }
-
   rpc CreateProject(CreateProjectRequest) returns (Project) {
     option (google.api.http) = {
       post: "/v1/projects"
@@ -75,12 +69,12 @@ service ProjectService {
   }
 
   rpc GetDeploymentConfig(GetDeploymentConfigRequest) returns (DeploymentConfig) {
-    option (google.api.http) = {get: "/v1/{name=projects/*/deploymentConfig}"};
+    option (google.api.http) = {get: "/v1/{name=projects/*/deploymentConfigs/*}"};
   }
 
   rpc UpdateDeploymentConfig(UpdateDeploymentConfigRequest) returns (DeploymentConfig) {
     option (google.api.http) = {
-      patch: "/v1/{config.name=projects/*/deploymentConfig}"
+      patch: "/v1/{config.name=projects/*/deploymentConfigs/*}"
       body: "config"
     };
   }
@@ -198,6 +192,17 @@ service ProjectService {
     option (google.api.http) = {delete: "/v1/{name=projects/*/databaseGroups/*/schemaGroups/*}"};
     option (google.api.method_signature) = "name";
   }
+
+  rpc GetProjectProtectionRules(GetProjectProtectionRulesRequest) returns (ProtectionRules) {
+    option (google.api.http) = {get: "/v1/{name=projects/*/protectionRules}"};
+  }
+
+  rpc UpdateProjectProtectionRules(UpdateProjectProtectionRulesRequest) returns (ProtectionRules) {
+    option (google.api.http) = {
+      post: "/v1/{protection_rules.name=projects/*/protectionRules}"
+      body: "*"
+    };
+  }
 }
 
 message GetProjectRequest {
@@ -225,33 +230,6 @@ message ListProjectsRequest {
 }
 
 message ListProjectsResponse {
-  // The projects from the specified request.
-  repeated Project projects = 1;
-
-  // A token, which can be sent as `page_token` to retrieve the next page.
-  // If this field is omitted, there are no subsequent pages.
-  string next_page_token = 2;
-}
-
-message SearchProjectsRequest {
-  // The maximum number of projects to return. The service may return fewer than
-  // this value.
-  // If unspecified, at most 50 projects will be returned.
-  // The maximum value is 1000; values above 1000 will be coerced to 1000.
-  int32 page_size = 1;
-
-  // A page token, received from a previous `ListProjects` call.
-  // Provide this to retrieve the subsequent page.
-  //
-  // When paginating, all other parameters provided to `ListProjects` must match
-  // the call that provided the page token.
-  string page_token = 2;
-
-  // Filter is used to filter projects returned in the list.
-  string filter = 3;
-}
-
-message SearchProjectsResponse {
   // The projects from the specified request.
   repeated Project projects = 1;
 
@@ -330,7 +308,7 @@ message SetIamPolicyRequest {
 
 message GetDeploymentConfigRequest {
   // The name of the resource.
-  // Format: projects/{project}/deploymentConfig
+  // Format: projects/{project}/deploymentConfigs/default.
   string name = 1 [(google.api.field_behavior) = REQUIRED];
 }
 
@@ -394,13 +372,11 @@ message Project {
 
   TenantMode tenant_mode = 8;
 
-  string db_name_template = 9;
-
   SchemaChange schema_change = 10;
 
   repeated Webhook webhooks = 11;
 
-  string data_category_config_id = 12;
+  string data_classification_config_id = 12;
 }
 
 enum Workflow {
@@ -507,7 +483,7 @@ message Webhook {
 
 message DeploymentConfig {
   // The name of the resource.
-  // Format: projects/{project}/deploymentConfig
+  // Format: projects/{project}/deploymentConfigs/default.
   string name = 1;
 
   // The title of the deployment config.
@@ -553,6 +529,12 @@ enum OperatorType {
 message Activity {
   enum Type {
     TYPE_UNSPECIFIED = 0;
+    // Notifications via webhooks.
+    //
+    // TYPE_NOTIFY_ISSUE_APPROVED represents the issue approved notification.
+    TYPE_NOTIFY_ISSUE_APPROVED = 23;
+    // TYPE_NOTIFY_PIPELINE_ROLLOUT represents the pipeline rollout notification.
+    TYPE_NOTIFY_PIPELINE_ROLLOUT = 24;
     // Issue related activity types.
     //
     // TYPE_ISSUE_CREATE represents creating an issue.
@@ -569,6 +551,8 @@ message Activity {
     TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE = 5;
     // TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE represents the pipeline task status change, including PENDING, PENDING_APPROVAL, RUNNING, SUCCESS, FAILURE, CANCELED for now.
     TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE = 6;
+    // TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE represents the pipeline task run status change, including PENDING, RUNNING, DONE, FAILED, CANCELED.
+    TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE = 22;
     // TYPE_ISSUE_PIPELINE_TASK_FILE_COMMIT represents the VCS trigger to commit a file to update the task statement.
     TYPE_ISSUE_PIPELINE_TASK_FILE_COMMIT = 7;
     // TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE represents the manual update of the task statement.
@@ -597,8 +581,6 @@ message Activity {
     TYPE_PROJECT_MEMBER_CREATE = 16;
     // TYPE_PROJECT_MEMBER_DELETE represents removing a member from the project.
     TYPE_PROJECT_MEMBER_DELETE = 17;
-    // TYPE_PROJECT_MEMBER_ROLE_UPDATE represents updating the member role, for example, from ADMIN to MEMBER.
-    TYPE_PROJECT_MEMBER_ROLE_UPDATE = 18;
 
     // SQL Editor related activity types.
     // TYPE_SQL_EDITOR_QUERY represents executing query in SQL Editor.
@@ -834,4 +816,43 @@ message SchemaGroup {
 
   // The list of databases that match the database group condition.
   repeated Table unmatched_tables = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message GetProjectProtectionRulesRequest {
+  // The name of the protection rules.
+  // Format: projects/{project}/protectionRules
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message UpdateProjectProtectionRulesRequest {
+  ProtectionRules protection_rules = 2 [(google.api.field_behavior) = REQUIRED];
+}
+
+message ProtectionRules {
+  // The name of the protection rules.
+  // Format: projects/{project}/protectionRules
+  string name = 1;
+
+  repeated ProtectionRule rules = 2;
+}
+
+message ProtectionRule {
+  // A unique identifier for a node in UUID format.
+  string id = 1;
+
+  // The type of target.
+  enum Target {
+    PROTECTION_TARGET_UNSPECIFIED = 0;
+    BRANCH = 1;
+    CHANGELIST = 2;
+  }
+
+  Target target = 2;
+
+  // The name of the branch/changelist or wildcard.
+  string name_filter = 3;
+
+  // The roles allowed to create branches or changelists.
+  // Format: roles/OWNER.
+  repeated string create_allowed_roles = 4;
 }

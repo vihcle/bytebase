@@ -105,7 +105,9 @@
               />
             </BBTableCell>
             <BBTableCell class="bb-grid-cell">
-              {{ hostPortOfInstanceV1(instance) }}
+              <EllipsisText class="w-10">
+                {{ hostPortOfInstanceV1(instance) }}
+              </EllipsisText>
             </BBTableCell>
           </template>
         </BBTable>
@@ -137,12 +139,13 @@
 </template>
 
 <script lang="ts" setup>
+import { storeToRefs } from "pinia";
 import { reactive, computed, watchEffect, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { storeToRefs } from "pinia";
-
 import type { BBTableColumn, BBTableSectionDataSource } from "@/bbkit/types";
-import { instanceV1Slug, instanceV1Name, hostPortOfInstanceV1 } from "@/utils";
+import EllipsisText from "@/components/EllipsisText.vue";
+import { EnvironmentV1Name, InstanceV1EngineIcon } from "@/components/v2";
+import { Drawer, DrawerContent } from "@/components/v2";
 import {
   pushNotification,
   useInstanceV1Store,
@@ -152,8 +155,7 @@ import {
   useCurrentUserV1,
 } from "@/store";
 import { ComposedInstance } from "@/types";
-import { EnvironmentV1Name, InstanceV1EngineIcon } from "@/components/v2";
-import { Drawer, DrawerContent } from "@/components/v2";
+import { instanceV1Slug, instanceV1Name, hostPortOfInstanceV1 } from "@/utils";
 import { hasWorkspacePermissionV1 } from "@/utils";
 
 defineProps({
@@ -248,9 +250,11 @@ const isInstanceSelected = (instance: ComposedInstance): boolean => {
 };
 
 const allSelectionState = computed(() => {
-  const checked = instanceList.value.every((instance) =>
-    state.selectedInstance.has(instance.name)
-  );
+  const checked =
+    state.selectedInstance.size > 0 &&
+    instanceList.value.every((instance) =>
+      state.selectedInstance.has(instance.name)
+    );
   const indeterminate =
     !checked &&
     instanceList.value.some((instance) =>

@@ -1,22 +1,19 @@
 <template>
-  <form class="max-w-md space-y-4">
+  <form class="w-full space-y-4 mx-auto">
     <p class="text-lg font-medium leading-7 text-main">
       {{ $t("common.general") }}
     </p>
-    <div class="flex justify-between">
+    <div class="flex justify-start items-start gap-12">
       <dl class="">
         <dt class="text-sm font-medium text-control-light">
           {{ $t("common.name") }} <span class="text-red-600">*</span>
         </dt>
         <dd class="mt-1 text-sm text-main">
-          <input
+          <NInput
             id="projectName"
-            v-model="state.title"
+            v-model:value="state.title"
             :disabled="!allowEdit"
             required
-            autocomplete="off"
-            type="text"
-            class="textfield"
           />
         </dd>
         <div class="mt-1">
@@ -29,18 +26,23 @@
       </dl>
 
       <dl class="">
-        <dt class="text-sm font-medium text-control-light">
-          {{ $t("common.key") }} <span class="text-red-600">*</span>
+        <dt class="flex text-sm font-medium text-control-light">
+          {{ $t("common.key") }}
+          <NTooltip>
+            <template #trigger>
+              <heroicons-outline:information-circle class="ml-1 w-4 h-auto" />
+            </template>
+            {{ $t("project.key-hint") }}
+          </NTooltip>
+          <span class="text-red-600">*</span>
         </dt>
         <dd class="mt-1 text-sm text-main">
-          <input
+          <NInput
             id="projectKey"
-            v-model="state.key"
+            v-model:value="state.key"
             :disabled="!allowEdit"
             required
-            autocomplete="off"
-            type="text"
-            class="textfield uppercase"
+            @update:value="(val: string) => state.key = val.toUpperCase()"
           />
         </dd>
       </dl>
@@ -75,7 +77,7 @@
             />
             <span class="label">{{ $t("project.mode.batch") }}</span>
             <LearnMoreLink
-              url="https://www.bytebase.com/docs/concepts/batch-mode/?source=console"
+              url="https://www.bytebase.com/docs/change-database/batch-change/?source=console"
             />
             <FeatureBadge feature="bb.feature.multi-tenancy" />
           </label>
@@ -84,18 +86,13 @@
     </div>
 
     <div v-if="allowEdit" class="flex justify-end">
-      <button
-        type="button"
-        class="btn-primary"
-        :disabled="!allowSave"
-        @click.prevent="save"
-      >
-        {{ $t("common.save") }}
-      </button>
+      <NButton type="primary" :disabled="!allowSave" @click.prevent="save">
+        {{ $t("common.update") }}
+      </NButton>
     </div>
 
     <FeatureModal
-      :open="state.requiredFeature"
+      :open="!!state.requiredFeature"
       :feature="state.requiredFeature"
       @cancel="state.requiredFeature = undefined"
     />
@@ -103,13 +100,13 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, PropType, reactive } from "vue";
 import { cloneDeep, isEmpty } from "lodash-es";
+import { NTooltip } from "naive-ui";
+import { computed, PropType, reactive } from "vue";
 import { useI18n } from "vue-i18n";
-
-import { DEFAULT_PROJECT_ID, FeatureType } from "@/types";
-import { hasFeature, pushNotification, useProjectV1Store } from "@/store";
 import ResourceIdField from "@/components/v2/Form/ResourceIdField.vue";
+import { hasFeature, pushNotification, useProjectV1Store } from "@/store";
+import { DEFAULT_PROJECT_ID, FeatureType } from "@/types";
 import { Project, TenantMode } from "@/types/proto/v1/project_service";
 import { extractProjectResourceName } from "@/utils";
 

@@ -98,7 +98,7 @@ export const projectWebhookV1ActivityItemList =
         label: t(
           "project.webhook.activity-item.issue-task-status-change.label"
         ),
-        activity: Activity_Type.TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE,
+        activity: Activity_Type.TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE,
       },
       {
         title: t("project.webhook.activity-item.issue-info-change.title"),
@@ -114,6 +114,16 @@ export const projectWebhookV1ActivityItemList =
         title: t("project.webhook.activity-item.issue-approval-notify.title"),
         label: t("project.webhook.activity-item.issue-approval-notify.label"),
         activity: Activity_Type.TYPE_ISSUE_APPROVAL_NOTIFY,
+      },
+      {
+        title: t("project.webhook.activity-item.notify-issue-approved.title"),
+        label: t("project.webhook.activity-item.notify-issue-approved.label"),
+        activity: Activity_Type.TYPE_NOTIFY_ISSUE_APPROVED,
+      },
+      {
+        title: t("project.webhook.activity-item.notify-pipeline-rollout.title"),
+        label: t("project.webhook.activity-item.notify-pipeline-rollout.label"),
+        activity: Activity_Type.TYPE_NOTIFY_PIPELINE_ROLLOUT,
       },
     ];
   };

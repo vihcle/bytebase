@@ -4,25 +4,24 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
+	"github.com/blang/semver/v4"
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	pgparser "github.com/bytebase/bytebase/backend/plugin/parser/pg"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
+	pgrawparser "github.com/bytebase/bytebase/backend/plugin/parser/sql/engine/pg"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
-
-const systemSchemas = "'information_schema', 'pg_catalog', 'pg_toast', '_timescaledb_cache', '_timescaledb_catalog', '_timescaledb_internal', '_timescaledb_config', 'timescaledb_information', 'timescaledb_experimental'"
 
 // SyncInstance syncs the instance.
 func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, error) {
@@ -42,10 +41,10 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 		return nil, errors.Wrap(err, "failed to get databases")
 	}
 
-	var filteredDatabases []*storepb.DatabaseMetadata
+	var filteredDatabases []*storepb.DatabaseSchemaMetadata
 	for _, database := range databases {
 		// Skip all system databases
-		if _, ok := ExcludedDatabaseList[database.Name]; ok {
+		if pgparser.IsSystemDatabase(database.Name) {
 			continue
 		}
 		filteredDatabases = append(filteredDatabases, database)
@@ -59,14 +58,14 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 }
 
 // SyncDBSchema syncs a single database schema.
-func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetadata, error) {
+func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetadata, error) {
 	// Query db info
 	databases, err := driver.getDatabases(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get databases")
 	}
 
-	var databaseMetadata *storepb.DatabaseMetadata
+	var databaseMetadata *storepb.DatabaseSchemaMetadata
 	for _, database := range databases {
 		if database.Name == driver.databaseName {
 			databaseMetadata = database
@@ -76,6 +75,7 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 	if databaseMetadata == nil {
 		return nil, common.Errorf(common.NotFound, "database %q not found", driver.databaseName)
 	}
+	isAtLeastPG10 := isAtLeastPG10(driver.connectionCtx.EngineVersion)
 
 	txn, err := driver.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -83,13 +83,20 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 	}
 	defer txn.Rollback()
 
-	schemaList, err := getSchemas(txn)
+	schemas, err := getSchemas(txn)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get schemas from database %q", driver.databaseName)
 	}
-	tableMap, err := getTables(txn)
+	tableMap, err := getTables(txn, isAtLeastPG10)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get tables from database %q", driver.databaseName)
+	}
+	var tablePartitionMap map[db.TableKey][]*storepb.TablePartitionMetadata
+	if isAtLeastPG10 {
+		tablePartitionMap, err = getTablePartitions(txn)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get table partitions from database %q", driver.databaseName)
+		}
 	}
 	viewMap, err := getViews(txn)
 	if err != nil {
@@ -109,28 +116,18 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 		return nil, err
 	}
 
-	schemaNameMap := make(map[string]bool)
-	for _, schemaName := range schemaList {
-		schemaNameMap[schemaName] = true
-	}
-	for schemaName := range tableMap {
-		schemaNameMap[schemaName] = true
-	}
-	for schemaName := range viewMap {
-		schemaNameMap[schemaName] = true
-	}
-	var schemaNames []string
-	for schemaName := range schemaNameMap {
-		schemaNames = append(schemaNames, schemaName)
-	}
-	sort.Strings(schemaNames)
-	for _, schemaName := range schemaNames {
+	for _, schemaName := range schemas {
 		var tables []*storepb.TableMetadata
 		var views []*storepb.ViewMetadata
 		var functions []*storepb.FunctionMetadata
 		var exists bool
 		if tables, exists = tableMap[schemaName]; !exists {
 			tables = []*storepb.TableMetadata{}
+		}
+		for _, table := range tables {
+			if isAtLeastPG10 {
+				table.Partitions = warpTablePartitions(tablePartitionMap, schemaName, table.Name)
+			}
 		}
 		if views, exists = viewMap[schemaName]; !exists {
 			views = []*storepb.ViewMetadata{}
@@ -150,6 +147,18 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 	return databaseMetadata, err
 }
 
+func warpTablePartitions(m map[db.TableKey][]*storepb.TablePartitionMetadata, schemaName, tableName string) []*storepb.TablePartitionMetadata {
+	key := db.TableKey{Schema: schemaName, Table: tableName}
+	if partitions, exists := m[key]; exists {
+		defer delete(m, key)
+		for _, partition := range partitions {
+			partition.Subpartitions = warpTablePartitions(m, schemaName, partition.Name)
+		}
+		return partitions
+	}
+	return []*storepb.TablePartitionMetadata{}
+}
+
 var listForeignKeyQuery = `
 SELECT
 	n.nspname AS fk_schema,
@@ -167,7 +176,7 @@ FROM
 WHERE
 	n.nspname NOT IN(%s)
 	AND c.contype = 'f'
-ORDER BY fk_schema, fk_table, fk_name;`, systemSchemas)
+ORDER BY fk_schema, fk_table, fk_name;`, pgparser.SystemSchemaWhereClause)
 
 func getForeignKeys(txn *sql.Tx) (map[db.TableKey][]*storepb.ForeignKeyMetadata, error) {
 	foreignKeysMap := make(map[db.TableKey][]*storepb.ForeignKeyMetadata)
@@ -285,7 +294,7 @@ var listSchemaQuery = fmt.Sprintf(`
 SELECT nspname
 FROM pg_catalog.pg_namespace
 WHERE nspname NOT IN (%s);
-`, systemSchemas)
+`, pgparser.SystemSchemaWhereClause)
 
 func getSchemas(txn *sql.Tx) ([]string, error) {
 	rows, err := txn.Query(listSchemaQuery)
@@ -300,6 +309,9 @@ func getSchemas(txn *sql.Tx) ([]string, error) {
 		if err := rows.Scan(&schemaName); err != nil {
 			return nil, err
 		}
+		if pgparser.IsSystemSchema(schemaName) {
+			continue
+		}
 		result = append(result, schemaName)
 	}
 	if err := rows.Err(); err != nil {
@@ -309,19 +321,25 @@ func getSchemas(txn *sql.Tx) ([]string, error) {
 	return result, nil
 }
 
-var listTableQuery = `
-SELECT tbl.schemaname, tbl.tablename,
-	pg_table_size(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass),
-	pg_indexes_size(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass),
-	GREATEST(pc.reltuples::bigint, 0::BIGINT) AS estimate,
-	obj_description(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass) AS comment
-FROM pg_catalog.pg_tables tbl
-LEFT JOIN pg_class as pc ON pc.oid = format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass` + fmt.Sprintf(`
-WHERE tbl.schemaname NOT IN (%s)
-ORDER BY tbl.schemaname, tbl.tablename;`, systemSchemas)
+func getListTableQuery(isAtLeastPG10 bool) string {
+	relisPartition := ""
+	if isAtLeastPG10 {
+		relisPartition = " AND pc.relispartition IS FALSE"
+	}
+	return `
+	SELECT tbl.schemaname, tbl.tablename,
+		pg_table_size(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass),
+		pg_indexes_size(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass),
+		GREATEST(pc.reltuples::bigint, 0::BIGINT) AS estimate,
+		obj_description(format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass) AS comment
+	FROM pg_catalog.pg_tables tbl
+	LEFT JOIN pg_class as pc ON pc.oid = format('%s.%s', quote_ident(tbl.schemaname), quote_ident(tbl.tablename))::regclass` + fmt.Sprintf(`
+	WHERE tbl.schemaname NOT IN (%s)%s
+	ORDER BY tbl.schemaname, tbl.tablename;`, pgparser.SystemSchemaWhereClause, relisPartition)
+}
 
 // getTables gets all tables of a database.
-func getTables(txn *sql.Tx) (map[string][]*storepb.TableMetadata, error) {
+func getTables(txn *sql.Tx, isAtLeastPG10 bool) (map[string][]*storepb.TableMetadata, error) {
 	columnMap, err := getTableColumns(txn)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get table columns")
@@ -336,7 +354,8 @@ func getTables(txn *sql.Tx) (map[string][]*storepb.TableMetadata, error) {
 	}
 
 	tableMap := make(map[string][]*storepb.TableMetadata)
-	rows, err := txn.Query(listTableQuery)
+	query := getListTableQuery(isAtLeastPG10)
+	rows, err := txn.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -344,11 +363,13 @@ func getTables(txn *sql.Tx) (map[string][]*storepb.TableMetadata, error) {
 
 	for rows.Next() {
 		table := &storepb.TableMetadata{}
-		// var tbl tableSchema
 		var schemaName string
 		var comment sql.NullString
 		if err := rows.Scan(&schemaName, &table.Name, &table.DataSize, &table.IndexSize, &table.RowCount, &comment); err != nil {
 			return nil, err
+		}
+		if pgparser.IsSystemTable(table.Name) {
+			continue
 		}
 		if comment.Valid {
 			table.Comment = comment.String
@@ -367,12 +388,76 @@ func getTables(txn *sql.Tx) (map[string][]*storepb.TableMetadata, error) {
 	return tableMap, nil
 }
 
+var listTablePartitionQuery = `
+SELECT
+	n.nspname AS schema_name,
+	c.relname AS table_name,
+	i2.nspname AS inh_schema_name,
+	i2.relname AS inh_table_name,
+	i2.partstrat AS partition_type,
+	pg_get_expr(c.relpartbound, c.oid) AS rel_part_bound
+FROM
+	pg_catalog.pg_class c
+	LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    LEFT JOIN (
+		pg_inherits i 
+		INNER JOIN pg_class c2 ON i.inhparent = c2.oid 
+		LEFT JOIN pg_namespace n2 ON n2.oid = c2.relnamespace
+		LEFT JOIN pg_partitioned_table p ON p.partrelid = c2.oid
+	) i2 ON i2.inhrelid = c.oid 
+WHERE
+	((c.relkind = 'r'::"char") OR (c.relkind = 'f'::"char") OR (c.relkind = 'p'::"char"))
+	AND c.relispartition IS TRUE ` + fmt.Sprintf(`
+	AND n.nspname NOT IN (%s)
+ORDER BY c.oid;`, pgparser.SystemSchemaWhereClause)
+
+func getTablePartitions(txn *sql.Tx) (map[db.TableKey][]*storepb.TablePartitionMetadata, error) {
+	result := make(map[db.TableKey][]*storepb.TablePartitionMetadata)
+	rows, err := txn.Query(listTablePartitionQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var schemaName, tableName, inhSchemaName, inhTableName, partitionType, relPartBound string
+		if err := rows.Scan(&schemaName, &tableName, &inhSchemaName, &inhTableName, &partitionType, &relPartBound); err != nil {
+			return nil, err
+		}
+		if pgparser.IsSystemTable(tableName) || pgparser.IsSystemTable(inhTableName) {
+			continue
+		}
+		key := db.TableKey{Schema: inhSchemaName, Table: inhTableName}
+		metadata := &storepb.TablePartitionMetadata{
+			Name:       tableName,
+			Expression: relPartBound,
+		}
+		switch strings.ToLower(partitionType) {
+		case "l":
+			metadata.Type = storepb.TablePartitionMetadata_LIST
+		case "r":
+			metadata.Type = storepb.TablePartitionMetadata_RANGE
+		case "h":
+			metadata.Type = storepb.TablePartitionMetadata_HASH
+		default:
+			return nil, errors.Errorf("invalid partition type %q", partitionType)
+		}
+		result[key] = append(result[key], metadata)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 var listColumnQuery = `
 SELECT
 	cols.table_schema,
 	cols.table_name,
 	cols.column_name,
 	cols.data_type,
+	cols.character_maximum_length,
 	cols.ordinal_position,
 	cols.column_default,
 	cols.is_nullable,
@@ -382,7 +467,7 @@ SELECT
 	pg_catalog.col_description(format('%s.%s', quote_ident(table_schema), quote_ident(table_name))::regclass, cols.ordinal_position::int) as column_comment
 FROM INFORMATION_SCHEMA.COLUMNS AS cols` + fmt.Sprintf(`
 WHERE cols.table_schema NOT IN (%s)
-ORDER BY cols.table_schema, cols.table_name, cols.ordinal_position;`, systemSchemas)
+ORDER BY cols.table_schema, cols.table_name, cols.ordinal_position;`, pgparser.SystemSchemaWhereClause)
 
 // getTableColumns gets the columns of a table.
 func getTableColumns(txn *sql.Tx) (map[db.TableKey][]*storepb.ColumnMetadata, error) {
@@ -395,12 +480,14 @@ func getTableColumns(txn *sql.Tx) (map[db.TableKey][]*storepb.ColumnMetadata, er
 	for rows.Next() {
 		column := &storepb.ColumnMetadata{}
 		var schemaName, tableName, nullable string
-		var defaultStr, collation, udtSchema, udtName, comment sql.NullString
-		if err := rows.Scan(&schemaName, &tableName, &column.Name, &column.Type, &column.Position, &defaultStr, &nullable, &collation, &udtSchema, &udtName, &comment); err != nil {
+		var characterMaxLength, defaultStr, collation, udtSchema, udtName, comment sql.NullString
+		if err := rows.Scan(&schemaName, &tableName, &column.Name, &column.Type, &characterMaxLength, &column.Position, &defaultStr, &nullable, &collation, &udtSchema, &udtName, &comment); err != nil {
 			return nil, err
 		}
 		if defaultStr.Valid {
-			column.Default = &wrapperspb.StringValue{Value: defaultStr.String}
+			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{
+				DefaultExpression: defaultStr.String,
+			}
 		}
 		isNullBool, err := util.ConvertYesNo(nullable)
 		if err != nil {
@@ -412,6 +499,14 @@ func getTableColumns(txn *sql.Tx) (map[db.TableKey][]*storepb.ColumnMetadata, er
 			column.Type = fmt.Sprintf("%s.%s", udtSchema.String, udtName.String)
 		case "ARRAY":
 			column.Type = udtName.String
+		case "character", "character varying", "bit", "bit varying":
+			if characterMaxLength.Valid {
+				// For character varying(n), the character maximum length is n.
+				// For character without length specifier, key character_maximum_length is null,
+				// we don't need to append the length.
+				// https://www.postgresql.org/docs/current/infoschema-columns.html.
+				column.Type = fmt.Sprintf("%s(%s)", column.Type, characterMaxLength.String)
+			}
 		}
 		column.Collation = collation.String
 		column.Comment = comment.String
@@ -428,7 +523,7 @@ func getTableColumns(txn *sql.Tx) (map[db.TableKey][]*storepb.ColumnMetadata, er
 
 var listViewQuery = `
 SELECT schemaname, viewname, definition, obj_description(format('%s.%s', quote_ident(schemaname), quote_ident(viewname))::regclass) FROM pg_catalog.pg_views` + fmt.Sprintf(`
-WHERE schemaname NOT IN (%s);`, systemSchemas)
+WHERE schemaname NOT IN (%s);`, pgparser.SystemSchemaWhereClause)
 
 // getViews gets all views of a database.
 func getViews(txn *sql.Tx) (map[string][]*storepb.ViewMetadata, error) {
@@ -446,6 +541,11 @@ func getViews(txn *sql.Tx) (map[string][]*storepb.ViewMetadata, error) {
 		if err := rows.Scan(&schemaName, &view.Name, &def, &comment); err != nil {
 			return nil, err
 		}
+		// Skip system views.
+		if pgparser.IsSystemView(view.Name) {
+			continue
+		}
+
 		// Return error on NULL view definition.
 		// https://github.com/bytebase/bytebase/issues/343
 		if !def.Valid {
@@ -534,8 +634,12 @@ func getExtensions(txn *sql.Tx) ([]*storepb.ExtensionMetadata, error) {
 	defer rows.Close()
 	for rows.Next() {
 		e := &storepb.ExtensionMetadata{}
-		if err := rows.Scan(&e.Name, &e.Version, &e.Schema, &e.Description); err != nil {
+		var description sql.NullString
+		if err := rows.Scan(&e.Name, &e.Version, &e.Schema, &description); err != nil {
 			return nil, err
+		}
+		if description.Valid {
+			e.Description = description.String
 		}
 		extensions = append(extensions, e)
 	}
@@ -556,7 +660,7 @@ SELECT idx.schemaname, idx.tablename, idx.indexname, idx.indexdef, (SELECT 1
 	AND constraint_type = 'PRIMARY KEY') AS primary,
 	obj_description(format('%s.%s', quote_ident(idx.schemaname), quote_ident(idx.indexname))::regclass) AS comment` + fmt.Sprintf(`
 FROM pg_indexes AS idx WHERE idx.schemaname NOT IN (%s)
-ORDER BY idx.schemaname, idx.tablename, idx.indexname;`, systemSchemas)
+ORDER BY idx.schemaname, idx.tablename, idx.indexname;`, pgparser.SystemSchemaWhereClause)
 
 // getIndexes gets all indices of a database.
 func getIndexes(txn *sql.Tx) (map[db.TableKey][]*storepb.IndexMetadata, error) {
@@ -576,7 +680,7 @@ func getIndexes(txn *sql.Tx) (map[db.TableKey][]*storepb.IndexMetadata, error) {
 			return nil, err
 		}
 
-		nodes, err := parser.Parse(parser.Postgres, parser.ParseContext{}, statement)
+		nodes, err := pgrawparser.Parse(pgrawparser.ParseContext{}, statement)
 		if err != nil {
 			return nil, err
 		}
@@ -628,7 +732,7 @@ left join pg_namespace n on p.pronamespace = n.oid
 left join pg_language l on p.prolang = l.oid
 left join pg_type t on t.oid = p.prorettype ` + fmt.Sprintf(`
 where n.nspname not in (%s)
-order by function_schema, function_name;`, systemSchemas)
+order by function_schema, function_name;`, pgparser.SystemSchemaWhereClause)
 
 // getFunctions gets all functions of a database.
 func getFunctions(txn *sql.Tx) (map[string][]*storepb.FunctionMetadata, error) {
@@ -646,7 +750,7 @@ func getFunctions(txn *sql.Tx) (map[string][]*storepb.FunctionMetadata, error) {
 			return nil, err
 		}
 		// Skip internal functions.
-		if strings.Contains(function.Definition, "$libdir/timescaledb") {
+		if pgparser.IsSystemFunctions(function.Name, function.Definition) {
 			continue
 		}
 
@@ -658,6 +762,8 @@ func getFunctions(txn *sql.Tx) (map[string][]*storepb.FunctionMetadata, error) {
 
 	return functionMap, nil
 }
+
+var statPluginVersion = semver.MustParse("1.8.0")
 
 // SyncSlowQuery syncs the slow query.
 func (driver *Driver) SyncSlowQuery(ctx context.Context, _ time.Time) (map[string]*storepb.SlowQueryStatistics, error) {
@@ -686,8 +792,11 @@ func (driver *Driver) SyncSlowQuery(ctx context.Context, _ time.Time) (map[strin
 	// pg_stat_statements version 1.8 changed the column names of pg_stat_statements.
 	// version is a string in the form of "major.minor".
 	// We need to check if the major version is greater than or equal to 1 and the minor version is greater than or equal to 8.
-	versions := strings.Split(version, ".")
-	if len(versions) == 2 && ((versions[0] == "1" && versions[1] >= "8") || versions[0] > "1") {
+	sv, err := semver.ParseTolerant(version)
+	if err != nil {
+		return nil, err
+	}
+	if sv.GTE(statPluginVersion) {
 		query = `
 		SELECT
 			pg_database.datname,
@@ -725,15 +834,15 @@ func (driver *Driver) SyncSlowQuery(ctx context.Context, _ time.Time) (map[strin
 	for slowQueryStatisticsRows.Next() {
 		var database string
 		var fingerprint string
-		var calls int64
+		var calls int32
 		var totalExecTime float64
 		var maxExecTime float64
-		var rows int64
+		var rows int32
 		if err := slowQueryStatisticsRows.Scan(&database, &fingerprint, &calls, &totalExecTime, &maxExecTime, &rows); err != nil {
 			return nil, err
 		}
 		if len(fingerprint) > db.SlowQueryMaxLen {
-			fingerprint = fingerprint[:db.SlowQueryMaxLen]
+			fingerprint, _ = common.TruncateString(fingerprint, db.SlowQueryMaxLen)
 		}
 		item := storepb.SlowQueryStatisticsItem{
 			SqlFingerprint:   fingerprint,
@@ -800,4 +909,14 @@ func (driver *Driver) CheckSlowQueryLogEnabled(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func isAtLeastPG10(version string) bool {
+	v, err := semver.ParseTolerant(version)
+	if err != nil {
+		slog.Error("invalid postgres version", slog.String("version", version))
+		// Assume the version is at least 10.0 for any error.
+		return true
+	}
+	return v.Major >= 10
 }

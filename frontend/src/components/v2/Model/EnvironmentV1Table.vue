@@ -3,8 +3,8 @@
     :column-list="columnList"
     :data-source="environmentList"
     :show-header="true"
-    :left-bordered="false"
-    :right-bordered="false"
+    :show-placeholder="true"
+    class="border-y"
     @click-row="clickEnvironment"
   >
     <template #item="{ item: environment }: EnvironmentRow">
@@ -20,11 +20,11 @@
 
 <script lang="ts" setup>
 import { computed } from "vue";
-import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
+import { BBGridColumn, BBGridRow, BBGrid } from "@/bbkit";
 import { Environment } from "@/types/proto/v1/environment_service";
 import { environmentV1Slug } from "@/utils";
-import { BBGridColumn, BBGridRow, BBGrid } from "@/bbkit";
 import { EnvironmentV1Name } from ".";
 
 export type EnvironmentRow = BBGridRow<Environment>;

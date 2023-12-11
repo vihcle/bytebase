@@ -1,16 +1,15 @@
-import { format, FormatOptions } from "sql-formatter";
-
-import { SQLDialect } from "../../types";
+import type { FormatOptionsWithLanguage } from "sql-formatter";
+import type { SQLDialect } from "../../types";
 
 type FormatResult = {
   data: string;
   error: Error | null;
 };
 
-type FormatterLanguage = FormatOptions["language"];
+type FormatterLanguage = FormatOptionsWithLanguage["language"];
 
 const convertDialectToFormatterLanguage = (
-  dialect: SQLDialect
+  dialect: SQLDialect | undefined
 ): FormatterLanguage => {
   if (dialect === "MYSQL" || dialect === "TIDB" || dialect === "OCEANBASE")
     return "mysql";
@@ -19,8 +18,12 @@ const convertDialectToFormatterLanguage = (
   return "sql";
 };
 
-const formatSQL = (sql: string, dialect: SQLDialect): FormatResult => {
-  const options: Partial<FormatOptions> = {
+const formatSQL = async (
+  sql: string,
+  dialect: SQLDialect | undefined
+): Promise<FormatResult> => {
+  const { format } = await import("sql-formatter");
+  const options: Partial<FormatOptionsWithLanguage> = {
     language: convertDialectToFormatterLanguage(dialect),
   };
 

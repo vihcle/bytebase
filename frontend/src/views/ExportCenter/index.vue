@@ -1,7 +1,9 @@
 <template>
-  <div class="w-full px-4 py-1 pt-2">
-    <div class="w-full flex flex-row justify-between items-center">
-      <div class="flex items-center gap-x-4">
+  <div class="w-full px-4 py-6">
+    <div
+      class="w-full flex flex-col lg:flex-row items-start lg:items-center justify-between gap-y-2"
+    >
+      <div class="flex max-w-full items-center gap-x-4">
         <NInputGroup>
           <ProjectSelect
             :project="state.filterParams.project?.uid ?? String(UNKNOWN_ID)"
@@ -9,6 +11,7 @@
             @update:project="changeProjectId"
           />
           <InstanceSelect
+            class="!w-48"
             :instance="state.filterParams.instance?.uid ?? String(UNKNOWN_ID)"
             :include-all="true"
             @update:instance="changeInstanceId"
@@ -29,15 +32,13 @@
           <heroicons:x-mark class="w-4 h-4 ml-1 -mr-1.5" />
         </NButton>
       </div>
-      <div>
-        <NButton @click="handleRequestExportClick">
-          <FeatureBadge
-            feature="bb.feature.access-control"
-            custom-class="mr-2"
-          />
-          {{ $t("quick-action.request-export") }}
-        </NButton>
-      </div>
+      <NButton type="primary" @click="handleRequestExportClick">
+        <FeatureBadge
+          feature="bb.feature.access-control"
+          custom-class="text-white pointer-events-none mr-2"
+        />
+        {{ $t("quick-action.request-export-data") }}
+      </NButton>
     </div>
     <div class="w-full mt-4">
       <ExportRecordTable :export-records="filterExportRecords" />
@@ -46,6 +47,10 @@
 
   <RequestExportPanel
     v-if="state.showRequestExportPanel"
+    :project-id="state.filterParams.project?.uid"
+    :database-id="state.filterParams.database?.uid"
+    :redirect-to-issue-page="true"
+    :statement-only="true"
     @close="state.showRequestExportPanel = false"
   />
 
@@ -57,11 +62,12 @@
 </template>
 
 <script lang="ts" setup>
-import { head } from "lodash-es";
 import { NButton, NInputGroup } from "naive-ui";
 import { computed, reactive, watchEffect } from "vue";
-import { UNKNOWN_ID } from "@/types";
-import { FilterParams, ExportRecord } from "./types";
+import { useRoute, useRouter } from "vue-router";
+import RequestExportPanel from "@/components/Issue/panel/RequestExportPanel/index.vue";
+import { getExpiredDateTime } from "@/components/ProjectMember/ProjectRoleTable/utils";
+import { ProjectSelect, InstanceSelect, DatabaseSelect } from "@/components/v2";
 import {
   featureToRef,
   useCurrentUserV1,
@@ -71,11 +77,10 @@ import {
   useProjectV1ListByCurrentUser,
   useProjectV1Store,
 } from "@/store";
-import { ProjectSelect, InstanceSelect, DatabaseSelect } from "@/components/v2";
+import { UNKNOWN_ID } from "@/types";
 import { convertFromExpr } from "@/utils/issue/cel";
 import ExportRecordTable from "./ExportRecordTable.vue";
-import RequestExportPanel from "@/components/Issue/panel/RequestExportPanel/index.vue";
-import { useRoute, useRouter } from "vue-router";
+import { FilterParams, ExportRecord } from "./types";
 
 interface LocalState {
   filterParams: FilterParams;
@@ -144,7 +149,8 @@ watchEffect(async () => {
   const projectNameList = projectList.value.map((project) => project.name);
   const iamPolicyList =
     await projectIamPolicyStore.batchGetOrFetchProjectIamPolicy(
-      projectNameList
+      projectNameList,
+      true /* skipCache */
     );
 
   const tempExportRecords: ExportRecord[] = [];
@@ -158,37 +164,53 @@ watchEffect(async () => {
       if (!binding.parsedExpr?.expr) {
         continue;
       }
-
-      const conditionExpr = convertFromExpr(binding.parsedExpr.expr);
-      const databaseResource = head(conditionExpr.databaseResources);
-      if (databaseResource) {
-        const description = binding.condition?.description || "";
-        const issueId = description.match(issueDescriptionRegexp)?.[1];
-        const database = await databaseStore.getOrFetchDatabaseByName(
-          databaseResource.databaseName
-        );
-        let statement = conditionExpr.statement || "";
-        // NOTE: concat schema and table name to statement for table level export.
-        // Maybe we need to move this into backend later.
-        if (statement === "" && databaseResource.table) {
-          const names = [];
-          if (databaseResource.schema) {
-            names.push(databaseResource.schema);
-          }
-          names.push(databaseResource.table);
-          statement = `SELECT * FROM ${names.join(".")};`;
-        }
-
-        tempExportRecords.push({
-          databaseResource,
-          database,
-          statement,
-          expiration: conditionExpr.expiredTime || "",
-          maxRowCount: conditionExpr.rowLimit || 0,
-          exportFormat: (conditionExpr.exportFormat as any) || "JSON",
-          issueId: issueId || String(UNKNOWN_ID),
-        });
+      // Skip the expired export record.
+      const expiredDateTime = getExpiredDateTime(binding);
+      if (
+        expiredDateTime &&
+        new Date().getTime() >= expiredDateTime.getTime()
+      ) {
+        continue;
       }
+      const conditionExpr = convertFromExpr(binding.parsedExpr.expr);
+      // Only show the export record with statement condition in export center.
+      if (!conditionExpr.statement || conditionExpr.statement === "") {
+        continue;
+      }
+      if (
+        !conditionExpr.databaseResources ||
+        conditionExpr.databaseResources.length !== 1
+      ) {
+        continue;
+      }
+
+      const databaseResource = conditionExpr.databaseResources[0];
+      const description = binding.condition?.description || "";
+      const issueId = description.match(issueDescriptionRegexp)?.[1];
+      const database = await databaseStore.getOrFetchDatabaseByName(
+        databaseResource.databaseName
+      );
+      let statement = conditionExpr.statement || "";
+      // NOTE: concat schema and table name to statement for table level export.
+      // Maybe we need to move this into backend later.
+      if (statement === "" && databaseResource.table) {
+        const names = [];
+        if (databaseResource.schema) {
+          names.push(databaseResource.schema);
+        }
+        names.push(databaseResource.table);
+        statement = `SELECT * FROM ${names.join(".")};`;
+      }
+
+      tempExportRecords.push({
+        databaseResource,
+        database,
+        statement,
+        expiration: conditionExpr.expiredTime || "",
+        maxRowCount: conditionExpr.rowLimit || 0,
+        exportFormat: (conditionExpr.exportFormat as any) || "JSON",
+        issueId: issueId || String(UNKNOWN_ID),
+      });
     }
   }
   state.exportRecords = tempExportRecords;

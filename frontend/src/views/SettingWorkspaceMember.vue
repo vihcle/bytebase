@@ -1,17 +1,18 @@
 <template>
-  <FeatureAttention
-    v-if="remainingUserCount <= 3"
-    custom-class="m-5"
-    feature="bb.feature.user-count"
-    :description="userCountAttention"
-  />
+  <div class="w-full overflow-x-hidden space-y-4">
+    <FeatureAttention
+      v-if="remainingUserCount <= 3"
+      feature="bb.feature.user-count"
+      :description="userCountAttention"
+    />
+    <FeatureAttention feature="bb.feature.rbac" />
 
-  <div class="w-full pb-4">
-    <div v-if="allowAddOrInvite" class="w-full flex justify-center mb-6">
+    <div
+      v-if="allowAddOrInvite"
+      class="w-full flex justify-center mb-6 border-b pb-6"
+    >
       <MemberAddOrInvite />
     </div>
-
-    <FeatureAttention custom-class="my-5" feature="bb.feature.rbac" />
 
     <div class="flex justify-between items-center">
       <div class="flex-1 flex space-x-2">
@@ -72,21 +73,25 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, reactive } from "vue";
 import { NCheckbox } from "naive-ui";
+import { computed, onMounted, reactive } from "vue";
 import { useI18n } from "vue-i18n";
-
 import { MemberAddOrInvite, UserTable } from "@/components/User/Settings";
 import { SearchBox } from "@/components/v2";
-import { hasWorkspacePermissionV1 } from "../utils";
-import { SYSTEM_BOT_USER_NAME, filterUserListByKeyword } from "../types";
 import {
   useSubscriptionV1Store,
   useCurrentUserV1,
   useUserStore,
+  useUIStateStore,
 } from "@/store";
-import { State } from "@/types/proto/v1/common";
 import { UserType } from "@/types/proto/v1/auth_service";
+import { State } from "@/types/proto/v1/common";
+import {
+  ALL_USERS_USER_NAME,
+  SYSTEM_BOT_USER_NAME,
+  filterUserListByKeyword,
+} from "../types";
+import { hasWorkspacePermissionV1 } from "../utils";
 
 type LocalState = {
   activeUserFilterText: string;
@@ -103,10 +108,20 @@ const state = reactive<LocalState>({
 const { t } = useI18n();
 const userStore = useUserStore();
 const currentUserV1 = useCurrentUserV1();
+const uiStateStore = useUIStateStore();
 const subscriptionV1Store = useSubscriptionV1Store();
 const hasRBACFeature = computed(() =>
   subscriptionV1Store.hasFeature("bb.feature.rbac")
 );
+
+onMounted(() => {
+  if (!uiStateStore.getIntroStateByKey("member.visit")) {
+    uiStateStore.saveIntroStateByKey({
+      key: "member.visit",
+      newState: true,
+    });
+  }
+});
 
 const activeUserList = computed(() => {
   const list = userStore.userList.filter((user) => user.state === State.ACTIVE);
@@ -126,7 +141,7 @@ const activeUserList = computed(() => {
 
 const inactiveUserList = computed(() => {
   const list = userStore.userList.filter(
-    (user) => user.state === State.DELETED
+    (user) => user.state === State.DELETED && user.email !== ALL_USERS_USER_NAME
   );
   return filterUserListByKeyword(list, state.inactiveUserFilterText);
 });

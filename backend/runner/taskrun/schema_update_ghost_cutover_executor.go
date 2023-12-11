@@ -3,6 +3,7 @@ package taskrun
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -10,25 +11,26 @@ import (
 
 	"github.com/github/gh-ost/go/base"
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/component/activity"
 	"github.com/bytebase/bytebase/backend/component/config"
 	"github.com/bytebase/bytebase/backend/component/dbfactory"
+	"github.com/bytebase/bytebase/backend/component/ghost"
 	"github.com/bytebase/bytebase/backend/component/state"
-	enterpriseAPI "github.com/bytebase/bytebase/backend/enterprise/api"
+	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/db"
-	vcsPlugin "github.com/bytebase/bytebase/backend/plugin/vcs"
 	"github.com/bytebase/bytebase/backend/runner/schemasync"
 	"github.com/bytebase/bytebase/backend/store"
+	"github.com/bytebase/bytebase/backend/store/model"
 	"github.com/bytebase/bytebase/backend/utils"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 // NewSchemaUpdateGhostCutoverExecutor creates a schema update (gh-ost) cutover task executor.
-func NewSchemaUpdateGhostCutoverExecutor(store *store.Store, dbFactory *dbfactory.DBFactory, activityManager *activity.Manager, license enterpriseAPI.LicenseService, stateCfg *state.State, schemaSyncer *schemasync.Syncer, profile config.Profile) Executor {
+func NewSchemaUpdateGhostCutoverExecutor(store *store.Store, dbFactory *dbfactory.DBFactory, activityManager *activity.Manager, license enterprise.LicenseService, stateCfg *state.State, schemaSyncer *schemasync.Syncer, profile config.Profile) Executor {
 	return &SchemaUpdateGhostCutoverExecutor{
 		store:           store,
 		dbFactory:       dbFactory,
@@ -45,14 +47,21 @@ type SchemaUpdateGhostCutoverExecutor struct {
 	store           *store.Store
 	dbFactory       *dbfactory.DBFactory
 	activityManager *activity.Manager
-	license         enterpriseAPI.LicenseService
+	license         enterprise.LicenseService
 	stateCfg        *state.State
 	schemaSyncer    *schemasync.Syncer
 	profile         config.Profile
 }
 
 // RunOnce will run SchemaUpdateGhostCutover task once.
-func (e *SchemaUpdateGhostCutoverExecutor) RunOnce(ctx context.Context, task *store.TaskMessage) (bool, *api.TaskRunResultPayload, error) {
+// TODO: support cancellation.
+func (e *SchemaUpdateGhostCutoverExecutor) RunOnce(ctx context.Context, _ context.Context, task *store.TaskMessage, taskRunUID int) (bool, *api.TaskRunResultPayload, error) {
+	e.stateCfg.TaskRunExecutionStatuses.Store(taskRunUID,
+		state.TaskRunExecutionStatus{
+			ExecutionStatus: v1pb.TaskRun_PRE_EXECUTING,
+			UpdateTime:      time.Now(),
+		})
+
 	if len(task.BlockedBy) != 1 {
 		return true, nil, errors.Errorf("failed to find task dag for ToTask %v", task.ID)
 	}
@@ -84,33 +93,37 @@ func (e *SchemaUpdateGhostCutoverExecutor) RunOnce(ctx context.Context, task *st
 	// To avoid leaking the rendered statement, the error message should use the original statement and not the rendered statement.
 	renderedStatement := utils.RenderStatement(statement, materials)
 
-	tableName, err := utils.GetTableNameFromStatement(renderedStatement)
+	tableName, err := ghost.GetTableNameFromStatement(renderedStatement)
 	if err != nil {
 		return true, nil, common.Wrapf(err, common.Internal, "failed to parse table name from statement, statement: %v", statement)
 	}
 
-	postponeFilename := utils.GetPostponeFlagFilename(syncTaskID, database.UID, database.DatabaseName, tableName)
+	postponeFilename := ghost.GetPostponeFlagFilename(syncTaskID, database.UID, database.DatabaseName, tableName)
 
 	value, ok := e.stateCfg.GhostTaskState.Load(syncTaskID)
 	if !ok {
 		return true, nil, errors.Errorf("failed to get gh-ost state from sync task")
 	}
-	sharedGhost := value.(sharedGhostState)
+	sharedGhost, ok := value.(sharedGhostState)
+	if !ok {
+		return true, nil, errors.Errorf("failed to convert shared gh-ost state")
+	}
 
 	// not using the rendered statement here because we want to avoid leaking the rendered statement
-	terminated, result, err := cutover(ctx, e.store, e.dbFactory, e.activityManager, e.license, e.profile, task, statement, payload.SheetID, payload.SchemaVersion, payload.VCSPushEvent, postponeFilename, sharedGhost.migrationContext, sharedGhost.errCh)
+	version := model.Version{Version: payload.SchemaVersion}
+	terminated, result, err := cutover(ctx, e.store, e.dbFactory, e.activityManager, e.stateCfg, e.license, e.profile, task, taskRunUID, statement, payload.SheetID, version, postponeFilename, sharedGhost.migrationContext, sharedGhost.errCh)
 	if err := e.schemaSyncer.SyncDatabaseSchema(ctx, database, true /* force */); err != nil {
-		log.Error("failed to sync database schema",
-			zap.String("instanceName", instance.ResourceID),
-			zap.String("databaseName", database.DatabaseName),
-			zap.Error(err),
+		slog.Error("failed to sync database schema",
+			slog.String("instanceName", instance.ResourceID),
+			slog.String("databaseName", database.DatabaseName),
+			log.BBError(err),
 		)
 	}
 
 	return terminated, result, err
 }
 
-func cutover(ctx context.Context, stores *store.Store, dbFactory *dbfactory.DBFactory, activityManager *activity.Manager, license enterpriseAPI.LicenseService, profile config.Profile, task *store.TaskMessage, statement string, sheetID int, schemaVersion string, vcsPushEvent *vcsPlugin.PushEvent, postponeFilename string, migrationContext *base.MigrationContext, errCh <-chan error) (terminated bool, result *api.TaskRunResultPayload, err error) {
+func cutover(ctx context.Context, stores *store.Store, dbFactory *dbfactory.DBFactory, activityManager *activity.Manager, stateCfg *state.State, license enterprise.LicenseService, profile config.Profile, task *store.TaskMessage, taskRunUID int, statement string, sheetID int, schemaVersion model.Version, postponeFilename string, migrationContext *base.MigrationContext, errCh <-chan error) (terminated bool, result *api.TaskRunResultPayload, err error) {
 	statement = strings.TrimSpace(statement)
 	instance, err := stores.GetInstanceV2(ctx, &store.FindInstanceMessage{UID: &task.InstanceID})
 	if err != nil {
@@ -127,12 +140,12 @@ func cutover(ctx context.Context, stores *store.Store, dbFactory *dbfactory.DBFa
 		return true, nil, errors.Errorf("cutover poller cancelled")
 	}
 
-	mi, err := getMigrationInfo(ctx, stores, profile, task, db.Migrate, statement, schemaVersion, vcsPushEvent)
+	mi, err := getMigrationInfo(ctx, stores, profile, task, db.Migrate, statement, schemaVersion)
 	if err != nil {
 		return true, nil, err
 	}
 
-	execFunc := func(_ string) error {
+	execFunc := func(_ context.Context, _ string) error {
 		if err := os.Remove(postponeFilename); err != nil {
 			return errors.Wrap(err, "failed to remove postpone flag file")
 		}
@@ -146,12 +159,12 @@ func cutover(ctx context.Context, stores *store.Store, dbFactory *dbfactory.DBFa
 		return true, nil, err
 	}
 	defer driver.Close(ctx)
-	migrationID, schema, err := utils.ExecuteMigrationWithFunc(ctx, stores, driver, mi, statement, &sheetID, execFunc)
+	migrationID, schema, err := utils.ExecuteMigrationWithFunc(ctx, ctx, stores, stateCfg, taskRunUID, driver, mi, statement, &sheetID, execFunc)
 	if err != nil {
 		return true, nil, err
 	}
 
-	return postMigration(ctx, stores, activityManager, license, task, vcsPushEvent, mi, migrationID, schema)
+	return postMigration(ctx, stores, activityManager, license, task, mi, migrationID, schema, &sheetID)
 }
 
 func waitForCutover(ctx context.Context, migrationContext *base.MigrationContext) bool {

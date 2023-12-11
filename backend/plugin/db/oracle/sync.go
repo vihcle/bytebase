@@ -9,14 +9,13 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
-const systemSchema = "'ANONYMOUS','APPQOSSYS','AUDSYS','CTXSYS','DBSFWUSER','DBSNMP','DGPDB_INT','DIP','DVF','DVSYS','GGSYS','GSMADMIN_INTERNAL','GSMCATUSER','GSMROOTUSER','GSMUSER','LBACSYS','MDDATA','MDSYS','OPS$ORACLE','ORACLE_OCM','OUTLN','REMOTE_SCHEDULER_AGENT','SYS','SYS$UMF','SYSBACKUP','SYSDG','SYSKM','SYSRAC','SYSTEM','XDB','XS$NULL','XS$$NULL','FLOWS_FILES','HR','MDSYS','EXFSYS','APEX_030200','APEX_PUBLIC_USER','MGMT_VIEW','OLAPSYS','ORDDATA','ORDPLUGINS','ORDSYS','OWBSYS','OWBSYS_AUDIT','SCOTT','SI_INFORMTN_SCHEMA','SPATIAL_CSW_ADMIN_USR','SPATIAL_WFS_ADMIN_USR','SYSMAN','WMSYS','OJVMSYS'"
+const systemSchema = "'ANONYMOUS','APPQOSSYS','AUDSYS','CTXSYS','DBSFWUSER','DBSNMP','DGPDB_INT','DIP','DVF','DVSYS','GGSYS','GSMADMIN_INTERNAL','GSMCATUSER','GSMROOTUSER','GSMUSER','LBACSYS','MDDATA','MDSYS','OPS$ORACLE','ORACLE_OCM','OUTLN','REMOTE_SCHEDULER_AGENT','SYS','SYS$UMF','SYSBACKUP','SYSDG','SYSKM','SYSRAC','SYSTEM','XDB','XS$NULL','XS$$NULL','FLOWS_FILES','HR','MDSYS','EXFSYS','MGMT_VIEW','OLAPSYS','ORDDATA','ORDPLUGINS','ORDSYS','OWBSYS','OWBSYS_AUDIT','SCOTT','SI_INFORMTN_SCHEMA','SPATIAL_CSW_ADMIN_USR','SPATIAL_WFS_ADMIN_USR','SYSMAN','WMSYS','OJVMSYS'"
 
 var (
 	semVersionRegex       = regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+`)
@@ -26,8 +25,9 @@ var (
 // SyncInstance syncs the instance.
 func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, error) {
 	var fullVersion string
-	if err := driver.db.QueryRowContext(ctx, "SELECT BANNER FROM v$version WHERE banner LIKE 'Oracle%'").Scan(&fullVersion); err != nil {
-		return nil, err
+	queryVersion := "SELECT BANNER FROM v$version WHERE banner LIKE 'Oracle%'"
+	if err := driver.db.QueryRowContext(ctx, queryVersion).Scan(&fullVersion); err != nil {
+		return nil, util.FormatErrorWithQuery(err, queryVersion)
 	}
 	tokens := strings.Fields(fullVersion)
 	var version, canonicalVersion string
@@ -48,7 +48,7 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 	if driver.schemaTenantMode {
 		databases, err := driver.syncSchemaTenantModeInstance(ctx)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to sync schema tenant mode instance")
 		}
 
 		return &db.InstanceMetadata{
@@ -57,23 +57,24 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 		}, nil
 	}
 
-	var databases []*storepb.DatabaseMetadata
+	var databases []*storepb.DatabaseSchemaMetadata
 	// sync CDB
-	cdbRows, err := driver.db.QueryContext(ctx, "SELECT name FROM v$database")
+	queryDB := "SELECT name FROM v$database"
+	cdbRows, err := driver.db.QueryContext(ctx, queryDB)
 	if err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, queryDB)
 	}
 	defer cdbRows.Close()
 
 	for cdbRows.Next() {
-		database := &storepb.DatabaseMetadata{}
+		database := &storepb.DatabaseSchemaMetadata{}
 		if err := cdbRows.Scan(&database.Name); err != nil {
 			return nil, err
 		}
 		databases = append(databases, database)
 	}
 	if err := cdbRows.Err(); err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, queryDB)
 	}
 
 	// sync PDBs
@@ -95,14 +96,14 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 	defer rows.Close()
 
 	for rows.Next() {
-		database := &storepb.DatabaseMetadata{}
+		database := &storepb.DatabaseSchemaMetadata{}
 		if err := rows.Scan(&database.Name, &database.ServiceName); err != nil {
 			return nil, err
 		}
 		databases = append(databases, database)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, query)
 	}
 
 	return &db.InstanceMetadata{
@@ -111,7 +112,7 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 	}, nil
 }
 
-func (driver *Driver) syncSchemaTenantModeInstance(ctx context.Context) ([]*storepb.DatabaseMetadata, error) {
+func (driver *Driver) syncSchemaTenantModeInstance(ctx context.Context) ([]*storepb.DatabaseSchemaMetadata, error) {
 	txn, err := driver.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -120,13 +121,13 @@ func (driver *Driver) syncSchemaTenantModeInstance(ctx context.Context) ([]*stor
 
 	schemas, err := getSchemas(txn)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to get schemas from database %q", driver.databaseName)
 	}
 
-	var result []*storepb.DatabaseMetadata
+	var result []*storepb.DatabaseSchemaMetadata
 
 	for _, schema := range schemas {
-		result = append(result, &storepb.DatabaseMetadata{
+		result = append(result, &storepb.DatabaseSchemaMetadata{
 			Name:        schema,
 			ServiceName: "",
 		})
@@ -136,7 +137,7 @@ func (driver *Driver) syncSchemaTenantModeInstance(ctx context.Context) ([]*stor
 }
 
 // SyncDBSchema syncs a single database schema.
-func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetadata, error) {
+func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetadata, error) {
 	if driver.schemaTenantMode {
 		return driver.syncSchemaTenantModeDBSchema(ctx)
 	}
@@ -164,7 +165,7 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 		return nil, err
 	}
 
-	databaseMetadata := &storepb.DatabaseMetadata{
+	databaseMetadata := &storepb.DatabaseSchemaMetadata{
 		Name:        driver.databaseName,
 		ServiceName: driver.serviceName,
 	}
@@ -178,7 +179,7 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 	return databaseMetadata, nil
 }
 
-func (driver *Driver) syncSchemaTenantModeDBSchema(ctx context.Context) (*storepb.DatabaseMetadata, error) {
+func (driver *Driver) syncSchemaTenantModeDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetadata, error) {
 	txn, err := driver.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -198,7 +199,7 @@ func (driver *Driver) syncSchemaTenantModeDBSchema(ctx context.Context) (*storep
 		return nil, err
 	}
 
-	databaseMetadata := &storepb.DatabaseMetadata{
+	databaseMetadata := &storepb.DatabaseSchemaMetadata{
 		Name:        driver.databaseName,
 		ServiceName: driver.serviceName,
 	}
@@ -217,7 +218,7 @@ func getSchemas(txn *sql.Tx) ([]string, error) {
 		systemSchema)
 	rows, err := txn.Query(query)
 	if err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, query)
 	}
 	defer rows.Close()
 
@@ -230,7 +231,7 @@ func getSchemas(txn *sql.Tx) ([]string, error) {
 		result = append(result, schemaName)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, query)
 	}
 
 	return result, nil
@@ -265,7 +266,7 @@ func getTables(txn *sql.Tx, schemaName string) (map[string][]*storepb.TableMetad
 
 	rows, err := txn.Query(query)
 	if err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, query)
 	}
 	defer rows.Close()
 
@@ -284,7 +285,7 @@ func getTables(txn *sql.Tx, schemaName string) (map[string][]*storepb.TableMetad
 		tableMap[schemaName] = append(tableMap[schemaName], table)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, query)
 	}
 
 	return tableMap, nil
@@ -327,7 +328,7 @@ func getTableColumns(txn *sql.Tx, schemaName string) (map[db.TableKey][]*storepb
 
 	rows, err := txn.Query(query)
 	if err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, query)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -338,7 +339,8 @@ func getTableColumns(txn *sql.Tx, schemaName string) (map[db.TableKey][]*storepb
 			return nil, err
 		}
 		if defaultStr.Valid {
-			column.Default = &wrapperspb.StringValue{Value: defaultStr.String}
+			// TODO: use correct default type
+			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultStr.String}
 		}
 		isNullBool, err := util.ConvertYesNo(nullable)
 		if err != nil {
@@ -351,7 +353,7 @@ func getTableColumns(txn *sql.Tx, schemaName string) (map[db.TableKey][]*storepb
 		columnsMap[key] = append(columnsMap[key], column)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, query)
 	}
 
 	return columnsMap, nil
@@ -378,7 +380,7 @@ func getIndexes(txn *sql.Tx, schemaName string) (map[db.TableKey][]*storepb.Inde
 	}
 	colRows, err := txn.Query(queryColumn)
 	if err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, queryColumn)
 	}
 	defer colRows.Close()
 	for colRows.Next() {
@@ -390,7 +392,7 @@ func getIndexes(txn *sql.Tx, schemaName string) (map[db.TableKey][]*storepb.Inde
 		expressionsMap[key] = append(expressionsMap[key], columnName)
 	}
 	if err := colRows.Err(); err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, queryColumn)
 	}
 	queryExpression := ""
 	if schemaName == "" {
@@ -408,7 +410,7 @@ func getIndexes(txn *sql.Tx, schemaName string) (map[db.TableKey][]*storepb.Inde
 	}
 	expRows, err := txn.Query(queryExpression)
 	if err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, queryExpression)
 	}
 	defer expRows.Close()
 	for expRows.Next() {
@@ -426,7 +428,7 @@ func getIndexes(txn *sql.Tx, schemaName string) (map[db.TableKey][]*storepb.Inde
 		expressionsMap[key][expIndex] = columnExpression
 	}
 	if err := expRows.Err(); err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, queryExpression)
 	}
 	query := ""
 	if schemaName == "" {
@@ -444,7 +446,7 @@ func getIndexes(txn *sql.Tx, schemaName string) (map[db.TableKey][]*storepb.Inde
 	}
 	rows, err := txn.Query(query)
 	if err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, query)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -458,15 +460,12 @@ func getIndexes(txn *sql.Tx, schemaName string) (map[db.TableKey][]*storepb.Inde
 		index.Unique = unique == "UNIQUE"
 		indexKey := db.IndexKey{Schema: schemaName, Table: tableName, Index: index.Name}
 		index.Expressions = expressionsMap[indexKey]
-		if err != nil {
-			return nil, err
-		}
 
 		key := db.TableKey{Schema: schemaName, Table: tableName}
 		indexMap[key] = append(indexMap[key], index)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, query)
 	}
 
 	return indexMap, nil
@@ -495,7 +494,7 @@ func getViews(txn *sql.Tx, schemaName string) (map[string][]*storepb.ViewMetadat
 
 	rows, err := txn.Query(query)
 	if err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, query)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -507,7 +506,7 @@ func getViews(txn *sql.Tx, schemaName string) (map[string][]*storepb.ViewMetadat
 		viewMap[schemaName] = append(viewMap[schemaName], view)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, util.FormatErrorWithQuery(err, query)
 	}
 
 	return viewMap, nil

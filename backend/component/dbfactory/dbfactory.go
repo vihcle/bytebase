@@ -5,10 +5,12 @@ import (
 	"context"
 
 	"github.com/bytebase/bytebase/backend/common"
+	"github.com/bytebase/bytebase/backend/component/secret"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/store"
 	"github.com/bytebase/bytebase/backend/utils"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // DBFactory is the factory for building database driver.
@@ -46,7 +48,7 @@ func (d *DBFactory) GetAdminDatabaseDriver(ctx context.Context, instance *store.
 	if database != nil && database.DataShare {
 		datashare = true
 	}
-	if instance.Engine == db.Oracle && database != nil && database.ServiceName != "" {
+	if instance.Engine == storepb.Engine_ORACLE && database != nil && database.ServiceName != "" {
 		// For Oracle, we map CDB as instance and PDB as database.
 		// The instance data source is the data source for CDB.
 		// So, if the database is not nil, which means we want to connect the PDB, we need to override the database name, service name, and sid.
@@ -60,18 +62,28 @@ func (d *DBFactory) GetAdminDatabaseDriver(ctx context.Context, instance *store.
 	if instance.Options != nil && instance.Options.SchemaTenantMode {
 		schemaTenantMode = true
 	}
-	return d.GetDataSourceDriver(ctx, instance.Engine, dataSource, databaseName, instance.ResourceID, instance.UID, datashare, false /* readOnly */, schemaTenantMode)
+	return d.GetDataSourceDriver(ctx, instance, dataSource, databaseName, datashare, false /* readOnly */, schemaTenantMode)
 }
 
 // GetReadOnlyDatabaseDriver gets the read-only database driver using the instance's read-only data source.
 // If the read-only data source is not defined, we will fallback to admin data source.
 // Upon successful return, caller must call driver.Close(). Otherwise, it will leak the database connection.
-func (d *DBFactory) GetReadOnlyDatabaseDriver(ctx context.Context, instance *store.InstanceMessage, database *store.DatabaseMessage) (db.Driver, error) {
-	dataSource := utils.DataSourceFromInstanceWithType(instance, api.RO)
-	adminDataSource := utils.DataSourceFromInstanceWithType(instance, api.Admin)
-	// If there are no read-only data source, fall back to admin data source.
-	if dataSource == nil {
-		dataSource = adminDataSource
+func (d *DBFactory) GetReadOnlyDatabaseDriver(ctx context.Context, instance *store.InstanceMessage, database *store.DatabaseMessage, dataSourceID string) (db.Driver, error) {
+	var dataSource *store.DataSourceMessage
+	if dataSourceID == "" {
+		dataSource = utils.DataSourceFromInstanceWithType(instance, api.RO)
+		adminDataSource := utils.DataSourceFromInstanceWithType(instance, api.Admin)
+		// If there are no read-only data source, fall back to admin data source.
+		if dataSource == nil {
+			dataSource = adminDataSource
+		}
+	} else {
+		for _, ds := range instance.DataSources {
+			if ds.ID == dataSourceID {
+				dataSource = ds
+				break
+			}
+		}
 	}
 	if dataSource == nil {
 		return nil, common.Errorf(common.Internal, "data source not found for instance %q", instance.Title)
@@ -81,7 +93,7 @@ func (d *DBFactory) GetReadOnlyDatabaseDriver(ctx context.Context, instance *sto
 	if database != nil {
 		databaseName = database.DatabaseName
 	}
-	if instance.Engine == db.Oracle && database != nil && database.ServiceName != "" {
+	if instance.Engine == storepb.Engine_ORACLE && database != nil && database.ServiceName != "" {
 		// For Oracle, we map CDB as instance and PDB as database.
 		// The instance data source is the data source for CDB.
 		// So, if the database is not nil, which means we want to connect the PDB, we need to override the database name, service name, and sid.
@@ -95,19 +107,23 @@ func (d *DBFactory) GetReadOnlyDatabaseDriver(ctx context.Context, instance *sto
 	if instance.Options != nil && instance.Options.SchemaTenantMode {
 		schemaTenantMode = true
 	}
-	return d.GetDataSourceDriver(ctx, instance.Engine, dataSource, databaseName, instance.ResourceID, instance.UID, database.DataShare, true /* readOnly */, schemaTenantMode)
+	dataShare := false
+	if database != nil {
+		dataShare = database.DataShare
+	}
+	return d.GetDataSourceDriver(ctx, instance, dataSource, databaseName, dataShare, true /* readOnly */, schemaTenantMode)
 }
 
 // GetDataSourceDriver returns the database driver for a data source.
-func (d *DBFactory) GetDataSourceDriver(ctx context.Context, engine db.Type, dataSource *store.DataSourceMessage, databaseName, instanceID string, instanceUID int, datashare, readOnly bool, schemaTenantMode bool) (db.Driver, error) {
+func (d *DBFactory) GetDataSourceDriver(ctx context.Context, instance *store.InstanceMessage, dataSource *store.DataSourceMessage, databaseName string, datashare, readOnly bool, schemaTenantMode bool) (db.Driver, error) {
 	dbBinDir := ""
-	switch engine {
-	case db.MySQL, db.TiDB, db.MariaDB, db.OceanBase:
+	switch instance.Engine {
+	case storepb.Engine_MYSQL, storepb.Engine_TIDB, storepb.Engine_MARIADB, storepb.Engine_OCEANBASE:
 		// TODO(d): use maria mysqlbinlog for MariaDB.
 		dbBinDir = d.mysqlBinDir
-	case db.Postgres:
+	case storepb.Engine_POSTGRES, storepb.Engine_RISINGWAVE:
 		dbBinDir = d.pgBinDir
-	case db.MongoDB:
+	case storepb.Engine_MONGODB:
 		dbBinDir = d.mongoBinDir
 	}
 
@@ -142,6 +158,11 @@ func (d *DBFactory) GetDataSourceDriver(ctx context.Context, engine db.Type, dat
 	if err != nil {
 		return nil, err
 	}
+	updatedPassword, err := secret.ReplaceExternalSecret(password)
+	if err != nil {
+		return nil, err
+	}
+	password = updatedPassword
 	sshConfig := db.SSHConfig{
 		Host:       dataSource.SSHHost,
 		Port:       dataSource.SSHPort,
@@ -151,10 +172,10 @@ func (d *DBFactory) GetDataSourceDriver(ctx context.Context, engine db.Type, dat
 	}
 	driver, err := db.Open(
 		ctx,
-		engine,
+		instance.Engine,
 		db.DriverConfig{
 			DbBinDir:  dbBinDir,
-			BinlogDir: common.GetBinlogAbsDir(d.dataDir, instanceUID),
+			BinlogDir: common.GetBinlogAbsDir(d.dataDir, instance.UID),
 		},
 		db.ConnectionConfig{
 			Username: dataSource.Username,
@@ -177,7 +198,8 @@ func (d *DBFactory) GetDataSourceDriver(ctx context.Context, engine db.Type, dat
 			SchemaTenantMode:       schemaTenantMode,
 		},
 		db.ConnectionContext{
-			InstanceID: instanceID,
+			InstanceID:    instance.ResourceID,
+			EngineVersion: instance.EngineVersion,
 		},
 	)
 	if err != nil {

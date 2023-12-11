@@ -11,6 +11,7 @@
         <slot name="header"></slot>
       </div>
     </div>
+    <slot name="sub-header"></slot>
 
     <NCollapse
       arrow-placement="left"
@@ -112,7 +113,7 @@
   <template v-else>
     <!-- single stage view -->
     <slot name="header"></slot>
-    <DatabaseTable
+    <DatabaseV1Table
       mode="PROJECT_SHORT"
       table-class="border"
       :custom-click="true"
@@ -124,14 +125,13 @@
 
 <script lang="ts" setup>
 /* eslint-disable vue/no-mutating-props */
-import { PropType, computed } from "vue";
 import { NCollapse, NCollapseItem } from "naive-ui";
-
-import { ComposedDatabase } from "@/types";
-import { Environment } from "@/types/proto/v1/environment_service";
+import { PropType, computed } from "vue";
 import { EnvironmentV1Name, InstanceV1EngineIcon } from "@/components/v2";
-import { Project } from "@/types/proto/v1/project_service";
+import { ComposedDatabase } from "@/types";
 import { State } from "@/types/proto/v1/common";
+import { Environment } from "@/types/proto/v1/environment_service";
+import { Project } from "@/types/proto/v1/project_service";
 import { instanceV1Name } from "@/utils";
 
 export type AlterType = "SINGLE_DB" | "MULTI_DB" | "TENANT";
@@ -166,7 +166,7 @@ const emit = defineEmits<{
 const databaseListGroupByEnvironment = computed(() => {
   const listByEnv = props.environmentList.map((environment) => {
     const databaseList = props.databaseList.filter(
-      (db) => db.instanceEntity.environment === environment.name
+      (db) => db.effectiveEnvironment === environment.name
     );
     return {
       environment,
@@ -220,7 +220,7 @@ const getAllSelectionStateForEnvironment = (
   const set = new Set(
     props.state.selectedDatabaseUidListForEnvironment.get(environment.uid) ?? []
   );
-  const checked = databaseList.every((db) => set.has(db.uid));
+  const checked = set.size > 0 && databaseList.every((db) => set.has(db.uid));
   const indeterminate = !checked && databaseList.some((db) => set.has(db.uid));
 
   return {

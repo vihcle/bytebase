@@ -1,42 +1,67 @@
 <template>
   <BBModal
-    :title="$t('database.alter-schema')"
+    :title="$t('database.edit-schema')"
     :trap-focus="false"
-    class="schema-editor-modal-container !w-[96rem] h-auto overflow-auto !max-w-[calc(100%-40px)] !max-h-[calc(100%-40px)]"
+    class="schema-editor-modal-container !w-[96rem] h-auto overflow-auto !max-w-[calc(100vw-40px)] !max-h-[calc(100vh-40px)]"
     @close="dismissModal"
   >
-    <div
-      class="w-full flex flex-row justify-start items-center border-b pl-1 border-b-gray-300"
+    <MaskSpinner
+      v-if="state.isGeneratingDDL || state.previewStatus"
+      class="!bg-white/75"
     >
-      <button
-        class="-mb-px px-3 leading-9 rounded-t-md flex items-center text-sm text-gray-500 border border-b-0 border-transparent cursor-pointer select-none outline-none"
-        :class="
-          state.selectedTab === 'schema-editor' &&
-          'bg-white border-gray-300 text-gray-800'
-        "
-        @click="handleChangeTab('schema-editor')"
-      >
-        {{ $t("schema-editor.self") }}
-        <div class="ml-1">
-          <BBBetaBadge />
-        </div>
-      </button>
-      <button
-        class="-mb-px px-3 leading-9 rounded-t-md text-sm text-gray-500 border border-b-0 border-transparent cursor-pointer select-none outline-none"
-        :class="
-          state.selectedTab === 'raw-sql' &&
-          'bg-white border-gray-300 text-gray-800'
-        "
-        @click="handleChangeTab('raw-sql')"
-      >
-        {{ $t("schema-editor.raw-sql") }}
-      </button>
+      <span class="text-sm">
+        <template v-if="state.previewStatus">{{
+          state.previewStatus
+        }}</template>
+        <template v-else-if="state.isGeneratingDDL">Generating DDL</template>
+      </span>
+    </MaskSpinner>
+    <div
+      class="w-full flex flex-row justify-between items-center border-b pl-1 border-b-gray-300"
+    >
+      <div class="flex items-center flex-start">
+        <button
+          class="-mb-px px-3 leading-9 rounded-t-md flex items-center text-sm text-gray-500 border border-b-0 border-transparent cursor-pointer select-none outline-none"
+          :class="
+            state.selectedTab === 'schema-editor' &&
+            'bg-white !border-gray-300 text-gray-800'
+          "
+          @click="handleChangeTab('schema-editor')"
+        >
+          {{ $t("schema-editor.self") }}
+        </button>
+        <button
+          class="-mb-px px-3 leading-9 rounded-t-md text-sm text-gray-500 border border-b-0 border-transparent cursor-pointer select-none outline-none"
+          :class="
+            state.selectedTab === 'raw-sql' &&
+            'bg-white !border-gray-300 text-gray-800'
+          "
+          @click="handleChangeTab('raw-sql')"
+        >
+          {{ $t("schema-editor.raw-sql") }}
+        </button>
+      </div>
+      <div class="flex items-center flex-end">
+        <SchemaEditorSQLCheckButton
+          :database-list="databaseList"
+          :get-statement="generateOrGetEditingDDL"
+        />
+      </div>
     </div>
     <div class="w-full h-full max-h-full overflow-auto border-b mb-4">
-      <SchemaEditor
+      <div
         v-show="state.selectedTab === 'schema-editor'"
-        :database-id-list="props.databaseIdList"
-      />
+        class="w-full h-full py-2"
+      >
+        <SchemaEditorLite
+          ref="schemaEditorRef"
+          resource-type="database"
+          :project="project"
+          :targets="state.targets"
+          :loading="state.isPreparingMetadata"
+          :diff-when-ready="false"
+        />
+      </div>
       <div
         v-show="state.selectedTab === 'raw-sql'"
         class="w-full h-full grid grid-rows-[50px,_1fr] overflow-y-auto"
@@ -64,7 +89,6 @@
             </label>
             <button
               class="text-sm border px-3 leading-8 flex items-center rounded cursor-pointer hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="!allowSyncSQLFromSchemaEditor"
               @click="handleSyncSQLFromSchemaEditor"
             >
               <heroicons-outline:arrow-path
@@ -75,20 +99,18 @@
           </div>
         </div>
         <MonacoEditor
-          ref="editorRef"
+          v-model:content="state.editStatement"
           class="w-full h-full border border-b-0"
-          data-label="bb-issue-sql-editor"
-          :value="state.editStatement"
+          data-label="bb-schema-editor-sql-editor"
           :auto-focus="false"
           :dialect="dialectOfEngineV1(databaseEngine)"
-          @change="handleStatementChange"
         />
       </div>
     </div>
     <div class="w-full flex flex-row justify-between items-center mt-4 pr-px">
       <div class="">
         <div
-          v-if="isTenantProject"
+          v-if="isBatchMode"
           class="flex flex-row items-center text-sm text-gray-500"
         >
           <heroicons-outline:exclamation-circle class="w-4 h-auto mr-1" />
@@ -110,50 +132,50 @@
     </div>
   </BBModal>
 
-  <!-- Select DDL mode for MySQL -->
-  <GhostDialog ref="ghostDialog" />
-
   <!-- Close modal confirm dialog -->
   <ActionConfirmModal
-    v-if="state.showActionConfirmModal"
+    v-model:show="state.showActionConfirmModal"
     :title="$t('schema-editor.confirm-to-close.title')"
     :description="$t('schema-editor.confirm-to-close.description')"
-    @close="state.showActionConfirmModal = false"
     @confirm="emit('close')"
   />
 </template>
 
 <script lang="ts" setup>
 import dayjs from "dayjs";
-import { head, uniq } from "lodash-es";
+import { cloneDeep, head, uniq } from "lodash-es";
 import { computed, onMounted, PropType, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
+import ActionConfirmModal from "@/components/SchemaEditorV1/Modals/ActionConfirmModal.vue";
+import { databaseServiceClient } from "@/grpcweb";
+import {
+  pushNotification,
+  useDatabaseV1Store,
+  useNotificationStore,
+} from "@/store";
 import {
   ComposedDatabase,
-  DatabaseEdit,
   dialectOfEngineV1,
   UNKNOWN_PROJECT_NAME,
   unknownProject,
 } from "@/types";
-import { allowGhostMigrationV1 } from "@/utils";
-import {
-  useDatabaseV1Store,
-  useNotificationStore,
-  useSchemaEditorStore,
-} from "@/store";
-import {
-  checkHasSchemaChanges,
-  diffSchema,
-  mergeDiffResults,
-} from "@/utils/schemaEditor/diffSchema";
-import { validateDatabaseEdit } from "@/utils/schemaEditor/validate";
-import BBBetaBadge from "@/bbkit/BBBetaBadge.vue";
-import SchemaEditor from "@/components/SchemaEditor/SchemaEditor.vue";
-import ActionConfirmModal from "@/components/SchemaEditor/Modals/ActionConfirmModal.vue";
-import GhostDialog from "./GhostDialog.vue";
 import { Engine } from "@/types/proto/v1/common";
+import {
+  DatabaseMetadata,
+  DatabaseMetadataView,
+} from "@/types/proto/v1/database_service";
 import { TenantMode } from "@/types/proto/v1/project_service";
+import { TinyTimer } from "@/utils";
+import { MonacoEditor } from "../MonacoEditor";
+import { provideSQLCheckContext } from "../SQLCheck";
+import SchemaEditorLite, {
+  EditTarget,
+  GenerateDiffDDLResult,
+  generateDiffDDL as generateSingleDiffDDL,
+} from "../SchemaEditorLite";
+import MaskSpinner from "../misc/MaskSpinner.vue";
+import SchemaEditorSQLCheckButton from "./SchemaEditorSQLCheckButton/SchemaEditorSQLCheckButton.vue";
 
 const MAX_UPLOAD_FILE_SIZE_MB = 1;
 
@@ -163,6 +185,10 @@ interface LocalState {
   selectedTab: TabType;
   editStatement: string;
   showActionConfirmModal: boolean;
+  isPreparingMetadata: boolean;
+  isGeneratingDDL: boolean;
+  previewStatus: string;
+  targets: EditTarget[];
 }
 
 const props = defineProps({
@@ -184,33 +210,29 @@ const emit = defineEmits<{
   (event: "close"): void;
 }>();
 
+const schemaEditorRef = ref<InstanceType<typeof SchemaEditorLite>>();
 const { t } = useI18n();
 const router = useRouter();
 const state = reactive<LocalState>({
   selectedTab: "schema-editor",
   editStatement: "",
   showActionConfirmModal: false,
+  isPreparingMetadata: false,
+  isGeneratingDDL: false,
+  previewStatus: "",
+  targets: [],
 });
-const editorStore = useSchemaEditorStore();
 const databaseV1Store = useDatabaseV1Store();
 const notificationStore = useNotificationStore();
-const statementFromSchemaEditor = ref<string>();
-const ghostDialog = ref<InstanceType<typeof GhostDialog>>();
+const { runSQLCheck } = provideSQLCheckContext();
 
 const allowPreviewIssue = computed(() => {
   if (state.selectedTab === "schema-editor") {
-    const databaseEditList = getDatabaseEditListWithSchemaEditor();
-    return databaseEditList.length !== 0;
+    // Always return true for schema editor to prevent huge calculation from schema editor.
+    return true;
   } else {
     return state.editStatement !== "";
   }
-});
-
-const allowSyncSQLFromSchemaEditor = computed(() => {
-  if (state.selectedTab === "raw-sql") {
-    return statementFromSchemaEditor.value !== state.editStatement;
-  }
-  return false;
 });
 
 const databaseList = computed(() => {
@@ -231,11 +253,55 @@ const databaseEngine = computed((): Engine => {
 const project = computed(
   () => head(databaseList.value)?.projectEntity ?? unknownProject()
 );
-const isTenantProject = computed(
+const isBatchMode = computed(
   () => project.value.tenantMode === TenantMode.TENANT_MODE_ENABLED
 );
+const editTargetsKey = computed(() => {
+  return JSON.stringify({
+    databaseIdList: props.databaseIdList,
+    alterType: props.alterType,
+  });
+});
 
-onMounted(() => {
+const prepareDatabaseMetadata = async () => {
+  state.isPreparingMetadata = true;
+  state.targets = [];
+  const timer = new TinyTimer<"fetchMetadata" | "convertEditTargets">(
+    "SchemaEditorModal"
+  );
+  timer.begin("fetchMetadata");
+  const targets: {
+    database: ComposedDatabase;
+    metadata: DatabaseMetadata;
+  }[] = [];
+  for (let i = 0; i < databaseList.value.length; i++) {
+    const database = databaseList.value[i];
+    const metadata = await databaseServiceClient.getDatabaseMetadata({
+      name: `${database.name}/metadata`,
+      view: DatabaseMetadataView.DATABASE_METADATA_VIEW_FULL,
+    });
+    targets.push({ database, metadata });
+  }
+  timer.end("fetchMetadata", databaseList.value.length);
+
+  timer.begin("convertEditTargets");
+  state.targets = targets.map<EditTarget>(({ database, metadata }) => {
+    return {
+      database,
+      metadata: cloneDeep(metadata),
+      baselineMetadata: metadata,
+    };
+  });
+  timer.end("convertEditTargets", databaseList.value.length);
+  timer.printAll();
+  state.isPreparingMetadata = false;
+};
+
+watch(editTargetsKey, prepareDatabaseMetadata, {
+  immediate: true,
+});
+
+onMounted(async () => {
   if (
     databaseList.value.length === 0 ||
     project.value.name === UNKNOWN_PROJECT_NAME
@@ -254,10 +320,6 @@ const handleChangeTab = (tab: TabType) => {
   state.selectedTab = tab;
 };
 
-const handleStatementChange = (value: string) => {
-  state.editStatement = value;
-};
-
 const dismissModal = () => {
   if (allowPreviewIssue.value) {
     state.showActionConfirmModal = true;
@@ -266,99 +328,74 @@ const dismissModal = () => {
   }
 };
 
-// 'normal' -> normal migration
-// 'online' -> online migration
-// false -> user clicked cancel button
-const isUsingGhostMigration = async (databaseList: ComposedDatabase[]) => {
-  // check if all selected databases supports gh-ost
-  if (allowGhostMigrationV1(databaseList)) {
-    // open the dialog to ask the user
-    const { result, mode } = await ghostDialog.value!.open();
-    if (!result) {
-      return false; // return false when user clicked the cancel button
-    }
-    return mode;
-  }
-
-  // fallback to normal
-  return "normal";
-};
-
 const handleSyncSQLFromSchemaEditor = async () => {
-  if (!allowSyncSQLFromSchemaEditor.value) {
-    return;
-  }
+  const statementMap = await generateDiffDDLMap(/* !silent */ false);
+  const results = Array.from(statementMap.values());
 
-  const databaseEditMap = await fetchDatabaseEditStatementMapWithSchemaEditor();
-  if (!databaseEditMap) {
-    return;
-  }
-  state.editStatement = Array.from(databaseEditMap.values()).join("\n");
-  statementFromSchemaEditor.value = state.editStatement;
+  state.editStatement = results.map((result) => result.statement).join("\n\n");
 };
 
-const getDatabaseEditListWithSchemaEditor = () => {
-  const databaseEditList: DatabaseEdit[] = [];
-  for (const database of editorStore.databaseList) {
-    const databaseSchema = editorStore.databaseSchemaById.get(database.uid);
-    if (!databaseSchema) {
-      continue;
-    }
-
-    for (const schema of databaseSchema.schemaList) {
-      const originSchema = databaseSchema.originSchemaList.find(
-        (originSchema) => originSchema.id === schema.id
-      );
-      const diffSchemaResult = diffSchema(database.uid, originSchema, schema);
-      if (checkHasSchemaChanges(diffSchemaResult)) {
-        const index = databaseEditList.findIndex(
-          (edit) => String(edit.databaseId) === database.uid
-        );
-        if (index !== -1) {
-          databaseEditList[index] = {
-            databaseId: Number(database.uid),
-            ...mergeDiffResults([diffSchemaResult, databaseEditList[index]]),
-          };
-        } else {
-          databaseEditList.push({
-            databaseId: Number(database.uid),
-            ...diffSchemaResult,
-          });
-        }
-      }
-    }
+const generateOrGetEditingDDL = async () => {
+  if (state.selectedTab === "raw-sql") {
+    return {
+      statement: state.editStatement,
+      errors: [],
+    };
   }
-  return databaseEditList;
+
+  const statementMap = await generateDiffDDLMap(/* silent */ true);
+  const results = Array.from(statementMap.values());
+  const statement = results.map((result) => result.statement).join("\n\n");
+  results.forEach((result) => {
+    if (result.errors.length > 0) {
+      pushNotification({
+        module: "bytebase",
+        style: result.fatal ? "CRITICAL" : "WARN",
+        title: t("common.error"),
+        description: result.errors.join("\n"),
+      });
+    }
+  });
+  const errors = results.flatMap((result) => result.errors);
+  return {
+    statement,
+    errors,
+  };
 };
 
-const fetchDatabaseEditStatementMapWithSchemaEditor = async () => {
-  const databaseEditList = getDatabaseEditListWithSchemaEditor();
-  const databaseEditMap: Map<string, string> = new Map();
-  if (databaseEditList.length > 0) {
-    for (const databaseEdit of databaseEditList) {
-      const databaseEditResult = await editorStore.postDatabaseEdit(
-        databaseEdit
-      );
-      if (databaseEditResult.validateResultList.length > 0) {
-        notificationStore.pushNotification({
-          module: "bytebase",
-          style: "CRITICAL",
-          title: "Invalid request",
-          description: databaseEditResult.validateResultList
-            .map((result) => result.message)
-            .join("\n"),
-        });
-        return;
-      }
-      const previousStatement =
-        databaseEditMap.get(String(databaseEdit.databaseId)) || "";
-      const statement = `${previousStatement}${previousStatement && "\n"}${
-        databaseEditResult.statement
-      }`;
-      databaseEditMap.set(String(databaseEdit.databaseId), statement);
-    }
+const generateDiffDDLMap = async (silent: boolean) => {
+  if (!silent) {
+    state.isGeneratingDDL = true;
   }
-  return databaseEditMap;
+
+  const statementMap = new Map<string, GenerateDiffDDLResult>();
+
+  const applyMetadataEdit = schemaEditorRef.value?.applyMetadataEdit;
+  if (typeof applyMetadataEdit !== "function") {
+    throw new Error("SchemaEditor is not accessible");
+  }
+  for (let i = 0; i < state.targets.length; i++) {
+    const target = state.targets[i];
+    const { database, baselineMetadata: source } = target;
+    // To avoid affect the editing status, we need to copy it here for DDL generation
+    const editing = cloneDeep(target.metadata);
+    await applyMetadataEdit(database, editing);
+
+    const result = await generateSingleDiffDDL(database, source, editing);
+    if (result.fatal && !silent) {
+      pushNotification({
+        module: "bytebase",
+        style: "CRITICAL",
+        title: t("common.error"),
+        description: result.errors.join("\n"),
+      });
+    }
+
+    statementMap.set(database.name, result);
+  }
+
+  state.isGeneratingDDL = false;
+  return statementMap;
 };
 
 const handleUploadFile = (e: Event) => {
@@ -405,17 +442,33 @@ const handleUploadFile = (e: Event) => {
 };
 
 const handlePreviewIssue = async () => {
+  if (state.previewStatus) {
+    return;
+  }
+
+  const cleanup = async () => {
+    state.previewStatus = "";
+  };
+
+  const check = runSQLCheck.value;
+  if (check) {
+    state.previewStatus = "Checking SQL";
+    if (!(await check())) {
+      return cleanup();
+    }
+    // TODO: optimize: check() could return the generated DDL to avoid
+    // generating one more time below. useful for large schemas
+  }
+
   const query: Record<string, any> = {
     template: "bb.issue.database.schema.update",
     project: project.value.uid,
-    mode: "normal",
-    ghost: undefined,
   };
-  if (isTenantProject.value) {
+  if (isBatchMode.value) {
     if (props.databaseIdList.length > 1) {
       // A tenant pipeline with 2 or more databases will be generated
       // via deployment config, so we don't need the databaseList parameter.
-      query.mode = "tenant";
+      query.batch = "1";
     } else {
       // A tenant pipeline with only 1 database will be downgraded to
       // a standard pipeline.
@@ -428,65 +481,30 @@ const handlePreviewIssue = async () => {
     // we need to pass the databaseList explicitly.
     query.databaseList = props.databaseIdList.join(",");
   }
+
   if (state.selectedTab === "raw-sql") {
     query.sql = state.editStatement;
 
-    // We should show select ghost mode dialog only for altering table statement not create/drop table.
-    // TODO(steven): parse the sql check if there only alter table statement.
-    const actionResult = await isUsingGhostMigration(databaseList.value);
-    if (actionResult === false) {
-      return;
-    }
-    if (actionResult === "online") {
-      query.ghost = 1;
-    }
     query.name = generateIssueName(
       databaseList.value.map((db) => db.databaseName),
-      !!query.ghost
+      false /* !onlineMode */
     );
   } else {
-    const databaseEditList = getDatabaseEditListWithSchemaEditor();
-    const validateResultList = [];
-    let hasOnlyAlterTableChanges = true;
-    for (const databaseEdit of databaseEditList) {
-      validateResultList.push(...validateDatabaseEdit(databaseEdit));
-      if (
-        databaseEdit.createTableList.length > 0 ||
-        databaseEdit.dropTableList.length > 0
-      ) {
-        hasOnlyAlterTableChanges = false;
-      }
-    }
-    if (validateResultList.length > 0) {
-      notificationStore.pushNotification({
-        module: "bytebase",
-        style: "CRITICAL",
-        title: "Invalid request",
-        description: validateResultList
-          .map((result) => result.message)
-          .join("\n"),
-      });
-      return;
-    }
+    query.name = generateIssueName(
+      databaseList.value.map((db) => db.databaseName),
+      false /* !onlineMode */
+    );
 
-    if (hasOnlyAlterTableChanges) {
-      const actionResult = await isUsingGhostMigration(databaseList.value);
-      if (actionResult === false) {
-        return;
-      }
-      if (actionResult === "online") {
-        query.ghost = 1;
-      }
-    }
+    state.previewStatus = "Generating DDL";
+    const statementMap = await generateDiffDDLMap(/* !silent */ false);
 
-    const statementMap = await fetchDatabaseEditStatementMapWithSchemaEditor();
-    if (!statementMap) {
-      return;
+    const databaseIdList = databaseList.value.map((db) => db.uid);
+    const statementList: string[] = [];
+    for (const [_, result] of statementMap.entries()) {
+      statementList.push(result.statement);
     }
-    const databaseIdList = Array.from(statementMap.keys());
-    const statementList = Array.from(statementMap.values());
-    if (isTenantProject.value) {
-      query.sql = statementList.join("\n");
+    if (isBatchMode.value) {
+      query.sql = statementList.join("\n\n");
       query.name = generateIssueName(
         databaseList.value.map((db) => db.databaseName),
         !!query.ghost
@@ -534,22 +552,11 @@ const generateIssueName = (
   const datetime = dayjs().format("@MM-DD HH:mm");
   const tz = "UTC" + dayjs().format("ZZ");
   issueNameParts.push(`${datetime} ${tz}`);
-
   return issueNameParts.join(" ");
 };
-
-watch(
-  () => getDatabaseEditListWithSchemaEditor(),
-  () => {
-    statementFromSchemaEditor.value = undefined;
-  },
-  {
-    deep: true,
-  }
-);
 </script>
 
-<style>
+<style lang="postcss">
 .schema-editor-modal-container > .modal-container {
   @apply w-full h-[46rem] overflow-auto grid;
   grid-template-rows: min-content 1fr min-content;

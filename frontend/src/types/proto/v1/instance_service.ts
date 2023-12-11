@@ -1,6 +1,7 @@
 /* eslint-disable */
-import type { CallContext, CallOptions } from "nice-grpc-common";
-import * as _m0 from "protobufjs/minimal";
+import Long from "long";
+import _m0 from "protobufjs/minimal";
+import { Duration } from "../google/protobuf/duration";
 import { Empty } from "../google/protobuf/empty";
 import { FieldMask } from "../google/protobuf/field_mask";
 import { Engine, engineFromJSON, engineToJSON, State, stateFromJSON, stateToJSON } from "./common";
@@ -56,6 +57,12 @@ export interface GetInstanceRequest {
 
 export interface ListInstancesRequest {
   /**
+   * The parent parameter's value depends on the target resource for the request.
+   * - instances.list(): An empty string. This method doesn't require a resource; it simply returns all instances the user has access to.
+   * - projects.instances.list(): projects/{PROJECT_ID}. This method lists all instances that have databases in the project.
+   */
+  parent: string;
+  /**
    * The maximum number of instances to return. The service may return fewer than
    * this value.
    * If unspecified, at most 50 instances will be returned.
@@ -86,7 +93,7 @@ export interface ListInstancesResponse {
 
 export interface CreateInstanceRequest {
   /** The instance to create. */
-  instance?:
+  instance:
     | Instance
     | undefined;
   /**
@@ -108,11 +115,11 @@ export interface UpdateInstanceRequest {
    * The instance's `name` field is used to identify the instance to update.
    * Format: instances/{instance}
    */
-  instance?:
+  instance:
     | Instance
     | undefined;
   /** The list of fields to update. */
-  updateMask?: string[] | undefined;
+  updateMask: string[] | undefined;
 }
 
 export interface DeleteInstanceRequest {
@@ -144,6 +151,17 @@ export interface SyncInstanceRequest {
 export interface SyncInstanceResponse {
 }
 
+export interface BatchSyncInstanceRequest {
+  /**
+   * The request message specifying the instances to sync.
+   * A maximum of 1000 instances can be synced in a batch.
+   */
+  requests: SyncInstanceRequest[];
+}
+
+export interface BatchSyncInstanceResponse {
+}
+
 export interface AddDataSourceRequest {
   /**
    * The name of the instance to add a data source to.
@@ -154,7 +172,7 @@ export interface AddDataSourceRequest {
    * Identified by type.
    * Only READ_ONLY data source can be added.
    */
-  dataSource?:
+  dataSource:
     | DataSource
     | undefined;
   /** Validate only also tests the data source connection. */
@@ -171,7 +189,7 @@ export interface RemoveDataSourceRequest {
    * Identified by type.
    * Only READ_ONLY data source can be removed.
    */
-  dataSource?: DataSource | undefined;
+  dataSource: DataSource | undefined;
 }
 
 export interface UpdateDataSourceRequest {
@@ -181,11 +199,11 @@ export interface UpdateDataSourceRequest {
    */
   instance: string;
   /** Identified by type. */
-  dataSource?:
+  dataSource:
     | DataSource
     | undefined;
   /** The list of fields to update. */
-  updateMask?:
+  updateMask:
     | string[]
     | undefined;
   /** Validate only also tests the data source connection. */
@@ -195,9 +213,10 @@ export interface UpdateDataSourceRequest {
 export interface SyncSlowQueriesRequest {
   /**
    * The name of the instance to sync slow queries.
-   * Format: instances/{instance}
+   * Format: instances/{instance} for one instance
+   *      or projects/{project} for one project.
    */
-  instance: string;
+  parent: string;
 }
 
 /** InstanceOptions is the option for instances. */
@@ -207,6 +226,8 @@ export interface InstanceOptions {
    * For Oracle schema tenant mode, the instance a Oracle database and the database is the Oracle schema.
    */
   schemaTenantMode: boolean;
+  /** How often the instance is synced. */
+  syncInterval: Duration | undefined;
 }
 
 export interface Instance {
@@ -229,11 +250,11 @@ export interface Instance {
    */
   environment: string;
   activation: boolean;
-  options?: InstanceOptions | undefined;
+  options: InstanceOptions | undefined;
 }
 
 export interface DataSource {
-  title: string;
+  id: string;
   type: DataSourceType;
   username: string;
   password: string;
@@ -307,19 +328,20 @@ export const GetInstanceRequest = {
   },
 
   fromJSON(object: any): GetInstanceRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: GetInstanceRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetInstanceRequest>): GetInstanceRequest {
     return GetInstanceRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetInstanceRequest>): GetInstanceRequest {
     const message = createBaseGetInstanceRequest();
     message.name = object.name ?? "";
@@ -328,11 +350,14 @@ export const GetInstanceRequest = {
 };
 
 function createBaseListInstancesRequest(): ListInstancesRequest {
-  return { pageSize: 0, pageToken: "", showDeleted: false };
+  return { parent: "", pageSize: 0, pageToken: "", showDeleted: false };
 }
 
 export const ListInstancesRequest = {
   encode(message: ListInstancesRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.parent !== "") {
+      writer.uint32(34).string(message.parent);
+    }
     if (message.pageSize !== 0) {
       writer.uint32(8).int32(message.pageSize);
     }
@@ -352,6 +377,13 @@ export const ListInstancesRequest = {
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
         case 1:
           if (tag !== 8) {
             break;
@@ -384,26 +416,36 @@ export const ListInstancesRequest = {
 
   fromJSON(object: any): ListInstancesRequest {
     return {
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
-      showDeleted: isSet(object.showDeleted) ? Boolean(object.showDeleted) : false,
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
+      showDeleted: isSet(object.showDeleted) ? globalThis.Boolean(object.showDeleted) : false,
     };
   },
 
   toJSON(message: ListInstancesRequest): unknown {
     const obj: any = {};
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
-    message.showDeleted !== undefined && (obj.showDeleted = message.showDeleted);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      obj.pageToken = message.pageToken;
+    }
+    if (message.showDeleted === true) {
+      obj.showDeleted = message.showDeleted;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListInstancesRequest>): ListInstancesRequest {
     return ListInstancesRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListInstancesRequest>): ListInstancesRequest {
     const message = createBaseListInstancesRequest();
+    message.parent = object.parent ?? "";
     message.pageSize = object.pageSize ?? 0;
     message.pageToken = object.pageToken ?? "";
     message.showDeleted = object.showDeleted ?? false;
@@ -458,26 +500,27 @@ export const ListInstancesResponse = {
 
   fromJSON(object: any): ListInstancesResponse {
     return {
-      instances: Array.isArray(object?.instances) ? object.instances.map((e: any) => Instance.fromJSON(e)) : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+      instances: globalThis.Array.isArray(object?.instances)
+        ? object.instances.map((e: any) => Instance.fromJSON(e))
+        : [],
+      nextPageToken: isSet(object.nextPageToken) ? globalThis.String(object.nextPageToken) : "",
     };
   },
 
   toJSON(message: ListInstancesResponse): unknown {
     const obj: any = {};
-    if (message.instances) {
-      obj.instances = message.instances.map((e) => e ? Instance.toJSON(e) : undefined);
-    } else {
-      obj.instances = [];
+    if (message.instances?.length) {
+      obj.instances = message.instances.map((e) => Instance.toJSON(e));
     }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    if (message.nextPageToken !== "") {
+      obj.nextPageToken = message.nextPageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListInstancesResponse>): ListInstancesResponse {
     return ListInstancesResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListInstancesResponse>): ListInstancesResponse {
     const message = createBaseListInstancesResponse();
     message.instances = object.instances?.map((e) => Instance.fromPartial(e)) || [];
@@ -544,23 +587,28 @@ export const CreateInstanceRequest = {
   fromJSON(object: any): CreateInstanceRequest {
     return {
       instance: isSet(object.instance) ? Instance.fromJSON(object.instance) : undefined,
-      instanceId: isSet(object.instanceId) ? String(object.instanceId) : "",
-      validateOnly: isSet(object.validateOnly) ? Boolean(object.validateOnly) : false,
+      instanceId: isSet(object.instanceId) ? globalThis.String(object.instanceId) : "",
+      validateOnly: isSet(object.validateOnly) ? globalThis.Boolean(object.validateOnly) : false,
     };
   },
 
   toJSON(message: CreateInstanceRequest): unknown {
     const obj: any = {};
-    message.instance !== undefined && (obj.instance = message.instance ? Instance.toJSON(message.instance) : undefined);
-    message.instanceId !== undefined && (obj.instanceId = message.instanceId);
-    message.validateOnly !== undefined && (obj.validateOnly = message.validateOnly);
+    if (message.instance !== undefined) {
+      obj.instance = Instance.toJSON(message.instance);
+    }
+    if (message.instanceId !== "") {
+      obj.instanceId = message.instanceId;
+    }
+    if (message.validateOnly === true) {
+      obj.validateOnly = message.validateOnly;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<CreateInstanceRequest>): CreateInstanceRequest {
     return CreateInstanceRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<CreateInstanceRequest>): CreateInstanceRequest {
     const message = createBaseCreateInstanceRequest();
     message.instance = (object.instance !== undefined && object.instance !== null)
@@ -626,15 +674,18 @@ export const UpdateInstanceRequest = {
 
   toJSON(message: UpdateInstanceRequest): unknown {
     const obj: any = {};
-    message.instance !== undefined && (obj.instance = message.instance ? Instance.toJSON(message.instance) : undefined);
-    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
+    if (message.instance !== undefined) {
+      obj.instance = Instance.toJSON(message.instance);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateInstanceRequest>): UpdateInstanceRequest {
     return UpdateInstanceRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateInstanceRequest>): UpdateInstanceRequest {
     const message = createBaseUpdateInstanceRequest();
     message.instance = (object.instance !== undefined && object.instance !== null)
@@ -692,22 +743,25 @@ export const DeleteInstanceRequest = {
 
   fromJSON(object: any): DeleteInstanceRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      force: isSet(object.force) ? Boolean(object.force) : false,
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      force: isSet(object.force) ? globalThis.Boolean(object.force) : false,
     };
   },
 
   toJSON(message: DeleteInstanceRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.force !== undefined && (obj.force = message.force);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.force === true) {
+      obj.force = message.force;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<DeleteInstanceRequest>): DeleteInstanceRequest {
     return DeleteInstanceRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DeleteInstanceRequest>): DeleteInstanceRequest {
     const message = createBaseDeleteInstanceRequest();
     message.name = object.name ?? "";
@@ -752,19 +806,20 @@ export const UndeleteInstanceRequest = {
   },
 
   fromJSON(object: any): UndeleteInstanceRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: UndeleteInstanceRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UndeleteInstanceRequest>): UndeleteInstanceRequest {
     return UndeleteInstanceRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UndeleteInstanceRequest>): UndeleteInstanceRequest {
     const message = createBaseUndeleteInstanceRequest();
     message.name = object.name ?? "";
@@ -808,19 +863,20 @@ export const SyncInstanceRequest = {
   },
 
   fromJSON(object: any): SyncInstanceRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: SyncInstanceRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<SyncInstanceRequest>): SyncInstanceRequest {
     return SyncInstanceRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SyncInstanceRequest>): SyncInstanceRequest {
     const message = createBaseSyncInstanceRequest();
     message.name = object.name ?? "";
@@ -865,9 +921,112 @@ export const SyncInstanceResponse = {
   create(base?: DeepPartial<SyncInstanceResponse>): SyncInstanceResponse {
     return SyncInstanceResponse.fromPartial(base ?? {});
   },
-
   fromPartial(_: DeepPartial<SyncInstanceResponse>): SyncInstanceResponse {
     const message = createBaseSyncInstanceResponse();
+    return message;
+  },
+};
+
+function createBaseBatchSyncInstanceRequest(): BatchSyncInstanceRequest {
+  return { requests: [] };
+}
+
+export const BatchSyncInstanceRequest = {
+  encode(message: BatchSyncInstanceRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.requests) {
+      SyncInstanceRequest.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchSyncInstanceRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchSyncInstanceRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.requests.push(SyncInstanceRequest.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BatchSyncInstanceRequest {
+    return {
+      requests: globalThis.Array.isArray(object?.requests)
+        ? object.requests.map((e: any) => SyncInstanceRequest.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: BatchSyncInstanceRequest): unknown {
+    const obj: any = {};
+    if (message.requests?.length) {
+      obj.requests = message.requests.map((e) => SyncInstanceRequest.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchSyncInstanceRequest>): BatchSyncInstanceRequest {
+    return BatchSyncInstanceRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<BatchSyncInstanceRequest>): BatchSyncInstanceRequest {
+    const message = createBaseBatchSyncInstanceRequest();
+    message.requests = object.requests?.map((e) => SyncInstanceRequest.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseBatchSyncInstanceResponse(): BatchSyncInstanceResponse {
+  return {};
+}
+
+export const BatchSyncInstanceResponse = {
+  encode(_: BatchSyncInstanceResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchSyncInstanceResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchSyncInstanceResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): BatchSyncInstanceResponse {
+    return {};
+  },
+
+  toJSON(_: BatchSyncInstanceResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchSyncInstanceResponse>): BatchSyncInstanceResponse {
+    return BatchSyncInstanceResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<BatchSyncInstanceResponse>): BatchSyncInstanceResponse {
+    const message = createBaseBatchSyncInstanceResponse();
     return message;
   },
 };
@@ -929,25 +1088,29 @@ export const AddDataSourceRequest = {
 
   fromJSON(object: any): AddDataSourceRequest {
     return {
-      instance: isSet(object.instance) ? String(object.instance) : "",
+      instance: isSet(object.instance) ? globalThis.String(object.instance) : "",
       dataSource: isSet(object.dataSource) ? DataSource.fromJSON(object.dataSource) : undefined,
-      validateOnly: isSet(object.validateOnly) ? Boolean(object.validateOnly) : false,
+      validateOnly: isSet(object.validateOnly) ? globalThis.Boolean(object.validateOnly) : false,
     };
   },
 
   toJSON(message: AddDataSourceRequest): unknown {
     const obj: any = {};
-    message.instance !== undefined && (obj.instance = message.instance);
-    message.dataSource !== undefined &&
-      (obj.dataSource = message.dataSource ? DataSource.toJSON(message.dataSource) : undefined);
-    message.validateOnly !== undefined && (obj.validateOnly = message.validateOnly);
+    if (message.instance !== "") {
+      obj.instance = message.instance;
+    }
+    if (message.dataSource !== undefined) {
+      obj.dataSource = DataSource.toJSON(message.dataSource);
+    }
+    if (message.validateOnly === true) {
+      obj.validateOnly = message.validateOnly;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<AddDataSourceRequest>): AddDataSourceRequest {
     return AddDataSourceRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<AddDataSourceRequest>): AddDataSourceRequest {
     const message = createBaseAddDataSourceRequest();
     message.instance = object.instance ?? "";
@@ -1006,23 +1169,25 @@ export const RemoveDataSourceRequest = {
 
   fromJSON(object: any): RemoveDataSourceRequest {
     return {
-      instance: isSet(object.instance) ? String(object.instance) : "",
+      instance: isSet(object.instance) ? globalThis.String(object.instance) : "",
       dataSource: isSet(object.dataSource) ? DataSource.fromJSON(object.dataSource) : undefined,
     };
   },
 
   toJSON(message: RemoveDataSourceRequest): unknown {
     const obj: any = {};
-    message.instance !== undefined && (obj.instance = message.instance);
-    message.dataSource !== undefined &&
-      (obj.dataSource = message.dataSource ? DataSource.toJSON(message.dataSource) : undefined);
+    if (message.instance !== "") {
+      obj.instance = message.instance;
+    }
+    if (message.dataSource !== undefined) {
+      obj.dataSource = DataSource.toJSON(message.dataSource);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<RemoveDataSourceRequest>): RemoveDataSourceRequest {
     return RemoveDataSourceRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<RemoveDataSourceRequest>): RemoveDataSourceRequest {
     const message = createBaseRemoveDataSourceRequest();
     message.instance = object.instance ?? "";
@@ -1100,27 +1265,33 @@ export const UpdateDataSourceRequest = {
 
   fromJSON(object: any): UpdateDataSourceRequest {
     return {
-      instance: isSet(object.instance) ? String(object.instance) : "",
+      instance: isSet(object.instance) ? globalThis.String(object.instance) : "",
       dataSource: isSet(object.dataSource) ? DataSource.fromJSON(object.dataSource) : undefined,
       updateMask: isSet(object.updateMask) ? FieldMask.unwrap(FieldMask.fromJSON(object.updateMask)) : undefined,
-      validateOnly: isSet(object.validateOnly) ? Boolean(object.validateOnly) : false,
+      validateOnly: isSet(object.validateOnly) ? globalThis.Boolean(object.validateOnly) : false,
     };
   },
 
   toJSON(message: UpdateDataSourceRequest): unknown {
     const obj: any = {};
-    message.instance !== undefined && (obj.instance = message.instance);
-    message.dataSource !== undefined &&
-      (obj.dataSource = message.dataSource ? DataSource.toJSON(message.dataSource) : undefined);
-    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
-    message.validateOnly !== undefined && (obj.validateOnly = message.validateOnly);
+    if (message.instance !== "") {
+      obj.instance = message.instance;
+    }
+    if (message.dataSource !== undefined) {
+      obj.dataSource = DataSource.toJSON(message.dataSource);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
+    if (message.validateOnly === true) {
+      obj.validateOnly = message.validateOnly;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateDataSourceRequest>): UpdateDataSourceRequest {
     return UpdateDataSourceRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateDataSourceRequest>): UpdateDataSourceRequest {
     const message = createBaseUpdateDataSourceRequest();
     message.instance = object.instance ?? "";
@@ -1134,13 +1305,13 @@ export const UpdateDataSourceRequest = {
 };
 
 function createBaseSyncSlowQueriesRequest(): SyncSlowQueriesRequest {
-  return { instance: "" };
+  return { parent: "" };
 }
 
 export const SyncSlowQueriesRequest = {
   encode(message: SyncSlowQueriesRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.instance !== "") {
-      writer.uint32(10).string(message.instance);
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
     }
     return writer;
   },
@@ -1157,7 +1328,7 @@ export const SyncSlowQueriesRequest = {
             break;
           }
 
-          message.instance = reader.string();
+          message.parent = reader.string();
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -1169,34 +1340,38 @@ export const SyncSlowQueriesRequest = {
   },
 
   fromJSON(object: any): SyncSlowQueriesRequest {
-    return { instance: isSet(object.instance) ? String(object.instance) : "" };
+    return { parent: isSet(object.parent) ? globalThis.String(object.parent) : "" };
   },
 
   toJSON(message: SyncSlowQueriesRequest): unknown {
     const obj: any = {};
-    message.instance !== undefined && (obj.instance = message.instance);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<SyncSlowQueriesRequest>): SyncSlowQueriesRequest {
     return SyncSlowQueriesRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SyncSlowQueriesRequest>): SyncSlowQueriesRequest {
     const message = createBaseSyncSlowQueriesRequest();
-    message.instance = object.instance ?? "";
+    message.parent = object.parent ?? "";
     return message;
   },
 };
 
 function createBaseInstanceOptions(): InstanceOptions {
-  return { schemaTenantMode: false };
+  return { schemaTenantMode: false, syncInterval: undefined };
 }
 
 export const InstanceOptions = {
   encode(message: InstanceOptions, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.schemaTenantMode === true) {
       writer.uint32(8).bool(message.schemaTenantMode);
+    }
+    if (message.syncInterval !== undefined) {
+      Duration.encode(message.syncInterval, writer.uint32(18).fork()).ldelim();
     }
     return writer;
   },
@@ -1215,6 +1390,13 @@ export const InstanceOptions = {
 
           message.schemaTenantMode = reader.bool();
           continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.syncInterval = Duration.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1225,22 +1407,32 @@ export const InstanceOptions = {
   },
 
   fromJSON(object: any): InstanceOptions {
-    return { schemaTenantMode: isSet(object.schemaTenantMode) ? Boolean(object.schemaTenantMode) : false };
+    return {
+      schemaTenantMode: isSet(object.schemaTenantMode) ? globalThis.Boolean(object.schemaTenantMode) : false,
+      syncInterval: isSet(object.syncInterval) ? Duration.fromJSON(object.syncInterval) : undefined,
+    };
   },
 
   toJSON(message: InstanceOptions): unknown {
     const obj: any = {};
-    message.schemaTenantMode !== undefined && (obj.schemaTenantMode = message.schemaTenantMode);
+    if (message.schemaTenantMode === true) {
+      obj.schemaTenantMode = message.schemaTenantMode;
+    }
+    if (message.syncInterval !== undefined) {
+      obj.syncInterval = Duration.toJSON(message.syncInterval);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<InstanceOptions>): InstanceOptions {
     return InstanceOptions.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<InstanceOptions>): InstanceOptions {
     const message = createBaseInstanceOptions();
     message.schemaTenantMode = object.schemaTenantMode ?? false;
+    message.syncInterval = (object.syncInterval !== undefined && object.syncInterval !== null)
+      ? Duration.fromPartial(object.syncInterval)
+      : undefined;
     return message;
   },
 };
@@ -1394,45 +1586,63 @@ export const Instance = {
 
   fromJSON(object: any): Instance {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      uid: isSet(object.uid) ? String(object.uid) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      uid: isSet(object.uid) ? globalThis.String(object.uid) : "",
       state: isSet(object.state) ? stateFromJSON(object.state) : 0,
-      title: isSet(object.title) ? String(object.title) : "",
+      title: isSet(object.title) ? globalThis.String(object.title) : "",
       engine: isSet(object.engine) ? engineFromJSON(object.engine) : 0,
-      engineVersion: isSet(object.engineVersion) ? String(object.engineVersion) : "",
-      externalLink: isSet(object.externalLink) ? String(object.externalLink) : "",
-      dataSources: Array.isArray(object?.dataSources) ? object.dataSources.map((e: any) => DataSource.fromJSON(e)) : [],
-      environment: isSet(object.environment) ? String(object.environment) : "",
-      activation: isSet(object.activation) ? Boolean(object.activation) : false,
+      engineVersion: isSet(object.engineVersion) ? globalThis.String(object.engineVersion) : "",
+      externalLink: isSet(object.externalLink) ? globalThis.String(object.externalLink) : "",
+      dataSources: globalThis.Array.isArray(object?.dataSources)
+        ? object.dataSources.map((e: any) => DataSource.fromJSON(e))
+        : [],
+      environment: isSet(object.environment) ? globalThis.String(object.environment) : "",
+      activation: isSet(object.activation) ? globalThis.Boolean(object.activation) : false,
       options: isSet(object.options) ? InstanceOptions.fromJSON(object.options) : undefined,
     };
   },
 
   toJSON(message: Instance): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.uid !== undefined && (obj.uid = message.uid);
-    message.state !== undefined && (obj.state = stateToJSON(message.state));
-    message.title !== undefined && (obj.title = message.title);
-    message.engine !== undefined && (obj.engine = engineToJSON(message.engine));
-    message.engineVersion !== undefined && (obj.engineVersion = message.engineVersion);
-    message.externalLink !== undefined && (obj.externalLink = message.externalLink);
-    if (message.dataSources) {
-      obj.dataSources = message.dataSources.map((e) => e ? DataSource.toJSON(e) : undefined);
-    } else {
-      obj.dataSources = [];
+    if (message.name !== "") {
+      obj.name = message.name;
     }
-    message.environment !== undefined && (obj.environment = message.environment);
-    message.activation !== undefined && (obj.activation = message.activation);
-    message.options !== undefined &&
-      (obj.options = message.options ? InstanceOptions.toJSON(message.options) : undefined);
+    if (message.uid !== "") {
+      obj.uid = message.uid;
+    }
+    if (message.state !== 0) {
+      obj.state = stateToJSON(message.state);
+    }
+    if (message.title !== "") {
+      obj.title = message.title;
+    }
+    if (message.engine !== 0) {
+      obj.engine = engineToJSON(message.engine);
+    }
+    if (message.engineVersion !== "") {
+      obj.engineVersion = message.engineVersion;
+    }
+    if (message.externalLink !== "") {
+      obj.externalLink = message.externalLink;
+    }
+    if (message.dataSources?.length) {
+      obj.dataSources = message.dataSources.map((e) => DataSource.toJSON(e));
+    }
+    if (message.environment !== "") {
+      obj.environment = message.environment;
+    }
+    if (message.activation === true) {
+      obj.activation = message.activation;
+    }
+    if (message.options !== undefined) {
+      obj.options = InstanceOptions.toJSON(message.options);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<Instance>): Instance {
     return Instance.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<Instance>): Instance {
     const message = createBaseInstance();
     message.name = object.name ?? "";
@@ -1454,7 +1664,7 @@ export const Instance = {
 
 function createBaseDataSource(): DataSource {
   return {
-    title: "",
+    id: "",
     type: 0,
     username: "",
     password: "",
@@ -1478,8 +1688,8 @@ function createBaseDataSource(): DataSource {
 
 export const DataSource = {
   encode(message: DataSource, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.title !== "") {
-      writer.uint32(10).string(message.title);
+    if (message.id !== "") {
+      writer.uint32(10).string(message.id);
     }
     if (message.type !== 0) {
       writer.uint32(16).int32(message.type);
@@ -1550,7 +1760,7 @@ export const DataSource = {
             break;
           }
 
-          message.title = reader.string();
+          message.id = reader.string();
           continue;
         case 2:
           if (tag !== 16) {
@@ -1689,59 +1899,98 @@ export const DataSource = {
 
   fromJSON(object: any): DataSource {
     return {
-      title: isSet(object.title) ? String(object.title) : "",
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
       type: isSet(object.type) ? dataSourceTypeFromJSON(object.type) : 0,
-      username: isSet(object.username) ? String(object.username) : "",
-      password: isSet(object.password) ? String(object.password) : "",
-      sslCa: isSet(object.sslCa) ? String(object.sslCa) : "",
-      sslCert: isSet(object.sslCert) ? String(object.sslCert) : "",
-      sslKey: isSet(object.sslKey) ? String(object.sslKey) : "",
-      host: isSet(object.host) ? String(object.host) : "",
-      port: isSet(object.port) ? String(object.port) : "",
-      database: isSet(object.database) ? String(object.database) : "",
-      srv: isSet(object.srv) ? Boolean(object.srv) : false,
-      authenticationDatabase: isSet(object.authenticationDatabase) ? String(object.authenticationDatabase) : "",
-      sid: isSet(object.sid) ? String(object.sid) : "",
-      serviceName: isSet(object.serviceName) ? String(object.serviceName) : "",
-      sshHost: isSet(object.sshHost) ? String(object.sshHost) : "",
-      sshPort: isSet(object.sshPort) ? String(object.sshPort) : "",
-      sshUser: isSet(object.sshUser) ? String(object.sshUser) : "",
-      sshPassword: isSet(object.sshPassword) ? String(object.sshPassword) : "",
-      sshPrivateKey: isSet(object.sshPrivateKey) ? String(object.sshPrivateKey) : "",
+      username: isSet(object.username) ? globalThis.String(object.username) : "",
+      password: isSet(object.password) ? globalThis.String(object.password) : "",
+      sslCa: isSet(object.sslCa) ? globalThis.String(object.sslCa) : "",
+      sslCert: isSet(object.sslCert) ? globalThis.String(object.sslCert) : "",
+      sslKey: isSet(object.sslKey) ? globalThis.String(object.sslKey) : "",
+      host: isSet(object.host) ? globalThis.String(object.host) : "",
+      port: isSet(object.port) ? globalThis.String(object.port) : "",
+      database: isSet(object.database) ? globalThis.String(object.database) : "",
+      srv: isSet(object.srv) ? globalThis.Boolean(object.srv) : false,
+      authenticationDatabase: isSet(object.authenticationDatabase)
+        ? globalThis.String(object.authenticationDatabase)
+        : "",
+      sid: isSet(object.sid) ? globalThis.String(object.sid) : "",
+      serviceName: isSet(object.serviceName) ? globalThis.String(object.serviceName) : "",
+      sshHost: isSet(object.sshHost) ? globalThis.String(object.sshHost) : "",
+      sshPort: isSet(object.sshPort) ? globalThis.String(object.sshPort) : "",
+      sshUser: isSet(object.sshUser) ? globalThis.String(object.sshUser) : "",
+      sshPassword: isSet(object.sshPassword) ? globalThis.String(object.sshPassword) : "",
+      sshPrivateKey: isSet(object.sshPrivateKey) ? globalThis.String(object.sshPrivateKey) : "",
     };
   },
 
   toJSON(message: DataSource): unknown {
     const obj: any = {};
-    message.title !== undefined && (obj.title = message.title);
-    message.type !== undefined && (obj.type = dataSourceTypeToJSON(message.type));
-    message.username !== undefined && (obj.username = message.username);
-    message.password !== undefined && (obj.password = message.password);
-    message.sslCa !== undefined && (obj.sslCa = message.sslCa);
-    message.sslCert !== undefined && (obj.sslCert = message.sslCert);
-    message.sslKey !== undefined && (obj.sslKey = message.sslKey);
-    message.host !== undefined && (obj.host = message.host);
-    message.port !== undefined && (obj.port = message.port);
-    message.database !== undefined && (obj.database = message.database);
-    message.srv !== undefined && (obj.srv = message.srv);
-    message.authenticationDatabase !== undefined && (obj.authenticationDatabase = message.authenticationDatabase);
-    message.sid !== undefined && (obj.sid = message.sid);
-    message.serviceName !== undefined && (obj.serviceName = message.serviceName);
-    message.sshHost !== undefined && (obj.sshHost = message.sshHost);
-    message.sshPort !== undefined && (obj.sshPort = message.sshPort);
-    message.sshUser !== undefined && (obj.sshUser = message.sshUser);
-    message.sshPassword !== undefined && (obj.sshPassword = message.sshPassword);
-    message.sshPrivateKey !== undefined && (obj.sshPrivateKey = message.sshPrivateKey);
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.type !== 0) {
+      obj.type = dataSourceTypeToJSON(message.type);
+    }
+    if (message.username !== "") {
+      obj.username = message.username;
+    }
+    if (message.password !== "") {
+      obj.password = message.password;
+    }
+    if (message.sslCa !== "") {
+      obj.sslCa = message.sslCa;
+    }
+    if (message.sslCert !== "") {
+      obj.sslCert = message.sslCert;
+    }
+    if (message.sslKey !== "") {
+      obj.sslKey = message.sslKey;
+    }
+    if (message.host !== "") {
+      obj.host = message.host;
+    }
+    if (message.port !== "") {
+      obj.port = message.port;
+    }
+    if (message.database !== "") {
+      obj.database = message.database;
+    }
+    if (message.srv === true) {
+      obj.srv = message.srv;
+    }
+    if (message.authenticationDatabase !== "") {
+      obj.authenticationDatabase = message.authenticationDatabase;
+    }
+    if (message.sid !== "") {
+      obj.sid = message.sid;
+    }
+    if (message.serviceName !== "") {
+      obj.serviceName = message.serviceName;
+    }
+    if (message.sshHost !== "") {
+      obj.sshHost = message.sshHost;
+    }
+    if (message.sshPort !== "") {
+      obj.sshPort = message.sshPort;
+    }
+    if (message.sshUser !== "") {
+      obj.sshUser = message.sshUser;
+    }
+    if (message.sshPassword !== "") {
+      obj.sshPassword = message.sshPassword;
+    }
+    if (message.sshPrivateKey !== "") {
+      obj.sshPrivateKey = message.sshPrivateKey;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<DataSource>): DataSource {
     return DataSource.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DataSource>): DataSource {
     const message = createBaseDataSource();
-    message.title = object.title ?? "";
+    message.id = object.id ?? "";
     message.type = object.type ?? 0;
     message.username = object.username ?? "";
     message.password = object.password ?? "";
@@ -1819,7 +2068,63 @@ export const InstanceServiceDefinition = {
       options: {
         _unknownFields: {
           8410: [new Uint8Array([0])],
-          578365826: [new Uint8Array([15, 18, 13, 47, 118, 49, 47, 105, 110, 115, 116, 97, 110, 99, 101, 115])],
+          578365826: [
+            new Uint8Array([
+              52,
+              90,
+              35,
+              18,
+              33,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              125,
+              47,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              18,
+              13,
+              47,
+              118,
+              49,
+              47,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+            ]),
+          ],
         },
       },
     },
@@ -2090,6 +2395,50 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    batchSyncInstance: {
+      name: "BatchSyncInstance",
+      requestType: BatchSyncInstanceRequest,
+      requestStream: false,
+      responseType: BatchSyncInstanceResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              28,
+              58,
+              1,
+              42,
+              34,
+              23,
+              47,
+              118,
+              49,
+              47,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              58,
+              98,
+              97,
+              116,
+              99,
+              104,
+              83,
+              121,
+              110,
+              99,
+            ]),
+          ],
+        },
+      },
+    },
     addDataSource: {
       name: "AddDataSource",
       requestType: AddDataSourceRequest,
@@ -2289,25 +2638,66 @@ export const InstanceServiceDefinition = {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              47,
+              88,
               58,
               1,
               42,
+              90,
+              41,
               34,
-              42,
+              39,
               47,
               118,
               49,
               47,
               123,
-              105,
-              110,
-              115,
-              116,
+              112,
               97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              125,
+              58,
+              115,
+              121,
               110,
               99,
+              83,
+              108,
+              111,
+              119,
+              81,
+              117,
               101,
+              114,
+              105,
+              101,
+              115,
+              34,
+              40,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
               61,
               105,
               110,
@@ -2345,76 +2735,18 @@ export const InstanceServiceDefinition = {
   },
 } as const;
 
-export interface InstanceServiceImplementation<CallContextExt = {}> {
-  getInstance(request: GetInstanceRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Instance>>;
-  listInstances(
-    request: ListInstancesRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListInstancesResponse>>;
-  createInstance(request: CreateInstanceRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Instance>>;
-  updateInstance(request: UpdateInstanceRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Instance>>;
-  deleteInstance(request: DeleteInstanceRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Empty>>;
-  undeleteInstance(
-    request: UndeleteInstanceRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<Instance>>;
-  syncInstance(
-    request: SyncInstanceRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<SyncInstanceResponse>>;
-  addDataSource(request: AddDataSourceRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Instance>>;
-  removeDataSource(
-    request: RemoveDataSourceRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<Instance>>;
-  updateDataSource(
-    request: UpdateDataSourceRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<Instance>>;
-  syncSlowQueries(request: SyncSlowQueriesRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Empty>>;
-}
-
-export interface InstanceServiceClient<CallOptionsExt = {}> {
-  getInstance(request: DeepPartial<GetInstanceRequest>, options?: CallOptions & CallOptionsExt): Promise<Instance>;
-  listInstances(
-    request: DeepPartial<ListInstancesRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ListInstancesResponse>;
-  createInstance(
-    request: DeepPartial<CreateInstanceRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<Instance>;
-  updateInstance(
-    request: DeepPartial<UpdateInstanceRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<Instance>;
-  deleteInstance(request: DeepPartial<DeleteInstanceRequest>, options?: CallOptions & CallOptionsExt): Promise<Empty>;
-  undeleteInstance(
-    request: DeepPartial<UndeleteInstanceRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<Instance>;
-  syncInstance(
-    request: DeepPartial<SyncInstanceRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<SyncInstanceResponse>;
-  addDataSource(request: DeepPartial<AddDataSourceRequest>, options?: CallOptions & CallOptionsExt): Promise<Instance>;
-  removeDataSource(
-    request: DeepPartial<RemoveDataSourceRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<Instance>;
-  updateDataSource(
-    request: DeepPartial<UpdateDataSourceRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<Instance>;
-  syncSlowQueries(request: DeepPartial<SyncSlowQueriesRequest>, options?: CallOptions & CallOptionsExt): Promise<Empty>;
-}
-
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
 export type DeepPartial<T> = T extends Builtin ? T
-  : T extends Array<infer U> ? Array<DeepPartial<U>> : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
+  : T extends Long ? string | number | Long : T extends globalThis.Array<infer U> ? globalThis.Array<DeepPartial<U>>
+  : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
+
+if (_m0.util.Long !== Long) {
+  _m0.util.Long = Long as any;
+  _m0.configure();
+}
 
 function isSet(value: any): boolean {
   return value !== null && value !== undefined;

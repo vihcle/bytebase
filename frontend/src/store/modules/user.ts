@@ -1,20 +1,27 @@
+import { isEqual, isUndefined } from "lodash-es";
 import { defineStore } from "pinia";
 import { authServiceClient } from "@/grpcweb";
+import {
+  ALL_USERS_USER_ID,
+  ALL_USERS_USER_NAME,
+  Principal,
+  PrincipalType,
+  RoleType,
+  allUsersUser,
+} from "@/types";
 import {
   UpdateUserRequest,
   User,
   userRoleToJSON,
   UserType,
 } from "@/types/proto/v1/auth_service";
-import { isEqual, isUndefined } from "lodash-es";
+import { State } from "@/types/proto/v1/common";
+import { extractUserUID } from "@/utils";
 import {
   getUserId,
   userNamePrefix,
   getUserEmailFromIdentifier,
 } from "./v1/common";
-import { Principal, PrincipalType, RoleType } from "@/types";
-import { State } from "@/types/proto/v1/common";
-import { extractUserUID } from "@/utils";
 
 interface UserState {
   userMapByName: Map<string, User>;
@@ -51,10 +58,15 @@ export const useUserStore = defineStore("user", {
       }
       return users;
     },
-    async fetchUser(name: string) {
-      const user = await authServiceClient.getUser({
-        name,
-      });
+    async fetchUser(name: string, silent = false) {
+      const user = await authServiceClient.getUser(
+        {
+          name,
+        },
+        {
+          silent,
+        }
+      );
       this.userMapByName.set(user.name, user);
       return user;
     },
@@ -75,28 +87,37 @@ export const useUserStore = defineStore("user", {
       this.userMapByName.set(user.name, user);
       return user;
     },
-    async getOrFetchUserByName(name: string) {
+    async getOrFetchUserByName(name: string, silent = false) {
       const cachedData = this.userMapByName.get(name);
       if (cachedData) {
         return cachedData;
       }
-      const user = await this.fetchUser(name);
+      const user = await this.fetchUser(name, silent);
       this.userMapByName.set(user.name, user);
       return user;
     },
     getUserByName(name: string) {
       return this.userMapByName.get(name);
     },
-    async getOrFetchUserById(uid: string) {
-      return await this.getOrFetchUserByName(getUserNameWithUserId(uid));
+    async getOrFetchUserById(uid: string, silent = false) {
+      return await this.getOrFetchUserByName(
+        getUserNameWithUserId(uid),
+        silent
+      );
     },
     getUserById(uid: string) {
+      if (uid === ALL_USERS_USER_ID) {
+        return allUsersUser();
+      }
       return this.userMapByName.get(getUserNameWithUserId(uid));
     },
     getUserByIdentifier(identifier: string) {
       return this.getUserByEmail(getUserEmailFromIdentifier(identifier));
     },
     getUserByEmail(email: string) {
+      if (email === ALL_USERS_USER_NAME) {
+        return allUsersUser();
+      }
       return [...this.userMapByName.values()].find(
         (user) => user.email === email
       );
@@ -120,7 +141,7 @@ export const useUserStore = defineStore("user", {
 
 export const extractUserEmail = (emailResource: string) => {
   const matches = emailResource.match(/^user:(.+)$/);
-  return matches?.[1] ?? "";
+  return matches?.[1] ?? emailResource;
 };
 
 export const getUserNameWithUserId = (userUID: string) => {

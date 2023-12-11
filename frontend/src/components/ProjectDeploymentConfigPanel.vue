@@ -1,11 +1,11 @@
 <template>
-  <div class="max-w-[60rem] mx-auto">
-    <div v-if="state.ready && state.deployment" class="mb-6">
+  <div class="w-full pt-6 space-y-6">
+    <div v-if="state.ready && state.deployment" class="space-y-4">
       <div class="text-lg font-medium leading-7 text-main">
         {{ $t("deployment-config.preview-deployment-pipeline") }}
       </div>
       <DeploymentMatrix
-        class="w-full mt-4 !px-0 overflow-x-auto"
+        class="w-full !px-0 overflow-x-auto"
         :project="project"
         :deployment="state.deployment"
         :database-list="databaseList"
@@ -14,126 +14,77 @@
       />
     </div>
 
-    <div class="text-lg font-medium leading-7 text-main">
-      {{ $t("project.db-name-template") }}
-    </div>
-    <div class="textinfolabel">
-      <i18n-t keypath="label.db-name-template-tips">
-        <template #placeholder>
-          <!-- prettier-ignore -->
-          <code v-pre class="text-xs font-mono bg-control-bg">{{DB_NAME}}__{{TENANT}}</code>
-        </template>
-        <template #link>
-          <a
-            class="normal-link inline-flex items-center"
-            href="https://www.bytebase.com/docs/change-database/batch-change/#specify-database-name-template"
-            target="__BLANK"
-          >
-            {{ $t("common.learn-more") }}
-            <heroicons-outline:external-link class="w-4 h-4 ml-1" />
-          </a>
-        </template>
-      </i18n-t>
-    </div>
-    <div class="mt-3 space-y-2">
-      <div>
-        <input
-          v-model="state.dbNameTemplate"
-          type="text"
-          class="textfield w-full"
-          :disabled="!state.isEditingDBNameTemplate"
-        />
+    <div class="space-y-4">
+      <div class="text-lg font-medium leading-7 text-main">
+        {{ $t("common.deployment-config") }}
       </div>
-      <div class="flex items-center justify-end gap-x-2">
-        <button
-          v-if="!state.isEditingDBNameTemplate"
-          :disabled="!allowEdit"
-          class="btn-normal"
-          @click="beginEditDBNameTemplate"
+
+      <template v-if="state.ready">
+        <BBAttention
+          v-if="state.deployment === undefined"
+          :style="'WARN'"
+          :title="$t('common.deployment-config')"
+          :description="
+            $t('deployment-config.this-is-example-deployment-config')
+          "
         >
-          {{ $t("common.edit") }}
-        </button>
-        <template v-if="state.isEditingDBNameTemplate">
-          <button class="btn-normal" @click="cancelEditDBNameTemplate">
-            {{ $t("common.cancel") }}
-          </button>
-          <button
-            class="btn-primary"
-            :disabled="!allowUpdateDBNameTemplate"
-            @click="confirmEditDBNameTemplate"
-          >
-            {{ $t("common.update") }}
-          </button>
-        </template>
-      </div>
-    </div>
+        </BBAttention>
 
-    <div class="text-lg font-medium leading-7 text-main mt-6 border-t pt-4">
-      {{ $t("common.deployment-config") }}
-    </div>
+        <div v-else>
+          <DeploymentConfigTool
+            v-if="state.deployment.schedule"
+            :schedule="state.deployment.schedule"
+            :allow-edit="allowEdit"
+            :database-list="databaseList"
+          />
+          <div class="pt-4 border-t flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+              <NButton v-if="allowEdit" @click="addStage">
+                {{ $t("deployment-config.add-stage") }}
+              </NButton>
+            </div>
+            <div class="flex items-center space-x-2">
+              <NButton
+                v-if="allowEdit"
+                :disabled="!isDeploymentConfigDirty"
+                @click="revertDeploymentConfig"
+              >
+                {{ $t("common.revert") }}
+              </NButton>
+              <NPopover
+                v-if="allowEdit"
+                :disabled="!state.error"
+                trigger="hover"
+              >
+                <template #trigger>
+                  <NButton
+                    type="primary"
+                    :disabled="!allowUpdateDeploymentConfig"
+                    @click="updateDeploymentConfig"
+                  >
+                    {{ $t("common.update") }}
+                  </NButton>
+                </template>
 
-    <template v-if="state.ready">
-      <BBAttention
-        v-if="state.deployment === undefined"
-        :style="'WARN'"
-        :title="$t('common.deployment-config')"
-        :description="$t('deployment-config.this-is-example-deployment-config')"
-      >
-      </BBAttention>
-
-      <div v-else>
-        <DeploymentConfigTool
-          v-if="state.deployment.schedule"
-          :schedule="state.deployment.schedule"
-          :allow-edit="allowEdit"
-          :database-list="databaseList"
-        />
-        <div class="pt-4 border-t flex justify-between items-center">
-          <div class="flex items-center space-x-2">
-            <button v-if="allowEdit" class="btn-normal" @click="addStage">
-              {{ $t("deployment-config.add-stage") }}
-            </button>
-          </div>
-          <div class="flex items-center space-x-2">
-            <button
-              v-if="allowEdit"
-              class="btn-normal"
-              :disabled="!isDeploymentConfigDirty"
-              @click="revertDeploymentConfig"
-            >
-              {{ $t("common.revert") }}
-            </button>
-            <NPopover v-if="allowEdit" :disabled="!state.error" trigger="hover">
-              <template #trigger>
-                <div
-                  class="btn-primary"
-                  :class="
-                    !allowUpdateDeploymentConfig
-                      ? 'bg-accent opacity-50 cursor-not-allowed'
-                      : ''
-                  "
-                  @click="updateDeploymentConfig"
-                >
-                  {{ $t("common.update") }}
-                </div>
-              </template>
-
-              <span v-if="state.error" class="text-error">
-                {{ $t(state.error) }}
-              </span>
-            </NPopover>
+                <span v-if="state.error" class="text-error">
+                  {{ $t(state.error) }}
+                </span>
+              </NPopover>
+            </div>
           </div>
         </div>
-      </div>
-    </template>
+      </template>
 
-    <div v-else class="flex justify-center items-center py-10">
-      <BBSpin />
+      <div v-else class="flex justify-center items-center py-10">
+        <BBSpin />
+      </div>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
+import { cloneDeep, isEqual } from "lodash-es";
+import { NPopover, useDialog } from "naive-ui";
 import {
   computed,
   nextTick,
@@ -142,20 +93,11 @@ import {
   watch,
   watchEffect,
 } from "vue";
-import { cloneDeep, isEqual } from "lodash-es";
 import { useI18n } from "vue-i18n";
-import { NPopover, useDialog } from "naive-ui";
-import { ComposedDatabase } from "../types";
-import DeploymentConfigTool, { DeploymentMatrix } from "./DeploymentConfigTool";
-import {
-  extractEnvironmentResourceName,
-  validateDeploymentConfigV1,
-} from "../utils";
 import {
   pushNotification,
   useDeploymentConfigV1Store,
   useEnvironmentV1List,
-  useProjectV1Store,
 } from "@/store";
 import {
   DeploymentConfig,
@@ -163,14 +105,18 @@ import {
   OperatorType,
   Project,
 } from "@/types/proto/v1/project_service";
+import { ComposedDatabase } from "../types";
+import {
+  extractEnvironmentResourceName,
+  validateDeploymentConfigV1,
+} from "../utils";
+import DeploymentConfigTool, { DeploymentMatrix } from "./DeploymentConfigTool";
 
 type LocalState = {
   ready: boolean;
   deployment: DeploymentConfig | undefined;
   originalDeployment: DeploymentConfig | undefined;
   error: string | undefined;
-  isEditingDBNameTemplate: boolean;
-  dbNameTemplate: string;
 };
 
 const props = defineProps({
@@ -197,8 +143,6 @@ const state = reactive<LocalState>({
   deployment: undefined,
   originalDeployment: undefined,
   error: undefined,
-  isEditingDBNameTemplate: false,
-  dbNameTemplate: props.project.dbNameTemplate,
 });
 
 const isDeploymentConfigDirty = computed((): boolean => {
@@ -237,7 +181,7 @@ watchEffect(async () => {
 const addStage = () => {
   if (!state.deployment) return;
   const rule: LabelSelectorRequirement = {
-    key: "bb.environment",
+    key: "environment",
     operator: OperatorType.OPERATOR_TYPE_IN,
     values: [],
   };
@@ -310,36 +254,4 @@ watch(
   },
   { deep: true }
 );
-
-const allowUpdateDBNameTemplate = computed(() => {
-  return state.dbNameTemplate !== props.project.dbNameTemplate;
-});
-
-const beginEditDBNameTemplate = () => {
-  state.dbNameTemplate = props.project.dbNameTemplate;
-  state.isEditingDBNameTemplate = true;
-};
-
-const cancelEditDBNameTemplate = () => {
-  state.dbNameTemplate = props.project.dbNameTemplate;
-  state.isEditingDBNameTemplate = false;
-};
-
-const confirmEditDBNameTemplate = async () => {
-  try {
-    const projectPatch = cloneDeep(props.project);
-    projectPatch.dbNameTemplate = state.dbNameTemplate;
-    const updateMask = ["db_name_template"];
-    await useProjectV1Store().updateProject(projectPatch, updateMask);
-    pushNotification({
-      module: "bytebase",
-      style: "SUCCESS",
-      title: t("project.successfully-updated-db-name-template"),
-    });
-  } catch {
-    state.dbNameTemplate = props.project.dbNameTemplate;
-  } finally {
-    state.isEditingDBNameTemplate = false;
-  }
-};
 </script>

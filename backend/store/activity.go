@@ -266,7 +266,13 @@ type UpdateActivityMessage struct {
 }
 
 // CreateActivityV2 creates an instance of Activity.
+// Certain types of activities are not stored in the database.
 func (s *Store) CreateActivityV2(ctx context.Context, create *ActivityMessage) (*ActivityMessage, error) {
+	switch create.Type {
+	case api.ActivityNotifyIssueApproved, api.ActivityNotifyPipelineRollout:
+		return create, nil
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -488,6 +494,8 @@ func listActivityImplV2(ctx context.Context, tx *Tx, find *FindActivityMessage) 
 
 	if v := find.Order; v != nil {
 		query += fmt.Sprintf(" ORDER BY id %s", *v)
+	} else {
+		query += " ORDER BY id ASC"
 	}
 	if v := find.Limit; v != nil {
 		query += fmt.Sprintf(" LIMIT %d", *v)

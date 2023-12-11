@@ -4,15 +4,25 @@
       <div class="pr-4">
         <h2 class="text-lg font-semibold">{{ $t("common.share") }}</h2>
       </div>
-      <NPopover trigger="click" :show="isShowAccessPopover">
+      <NPopover
+        trigger="click"
+        :show="isShowAccessPopover"
+        :disabled="!allowChangeAccess"
+      >
         <template #trigger>
           <div
-            class="flex items-center cursor-pointer"
+            class="flex items-center"
+            :class="allowChangeAccess ? 'cursor-pointer' : 'cursor-not-allowed'"
             @click="isShowAccessPopover = !isShowAccessPopover"
           >
             <span class="pr-2">{{ $t("sql-editor.link-access") }}:</span>
             <div
-              class="border flex flex-row justify-start items-center px-2 py-1 rounded hover:border-accent"
+              class="border flex flex-row justify-start items-center px-2 py-1 rounded"
+              :class="
+                allowChangeAccess
+                  ? 'hover:border-accent'
+                  : 'border-gray-200 text-gray-400'
+              "
             >
               <strong>{{ currentAccess.label }}</strong>
               <heroicons-solid:chevron-down />
@@ -25,7 +35,7 @@
             :key="option.label"
             class="p-2 rounded-sm flex justify-between"
             :class="[
-              isCreator && 'cursor-pointer hover:bg-gray-200',
+              allowChangeAccess && 'cursor-pointer hover:bg-gray-200',
               option.value === currentAccess.value && 'bg-gray-200',
             ]"
             @click="handleChangeAccess(option)"
@@ -82,17 +92,24 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, onMounted } from "vue";
 import { useClipboard } from "@vueuse/core";
+import { ref, computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { pushNotification, useTabStore, useSheetV1Store } from "@/store";
+import {
+  pushNotification,
+  useTabStore,
+  useSheetV1Store,
+  useSheetAndTabStore,
+} from "@/store";
 import { AccessOption } from "@/types";
-import { sheetSlugV1 } from "@/utils";
 import { Sheet_Visibility } from "@/types/proto/v1/sheet_service";
+import { sheetSlugV1 } from "@/utils";
 
 const { t } = useI18n();
+
 const tabStore = useTabStore();
 const sheetV1Store = useSheetV1Store();
+const sheetAndTabStore = useSheetAndTabStore();
 
 const accessOptions = computed<AccessOption[]>(() => {
   return [
@@ -114,8 +131,12 @@ const accessOptions = computed<AccessOption[]>(() => {
   ];
 });
 
-const sheet = computed(() => sheetV1Store.currentSheet);
-const isCreator = computed(() => sheetV1Store.isCreator);
+const sheet = computed(() => {
+  return sheetAndTabStore.currentSheet;
+});
+const allowChangeAccess = computed(() => {
+  return sheetAndTabStore.isCreator;
+});
 
 const currentAccess = ref<AccessOption>(accessOptions.value[0]);
 const isShowAccessPopover = ref(false);
@@ -131,7 +152,7 @@ const updateSheet = () => {
 
 const handleChangeAccess = (option: AccessOption) => {
   // only creator can change access
-  if (isCreator.value) {
+  if (allowChangeAccess.value) {
     currentAccess.value = option;
     updateSheet();
   }

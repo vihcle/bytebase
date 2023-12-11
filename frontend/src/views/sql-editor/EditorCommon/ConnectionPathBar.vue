@@ -1,29 +1,32 @@
 <template>
   <div
-    v-if="!tabStore.isDisconnected"
-    class="w-full block lg:flex justify-between items-start bg-white"
+    class="w-full flex flex-col sm:flex-row sm:flex-wrap lg:flex-nowrap lg:justify-between items-start bg-white overflow-hidden"
   >
     <div
-      class="flex justify-start items-center h-8 px-4 whitespace-nowrap overflow-x-auto"
+      v-if="!tabStore.isDisconnected"
+      class="flex justify-start items-center h-8 px-4 whitespace-nowrap shrink-0 gap-x-4"
     >
-      <NPopover v-if="showReadonlyDatasourceWarning" trigger="hover">
+      <NPopover
+        v-if="selectedInstance.uid !== String(UNKNOWN_ID)"
+        :disabled="!isProductionEnvironment"
+      >
         <template #trigger>
-          <heroicons-outline:exclamation
-            class="h-6 w-6 flex-shrink-0 mr-2"
+          <div
+            class="inline-flex items-center px-2 border text-sm rounded-sm"
             :class="[
-              isProductionEnvironment ? 'text-yellow-500' : 'text-yellow-500',
+              isProductionEnvironment
+                ? 'border-error text-error'
+                : 'border-main text-main',
             ]"
-          />
-        </template>
-        <p class="py-1">
-          {{ $t("instance.no-read-only-data-source-warn") }}
-          <span
-            class="underline text-accent cursor-pointer hover:opacity-80"
-            @click="gotoInstanceDetailPage"
           >
-            {{ $t("sql-editor.create-read-only-data-source") }}
-          </span>
-        </p>
+            {{ selectedEnvironment.title }}
+          </div>
+        </template>
+        <template #default>
+          <div class="max-w-[20rem]">
+            {{ $t("sql-editor.sql-execute-in-production-environment") }}
+          </div>
+        </template>
       </NPopover>
 
       <label class="flex items-center text-sm space-x-1">
@@ -31,22 +34,6 @@
           v-if="selectedInstance.uid !== String(UNKNOWN_ID)"
           class="flex items-center"
         >
-          <span class="">{{ selectedInstance.environmentEntity.title }}</span>
-          <ProductionEnvironmentV1Icon
-            :environment="selectedInstance.environmentEntity"
-            class="ml-1"
-            :class="[isProductionEnvironment && '~!text-yellow-700']"
-          />
-        </div>
-        <div
-          v-if="selectedInstance.uid !== String(UNKNOWN_ID)"
-          class="flex items-center"
-        >
-          <span class="mx-2">
-            <heroicons-solid:chevron-right
-              class="flex-shrink-0 h-4 w-4 text-control-light"
-            />
-          </span>
           <InstanceV1EngineIcon :instance="selectedInstance" show-status />
           <span class="ml-2">{{ selectedInstance.title }}</span>
         </div>
@@ -62,37 +49,42 @@
           <heroicons-outline:database />
           <span class="ml-2">{{ selectedDatabaseV1.databaseName }}</span>
         </div>
+
+        <div
+          v-if="showBatchQuerySelector"
+          class="relative ml-2 flex items-center"
+        >
+          <BatchQueryDatabasesSelector />
+        </div>
       </label>
+
+      <ReadonlyDatasourceHint :instance="selectedInstance" />
     </div>
 
     <div
-      v-if="isProductionEnvironment"
-      class="flex justify-start items-center py-1 sm:py-0 sm:h-8 px-4 sm:rounded-bl text-white bg-error"
+      v-if="tabStore.isDisconnected && !currentTab.sheetName"
+      class="flex justify-start items-center h-8 px-4 whitespace-nowrap overflow-x-auto"
     >
-      {{ $t("sql-editor.sql-execute-in-production-environment") }}
+      <div class="text-sm text-control">
+        {{ $t("sql-editor.connection-holder") }}
+      </div>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { computed } from "vue";
 import { NPopover } from "naive-ui";
-import { useRouter } from "vue-router";
-
+import { computed } from "vue";
+import { InstanceV1EngineIcon } from "@/components/v2";
 import { useTabStore, useDatabaseV1ByUID, useInstanceV1ByUID } from "@/store";
 import { TabMode, UNKNOWN_ID } from "@/types";
-import { instanceV1Slug } from "@/utils";
-import { DataSourceType } from "@/types/proto/v1/instance_service";
 import { EnvironmentTier } from "@/types/proto/v1/environment_service";
-import {
-  InstanceV1EngineIcon,
-  ProductionEnvironmentV1Icon,
-} from "@/components/v2";
+import BatchQueryDatabasesSelector from "./BatchQueryDatabasesSelector.vue";
+import ReadonlyDatasourceHint from "./ReadonlyDatasourceHint.vue";
 
-const router = useRouter();
 const tabStore = useTabStore();
-
-const connection = computed(() => tabStore.currentTab.connection);
+const currentTab = computed(() => tabStore.currentTab);
+const connection = computed(() => currentTab.value.connection);
 
 const { instance: selectedInstance } = useInstanceV1ByUID(
   computed(() => connection.value.instanceId)
@@ -102,38 +94,26 @@ const { database: selectedDatabaseV1 } = useDatabaseV1ByUID(
   computed(() => String(connection.value.databaseId))
 );
 
+const selectedEnvironment = computed(() => {
+  return connection.value.databaseId === `${UNKNOWN_ID}`
+    ? selectedInstance.value.environmentEntity
+    : selectedDatabaseV1.value.effectiveEnvironmentEntity;
+});
+
 const isProductionEnvironment = computed(() => {
-  const instance = selectedInstance.value;
-  return instance.environmentEntity.tier === EnvironmentTier.PROTECTED;
+  if (tabStore.isDisconnected) {
+    return false;
+  }
+
+  return selectedEnvironment.value.tier === EnvironmentTier.PROTECTED;
 });
 
-const isAdminMode = computed(() => {
-  return tabStore.currentTab.mode === TabMode.Admin;
-});
-
-const hasReadonlyDataSource = computed(() => {
+const showBatchQuerySelector = computed(() => {
   return (
-    selectedInstance.value.dataSources.findIndex(
-      (ds) => ds.type === DataSourceType.READ_ONLY
-    ) !== -1
+    // Only show entry when user selected a database.
+    selectedDatabaseV1.value.uid !== String(UNKNOWN_ID) &&
+    // TODO(steven): implement batch query in admin mode.
+    currentTab.value.mode !== TabMode.Admin
   );
 });
-
-const showReadonlyDatasourceWarning = computed(() => {
-  return (
-    !isAdminMode.value &&
-    selectedInstance.value.uid !== String(UNKNOWN_ID) &&
-    !hasReadonlyDataSource.value
-  );
-});
-
-const gotoInstanceDetailPage = () => {
-  const route = router.resolve({
-    name: "workspace.instance.detail",
-    params: {
-      instanceSlug: instanceV1Slug(selectedInstance.value),
-    },
-  });
-  window.open(route.href);
-};
 </script>

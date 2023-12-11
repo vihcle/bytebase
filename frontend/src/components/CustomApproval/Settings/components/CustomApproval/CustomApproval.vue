@@ -1,9 +1,6 @@
 <template>
   <div class="w-full">
     <NTabs v-model:value="tab">
-      <template #suffix>
-        <Toolbar />
-      </template>
       <NTabPane
         name="rules"
         :tab="$t('custom-approval.rule.rules')"
@@ -30,12 +27,11 @@
 </template>
 
 <script lang="ts" setup>
-import { useCustomApprovalContext } from "./context";
-import RulesPanel from "./RulesPanel";
-import FlowsPanel from "./FlowsPanel";
-import ExternalApprovalNodesPanel from "./ExternalApprovalNodesPanel";
-import Toolbar from "./Toolbar.vue";
 import { provideRiskFilter } from "../common/RiskFilter";
+import ExternalApprovalNodesPanel from "./ExternalApprovalNodesPanel";
+import FlowsPanel from "./FlowsPanel";
+import RulesPanel from "./RulesPanel";
+import { useCustomApprovalContext } from "./context";
 
 const { tab } = useCustomApprovalContext();
 provideRiskFilter();

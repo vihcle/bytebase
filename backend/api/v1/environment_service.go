@@ -9,7 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/bytebase/bytebase/backend/common"
-	enterpriseAPI "github.com/bytebase/bytebase/backend/enterprise/api"
+	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
@@ -19,11 +19,11 @@ import (
 type EnvironmentService struct {
 	v1pb.UnimplementedEnvironmentServiceServer
 	store          *store.Store
-	licenseService enterpriseAPI.LicenseService
+	licenseService enterprise.LicenseService
 }
 
 // NewEnvironmentService creates a new EnvironmentService.
-func NewEnvironmentService(store *store.Store, licenseService enterpriseAPI.LicenseService) *EnvironmentService {
+func NewEnvironmentService(store *store.Store, licenseService enterprise.LicenseService) *EnvironmentService {
 	return &EnvironmentService{
 		store:          store,
 		licenseService: licenseService,
@@ -54,7 +54,10 @@ func (s *EnvironmentService) ListEnvironments(ctx context.Context, request *v1pb
 
 // CreateEnvironment creates an environment.
 func (s *EnvironmentService) CreateEnvironment(ctx context.Context, request *v1pb.CreateEnvironmentRequest) (*v1pb.Environment, error) {
-	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
 	if request.Environment == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "environment must be set")
 	}
@@ -71,7 +74,7 @@ func (s *EnvironmentService) CreateEnvironment(ctx context.Context, request *v1p
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
-	maximumEnvironmentLimit := s.licenseService.GetPlanLimitValue(enterpriseAPI.PlanLimitMaximumEnvironment)
+	maximumEnvironmentLimit := s.licenseService.GetPlanLimitValue(ctx, enterprise.PlanLimitMaximumEnvironment)
 	if int64(len(environments)) >= maximumEnvironmentLimit {
 		return nil, status.Errorf(codes.ResourceExhausted, "current plan can create up to %d environments.", maximumEnvironmentLimit)
 	}
@@ -93,7 +96,10 @@ func (s *EnvironmentService) CreateEnvironment(ctx context.Context, request *v1p
 
 // UpdateEnvironment updates an environment.
 func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, request *v1pb.UpdateEnvironmentRequest) (*v1pb.Environment, error) {
-	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
 	if request.Environment == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "environment must be set")
 	}
@@ -135,7 +141,10 @@ func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, request *v1p
 
 // DeleteEnvironment deletes an environment.
 func (s *EnvironmentService) DeleteEnvironment(ctx context.Context, request *v1pb.DeleteEnvironmentRequest) (*emptypb.Empty, error) {
-	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
 
 	environment, err := s.getEnvironmentMessage(ctx, request.Name)
 	if err != nil {
@@ -151,7 +160,7 @@ func (s *EnvironmentService) DeleteEnvironment(ctx context.Context, request *v1p
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
 	if count > 0 {
-		return nil, status.Errorf(codes.FailedPrecondition, "all instances in the environment should be deleted")
+		return nil, status.Errorf(codes.FailedPrecondition, "all instances in the environment should be deleted first")
 	}
 
 	if _, err := s.store.UpdateEnvironmentV2(ctx, environment.ResourceID, &store.UpdateEnvironmentMessage{Delete: &deletePatch}, principalID); err != nil {
@@ -162,7 +171,10 @@ func (s *EnvironmentService) DeleteEnvironment(ctx context.Context, request *v1p
 
 // UndeleteEnvironment undeletes an environment.
 func (s *EnvironmentService) UndeleteEnvironment(ctx context.Context, request *v1pb.UndeleteEnvironmentRequest) (*v1pb.Environment, error) {
-	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
 
 	environment, err := s.getEnvironmentMessage(ctx, request.Name)
 	if err != nil {
@@ -182,7 +194,7 @@ func (s *EnvironmentService) UndeleteEnvironment(ctx context.Context, request *v
 
 // UpdateBackupSetting updates the backup setting for an environment.
 func (s *EnvironmentService) UpdateBackupSetting(ctx context.Context, request *v1pb.UpdateEnvironmentBackupSettingRequest) (*v1pb.EnvironmentBackupSetting, error) {
-	environmentName, err := trimSuffix(request.Setting.Name, backupSettingSuffix)
+	environmentName, err := common.TrimSuffix(request.Setting.Name, common.BackupSettingSuffix)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -191,7 +203,12 @@ func (s *EnvironmentService) UpdateBackupSetting(ctx context.Context, request *v
 		return nil, err
 	}
 
-	if err := s.store.UpdateBackupSettingsForEnvironmentV2(ctx, environment.ResourceID, request.Setting.Enabled, ctx.Value(common.PrincipalIDContextKey).(int)); err != nil {
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
+
+	if err := s.store.UpdateBackupSettingsForEnvironmentV2(ctx, environment.ResourceID, request.Setting.Enabled, principalID); err != nil {
 		if common.ErrorCode(err) == common.Invalid {
 			return nil, status.Errorf(codes.InvalidArgument, "invalid backup setting: %v", err.Error())
 		}
@@ -202,7 +219,7 @@ func (s *EnvironmentService) UpdateBackupSetting(ctx context.Context, request *v
 }
 
 func (s *EnvironmentService) getEnvironmentMessage(ctx context.Context, name string) (*store.EnvironmentMessage, error) {
-	environmentID, err := getEnvironmentID(name)
+	environmentID, err := common.GetEnvironmentID(name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -232,7 +249,7 @@ func convertToEnvironment(environment *store.EnvironmentMessage) *v1pb.Environme
 		tier = v1pb.EnvironmentTier_PROTECTED
 	}
 	return &v1pb.Environment{
-		Name:  fmt.Sprintf("%s%s", environmentNamePrefix, environment.ResourceID),
+		Name:  fmt.Sprintf("%s%s", common.EnvironmentNamePrefix, environment.ResourceID),
 		Uid:   fmt.Sprintf("%d", environment.UID),
 		State: convertDeletedToState(environment.Deleted),
 		Title: environment.Title,

@@ -54,10 +54,7 @@
             <div class="flex flex-row">
               <div class="flex flex-col">
                 <div class="flex flex-row items-center space-x-2">
-                  <router-link
-                    :to="`/u/${extractUserUID(user.name)}`"
-                    class="normal-link"
-                  >
+                  <router-link :to="`/users/${user.email}`" class="normal-link">
                     {{ user.title }}
                   </router-link>
                   <span
@@ -110,7 +107,7 @@
           </template>
         </div>
       </BBTableCell>
-      <BBTableCell class="whitespace-nowrap tooltip-wrapper w-auto">
+      <BBTableCell class="whitespace-nowrap w-auto">
         <span
           v-if="is2FAEnabled(user)"
           class="text-xs p-1 px-2 rounded-lg bg-green-600 text-white"
@@ -118,15 +115,17 @@
           {{ $t("two-factor.enabled") }}
         </span>
       </BBTableCell>
-      <BBTableCell class="whitespace-nowrap tooltip-wrapper w-36">
-        <span v-if="changeRoleTooltip(user)" class="tooltip">{{
-          changeRoleTooltip(user)
-        }}</span>
-        <RoleSelect
-          :role="user.userRole"
-          :disabled="!allowChangeRole(user)"
-          @update:role="changeRole(user, $event)"
-        />
+      <BBTableCell class="whitespace-nowrap w-36">
+        <NTooltip :disabled="!changeRoleTooltip(user)">
+          <template #trigger>
+            <WorkspaceRoleSelect
+              :role="user.userRole"
+              :disabled="!allowChangeRole(user)"
+              @update:role="changeRole(user, $event)"
+            />
+          </template>
+          {{ changeRoleTooltip(user) }}
+        </NTooltip>
       </BBTableCell>
       <BBTableCell>
         <BBButtonConfirm
@@ -134,12 +133,8 @@
           :style="'ARCHIVE'"
           :require-confirm="true"
           :ok-text="$t('settings.members.action.deactivate')"
-          :confirm-title="`${$t(
-            'settings.members.action.deactivate-confirm-title'
-          )} '${user.title}'?`"
-          :confirm-description="
-            $t('settings.members.action.deactivate-confirm-description')
-          "
+          :confirm-title="deactivateConfirmation(user).title"
+          :confirm-description="deactivateConfirmation(user).description"
           @confirm="changeRowStatus(user, State.DELETED)"
         />
         <BBButtonConfirm
@@ -165,27 +160,33 @@
     @ok="resetServiceKey"
     @cancel="state.showResetKeyAlert = false"
   />
+  <BBAlertDialog
+    ref="removeSelfOwnerDialog"
+    :style="'CRITICAL'"
+    :ok-text="$t('common.confirm')"
+    :title="$t('settings.members.remove-self-admin.title')"
+    :description="$t('settings.members.remove-self-admin.description')"
+  />
 </template>
 
 <script lang="ts" setup>
-import { computed, reactive } from "vue";
-import { useI18n } from "vue-i18n";
-import { toClipboard } from "@soerenmartius/vue3-clipboard";
 import { cloneDeep } from "lodash-es";
-
-import { RoleSelect } from "@/components/v2";
-import UserAvatar from "../UserAvatar.vue";
-import { SYSTEM_BOT_USER_NAME } from "@/types";
+import { computed, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
+import { BBAlertDialog } from "@/bbkit";
 import { BBTableSectionDataSource } from "@/bbkit/types";
-import { hasWorkspacePermissionV1, extractUserUID } from "@/utils";
+import { WorkspaceRoleSelect } from "@/components/v2";
 import {
   featureToRef,
   useCurrentUserV1,
   pushNotification,
   useUserStore,
 } from "@/store";
+import { SYSTEM_BOT_USER_NAME } from "@/types";
 import { User, UserRole, UserType } from "@/types/proto/v1/auth_service";
 import { State } from "@/types/proto/v1/common";
+import { hasWorkspacePermissionV1, toClipboard } from "@/utils";
+import UserAvatar from "../UserAvatar.vue";
 import { copyServiceKeyToClipboardIfNeeded } from "./common";
 
 const columnList = computed(() => [
@@ -215,6 +216,7 @@ const props = defineProps<{
 const { t } = useI18n();
 const currentUserV1 = useCurrentUserV1();
 const userStore = useUserStore();
+const removeSelfOwnerDialog = ref<InstanceType<typeof BBAlertDialog>>();
 
 const hasRBACFeature = featureToRef("bb.feature.rbac");
 
@@ -242,7 +244,7 @@ const dataSource = computed((): BBTableSectionDataSource<User>[] => {
 
   const dataSource: BBTableSectionDataSource<User>[] = [];
   dataSource.push({
-    title: t("common.role.owner"),
+    title: t("common.role.admin"),
     list: ownerList,
   });
 
@@ -252,7 +254,7 @@ const dataSource = computed((): BBTableSectionDataSource<User>[] => {
   });
 
   dataSource.push({
-    title: t("common.role.developer"),
+    title: t("common.role.member"),
     list: developerList,
   });
 
@@ -274,7 +276,10 @@ const allowEdit = computed(() => {
 });
 
 const allowChangeRole = (user: User) => {
-  if (user.name === SYSTEM_BOT_USER_NAME) {
+  if (
+    user.name === SYSTEM_BOT_USER_NAME ||
+    user.userType === UserType.SERVICE_ACCOUNT
+  ) {
     return false;
   }
 
@@ -290,8 +295,18 @@ const changeRoleTooltip = (user: User): string => {
   if (allowChangeRole(user)) {
     return "";
   }
-  if (user.name === SYSTEM_BOT_USER_NAME) {
-    return t("settings.members.tooltip.cannot-change-role-of-systembot");
+  // Non-actived user cannot be changed role, so the tooltip should be empty.
+  if (user.state !== State.ACTIVE) {
+    return "";
+  }
+
+  if (
+    user.name === SYSTEM_BOT_USER_NAME ||
+    user.userType === UserType.SERVICE_ACCOUNT
+  ) {
+    return t(
+      "settings.members.tooltip.cannot-change-role-of-systembot-or-service-account"
+    );
   }
 
   if (!hasRBACFeature.value) {
@@ -324,7 +339,37 @@ const allowActivateMember = (user: User) => {
   return allowEdit.value && user.state === State.DELETED;
 };
 
-const changeRole = (user: User, role: UserRole) => {
+const deactivateConfirmation = (user: User) => {
+  const me = currentUserV1.value;
+  if (user.name === me.name && user.userRole === UserRole.OWNER) {
+    return {
+      title: t("settings.members.remove-self-admin.title"),
+      description: t("settings.members.remove-self-admin.description"),
+    };
+  }
+  return {
+    title: `${t("settings.members.action.deactivate-confirm-title")} '${
+      user.title
+    }'?`,
+    description: t("settings.members.action.deactivate-confirm-description"),
+  };
+};
+
+const changeRole = async (user: User, role: UserRole) => {
+  const me = currentUserV1.value;
+  if (user.name === me.name) {
+    if (user.userRole === UserRole.OWNER && role !== UserRole.OWNER) {
+      const dialog = removeSelfOwnerDialog.value;
+      if (!dialog) {
+        throw new Error("dialog is not loaded");
+      }
+      const result = await dialog.open();
+      if (!result) {
+        return;
+      }
+    }
+  }
+
   const userPatch = cloneDeep(user);
   userPatch.userRole = role;
   userStore.updateUser({

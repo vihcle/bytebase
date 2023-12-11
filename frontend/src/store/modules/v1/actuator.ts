@@ -1,20 +1,28 @@
-import { watchEffect } from "vue";
-import axios from "axios";
 import { RemovableRef } from "@vueuse/core";
-import { defineStore, storeToRefs } from "pinia";
-import { Release, ReleaseInfo } from "@/types";
 import { useLocalStorage } from "@vueuse/core";
+import axios from "axios";
+import { defineStore, storeToRefs } from "pinia";
+import { watchEffect } from "vue";
 import { actuatorServiceClient } from "@/grpcweb";
-import { semverCompare } from "@/utils";
 import { useSilentRequest } from "@/plugins/silent-request";
+import { Release, ReleaseInfo } from "@/types";
 import { ActuatorInfo, DebugLog } from "@/types/proto/v1/actuator_service";
+import { semverCompare } from "@/utils";
 
 const EXTERNAL_URL_PLACEHOLDER =
   "https://www.bytebase.com/docs/get-started/install/external-url";
 const GITHUB_API_LIST_BYTEBASE_RELEASE =
   "https://api.github.com/repos/bytebase/bytebase/releases";
 
+export type PageMode =
+  // General mode. Console is full-featured and SQL Editor is bundled in the layout.
+  | "BUNDLED"
+  // Vender customized mode. Hide certain parts (e.g., headers, sidebars) and
+  // some features are disabled or hidden.
+  | "STANDALONE";
+
 interface ActuatorState {
+  pageMode: PageMode;
   serverInfo?: ActuatorInfo;
   releaseInfo: RemovableRef<ReleaseInfo>;
   debugLogList: DebugLog[];
@@ -22,6 +30,7 @@ interface ActuatorState {
 
 export const useActuatorV1Store = defineStore("actuator_v1", {
   state: (): ActuatorState => ({
+    pageMode: "BUNDLED",
     serverInfo: undefined,
     releaseInfo: useLocalStorage("bytebase_release", {
       ignoreRemindModalTillNextRelease: false,
@@ -151,4 +160,10 @@ export const useDebugLogList = () => {
   watchEffect(() => store.fetchDebugLogList());
 
   return storeToRefs(store).debugLogList;
+};
+
+export const usePageMode = () => {
+  const actuatorStore = useActuatorV1Store();
+  const { pageMode } = storeToRefs(actuatorStore);
+  return pageMode;
 };

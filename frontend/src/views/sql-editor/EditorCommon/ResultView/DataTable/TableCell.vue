@@ -1,50 +1,48 @@
+<!-- eslint-disable vue/no-v-html -->
 <template>
-  <div class="relative" :class="[disallowCopyingData && 'select-none']">
-    <!-- eslint-disable-next-line vue/no-v-html -->
-    <div ref="wrapperRef" class="overflow-hidden" v-html="html"></div>
-    <div v-if="truncated" class="absolute right-0 top-1/2 translate-y-[-50%]">
+  <div class="relative px-2 py-1" :class="classes" @click="handleClick">
+    <div
+      ref="wrapperRef"
+      class="overflow-hidden whitespace-pre font-mono"
+      :class="valueContainerAdditionalClass"
+      v-html="html"
+    ></div>
+    <div v-if="clickable" class="absolute right-1 top-1/2 translate-y-[-45%]">
       <NButton
         size="tiny"
         circle
         class="dark:!bg-dark-bg"
-        @click="showModal = true"
+        @click.stop="showDetail"
       >
         <template #icon>
-          <heroicons:arrows-pointing-out class="w-4 h-4" />
+          <heroicons:arrows-pointing-out class="w-3 h-3" />
         </template>
       </NButton>
     </div>
-
-    <BBModal
-      v-if="showModal"
-      :title="$t('common.detail')"
-      @close="showModal = false"
-    >
-      <!-- eslint-disable vue/no-v-html -->
-      <div
-        class="w-[100vw-8rem] min-w-[20rem] md:max-w-[40rem] max-h-[100vh-12rem] overflow-auto whitespace-pre-wrap text-sm text-main"
-        v-html="html"
-      ></div>
-    </BBModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
-import { NButton } from "naive-ui";
 import { useResizeObserver } from "@vueuse/core";
-
-import { BBModal } from "@/bbkit";
+import { escape } from "lodash-es";
+import { NButton } from "naive-ui";
+import { computed, ref } from "vue";
+import { useDatabaseV1Store, useTabStore } from "@/store";
+import { Engine } from "@/types/proto/v1/common";
+import { getHighlightHTMLByRegExp } from "@/utils";
 import { useSQLResultViewContext } from "../context";
 
-defineProps<{
-  html?: string;
+const props = defineProps<{
+  value: unknown;
+  setIndex: number;
+  rowIndex: number;
+  colIndex: number;
 }>();
 
-const { disallowCopyingData } = useSQLResultViewContext();
+const { dark, disallowCopyingData, detail, keyword } =
+  useSQLResultViewContext();
 const wrapperRef = ref<HTMLDivElement>();
 const truncated = ref(false);
-const showModal = ref(false);
 
 useResizeObserver(wrapperRef, (entries) => {
   const div = entries[0].target as HTMLDivElement;
@@ -56,4 +54,77 @@ useResizeObserver(wrapperRef, (entries) => {
     truncated.value = false;
   }
 });
+
+const database = computed(() => {
+  const conn = useTabStore().currentTab.connection;
+  return useDatabaseV1Store().getDatabaseByUID(conn.databaseId);
+});
+
+const valueContainerAdditionalClass = computed(() => {
+  // Always only show the first line for MongoDB.
+  if (database.value.instanceEntity.engine === Engine.MONGODB) {
+    return "!whitespace-nowrap";
+  }
+  return "";
+});
+
+const clickable = computed(() => {
+  if (truncated.value) return true;
+  if (database.value.instanceEntity.engine === Engine.MONGODB) {
+    // A cheap way to check JSON string without paying the parsing cost.
+    const maybeJSON = String(props.value).trim();
+    return (
+      (maybeJSON.startsWith("{") && maybeJSON.endsWith("}")) ||
+      (maybeJSON.startsWith("[") && maybeJSON.endsWith("]"))
+    );
+  }
+  return false;
+});
+
+const classes = computed(() => {
+  const classes: string[] = [];
+  if (disallowCopyingData.value) {
+    classes.push("select-none");
+  }
+  if (clickable.value) {
+    classes.push("cursor-pointer");
+    classes.push(dark.value ? "hover:!bg-white/20" : "hover:!bg-black/5");
+  }
+  return classes;
+});
+
+const html = computed(() => {
+  if (props.value === null) {
+    return `<span class="text-gray-400 italic">NULL</span>`;
+  }
+  const str = String(props.value);
+  if (str.length === 0) {
+    return `<br style="min-width: 1rem; display: inline-flex;" />`;
+  }
+
+  const kw = keyword.value.trim();
+  if (!kw) {
+    return escape(str);
+  }
+
+  return getHighlightHTMLByRegExp(
+    escape(str),
+    escape(kw),
+    false /* !caseSensitive */
+  );
+});
+
+const handleClick = () => {
+  if (!clickable.value) return;
+  showDetail();
+};
+
+const showDetail = () => {
+  detail.value = {
+    show: true,
+    set: props.setIndex,
+    row: props.rowIndex,
+    col: props.colIndex,
+  };
+};
 </script>

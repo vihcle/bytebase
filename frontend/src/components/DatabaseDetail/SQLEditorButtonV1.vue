@@ -16,20 +16,32 @@
       {{ $t("sql-editor.self") }}
     </div>
   </NTooltip>
+
+  <RequestQueryPanel
+    v-if="state.showRequestQueryPanel"
+    :project-id="database?.projectEntity.uid"
+    :database="database"
+    :redirect-to-issue-page="pageMode === 'BUNDLED'"
+    @close="state.showRequestQueryPanel = false"
+  />
 </template>
 
 <script lang="ts" setup>
-import { computed } from "vue";
 import { NTooltip } from "naive-ui";
-
+import { computed } from "vue";
+import { reactive } from "vue";
+import RequestQueryPanel from "@/components/Issue/panel/RequestQueryPanel/index.vue";
+import { useCurrentUserV1, usePageMode, useSQLEditorTreeStore } from "@/store";
 import {
   ComposedDatabase,
-  ConnectionTreeMode,
   DEFAULT_PROJECT_V1_NAME,
   UNKNOWN_PROJECT_NAME,
 } from "@/types";
-import { connectionV1Slug, hasWorkspacePermissionV1 } from "@/utils";
-import { useConnectionTreeStore, useCurrentUserV1 } from "@/store";
+import { VueClass, connectionV1Slug, hasWorkspacePermissionV1 } from "@/utils";
+
+interface LocalState {
+  showRequestQueryPanel: boolean;
+}
 
 const props = withDefaults(
   defineProps<{
@@ -37,12 +49,14 @@ const props = withDefaults(
     label?: boolean;
     disabled?: boolean;
     tooltip?: boolean;
+    class?: VueClass;
   }>(),
   {
     database: undefined,
     label: false,
     disabled: false,
     tooltip: false,
+    class: undefined,
   }
 );
 
@@ -51,6 +65,10 @@ const emit = defineEmits<{
 }>();
 
 const currentUserV1 = useCurrentUserV1();
+const pageMode = usePageMode();
+const state = reactive<LocalState>({
+  showRequestQueryPanel: false,
+});
 
 const disabled = computed(() => props.disabled || !props.database);
 
@@ -58,21 +76,19 @@ const showTooltip = computed((): boolean => {
   return !props.disabled && props.tooltip;
 });
 
-const classes = computed((): string[] => {
+const classes = computed(() => {
   const classes: string[] = [];
-  if (showTooltip.value) {
-    classes.push("tooltip-wrapper");
-  }
   if (props.disabled) {
-    classes.push("text-gray-400", "cursor-not-allowed");
+    classes.push("text-gray-400");
   } else {
     classes.push("textlabel", "cursor-pointer", "hover:text-accent");
   }
-  return classes;
+  return [...classes, props.class];
 });
 
 const gotoSQLEditor = () => {
   if (disabled.value) {
+    state.showRequestQueryPanel = true;
     return;
   }
 
@@ -94,7 +110,12 @@ const gotoSQLEditor = () => {
     }
     // Set the default sidebar view of SQL Editor to "INSTANCE"
     // since unassigned databases won't be listed in "PROJECT" view.
-    useConnectionTreeStore().tree.mode = ConnectionTreeMode.INSTANCE;
+    useSQLEditorTreeStore().factorList = [
+      {
+        factor: "instance",
+        disabled: false,
+      },
+    ];
   }
   const url = `/sql-editor/${connectionV1Slug(
     database.instanceEntity,

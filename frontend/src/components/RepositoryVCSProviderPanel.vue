@@ -9,15 +9,7 @@
         class="btn-normal items-center space-x-2 mx-2 my-2"
         @click.prevent="selectVCS(vcs)"
       >
-        <template v-if="vcs.type === ExternalVersionControl_Type.GITLAB">
-          <img class="h-6 w-auto" src="../assets/gitlab-logo.svg" />
-        </template>
-        <template v-if="vcs.type === ExternalVersionControl_Type.GITHUB">
-          <img class="h-6 w-auto" src="../assets/github-logo.svg" />
-        </template>
-        <template v-if="vcs.type === ExternalVersionControl_Type.BITBUCKET">
-          <img class="h-6 w-auto" src="../assets/bitbucket-logo.svg" />
-        </template>
+        <VCSIcon custom-class="h-6" :type="vcs.type" />
         <span>{{ vcs.title }}</span>
       </button>
     </template>
@@ -34,7 +26,7 @@
       </i18n-t>
     </template>
     <template v-else>
-      {{ $t("repository.choose-git-provider-contact-workspace-owner") }}
+      {{ $t("repository.choose-git-provider-contact-workspace-admin") }}
     </template>
   </div>
 </template>
@@ -116,6 +108,8 @@ const selectVCS = (vcs: ExternalVersionControl) => {
     authorizeUrl = `${vcs.url}/login/oauth/authorize`;
   } else if (vcs.type === ExternalVersionControl_Type.BITBUCKET) {
     authorizeUrl = `https://bitbucket.org/site/oauth2/authorize`;
+  } else if (vcs.type === ExternalVersionControl_Type.AZURE_DEVOPS) {
+    authorizeUrl = "https://app.vssps.visualstudio.com/oauth2/authorize";
   }
   openWindowForOAuth(
     authorizeUrl,

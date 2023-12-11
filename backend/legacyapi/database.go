@@ -4,11 +4,6 @@ import (
 	"encoding/json"
 )
 
-const (
-	// AllDatabaseName is the wild expression for all databases.
-	AllDatabaseName = "*"
-)
-
 // SyncStatus is the database sync status.
 type SyncStatus string
 
@@ -18,49 +13,6 @@ const (
 	// NotFound is the NOT_FOUND sync status.
 	NotFound SyncStatus = "NOT_FOUND"
 )
-
-// Database is the API message for a database.
-type Database struct {
-	ID int `jsonapi:"primary,database"`
-
-	// Related fields
-	ProjectID      int           `jsonapi:"attr,projectId"`
-	Project        *Project      `jsonapi:"relation,project"`
-	InstanceID     int           `jsonapi:"attr,instanceId"`
-	Instance       *Instance     `jsonapi:"relation,instance"`
-	DataSourceList []*DataSource `jsonapi:"relation,dataSource"`
-
-	// Domain specific fields
-	Name                 string     `jsonapi:"attr,name"`
-	SchemaVersion        string     `jsonapi:"attr,schemaVersion"`
-	SyncStatus           SyncStatus `jsonapi:"attr,syncStatus"`
-	LastSuccessfulSyncTs int64      `jsonapi:"attr,lastSuccessfulSyncTs"`
-	// Labels is a json-encoded string from a list of DatabaseLabel,
-	// e.g. "[{"key":"bb.location","value":"earth"},{"key":"bb.tenant","value":"bytebase"}]".
-	Labels string `jsonapi:"attr,labels,omitempty"`
-}
-
-// DatabaseFind is the API message for finding databases.
-type DatabaseFind struct {
-	ID *int
-
-	// Related fields
-	ProjectID  *int
-	InstanceID *int
-
-	// Domain specific fields
-	Name               *string
-	IncludeAllDatabase bool
-	SyncStatus         *SyncStatus
-}
-
-func (find *DatabaseFind) String() string {
-	str, err := json.Marshal(*find)
-	if err != nil {
-		return err.Error()
-	}
-	return string(str)
-}
 
 // DatabaseEdit is the API message for updating a database in UI editor.
 type DatabaseEdit struct {

@@ -1,16 +1,18 @@
 <template>
-  <div class="space-y-2">
-    <div class="flex items-center justify-between">
+  <div class="space-y-4">
+    <div
+      class="flex flex-col md:flex-row md:items-center justify-between gap-y-2"
+    >
       <div>
         <LevelFilter v-if="!hideLevelFilter" />
       </div>
 
-      <div class="flex items-center justify-end gap-x-4">
+      <div class="flex items-center justify-end gap-x-2">
         <NInput
           v-if="!hideSearch"
           v-model:value="search"
           :clearable="true"
-          :placeholder="$t('custom-approval.security-rule.search')"
+          :placeholder="$t('custom-approval.risk-rule.search')"
         >
           <template #prefix>
             <heroicons:magnifying-glass class="w-4 h-4" />
@@ -31,9 +33,8 @@
 
 <script lang="ts" setup>
 import { NInput } from "naive-ui";
-
-import SourceFilter from "./SourceFilter.vue";
 import LevelFilter from "./LevelFilter.vue";
+import SourceFilter from "./SourceFilter.vue";
 import { useRiskFilter } from "./context";
 
 defineProps<{

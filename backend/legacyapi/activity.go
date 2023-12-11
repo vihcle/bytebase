@@ -3,12 +3,21 @@ package api
 import (
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/vcs"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // ActivityType is the type for an activity.
 type ActivityType string
 
 const (
+	// Notifications via webhooks.
+	// ActivityNotifyIssueApproved is the type for notifying the creator when the issue approval passes.
+	// Will not be stored. Only used for notification.
+	ActivityNotifyIssueApproved ActivityType = "bb.notify.issue.approved"
+	// ActivityPipelineRollout is the type for notifying releasers to rollout.
+	// Will not be stored. Only used for notification.
+	ActivityNotifyPipelineRollout ActivityType = "bb.notify.pipeline.rollout"
+
 	// Issue related.
 
 	// ActivityIssueCreate is the type for creating issues.
@@ -24,7 +33,10 @@ const (
 	// ActivityPipelineStageStatusUpdate is the type for stage begins or ends.
 	ActivityPipelineStageStatusUpdate ActivityType = "bb.pipeline.stage.status.update"
 	// ActivityPipelineTaskStatusUpdate is the type for updating pipeline task status.
+	// Deprecated: use `ActivityPipelineTaskRunStatusUpdate` instead.
 	ActivityPipelineTaskStatusUpdate ActivityType = "bb.pipeline.task.status.update"
+	// ActivityPipelineTaskRunStatusUpdate is the type for updating pipeline task run status.
+	ActivityPipelineTaskRunStatusUpdate ActivityType = "bb.pipeline.taskrun.status.update"
 	// ActivityPipelineTaskFileCommit is the type for committing pipeline task file.
 	ActivityPipelineTaskFileCommit ActivityType = "bb.pipeline.task.file.commit"
 	// ActivityPipelineTaskStatementUpdate is the type for updating pipeline task SQL statement.
@@ -53,8 +65,6 @@ const (
 	ActivityProjectMemberCreate ActivityType = "bb.project.member.create"
 	// ActivityProjectMemberDelete is the type for deleting project members.
 	ActivityProjectMemberDelete ActivityType = "bb.project.member.delete"
-	// ActivityProjectMemberRoleUpdate is the type for updating project member roles.
-	ActivityProjectMemberRoleUpdate ActivityType = "bb.project.member.role.update"
 
 	// SQL Editor related.
 
@@ -163,6 +173,14 @@ type ActivityPipelineTaskStatusUpdatePayload struct {
 	TaskName  string `json:"taskName"`
 }
 
+type ActivityPipelineTaskRunStatusUpdatePayload struct {
+	TaskID    int           `json:"taskId"`
+	NewStatus TaskRunStatus `json:"newStatus,omitempty"`
+	// Used by inbox to display info without paying the join cost
+	IssueName string `json:"issueName"`
+	TaskName  string `json:"taskName"`
+}
+
 // ActivityPipelineTaskFileCommitPayload is the API message payloads for committing pipeline task files.
 type ActivityPipelineTaskFileCommitPayload struct {
 	TaskID             int    `json:"taskId"`
@@ -260,4 +278,10 @@ type ActivitySQLExportPayload struct {
 	DatabaseID   int    `json:"databaseId"`
 	DatabaseName string `json:"databaseName"`
 	Error        string `json:"error"`
+}
+
+type ActivityNotifyPipelineRolloutPayload struct {
+	RolloutPolicy *storepb.RolloutPolicy
+	// Used to display info without paying the join cost
+	StageName string
 }

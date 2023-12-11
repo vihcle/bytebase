@@ -5,18 +5,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"net"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	// Import pg driver.
-	// init() in pgx/v4/stdlib will register it's pgx driver.
-	"github.com/jackc/pgx/v4"
-	"github.com/jackc/pgx/v4/stdlib"
+	// init() in pgx/v5/stdlib will register it's pgx driver.
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pkg/errors"
 	"go.uber.org/multierr"
-	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -24,28 +25,13 @@ import (
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	pgparser "github.com/bytebase/bytebase/backend/plugin/parser/pg"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 var (
-	// ExcludedDatabaseList is the list of system or internal databases.
-	ExcludedDatabaseList = map[string]bool{
-		// Skip our internal "bytebase" database
-		"bytebase": true,
-		// Skip internal databases from cloud service providers
-		// see https://github.com/bytebase/bytebase/issues/30
-		// aws
-		"rdsadmin": true,
-		// gcp
-		"cloudsql":      true,
-		"cloudsqladmin": true,
-		// system templates.
-		"template0": true,
-		"template1": true,
-	}
-
 	// driverName is the driver name that our driver dependence register, now is "pgx".
 	driverName = "pgx"
 
@@ -53,7 +39,7 @@ var (
 )
 
 func init() {
-	db.Register(db.Postgres, newDriver)
+	db.Register(storepb.Engine_POSTGRES, newDriver)
 }
 
 // Driver is the Postgres driver.
@@ -67,6 +53,7 @@ type Driver struct {
 	// Unregister connectionString if we don't need it.
 	connectionString string
 	databaseName     string
+	connectionCtx    db.ConnectionContext
 }
 
 func newDriver(config db.DriverConfig) db.Driver {
@@ -76,7 +63,7 @@ func newDriver(config db.DriverConfig) db.Driver {
 }
 
 // Open opens a Postgres driver.
-func (driver *Driver) Open(_ context.Context, _ db.Type, config db.ConnectionConfig, _ db.ConnectionContext) (db.Driver, error) {
+func (driver *Driver) Open(_ context.Context, _ storepb.Engine, config db.ConnectionConfig, connectionCtx db.ConnectionContext) (db.Driver, error) {
 	// Require username for Postgres, as the guessDSN 1st guess is to use the username as the connecting database
 	// if database name is not explicitly specified.
 	if config.Username == "" {
@@ -97,8 +84,7 @@ func (driver *Driver) Open(_ context.Context, _ db.Type, config db.ConnectionCon
 	}
 
 	connStr := fmt.Sprintf("host=%s port=%s", config.Host, config.Port)
-	// Neon requires new driver, however due to https://github.com/jackc/pgx/issues/1600, we have to
-	// stay at pgx/v4 to support SSH tunnelling. So we do a hack here to support Neon SSL following
+	// TODO(tianzhou): this work-around is no longer needed probably.
 	// https://neon.tech/docs/connect/connectivity-issues#c-set-verify-full-for-golang-based-clients
 	if strings.HasSuffix(config.Host, ".neon.tech") {
 		connStr += " sslmode=verify-full"
@@ -153,6 +139,7 @@ func (driver *Driver) Open(_ context.Context, _ db.Type, config db.ConnectionCon
 		return nil, err
 	}
 	driver.db = db
+	driver.connectionCtx = connectionCtx
 	return driver, nil
 }
 
@@ -181,7 +168,7 @@ func guessDSN(baseConnConfig *pgx.ConnConfig, username string) (string, *pgx.Con
 			defer db.Close()
 			return db.Ping()
 		}(); err != nil {
-			log.Debug("guessDSN attempt failed", zap.Error(err))
+			slog.Debug("guessDSN attempt failed", log.BBError(err))
 			continue
 		}
 		return guessDatabase, &connConfig, nil
@@ -206,8 +193,8 @@ func (driver *Driver) Ping(ctx context.Context) error {
 }
 
 // GetType returns the database type.
-func (*Driver) GetType() db.Type {
-	return db.Postgres
+func (*Driver) GetType() storepb.Engine {
+	return storepb.Engine_POSTGRES
 }
 
 // GetDB gets the database.
@@ -216,8 +203,8 @@ func (driver *Driver) GetDB() *sql.DB {
 }
 
 // getDatabases gets all databases of an instance.
-func (driver *Driver) getDatabases(ctx context.Context) ([]*storepb.DatabaseMetadata, error) {
-	var databases []*storepb.DatabaseMetadata
+func (driver *Driver) getDatabases(ctx context.Context) ([]*storepb.DatabaseSchemaMetadata, error) {
+	var databases []*storepb.DatabaseSchemaMetadata
 	rows, err := driver.db.QueryContext(ctx, "SELECT datname, pg_encoding_to_char(encoding), datcollate FROM pg_database;")
 	if err != nil {
 		return nil, err
@@ -225,7 +212,7 @@ func (driver *Driver) getDatabases(ctx context.Context) ([]*storepb.DatabaseMeta
 	defer rows.Close()
 
 	for rows.Next() {
-		database := &storepb.DatabaseMetadata{}
+		database := &storepb.DatabaseSchemaMetadata{}
 		if err := rows.Scan(&database.Name, &database.CharacterSet, &database.Collation); err != nil {
 			return nil, err
 		}
@@ -251,7 +238,14 @@ func (driver *Driver) getVersion(ctx context.Context) (string, error) {
 		}
 		return "", util.FormatErrorWithQuery(err, query)
 	}
-	return version, nil
+	versionNum, err := strconv.Atoi(version)
+	if err != nil {
+		return "", err
+	}
+	// https://www.postgresql.org/docs/current/libpq-status.html#LIBPQ-PQSERVERVERSION
+	// Convert to semantic version.
+	major, minor, patch := versionNum/1_00_00, (versionNum/100)%100, versionNum%100
+	return fmt.Sprintf("%d.%d.%d", major, minor, patch), nil
 }
 
 func (driver *Driver) getPGStatStatementsVersion(ctx context.Context) (string, error) {
@@ -295,7 +289,7 @@ func (driver *Driver) Execute(ctx context.Context, statement string, createDatab
 			}
 			return nil
 		}
-		if _, err := parser.SplitMultiSQLStream(parser.Postgres, strings.NewReader(statement), f); err != nil {
+		if _, err := pgparser.SplitMultiSQLStream(strings.NewReader(statement), f); err != nil {
 			return 0, err
 		}
 		return 0, nil
@@ -332,7 +326,7 @@ func (driver *Driver) Execute(ctx context.Context, statement string, createDatab
 		return nil
 	}
 
-	if _, err := parser.SplitMultiSQLStream(parser.Postgres, strings.NewReader(statement), f); err != nil {
+	if _, err := pgparser.SplitMultiSQLStream(strings.NewReader(statement), f); err != nil {
 		return 0, err
 	}
 
@@ -358,7 +352,7 @@ func (driver *Driver) Execute(ctx context.Context, statement string, createDatab
 		rowsAffected, err := sqlResult.RowsAffected()
 		if err != nil {
 			// Since we cannot differentiate DDL and DML yet, we have to ignore the error.
-			log.Debug("rowsAffected returns error", zap.Error(err))
+			slog.Debug("rowsAffected returns error", log.BBError(err))
 		} else {
 			totalRowsAffected += rowsAffected
 		}
@@ -388,18 +382,27 @@ func isIgnoredStatement(stmt string) bool {
 	return strings.HasPrefix(upperCaseStmt, "COMMENT ON EXTENSION")
 }
 
-func isNonTransactionStatement(stmt string) bool {
+var (
 	// CREATE INDEX CONCURRENTLY cannot run inside a transaction block.
 	// CREATE [ UNIQUE ] INDEX [ CONCURRENTLY ] [ [ IF NOT EXISTS ] name ] ON [ ONLY ] table_name [ USING method ] ...
-	createIndexReg := regexp.MustCompile(`(?i)CREATE(\s+(UNIQUE\s+)?)INDEX(\s+)CONCURRENTLY`)
+	createIndexReg = regexp.MustCompile(`(?i)CREATE(\s+(UNIQUE\s+)?)INDEX(\s+)CONCURRENTLY`)
+	// DROP INDEX CONCURRENTLY cannot run inside a transaction block.
+	// DROP INDEX [ CONCURRENTLY ] [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ].
+	dropIndexReg = regexp.MustCompile(`(?i)DROP(\s+)INDEX(\s+)CONCURRENTLY`)
+	// VACUUM cannot run inside a transaction block.
+	// VACUUM [ ( option [, ...] ) ] [ table_and_columns [, ...] ]
+	// VACUUM [ FULL ] [ FREEZE ] [ VERBOSE ] [ ANALYZE ] [ table_and_columns [, ...] ].
+	vacuumReg = regexp.MustCompile(`(?i)VACUUM`)
+)
+
+func isNonTransactionStatement(stmt string) bool {
 	if len(createIndexReg.FindString(stmt)) > 0 {
 		return true
 	}
-
-	// DROP INDEX CONCURRENTLY cannot run inside a transaction block.
-	// DROP INDEX [ CONCURRENTLY ] [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
-	dropIndexReg := regexp.MustCompile(`(?i)DROP(\s+)INDEX(\s+)CONCURRENTLY`)
-	return len(dropIndexReg.FindString(stmt)) > 0
+	if len(dropIndexReg.FindString(stmt)) > 0 {
+		return true
+	}
+	return len(vacuumReg.FindString(stmt)) > 0
 }
 
 func getDatabaseInCreateDatabaseStatement(createDatabaseStatement string) (string, error) {
@@ -447,38 +450,9 @@ func (driver *Driver) GetCurrentDatabaseOwner() (string, error) {
 	return owner, nil
 }
 
-// QueryConn querys a SQL statement in a given connection.
-func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]any, error) {
-	singleSQLs, err := parser.SplitMultiSQL(parser.Postgres, statement)
-	if err != nil {
-		return nil, err
-	}
-	if len(singleSQLs) == 0 {
-		return nil, nil
-	}
-
-	// If the statement is an INSERT, UPDATE, or DELETE statement, we will call execute instead of query and return the number of rows affected.
-	// https://github.com/postgres/postgres/blob/master/src/bin/psql/common.c#L969
-	if len(singleSQLs) == 1 && util.IsAffectedRowsStatement(singleSQLs[0].Text) {
-		sqlResult, err := conn.ExecContext(ctx, singleSQLs[0].Text)
-		if err != nil {
-			return nil, err
-		}
-		affectedRows, err := sqlResult.RowsAffected()
-		if err != nil {
-			return nil, err
-		}
-		field := []string{"Affected Rows"}
-		types := []string{"INT"}
-		rows := [][]any{{affectedRows}}
-		return []any{field, types, rows}, nil
-	}
-	return util.Query(ctx, db.Postgres, conn, statement, queryContext)
-}
-
-// QueryConn2 queries a SQL statement in a given connection.
-func (driver *Driver) QueryConn2(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]*v1pb.QueryResult, error) {
-	singleSQLs, err := parser.SplitMultiSQL(parser.Postgres, statement)
+// QueryConn queries a SQL statement in a given connection.
+func (driver *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]*v1pb.QueryResult, error) {
+	singleSQLs, err := pgparser.SplitSQL(statement)
 	if err != nil {
 		return nil, err
 	}
@@ -502,10 +476,13 @@ func (driver *Driver) QueryConn2(ctx context.Context, conn *sql.Conn, statement 
 }
 
 func getStatementWithResultLimit(stmt string, limit int) string {
-	return fmt.Sprintf("WITH result AS (%s) SELECT * FROM result LIMIT %d;", stmt, limit)
+	// To handle cases where there are comments in the query.
+	// eg. select * from t1 -- this is comment;
+	// Add two new line symbol here.
+	return fmt.Sprintf("WITH result AS (\n%s\n) SELECT * FROM result LIMIT %d;", stmt, limit)
 }
 
-func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL parser.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
+func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL base.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
 	statement := strings.TrimRight(singleSQL.Text, " \n\t;")
 
 	stmt := statement
@@ -514,7 +491,7 @@ func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL par
 	}
 
 	startTime := time.Now()
-	result, err := util.Query2(ctx, db.Postgres, conn, stmt, queryContext)
+	result, err := util.QueryV2(ctx, conn, stmt, queryContext)
 	if err != nil {
 		return nil, err
 	}
@@ -525,5 +502,5 @@ func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL par
 
 // RunStatement runs a SQL statement in a given connection.
 func (*Driver) RunStatement(ctx context.Context, conn *sql.Conn, statement string) ([]*v1pb.QueryResult, error) {
-	return util.RunStatement(ctx, parser.Postgres, conn, statement)
+	return util.RunStatement(ctx, storepb.Engine_POSTGRES, conn, statement)
 }

@@ -23,32 +23,36 @@ func NewCelService() *CelService {
 }
 
 // Parse parses a CEL expression.
-func (*CelService) Parse(_ context.Context, request *v1pb.ParseRequest) (*v1pb.ParseResponse, error) {
+func (*CelService) BatchParse(_ context.Context, request *v1pb.BatchParseRequest) (*v1pb.BatchParseResponse, error) {
 	e, err := cel.NewEnv(common.QueryExportPolicyCELAttributes...)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create CEL environment: %v", err)
 	}
-	ast, issues := e.Parse(request.Expression)
-	if issues != nil && issues.Err() != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to parse expression: %v", issues.Err())
+	resp := &v1pb.BatchParseResponse{}
+	for _, expression := range request.Expressions {
+		ast, issues := e.Parse(expression)
+		if issues != nil && issues.Err() != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "failed to parse expression: %v", issues.Err())
+		}
+		expr, err := cel.AstToParsedExpr(ast)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to convert ast to parsed expression: %v", err)
+		}
+		resp.Expressions = append(resp.Expressions, expr)
 	}
-	expr, err := cel.AstToParsedExpr(ast)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert ast to parsed expression: %v", err)
-	}
-	return &v1pb.ParseResponse{
-		Expression: expr,
-	}, nil
+	return resp, nil
 }
 
 // Deparse deparses a parsed CEL expression.
-func (*CelService) Deparse(_ context.Context, request *v1pb.DeparseRequest) (*v1pb.DeparseResponse, error) {
-	ast := cel.ParsedExprToAst(request.Expression)
-	expressionStr, err := cel.AstToString(ast)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to deparse expression: %v", err)
+func (*CelService) BatchDeparse(_ context.Context, request *v1pb.BatchDeparseRequest) (*v1pb.BatchDeparseResponse, error) {
+	resp := &v1pb.BatchDeparseResponse{}
+	for _, expression := range request.Expressions {
+		ast := cel.ParsedExprToAst(expression)
+		expressionStr, err := cel.AstToString(ast)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "failed to deparse expression: %v", err)
+		}
+		resp.Expressions = append(resp.Expressions, expressionStr)
 	}
-	return &v1pb.DeparseResponse{
-		Expression: expressionStr,
-	}, nil
+	return resp, nil
 }

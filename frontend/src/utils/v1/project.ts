@@ -1,7 +1,12 @@
-import slug from "slug";
 import { orderBy, uniq } from "lodash-es";
-
-import { DEFAULT_PROJECT_V1_NAME, PresetRoleType, UNKNOWN_ID } from "@/types";
+import slug from "slug";
+import { extractUserEmail, useUserStore } from "@/store";
+import {
+  ALL_USERS_USER_NAME,
+  DEFAULT_PROJECT_V1_NAME,
+  PresetRoleType,
+  UNKNOWN_ID,
+} from "@/types";
 import { User } from "@/types/proto/v1/auth_service";
 import { State } from "@/types/proto/v1/common";
 import { IamPolicy } from "@/types/proto/v1/iam_policy";
@@ -11,7 +16,6 @@ import {
   hasProjectPermission,
   ProjectPermissionType,
 } from "../role";
-import { extractUserEmail, useUserStore } from "@/store";
 
 export function projectV1Slug(project: Project): string {
   return [slug(project.title), project.uid].join("-");
@@ -42,7 +46,10 @@ export const hasPermissionInProjectV1 = (
 export const roleListInProjectV1 = (iamPolicy: IamPolicy, user: User) => {
   return iamPolicy.bindings
     .filter((binding) => {
-      return binding.members.includes(`user:${user.email}`);
+      return (
+        binding.members.includes(`user:${user.email}`) ||
+        binding.members.includes(ALL_USERS_USER_NAME)
+      );
     })
     .map((binding) => binding.role);
 };

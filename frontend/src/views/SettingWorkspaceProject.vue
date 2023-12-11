@@ -1,29 +1,18 @@
 <template>
-  <div class="flex flex-col">
-    <div class="py-2 flex justify-between items-center">
-      <div class="flex justify-start items-center gap-x-2">
-        <BBAttention
-          :style="'INFO'"
-          :title="$t('setting.project.description')"
-        />
-      </div>
+  <div class="flex flex-col space-y-4">
+    <BBAttention :style="'INFO'" :title="$t('setting.project.description')" />
 
-      <div class="flex justify-end items-center gap-x-2">
-        <SearchBox
-          :value="state.searchText"
-          :placeholder="$t('project.dashboard.search-bar-placeholder')"
-          :autofocus="true"
-          @update:value="changeSearchText($event)"
-        />
-      </div>
-    </div>
-
-    <div class="py-2">
+    <div class="flex justify-between items-end">
       <NCheckbox v-model:checked="state.includesArchived">
         <span class="textinfolabel">
           {{ $t("setting.project.show-archived") }}
         </span>
       </NCheckbox>
+      <SearchBox
+        v-model:value="state.searchText"
+        :placeholder="$t('common.filter-by-name')"
+        :autofocus="true"
+      />
     </div>
 
     <ProjectV1Table :project-list="filteredProjectList" />
@@ -31,14 +20,13 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, computed } from "vue";
 import { NCheckbox } from "naive-ui";
-
-import { DEFAULT_PROJECT_V1_NAME } from "../types";
-import { useProjectV1List } from "@/store";
+import { reactive, computed } from "vue";
 import { ProjectV1Table, SearchBox } from "@/components/v2";
+import { useProjectV1List } from "@/store";
 import { State } from "@/types/proto/v1/common";
 import { filterProjectV1ListByKeyword } from "@/utils";
+import { DEFAULT_PROJECT_V1_NAME } from "../types";
 
 interface LocalState {
   searchText: string;
@@ -51,10 +39,6 @@ const state = reactive<LocalState>({
   searchText: "",
   includesArchived: false,
 });
-
-const changeSearchText = (searchText: string) => {
-  state.searchText = searchText;
-};
 
 const filteredProjectList = computed(() => {
   let list = [...projectList.value];

@@ -17,17 +17,28 @@
         :data-height="queryListHeight"
       >
         <div v-for="query in queryList" :key="query.id" class="relative">
-          <CompactSQLEditor
-            v-model:sql="query.sql"
-            class="min-h-[2rem]"
-            :class="[
-              isEditableQueryItem(query) ? 'active-editor' : 'read-only-editor',
-            ]"
-            :readonly="!isEditableQueryItem(query)"
-            @execute="handleExecute"
-            @history="handleHistory"
-            @clear-screen="handleClearScreen"
-          />
+          <Suspense>
+            <CompactSQLEditor
+              v-model:sql="query.sql"
+              class="min-h-[2rem]"
+              :class="[
+                isEditableQueryItem(query)
+                  ? 'active-editor'
+                  : 'read-only-editor',
+              ]"
+              :readonly="!isEditableQueryItem(query)"
+              @execute="handleExecute"
+              @history="handleHistory"
+              @clear-screen="handleClearScreen"
+            />
+            <template #fallback>
+              <div
+                class="w-full min-h-[2rem] flex flex-col items-center justify-center"
+              >
+                <BBSpin />
+              </div>
+            </template>
+          </Suspense>
           <ResultViewV1
             v-if="query.params && query.resultSet"
             class="max-h-[20rem] flex-1 flex flex-col overflow-hidden"
@@ -39,7 +50,7 @@
 
           <div
             v-if="query.resultSet?.error"
-            class="p-2 pb-1 text-md font-normal text-[var(--color-matrix-green-hover)]"
+            class="p-2 pb-1 text-md font-normal text-matrix-green-hover"
           >
             {{ $t("sql-editor.connection-lost") }}
           </div>
@@ -65,20 +76,23 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, unref, watch } from "vue";
 import { useElementSize } from "@vueuse/core";
-
-import { ExecuteConfig, ExecuteOption, WebTerminalQueryItemV1 } from "@/types";
+import { computed, defineAsyncComponent, ref, unref, watch } from "vue";
+import { BBSpin } from "@/bbkit";
 import { useTabStore, useWebTerminalV1Store } from "@/store";
-import CompactSQLEditor from "./CompactSQLEditor.vue";
+import { ExecuteConfig, ExecuteOption, WebTerminalQueryItemV1 } from "@/types";
 import {
   EditorAction,
   ConnectionPathBar,
   ConnectionHolder,
   ResultViewV1,
 } from "../EditorCommon";
-import { useHistory } from "./useHistory";
 import { useAttractFocus } from "./useAttractFocus";
+import { useHistory } from "./useHistory";
+
+const CompactSQLEditor = defineAsyncComponent(
+  () => import("./CompactSQLEditor.vue")
+);
 
 const tabStore = useTabStore();
 const webTerminalStore = useWebTerminalV1Store();

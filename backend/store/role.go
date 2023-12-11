@@ -77,26 +77,38 @@ func (s *Store) ListRoles(ctx context.Context) ([]*RoleMessage, error) {
 	roles = append(roles,
 		&RoleMessage{
 			CreatorID:   api.SystemBotID,
-			ResourceID:  "OWNER",
+			ResourceID:  api.Owner.String(),
 			Name:        "Project owner",
 			Description: "",
 		},
 		&RoleMessage{
 			CreatorID:   api.SystemBotID,
-			ResourceID:  "DEVELOPER",
+			ResourceID:  api.Developer.String(),
 			Name:        "Project developer",
 			Description: "",
 		},
 		&RoleMessage{
 			CreatorID:   api.SystemBotID,
-			ResourceID:  "EXPORTER",
+			ResourceID:  api.Releaser.String(),
+			Name:        "Project releaser",
+			Description: "",
+		},
+		&RoleMessage{
+			CreatorID:   api.SystemBotID,
+			ResourceID:  api.Querier.String(),
+			Name:        "Project querier",
+			Description: "",
+		},
+		&RoleMessage{
+			CreatorID:   api.SystemBotID,
+			ResourceID:  api.Exporter.String(),
 			Name:        "Project exporter",
 			Description: "",
 		},
 		&RoleMessage{
 			CreatorID:   api.SystemBotID,
-			ResourceID:  "QUERIER",
-			Name:        "Project querier",
+			ResourceID:  api.ProjectViewer.String(),
+			Name:        "Project viewer",
 			Description: "",
 		},
 	)

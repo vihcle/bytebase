@@ -81,61 +81,39 @@
   </div>
   <div
     v-if="showBookDemo"
-    class="bg-accent px-3 py-3 flex flex-wrap md:flex-nowrap items-center justify-between"
+    class="bg-accent px-4 py-2 flex flex-wrap md:flex-nowrap items-center justify-center space-x-2"
   >
-    <p class="ml-3 py-2 flex-1 font-medium text-white truncate">
+    <p class="ml-3 flex font-medium text-white items-center truncate">
+      📆
       <a
         href="https://cal.com/adela-bytebase/30min"
         target="_blank"
-        class="flex underline"
+        class="flex underline ml-1"
       >
-        <heroicons-outline:calendar class="mr-1 w-6 h-6" />
         {{ $t("banner.request-demo") }}
       </a>
     </p>
 
     <div class="shrink-0 flex items-center gap-x-2">
       <button
-        v-if="showTrialButton"
         type="button"
-        class="flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-base font-medium text-accent bg-white hover:bg-indigo-50"
-        @click="startTrial"
-      >
-        {{
-          $t("subscription.start-n-days-trial", {
-            days: subscriptionStore.trialingDays,
-          })
-        }}
-      </button>
-
-      <button
-        type="button"
-        class="flex p-2 rounded-md hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-white"
+        class="flex rounded-md hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-white"
         @click.prevent="() => hideQuickstart()"
       >
         <span class="sr-only">{{ $t("common.dismiss") }}</span>
         <!-- Heroicon name: outline/x -->
-        <heroicons-outline:x class="h-6 w-6 text-white" />
+        <heroicons-outline:x class="h-4 w-4 text-white" />
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useKBarHandler, useKBarEventOnce } from "@bytebase/vue-kbar";
 import { computed, unref, Ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { storeToRefs } from "pinia";
-import { useKBarHandler, useKBarEventOnce } from "@bytebase/vue-kbar";
-
+import { pushNotification, useCurrentUserV1, useUIStateStore } from "@/store";
 import { hasWorkspacePermissionV1 } from "@/utils";
-import {
-  pushNotification,
-  useActuatorV1Store,
-  useCurrentUserV1,
-  useSubscriptionV1Store,
-  useUIStateStore,
-} from "@/store";
-import { PlanType } from "@/types/proto/v1/subscription_service";
 
 type IntroItem = {
   name: string | Ref<string>;
@@ -144,18 +122,14 @@ type IntroItem = {
   click?: () => void;
 };
 
-const actuatorStore = useActuatorV1Store();
 const uiStateStore = useUIStateStore();
-const subscriptionStore = useSubscriptionV1Store();
 const { t } = useI18n();
 const kbarHandler = useKBarHandler();
 
 const currentUserV1 = useCurrentUserV1();
-const { isDemo } = storeToRefs(actuatorStore);
 
 const show = computed(() => {
-  // Do not show quickstart in demo mode since we don't expect user to alter the data
-  return !isDemo.value && !uiStateStore.getIntroStateByKey("hidden");
+  return !uiStateStore.getIntroStateByKey("hidden");
 });
 
 const introList = computed(() => {
@@ -223,20 +197,11 @@ const introList = computed(() => {
     done: computed(() => uiStateStore.getIntroStateByKey("database.visit")),
   });
 
-  if (
-    hasWorkspacePermissionV1(
-      "bb.permission.workspace.manage-member",
-      currentUserV1.value.userRole
-    )
-  ) {
-    introList.push({
-      name: computed(() => t("quick-start.add-a-member")),
-      link: "/setting/member",
-      done: computed(() =>
-        uiStateStore.getIntroStateByKey("member.addOrInvite")
-      ),
-    });
-  }
+  introList.push({
+    name: computed(() => t("quick-start.visit-member")),
+    link: "/setting/member",
+    done: computed(() => uiStateStore.getIntroStateByKey("member.visit")),
+  });
 
   return introList;
 });
@@ -251,11 +216,6 @@ const showBookDemo = computed(() => {
   if (!show.value) return false;
   if (showQuickstart.value) return false;
   return true;
-});
-
-const showTrialButton = computed(() => {
-  if (!showBookDemo.value) return false;
-  return subscriptionStore.canUpgradeTrial && !subscriptionStore.isTrialing;
 });
 
 const currentStep = computed(() => {
@@ -315,20 +275,6 @@ const hideQuickstart = (silent = false) => {
         });
       }
     });
-};
-
-const startTrial = () => {
-  subscriptionStore.trialSubscription(PlanType.ENTERPRISE).then(() => {
-    pushNotification({
-      module: "bytebase",
-      style: "SUCCESS",
-      title: t("common.success"),
-      description: t("subscription.successfully-start-trial", {
-        days: subscriptionStore.trialingDays,
-      }),
-    });
-    hideQuickstart(true /* silent */);
-  });
 };
 
 useKBarEventOnce("open", () => {

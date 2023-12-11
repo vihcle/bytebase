@@ -1,7 +1,15 @@
 import slug from "slug";
 import {
+  getProjectAndSheetId,
+  projectNamePrefix,
+  sheetNamePrefix,
+  getVCSUid,
+} from "@/store/modules/v1/common";
+import { ExternalVersionControl as VCSV1 } from "@/types/proto/v1/externalvs_service";
+import { Project as ProjectV1 } from "@/types/proto/v1/project_service";
+import { Sheet as SheetV1 } from "@/types/proto/v1/sheet_service";
+import {
   Database,
-  DataSource,
   Environment,
   Instance,
   IssueId,
@@ -10,20 +18,25 @@ import {
   UNKNOWN_ID,
 } from "../types";
 import { IdType } from "../types/id";
-import { Sheet as SheetV1 } from "@/types/proto/v1/sheet_service";
-import { Project as ProjectV1 } from "@/types/proto/v1/project_service";
-import { ExternalVersionControl as VCSV1 } from "@/types/proto/v1/externalvs_service";
-import {
-  getProjectAndSheetId,
-  projectNamePrefix,
-  sheetNamePrefix,
-  getVCSUid,
-} from "@/store/modules/v1/common";
+
+export const indexOrUIDFromSlug = (slug: string): number => {
+  const parts = slug.split("-");
+  const indexOrUID = parseInt(parts[parts.length - 1], 10);
+  if (Number.isNaN(indexOrUID) || indexOrUID < 0) {
+    return -1;
+  }
+  return indexOrUID;
+};
 
 export function idFromSlug(slug: string): IdType {
   const parts = slug.split("-");
   return parseInt(parts[parts.length - 1]);
 }
+
+export const uidFromSlug = (slug: string): string => {
+  const parts = slug.split("-");
+  return parts[parts.length - 1];
+};
 
 export function sheetNameFromSlug(slug: string): string {
   const parts = slug.split("-");
@@ -72,10 +85,6 @@ export function taskSlug(name: string, id: IdType): string {
 
 export function databaseSlug(database: Database): string {
   return [slug(database.name), database.id].join("-");
-}
-
-export function dataSourceSlug(dataSource: DataSource): string {
-  return [slug(dataSource.name), dataSource.id].join("-");
 }
 
 export function fullDatabasePath(database: Database): string {

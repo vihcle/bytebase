@@ -1,13 +1,13 @@
 <template>
   <div
-    class="flex-1 overflow-auto focus:outline-none"
+    class="flex-1 overflow-auto focus:outline-none p-6 space-y-4"
     tabindex="0"
     v-bind="$attrs"
   >
-    <main class="flex-1 relative overflow-y-auto">
+    <main class="flex-1 relative">
       <!-- Highlight Panel -->
       <div
-        class="px-4 pb-4 space-y-2 lg:space-y-0 lg:flex lg:items-center lg:justify-between"
+        class="gap-y-2 flex flex-col items-start lg:flex-row lg:items-center lg:justify-between"
       >
         <div class="flex-1 min-w-0 shrink-0">
           <!-- Summary -->
@@ -15,12 +15,12 @@
             <div>
               <div class="flex items-center">
                 <h1
-                  class="pt-2 pb-2.5 text-xl font-bold leading-6 text-main truncate flex items-center gap-x-3"
+                  class="pb-2.5 text-xl font-bold leading-6 text-main truncate flex items-center gap-x-3"
                 >
                   {{ database.databaseName }}
 
                   <ProductionEnvironmentV1Icon
-                    :environment="database.instanceEntity.environmentEntity"
+                    :environment="environment"
                     :tooltip="true"
                     class="w-5 h-5"
                   />
@@ -45,7 +45,7 @@
                 >{{ $t("common.environment") }}&nbsp;-&nbsp;</span
               >
               <EnvironmentV1Name
-                :environment="database.instanceEntity.environmentEntity"
+                :environment="environment"
                 icon-class="textinfolabel"
               />
             </dd>
@@ -81,101 +81,94 @@
               <span class="mr-1">{{ $t("schema-diagram.self") }}</span>
               <SchemaDiagramIcon />
             </dd>
-            <DatabaseLabelProps
-              :labels="database.labels"
-              :database="database"
-              :allow-edit="allowEditDatabaseLabels"
-              @update:labels="updateLabels"
-            >
-              <template #label="{ label }">
-                <span class="textlabel capitalize">
-                  {{ hidePrefix(label) }}&nbsp;-&nbsp;
-                </span>
-              </template>
-            </DatabaseLabelProps>
           </dl>
         </div>
         <div
           v-if="allowToChangeDatabase"
-          class="flex flex-row justify-end items-center flex-wrap shrink gap-x-2 gap-y-2"
+          class="flex flex-row justify-start items-center flex-wrap shrink gap-x-2 gap-y-2"
           data-label="bb-database-detail-action-buttons-container"
         >
           <BBSpin v-if="state.syncingSchema" :title="$t('instance.syncing')" />
-          <button
-            type="button"
-            class="btn-normal"
+          <NButton
             :disabled="state.syncingSchema"
             @click.prevent="syncDatabaseSchema"
           >
             {{ $t("common.sync-now") }}
-          </button>
-          <button
+          </NButton>
+          <NButton
             v-if="allowTransferProject"
-            type="button"
-            class="btn-normal"
             @click.prevent="tryTransferProject"
           >
             <span>{{ $t("database.transfer-project") }}</span>
             <heroicons-outline:switch-horizontal
               class="-mr-1 ml-2 h-5 w-5 text-control-light"
             />
-          </button>
-          <button
+          </NButton>
+          <NButton
             v-if="allowAlterSchemaOrChangeData"
-            type="button"
-            class="btn-normal"
             @click="createMigration('bb.issue.database.data.update')"
           >
             <span>{{ $t("database.change-data") }}</span>
-          </button>
-          <button
+          </NButton>
+          <NButton
             v-if="allowAlterSchema"
-            type="button"
-            class="btn-normal"
             @click="createMigration('bb.issue.database.schema.update')"
           >
-            <span>{{ $t("database.alter-schema") }}</span>
-          </button>
+            <span>{{ $t("database.edit-schema") }}</span>
+          </NButton>
         </div>
       </div>
     </main>
 
-    <BBTabFilter
-      class="px-3 pb-2 border-b border-block-border"
-      :responsive="false"
-      :tab-item-list="tabItemList"
-      :selected-index="state.selectedIndex"
-      data-label="bb-database-detail-tab"
-      @select-index="
-        (index: number) => {
-          selectTab(index);
-        }
-      "
-    />
-    <div class="py-6 px-6">
-      <template v-if="selectedTabItem?.hash === 'overview'">
-        <DatabaseOverviewPanel :database="database" />
-      </template>
-      <template v-if="selectedTabItem?.hash === 'change-history'">
+    <NTabs v-model:value="state.selectedTab">
+      <NTabPane name="overview" :tab="$t('common.overview')">
+        <DatabaseOverviewPanel
+          :database="database"
+          :anomaly-list="anomalyList"
+        />
+      </NTabPane>
+      <NTabPane
+        v-if="allowToChangeDatabase"
+        name="change-history"
+        :tab="$t('change-history.self')"
+      >
         <DatabaseChangeHistoryPanel
           :database="database"
           :allow-edit="allowEdit"
         />
-      </template>
-      <template v-if="selectedTabItem?.hash === 'backup-and-restore'">
+      </NTabPane>
+      <NTabPane
+        v-if="
+          allowToChangeDatabase &&
+          instanceV1HasBackupRestore(database.instanceEntity)
+        "
+        name="backup-and-restore"
+        :tab="$t('common.backup-and-restore')"
+      >
         <DatabaseBackupPanel
           :database="database"
           :allow-admin="allowAdmin"
           :allow-edit="allowEdit"
         />
-      </template>
-      <template v-if="selectedTabItem?.hash === 'slow-query'">
+      </NTabPane>
+      <NTabPane
+        v-if="
+          allowToChangeDatabase &&
+          instanceV1SupportSlowQuery(database.instanceEntity)
+        "
+        name="slow-query"
+        :tab="$t('slow-query.slow-queries')"
+      >
         <DatabaseSlowQueryPanel :database="database" />
-      </template>
-      <template v-if="selectedTabItem?.hash === 'settings'">
-        <DatabaseSettingsPanel :database="database" />
-      </template>
-    </div>
+      </NTabPane>
+      <NTabPane
+        v-if="allowToChangeDatabase"
+        name="setting"
+        :tab="$t('common.settings')"
+      >
+        <DatabaseSettingsPanel :database="database" :allow-edit="allowEdit" />
+      </NTabPane>
+    </NTabs>
 
     <TransferSingleDatabase
       v-if="state.showTransferDatabaseModal"
@@ -214,8 +207,6 @@
     </BBModal>
   </div>
 
-  <GhostDialog ref="ghostDialog" />
-
   <BBModal
     v-if="state.showSchemaDiagram"
     :title="$t('schema-diagram.self')"
@@ -241,28 +232,49 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onMounted, reactive, watch, ref } from "vue";
-import { useRouter } from "vue-router";
 import dayjs from "dayjs";
-import { useI18n } from "vue-i18n";
-import { startCase } from "lodash-es";
+import { NButton, NTabPane, NTabs } from "naive-ui";
 import { ClientError } from "nice-grpc-web";
-
+import { computed, reactive, watch, ref, onMounted } from "vue";
+import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import DatabaseBackupPanel from "@/components/DatabaseBackupPanel.vue";
 import DatabaseChangeHistoryPanel from "@/components/DatabaseChangeHistoryPanel.vue";
-import DatabaseOverviewPanel from "@/components/DatabaseOverviewPanel.vue";
-import DatabaseSlowQueryPanel from "@/components/DatabaseSlowQueryPanel.vue";
 import {
   DatabaseSettingsPanel,
   SQLEditorButtonV1,
 } from "@/components/DatabaseDetail";
+import DatabaseOverviewPanel from "@/components/DatabaseOverviewPanel.vue";
+import DatabaseSlowQueryPanel from "@/components/DatabaseSlowQueryPanel.vue";
+import { SchemaDiagram, SchemaDiagramIcon } from "@/components/SchemaDiagram";
 import { TransferSingleDatabase } from "@/components/TransferDatabaseForm";
-import { DatabaseLabelProps } from "@/components/DatabaseLabels";
+import {
+  EnvironmentV1Name,
+  InstanceV1Name,
+  ProductionEnvironmentV1Icon,
+  ProjectV1Name,
+} from "@/components/v2";
+import {
+  pushNotification,
+  useAnomalyV1Store,
+  useCurrentUserIamPolicy,
+  useCurrentUserV1,
+  useDatabaseV1Store,
+  useDBSchemaV1Store,
+  useEnvironmentV1Store,
+} from "@/store";
+import {
+  UNKNOWN_ID,
+  DEFAULT_PROJECT_V1_NAME,
+  unknownEnvironment,
+} from "@/types";
+import { Anomaly } from "@/types/proto/v1/anomaly_service";
+import { State } from "@/types/proto/v1/common";
+import { DatabaseMetadataView } from "@/types/proto/v1/database_service";
 import {
   idFromSlug,
   hasWorkspacePermissionV1,
-  hidePrefix,
-  allowGhostMigrationV1,
   isPITRDatabaseV1,
   isArchivedDatabaseV1,
   instanceV1HasBackupRestore,
@@ -272,31 +284,17 @@ import {
   isDatabaseV1Queryable,
   allowUsingSchemaEditorV1,
 } from "@/utils";
-import { UNKNOWN_ID, DEFAULT_PROJECT_V1_NAME, ComposedDatabase } from "@/types";
-import { BBTabFilterItem } from "@/bbkit/types";
-import { GhostDialog } from "@/components/AlterSchemaPrepForm";
-import { SchemaDiagram, SchemaDiagramIcon } from "@/components/SchemaDiagram";
-import {
-  pushNotification,
-  useCurrentUserIamPolicy,
-  useCurrentUserV1,
-  useDatabaseV1Store,
-  useDBSchemaV1Store,
-  useGracefulRequest,
-} from "@/store";
-import {
-  EnvironmentV1Name,
-  InstanceV1Name,
-  ProductionEnvironmentV1Icon,
-  ProjectV1Name,
-} from "@/components/v2";
-import { TenantMode } from "@/types/proto/v1/project_service";
-import { State } from "@/types/proto/v1/common";
 
-type DatabaseTabItem = {
-  name: string;
-  hash: string;
-};
+const databaseHashList = [
+  "overview",
+  "change-history",
+  "backup-and-restore",
+  "slow-query",
+  "setting",
+] as const;
+export type DatabaseHash = typeof databaseHashList[number];
+const isDatabaseHash = (x: any): x is DatabaseHash =>
+  databaseHashList.includes(x);
 
 interface LocalState {
   showTransferDatabaseModal: boolean;
@@ -306,6 +304,7 @@ interface LocalState {
   selectedIndex: number;
   syncingSchema: boolean;
   showSchemaDiagram: boolean;
+  selectedTab: DatabaseHash;
 }
 
 const props = defineProps({
@@ -319,21 +318,6 @@ const { t } = useI18n();
 const router = useRouter();
 const databaseV1Store = useDatabaseV1Store();
 const dbSchemaStore = useDBSchemaV1Store();
-const ghostDialog = ref<InstanceType<typeof GhostDialog>>();
-
-const databaseTabItemList = computed((): DatabaseTabItem[] => {
-  if (!allowToChangeDatabase.value) {
-    return [{ name: t("common.overview"), hash: "overview" }];
-  }
-
-  return [
-    { name: t("common.overview"), hash: "overview" },
-    { name: t("change-history.self"), hash: "change-history" },
-    { name: t("common.backup-and-restore"), hash: "backup-and-restore" },
-    { name: startCase(t("slow-query.slow-queries")), hash: "slow-query" },
-    { name: t("common.settings"), hash: "settings" },
-  ];
-});
 
 const state = reactive<LocalState>({
   showTransferDatabaseModal: false,
@@ -343,10 +327,40 @@ const state = reactive<LocalState>({
   selectedIndex: 0,
   syncingSchema: false,
   showSchemaDiagram: false,
+  selectedTab: "overview",
 });
-
+const route = useRoute();
 const currentUserV1 = useCurrentUserV1();
 const currentUserIamPolicy = useCurrentUserIamPolicy();
+const anomalyList = ref<Anomaly[]>([]);
+
+onMounted(async () => {
+  anomalyList.value = await useAnomalyV1Store().fetchAnomalyList({
+    database: database.value.name,
+  });
+});
+
+watch(
+  () => route.hash,
+  (hash) => {
+    const targetHash = hash.replace(/^#?/g, "") as DatabaseHash;
+    if (isDatabaseHash(targetHash)) {
+      state.selectedTab = targetHash;
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => state.selectedTab,
+  (tab) => {
+    router.replace({
+      name: "workspace.database.detail",
+      hash: `#${tab}`,
+      query: route.query,
+    });
+  }
+);
 
 const database = computed(() => {
   return databaseV1Store.getDatabaseByUID(
@@ -483,63 +497,14 @@ const allowAlterSchema = computed(() => {
   );
 });
 
-const allowEditDatabaseLabels = computed((): boolean => {
-  // only allowed to edit database labels when allowAdmin
-  return allowAdmin.value;
-});
-
-const availableDatabaseTabItemList = computed(() => {
-  const db = database.value;
-  return databaseTabItemList.value.filter((item) => {
-    if (item.hash === "backup-and-restore") {
-      return instanceV1HasBackupRestore(db.instanceEntity);
-    }
-    if (item.hash === "slow-query") {
-      return instanceV1SupportSlowQuery(db.instanceEntity);
-    }
-    return true;
-  });
-});
-
-const tabItemList = computed((): BBTabFilterItem[] => {
-  return availableDatabaseTabItemList.value.map((item) => {
-    return { title: item.name, alert: false };
-  });
-});
-
 const tryTransferProject = () => {
   state.currentProjectId = project.value.uid;
   state.showTransferDatabaseModal = true;
 };
 
-// 'normal' -> normal migration
-// 'online' -> online migration
-// false -> user clicked cancel button
-const isUsingGhostMigration = async (databaseList: ComposedDatabase[]) => {
-  if (project.value.tenantMode === TenantMode.TENANT_MODE_ENABLED) {
-    // Not available for tenant mode now.
-    return "normal";
-  }
-
-  // check if all selected databases supports gh-ost
-  if (allowGhostMigrationV1(databaseList)) {
-    // open the dialog to ask the user
-    const { result, mode } = await ghostDialog.value!.open();
-    if (!result) {
-      return false; // return false when user clicked the cancel button
-    }
-    return mode;
-  }
-
-  // fallback to normal
-  return "normal";
-};
-
 const createMigration = async (
   type: "bb.issue.database.schema.update" | "bb.issue.database.data.update"
 ) => {
-  type AlterMode = "online" | "normal" | false;
-  let mode: AlterMode = "normal";
   if (type === "bb.issue.database.schema.update") {
     if (
       database.value.syncState === State.ACTIVE &&
@@ -548,24 +513,14 @@ const createMigration = async (
       state.showSchemaEditorModal = true;
       return;
     }
-
-    // Check and show a normal/online selection modal dialog if needed.
-    mode = await isUsingGhostMigration([database.value]);
   }
-  if (mode === false) return;
 
   // Create a user friendly default issue name
   const issueNameParts: string[] = [];
   issueNameParts.push(`[${database.value.databaseName}]`);
-  if (mode === "online") {
-    issueNameParts.push("Online schema change");
-  } else {
-    issueNameParts.push(
-      type === "bb.issue.database.schema.update"
-        ? `Alter schema`
-        : `Change data`
-    );
-  }
+  issueNameParts.push(
+    type === "bb.issue.database.schema.update" ? `Alter schema` : `Change data`
+  );
   const datetime = dayjs().format("@MM-DD HH:mm");
   const tz = "UTC" + dayjs().format("ZZ");
   issueNameParts.push(`${datetime} ${tz}`);
@@ -576,9 +531,6 @@ const createMigration = async (
     project: project.value.uid,
     databaseList: database.value.uid,
   };
-  if (mode === "online") {
-    query.ghost = "1";
-  }
 
   router.push({
     name: "workspace.issue.detail",
@@ -589,63 +541,10 @@ const createMigration = async (
   });
 };
 
-const updateLabels = (labels: Record<string, string>) => {
-  useGracefulRequest(async () => {
-    const databasePatch = { ...database.value };
-    databasePatch.labels = labels;
-    await databaseV1Store.updateDatabase({
-      database: databasePatch,
-      updateMask: ["labels"],
-    });
-  });
-};
-
-const selectedTabItem = computed(() => {
-  return availableDatabaseTabItemList.value[state.selectedIndex];
-});
-
-const selectTab = (index: number) => {
-  const item = availableDatabaseTabItemList.value[index];
-  state.selectedIndex = index;
-  router.replace({
-    name: "workspace.database.detail",
-    hash: "#" + item.hash,
-  });
-};
-
-const selectDatabaseTabOnHash = () => {
-  if (router.currentRoute.value.hash) {
-    for (let i = 0; i < availableDatabaseTabItemList.value.length; i++) {
-      if (
-        availableDatabaseTabItemList.value[i].hash ==
-        router.currentRoute.value.hash.slice(1)
-      ) {
-        selectTab(i);
-        break;
-      }
-    }
-  } else {
-    selectTab(0);
-  }
-};
-
 const handleGotoSQLEditorFailed = () => {
   state.currentProjectId = database.value.projectEntity.uid;
   state.showIncorrectProjectModal = true;
 };
-
-onMounted(() => {
-  selectDatabaseTabOnHash();
-});
-
-watch(
-  () => router.currentRoute.value.hash,
-  () => {
-    if (router.currentRoute.value.name == "workspace.database.detail") {
-      selectDatabaseTabOnHash();
-    }
-  }
-);
 
 const syncDatabaseSchema = async () => {
   state.syncingSchema = true;
@@ -653,10 +552,11 @@ const syncDatabaseSchema = async () => {
   try {
     await databaseV1Store.syncDatabase(database.value.name);
 
-    dbSchemaStore.getOrFetchDatabaseMetadata(
-      database.value.name,
-      true // skip cache
-    );
+    dbSchemaStore.getOrFetchDatabaseMetadata({
+      database: database.value.name,
+      skipCache: true,
+      view: DatabaseMetadataView.DATABASE_METADATA_VIEW_BASIC,
+    });
     pushNotification({
       module: "bytebase",
       style: "SUCCESS",
@@ -664,6 +564,9 @@ const syncDatabaseSchema = async () => {
         "db.successfully-synced-schema-for-database-database-value-name",
         [database.value.databaseName]
       ),
+    });
+    anomalyList.value = await useAnomalyV1Store().fetchAnomalyList({
+      database: database.value.name,
     });
   } catch (error) {
     pushNotification({
@@ -678,4 +581,12 @@ const syncDatabaseSchema = async () => {
     state.syncingSchema = false;
   }
 };
+
+const environment = computed(() => {
+  return (
+    useEnvironmentV1Store().getEnvironmentByName(
+      database.value.effectiveEnvironment
+    ) ?? unknownEnvironment()
+  );
+});
 </script>

@@ -55,6 +55,11 @@ const (
 	Feature2FA FeatureType = "bb.feature.2fa"
 	// FeatureDisallowSignup allows user to change the disallow signup flag.
 	FeatureDisallowSignup FeatureType = "bb.feature.disallow-signup"
+	// FeatureSecureToken allows user to manage authentication token security.
+	FeatureSecureToken FeatureType = "bb.feature.secure-token"
+	// FeatureExternalSecretManager uses secrets from external secret manager.
+	FeatureExternalSecretManager FeatureType = "bb.feature.external-secret-manager"
+
 	// FeatureRBAC enables RBAC.
 	//
 	// - Workspace level RBAC
@@ -69,6 +74,12 @@ const (
 
 	// FeatureCustomRole enables customizing roles.
 	FeatureCustomRole FeatureType = "bb.feature.custom-role"
+
+	// FeatureIssueAdvancedSearch supports search issue with advanced filter.
+	FeatureIssueAdvancedSearch FeatureType = "bb.feature.issue-advanced-search"
+
+	// FeatureAnnouncement enable announcement banner setting.
+	FeatureAnnouncement FeatureType = "bb.feature.announcement"
 
 	// Branding.
 
@@ -134,6 +145,8 @@ const (
 	FeatureReadReplicaConnection FeatureType = "bb.feature.read-replica-connection"
 	// FeatureInstanceSSHConnection provides SSH connection for instances.
 	FeatureInstanceSSHConnection FeatureType = "bb.feature.instance-ssh-connection"
+	// FeatureCustomInstanceScanInterval allows user to customize schema and anomaly scan interval per instance.
+	FeatureCustomInstanceScanInterval FeatureType = "bb.feature.custom-instance-scan-interval"
 	// FeatureSyncSchemaAllVersions allows user to sync the base database schema all versions into target database.
 	FeatureSyncSchemaAllVersions FeatureType = "bb.feature.sync-schema-all-versions"
 	// FeatureIndexAdvisor provides the index advisor for databases.
@@ -163,6 +176,11 @@ const (
 	// approval chain definition.
 	FeatureCustomApproval FeatureType = "bb.feature.custom-approval"
 
+	// Efficiency.
+
+	// FeatureBatchQuery enables batch query databases in SQL Editor.
+	FeatureBatchQuery FeatureType = "bb.feature.batch-query"
+
 	// Collaboration.
 
 	// FeatureSharedSQLScript enables sharing sql script.
@@ -184,6 +202,10 @@ func (e FeatureType) Name() string {
 		return "2FA"
 	case FeatureDisallowSignup:
 		return "Disallow singup"
+	case FeatureSecureToken:
+		return "Secure token"
+	case FeatureExternalSecretManager:
+		return "External Secret Manager"
 	case FeatureRBAC:
 		return "RBAC"
 	case FeatureWatermark:
@@ -192,6 +214,10 @@ func (e FeatureType) Name() string {
 		return "Audit log"
 	case FeatureCustomRole:
 		return "Custom role"
+	case FeatureIssueAdvancedSearch:
+		return "Advanced search"
+	case FeatureAnnouncement:
+		return "Announcement"
 	// Branding
 	case FeatureBranding:
 		return "Branding"
@@ -232,6 +258,8 @@ func (e FeatureType) Name() string {
 		return "Read replica connection"
 	case FeatureInstanceSSHConnection:
 		return "Instance SSH connection"
+	case FeatureCustomInstanceScanInterval:
+		return "Custom instance scan interval"
 	case FeatureSyncSchemaAllVersions:
 		return "Synchronize schema all versions"
 	case FeatureIndexAdvisor:
@@ -249,6 +277,9 @@ func (e FeatureType) Name() string {
 		return "Access Control"
 	case FeatureCustomApproval:
 		return "Custom Approval"
+	// Efficiency
+	case FeatureBatchQuery:
+		return "Batch query"
 	// Collaboration
 	case FeatureSharedSQLScript:
 		return "Shared SQL script"
@@ -280,13 +311,17 @@ func (e FeatureType) minimumSupportedPlan() PlanType {
 // plan in [FREE, TEAM, Enterprise].
 var FeatureMatrix = map[FeatureType][3]bool{
 	// Admin & Security
-	FeatureSSO:            {false, false, true},
-	Feature2FA:            {false, false, true},
-	FeatureDisallowSignup: {false, false, true},
-	FeatureRBAC:           {true, true, true},
-	FeatureWatermark:      {false, false, true},
-	FeatureAuditLog:       {false, false, true},
-	FeatureCustomRole:     {false, false, true},
+	FeatureSSO:                   {false, false, true},
+	Feature2FA:                   {false, false, true},
+	FeatureDisallowSignup:        {false, false, true},
+	FeatureSecureToken:           {false, false, true},
+	FeatureExternalSecretManager: {false, false, true},
+	FeatureRBAC:                  {true, true, true},
+	FeatureWatermark:             {false, false, true},
+	FeatureAuditLog:              {false, false, true},
+	FeatureCustomRole:            {false, false, true},
+	FeatureIssueAdvancedSearch:   {false, true, true},
+	FeatureAnnouncement:          {false, false, true},
 	// Branding
 	FeatureBranding: {false, false, true},
 	// Change Workflow
@@ -306,11 +341,12 @@ var FeatureMatrix = map[FeatureType][3]bool{
 	FeatureVCSSheetSync:         {false, true, true},
 	FeatureVCSSQLReviewWorkflow: {true, true, true},
 	// Database management
-	FeaturePITR:                  {false, true, true},
-	FeatureReadReplicaConnection: {false, false, true},
-	FeatureInstanceSSHConnection: {false, false, true},
-	FeatureSyncSchemaAllVersions: {false, true, true},
-	FeatureIndexAdvisor:          {false, false, true},
+	FeaturePITR:                       {false, true, true},
+	FeatureReadReplicaConnection:      {false, false, true},
+	FeatureInstanceSSHConnection:      {false, false, true},
+	FeatureCustomInstanceScanInterval: {false, false, true},
+	FeatureSyncSchemaAllVersions:      {false, true, true},
+	FeatureIndexAdvisor:               {false, false, true},
 	// Policy Control
 	FeatureApprovalPolicy:        {false, true, true},
 	FeatureBackupPolicy:          {false, true, true},
@@ -318,6 +354,8 @@ var FeatureMatrix = map[FeatureType][3]bool{
 	FeatureSensitiveData:         {false, false, true},
 	FeatureAccessControl:         {false, false, true},
 	FeatureCustomApproval:        {false, false, true},
+	// Efficiency
+	FeatureBatchQuery: {false, false, true},
 	// Collaboration
 	FeatureSharedSQLScript: {false, true, true},
 	// Plugins
@@ -326,10 +364,11 @@ var FeatureMatrix = map[FeatureType][3]bool{
 
 // InstanceLimitFeature is the map for instance feature. Only allowed to access these feature for activate instance.
 var InstanceLimitFeature = map[FeatureType]bool{
+	// Security
+	FeatureExternalSecretManager: true,
 	// Change Workflow
 	FeatureIMApproval:       true,
 	FeatureSchemaDrift:      true,
-	FeatureSQLReview:        true,
 	FeatureEncryptedSecrets: true,
 	FeatureTaskScheduleTime: true,
 	FeatureOnlineMigration:  true,
@@ -338,12 +377,13 @@ var InstanceLimitFeature = map[FeatureType]bool{
 	FeatureVCSSQLReviewWorkflow: true,
 	FeatureMybatisSQLReview:     true,
 	// Database management
-	FeaturePITR:                  true,
-	FeatureReadReplicaConnection: true,
-	FeatureInstanceSSHConnection: true,
-	FeatureDatabaseGrouping:      true,
-	FeatureSyncSchemaAllVersions: true,
-	FeatureIndexAdvisor:          true,
+	FeaturePITR:                       true,
+	FeatureReadReplicaConnection:      true,
+	FeatureInstanceSSHConnection:      true,
+	FeatureCustomInstanceScanInterval: true,
+	FeatureDatabaseGrouping:           true,
+	FeatureSyncSchemaAllVersions:      true,
+	FeatureIndexAdvisor:               true,
 	// Policy Control
 	FeatureSensitiveData:  true,
 	FeatureCustomApproval: true,

@@ -2,11 +2,9 @@ package collector
 
 import (
 	"context"
+	"log/slog"
 
-	"go.uber.org/zap"
-
-	"github.com/bytebase/bytebase/backend/common/log"
-	metricAPI "github.com/bytebase/bytebase/backend/metric"
+	metricapi "github.com/bytebase/bytebase/backend/metric"
 	"github.com/bytebase/bytebase/backend/plugin/metric"
 	"github.com/bytebase/bytebase/backend/store"
 )
@@ -39,15 +37,15 @@ func (c *instanceCountCollector) Collect(ctx context.Context) ([]*metric.Metric,
 			UID: &instanceCountMetric.EnvironmentID,
 		})
 		if err != nil {
-			log.Debug("failed to get environment by id", zap.Int("id", instanceCountMetric.EnvironmentID))
+			slog.Debug("failed to get environment by id", slog.Int("id", instanceCountMetric.EnvironmentID))
 			continue
 		}
 
 		res = append(res, &metric.Metric{
-			Name:  metricAPI.InstanceCountMetricName,
+			Name:  metricapi.InstanceCountMetricName,
 			Value: instanceCountMetric.Count,
 			Labels: map[string]any{
-				"engine":      string(instanceCountMetric.Engine),
+				"engine":      instanceCountMetric.Engine.String(),
 				"environment": env.Title,
 				"status":      string(instanceCountMetric.RowStatus),
 			},

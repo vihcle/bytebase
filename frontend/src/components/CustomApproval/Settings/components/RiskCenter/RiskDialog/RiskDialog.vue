@@ -2,7 +2,7 @@
   <BBModal
     v-if="dialog"
     :title="title"
-    :esc-closable="false"
+    :close-on-esc="false"
     :before-close="beforeClose"
     :data-state-dirty="state.dirty"
     @close="dialog = undefined"
@@ -23,15 +23,14 @@
 </template>
 
 <script lang="ts" setup>
+import { useDialog } from "naive-ui";
 import { computed, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { useDialog } from "naive-ui";
-
+import { pushNotification, useRiskStore } from "@/store";
+import { Risk } from "@/types/proto/v1/risk_service";
 import { defer } from "@/utils";
 import { useRiskCenterContext } from "../context";
 import RiskForm from "./RiskForm.vue";
-import { Risk } from "@/types/proto/v1/risk_service";
-import { pushNotification, useRiskStore } from "@/store";
 
 type LocalState = {
   loading: boolean;
@@ -52,12 +51,12 @@ const title = computed(() => {
   if (dialog.value) {
     const { mode } = dialog.value;
     if (!allowAdmin.value) {
-      return t("custom-approval.security-rule.view-rule");
+      return t("custom-approval.risk-rule.view-rule");
     } else {
       if (mode === "CREATE") {
-        return t("custom-approval.security-rule.add-rule");
+        return t("common.add");
       } else if (mode === "EDIT") {
-        return t("custom-approval.security-rule.edit-rule");
+        return t("custom-approval.risk-rule.edit-rule");
       }
     }
   }

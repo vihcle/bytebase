@@ -1,13 +1,15 @@
 <template>
-  <div class="flex box-border text-gray-500 text-sm border-b">
-    <div class="relative flex flex-nowrap overflow-hidden">
+  <div
+    class="flex justify-between items-center box-border text-gray-500 text-sm border-b pr-2 pt-1"
+  >
+    <div class="relative flex flex-1 flex-nowrap overflow-hidden">
       <Draggable
         id="tab-list"
         ref="tabListRef"
         v-model="tabStore.tabIdList"
         item-key="id"
         animation="300"
-        class="tab-list"
+        class="tab-list hide-scrollbar"
         :class="{
           'more-left': scrollState.moreLeft,
           'more-right': scrollState.moreRight,
@@ -26,29 +28,50 @@
             :data-tab-id="id"
             @select="(tab) => handleSelectTab(tab)"
             @close="(tab, index) => handleRemoveTab(tab, index)"
+            @contextmenu.stop.prevent="
+              contextMenuRef?.show(tabStore.getTabById(id), index, $event)
+            "
           />
         </template>
       </Draggable>
+
+      <button class="px-1" @click="handleAddTab">
+        <heroicons-solid:plus
+          class="h-6 w-6 p-1 hover:bg-gray-200 rounded-md"
+        />
+      </button>
     </div>
 
-    <button class="px-1" @click="handleAddTab">
-      <heroicons-solid:plus class="h-6 w-6 p-1 hover:bg-gray-200 rounded-md" />
-    </button>
+    <div class="hidden lg:block -mt-0.5">
+      <ProfileDropdown v-if="showProfileDropdown" />
+    </div>
+
+    <ContextMenu ref="contextMenuRef" />
   </div>
 </template>
 
 <script lang="ts" setup>
+import { useResizeObserver } from "@vueuse/core";
+import { useDialog } from "naive-ui";
+import { storeToRefs } from "pinia";
+import scrollIntoView from "scroll-into-view-if-needed";
 import { ref, reactive, nextTick, computed, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { useDialog } from "naive-ui";
 import Draggable from "vuedraggable";
-import scrollIntoView from "scroll-into-view-if-needed";
-
+import { useEmitteryEventListener } from "@/composables/useEmitteryEventListener";
+import { useTabStore, useActuatorV1Store } from "@/store";
 import type { TabInfo } from "@/types";
 import { TabMode } from "@/types";
-import { useTabStore } from "@/store";
+import {
+  defer,
+  getSuggestedTabNameFromConnection,
+  sheetTypeForTab,
+} from "@/utils";
+import ProfileDropdown from "../ProfileDropdown";
+import { useSheetContext } from "../Sheet";
+import ContextMenu from "./ContextMenu.vue";
 import TabItem from "./TabItem";
-import { useResizeObserver } from "@vueuse/core";
+import { provideTabListContext } from "./context";
 
 type LocalState = {
   dragging: boolean;
@@ -64,12 +87,19 @@ const state = reactive<LocalState>({
   dragging: false,
   hoverTabId: "",
 });
-
+const { pageMode } = storeToRefs(useActuatorV1Store());
+const { events: sheetEvents } = useSheetContext();
 const tabListRef = ref<InstanceType<typeof Draggable>>();
+const context = provideTabListContext();
+const contextMenuRef = ref<InstanceType<typeof ContextMenu>>();
 
 const scrollState = reactive({
   moreLeft: false,
   moreRight: false,
+});
+
+const showProfileDropdown = computed(() => {
+  return pageMode.value === "BUNDLED";
 });
 
 const handleSelectTab = async (tab: TabInfo) => {
@@ -77,16 +107,32 @@ const handleSelectTab = async (tab: TabInfo) => {
 };
 
 const handleAddTab = () => {
-  tabStore.addTab();
+  const connection = { ...tabStore.currentTab.connection };
+  const name = getSuggestedTabNameFromConnection(connection);
+  tabStore.addTab({
+    name,
+    connection,
+    // The newly created tab is "clean" so its connection can be changed
+    isFreshNew: true,
+  });
   nextTick(recalculateScrollState);
+  sheetEvents.emit("add-sheet");
 };
 
-const handleRemoveTab = async (tab: TabInfo, index: number) => {
+const handleRemoveTab = async (
+  tab: TabInfo,
+  index: number,
+  focusWhenConfirm = false
+) => {
+  const _defer = defer<boolean>();
   if (tab.mode === TabMode.ReadOnly && !tab.isSaved) {
+    if (focusWhenConfirm) {
+      tabStore.setCurrentTabId(tab.id);
+    }
     const $dialog = dialog.create({
       title: t("sql-editor.hint-tips.confirm-to-close-unsaved-sheet.title"),
       content: t("sql-editor.hint-tips.confirm-to-close-unsaved-sheet.content"),
-      type: "info",
+      type: "warning",
       autoFocus: false,
       closable: false,
       maskClosable: false,
@@ -94,9 +140,11 @@ const handleRemoveTab = async (tab: TabInfo, index: number) => {
       onPositiveClick() {
         remove(index);
         $dialog.destroy();
+        _defer.resolve(true);
       },
       onNegativeClick() {
         $dialog.destroy();
+        _defer.resolve(false);
       },
       positiveText: t("sql-editor.close-sheet"),
       negativeText: t("common.cancel"),
@@ -104,10 +152,14 @@ const handleRemoveTab = async (tab: TabInfo, index: number) => {
     });
   } else {
     remove(index);
+    _defer.resolve(true);
   }
 
   function remove(index: number) {
-    if (tabStore.tabList.length <= 1) return;
+    if (tabStore.tabList.length === 1) {
+      // Ensure at least 1 tab
+      tabStore.addTab();
+    }
 
     tabStore.removeTab(tab);
 
@@ -118,6 +170,8 @@ const handleRemoveTab = async (tab: TabInfo, index: number) => {
 
     nextTick(recalculateScrollState);
   }
+
+  return _defer.promise;
 };
 
 const tabListElement = computed((): HTMLElement | undefined => {
@@ -132,6 +186,8 @@ useResizeObserver(tabListRef, () => {
 });
 
 const recalculateScrollState = () => {
+  contextMenuRef.value?.hide();
+
   const element = tabListElement.value;
   if (!element) {
     return;
@@ -178,6 +234,54 @@ watch(
 );
 
 onMounted(() => recalculateScrollState());
+
+useEmitteryEventListener(
+  context.events,
+  "close-tab",
+  async ({ tab, index, action }) => {
+    const tabList = tabStore.tabList;
+
+    const remove = async (tab: TabInfo, index: number) => {
+      await handleRemoveTab(tab, index, true);
+      await new Promise((r) => requestAnimationFrame(r));
+    };
+
+    if (action === "CLOSE") {
+      await remove(tab, index);
+      return;
+    }
+    const max = tabList.length - 1;
+    if (action === "CLOSE_OTHERS") {
+      for (let i = max; i > index; i--) {
+        await remove(tabList[i], i);
+      }
+      for (let i = index - 1; i >= 0; i--) {
+        await remove(tabList[i], i);
+      }
+      return;
+    }
+    if (action === "CLOSE_TO_THE_RIGHT") {
+      for (let i = max; i > index; i--) {
+        await remove(tabList[i], i);
+      }
+      return;
+    }
+    if (action === "CLOSE_SAVED") {
+      for (let i = max; i >= 0; i--) {
+        const tab = tabList[i];
+        if (sheetTypeForTab(tab) === "CLEAN") {
+          await remove(tab, i);
+        }
+      }
+      return;
+    }
+    if (action === "CLOSE_ALL") {
+      for (let i = max; i >= 0; i--) {
+        await remove(tabList[i], i);
+      }
+    }
+  }
+);
 </script>
 
 <style scoped lang="postcss">
@@ -186,6 +290,6 @@ onMounted(() => recalculateScrollState());
 }
 
 .tab-list {
-  @apply flex flex-nowrap overflow-x-auto w-full hide-scrollbar;
+  @apply flex flex-nowrap overflow-x-auto max-w-full overscroll-none;
 }
 </style>

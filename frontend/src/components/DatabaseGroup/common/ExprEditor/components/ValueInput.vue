@@ -11,7 +11,6 @@
 <script lang="ts" setup>
 /* eslint-disable vue/no-mutating-props */
 import { computed, watch } from "vue";
-
 import {
   type ConditionExpr,
   isEqualityOperator,
@@ -56,10 +55,10 @@ const setStringValue = (value: string) => {
 
 // clean up value type when factor and operator changed
 watch(
-  [factor, operator, () => props.expr.args[1]],
-  ([factor, operator, value]) => {
+  [operator, () => props.expr.args[1]],
+  ([operator, value]) => {
     if (isEqualityOperator(operator)) {
-      if (isStringFactor(factor) && typeof value !== "string") {
+      if (isStringFactor(factor.value) && typeof value !== "string") {
         setStringValue("");
       }
     }
@@ -67,6 +66,17 @@ watch(
       setStringValue("");
     }
   },
-  { immediate: true }
+  {
+    immediate: true,
+  }
+);
+watch(
+  factor,
+  (factor) => {
+    if (isStringFactor(factor)) {
+      setStringValue("");
+    }
+  },
+  { immediate: false }
 );
 </script>

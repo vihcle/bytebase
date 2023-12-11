@@ -19,7 +19,7 @@ CREATE TABLE idp (
   resource_id TEXT NOT NULL,
   name TEXT NOT NULL,
   domain TEXT NOT NULL,
-  type TEXT NOT NULL CONSTRAINT idp_type_check CHECK (type IN ('OAUTH2', 'OIDC')),
+  type TEXT NOT NULL CONSTRAINT idp_type_check CHECK (type IN ('OAUTH2', 'OIDC', 'LDAP')),
   -- config stores the corresponding configuration of the IdP, which may vary depending on the type of the IdP.
   config JSONB NOT NULL DEFAULT '{}'
 );
@@ -75,6 +75,28 @@ VALUES
         'SYSTEM_BOT',
         'Bytebase',
         'support@bytebase.com',
+        ''
+    );
+
+-- Pseudo allUsers account id is 2.
+INSERT INTO
+    principal (
+        id,
+        creator_id,
+        updater_id,
+        type,
+        name,
+        email,
+        password_hash
+    )
+VALUES
+    (
+        2,
+        2,
+        2,
+        'SYSTEM_BOT',
+        'All Users',
+        'allUsers',
         ''
     );
 
@@ -219,12 +241,11 @@ CREATE TABLE project (
     workflow_type TEXT NOT NULL CHECK (workflow_type IN ('UI', 'VCS')),
     visibility TEXT NOT NULL CHECK (visibility IN ('PUBLIC', 'PRIVATE')),
     tenant_mode TEXT NOT NULL CHECK (tenant_mode IN ('DISABLED', 'TENANT')) DEFAULT 'DISABLED',
-    -- db_name_template is only used when a project is in tenant mode.
-    -- Empty value means {{DB_NAME}}.
-    db_name_template TEXT NOT NULL,
     schema_version_type TEXT NOT NULL CHECK (schema_version_type IN ('TIMESTAMP', 'SEMANTIC')) DEFAULT 'TIMESTAMP',
     schema_change_type TEXT NOT NULL CHECK (schema_change_type IN ('DDL', 'SDL')) DEFAULT 'DDL',
-    resource_id TEXT NOT NULL
+    resource_id TEXT NOT NULL,
+    data_classification_config_id TEXT NOT NULL DEFAULT '',
+    setting  JSONB NOT NULL DEFAULT '{}'
 );
 
 CREATE UNIQUE INDEX idx_project_unique_key ON project(key);
@@ -241,7 +262,6 @@ INSERT INTO
         workflow_type,
         visibility,
         tenant_mode,
-        db_name_template,
         resource_id
     )
 VALUES
@@ -254,7 +274,6 @@ VALUES
         'UI',
         'PUBLIC',
         'DISABLED',
-        '',
         'default'
     );
 
@@ -333,7 +352,8 @@ CREATE TABLE instance (
     resource_id TEXT NOT NULL,
     -- activation should set to be TRUE if users assign license to this instance.
     activation BOOLEAN NOT NULL DEFAULT false,
-    options JSONB NOT NULL DEFAULT '{}'
+    options JSONB NOT NULL DEFAULT '{}',
+    metadata JSONB NOT NULL DEFAULT '{}'
 );
 
 CREATE UNIQUE INDEX idx_instance_unique_resource_id ON instance(resource_id);
@@ -390,7 +410,8 @@ CREATE TABLE db (
     secrets JSONB NOT NULL DEFAULT '{}',
     datashare BOOLEAN NOT NULL DEFAULT FALSE,
     -- service_name is the Oracle specific field.
-    service_name TEXT NOT NULL DEFAULT ''
+    service_name TEXT NOT NULL DEFAULT '',
+    metadata JSONB NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX idx_db_instance_id ON db(instance_id);
@@ -417,7 +438,8 @@ CREATE TABLE db_schema (
     updated_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
     database_id INTEGER NOT NULL REFERENCES db (id) ON DELETE CASCADE,
     metadata JSONB NOT NULL DEFAULT '{}',
-    raw_dump TEXT NOT NULL DEFAULT ''
+    raw_dump TEXT NOT NULL DEFAULT '',
+    config JSONB NOT NULL DEFAULT '{}'
 );
 
 CREATE UNIQUE INDEX idx_db_schema_unique_database_id ON db_schema(database_id);
@@ -439,7 +461,6 @@ CREATE TABLE data_source (
     updater_id INTEGER NOT NULL REFERENCES principal (id),
     updated_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
     instance_id INTEGER NOT NULL REFERENCES instance (id),
-    database_id INTEGER NOT NULL REFERENCES db (id),
     name TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('ADMIN', 'RW', 'RO')),
     username TEXT NOT NULL,
@@ -453,9 +474,7 @@ CREATE TABLE data_source (
     database TEXT NOT NULL DEFAULT ''
 );
 
-CREATE INDEX idx_data_source_instance_id ON data_source(instance_id);
-
-CREATE UNIQUE INDEX idx_data_source_unique_database_id_name ON data_source(database_id, name);
+CREATE UNIQUE INDEX idx_data_source_unique_instance_id_name ON data_source(instance_id, name);
 
 ALTER SEQUENCE data_source_id_seq RESTART WITH 101;
 
@@ -637,17 +656,18 @@ CREATE TABLE task_run (
     updater_id INTEGER NOT NULL REFERENCES principal (id),
     updated_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
     task_id INTEGER NOT NULL REFERENCES task (id),
+    attempt INTEGER NOT NULL,
     name TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('RUNNING', 'DONE', 'FAILED', 'CANCELED')),
-    type TEXT NOT NULL CHECK (type LIKE 'bb.task.%'),
+    status TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'DONE', 'FAILED', 'CANCELED')),
+    started_ts BIGINT NOT NULL DEFAULT 0,
     code INTEGER NOT NULL DEFAULT 0,
-    comment TEXT NOT NULL DEFAULT '',
     -- result saves the task run result in json format
-    result  JSONB NOT NULL DEFAULT '{}',
-    payload JSONB NOT NULL DEFAULT '{}'
+    result  JSONB NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX idx_task_run_task_id ON task_run(task_id);
+
+CREATE UNIQUE INDEX uk_task_run_task_id_attempt ON task_run (task_id, attempt);
 
 ALTER SEQUENCE task_run_id_seq RESTART WITH 101;
 
@@ -655,33 +675,6 @@ CREATE TRIGGER update_task_run_updated_ts
 BEFORE
 UPDATE
     ON task_run FOR EACH ROW
-EXECUTE FUNCTION trigger_update_updated_ts();
-
--- task check run table stores the task check run
-CREATE TABLE task_check_run (
-    id SERIAL PRIMARY KEY,
-    creator_id INTEGER NOT NULL REFERENCES principal (id),
-    created_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
-    updater_id INTEGER NOT NULL REFERENCES principal (id),
-    updated_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
-    task_id INTEGER NOT NULL REFERENCES task (id),
-    status TEXT NOT NULL CHECK (status IN ('RUNNING', 'DONE', 'FAILED', 'CANCELED')),
-    type TEXT NOT NULL CHECK (type LIKE 'bb.task-check.%'),
-    code INTEGER NOT NULL DEFAULT 0,
-    comment TEXT NOT NULL DEFAULT '',
-    -- result saves the task check run result in json format
-    result  JSONB NOT NULL DEFAULT '{}',
-    payload JSONB NOT NULL DEFAULT '{}'
-);
-
-CREATE INDEX idx_task_check_run_task_id ON task_check_run(task_id);
-
-ALTER SEQUENCE task_check_run_id_seq RESTART WITH 101;
-
-CREATE TRIGGER update_task_check_run_updated_ts
-BEFORE
-UPDATE
-    ON task_check_run FOR EACH ROW
 EXECUTE FUNCTION trigger_update_updated_ts();
 
 -- Pipeline related END
@@ -719,7 +712,7 @@ CREATE TABLE plan_check_run (
     created_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
     updater_id INTEGER NOT NULL REFERENCES principal (id),
     updated_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
-    plan_id INTEGER NOT NULL REFERENCES plan (id),
+    plan_id BIGINT NOT NULL REFERENCES plan (id),
     status TEXT NOT NULL CHECK (status IN ('RUNNING', 'DONE', 'FAILED', 'CANCELED')),
     type TEXT NOT NULL CHECK (type LIKE 'bb.plan-check.%'),
     config JSONB NOT NULL DEFAULT '{}',
@@ -754,10 +747,10 @@ CREATE TABLE issue (
     status TEXT NOT NULL CHECK (status IN ('OPEN', 'DONE', 'CANCELED')),
     type TEXT NOT NULL CHECK (type LIKE 'bb.issue.%'),
     description TEXT NOT NULL DEFAULT '',
-    -- While changing assignee_id, one should only change it to a non-robot DBA/owner.
-    assignee_id INTEGER NOT NULL REFERENCES principal (id),
+    assignee_id INTEGER REFERENCES principal (id),
     assignee_need_attention BOOLEAN NOT NULL DEFAULT FALSE, 
-    payload JSONB NOT NULL DEFAULT '{}'
+    payload JSONB NOT NULL DEFAULT '{}',
+    ts_vector TSVECTOR
 );
 
 CREATE INDEX idx_issue_project_id ON issue(project_id);
@@ -771,6 +764,8 @@ CREATE INDEX idx_issue_creator_id ON issue(creator_id);
 CREATE INDEX idx_issue_assignee_id ON issue(assignee_id);
 
 CREATE INDEX idx_issue_created_ts ON issue(created_ts);
+
+CREATE INDEX idx_issue_ts_vector ON issue USING GIN(ts_vector);
 
 ALTER SEQUENCE issue_id_seq RESTART WITH 101;
 
@@ -1029,76 +1024,6 @@ UPDATE
     ON anomaly FOR EACH ROW
 EXECUTE FUNCTION trigger_update_updated_ts();
 
--- Label
--- label_key stores available label keys at workspace level.
-CREATE TABLE label_key (
-    id SERIAL PRIMARY KEY,
-    row_status row_status NOT NULL DEFAULT 'NORMAL',
-    creator_id INTEGER NOT NULL REFERENCES principal (id),
-    created_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
-    updater_id INTEGER NOT NULL REFERENCES principal (id),
-    updated_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
-    key TEXT NOT NULL
-);
-
--- key's are unique within the label_key table.
-CREATE UNIQUE INDEX idx_label_key_unique_key ON label_key(key);
-
-ALTER SEQUENCE label_key_id_seq RESTART WITH 101;
-
-CREATE TRIGGER update_label_key_updated_ts
-BEFORE
-UPDATE
-    ON label_key FOR EACH ROW
-EXECUTE FUNCTION trigger_update_updated_ts();
-
--- label_value stores available label key values at workspace level.
-CREATE TABLE label_value (
-    id SERIAL PRIMARY KEY,
-    row_status row_status NOT NULL DEFAULT 'NORMAL',
-    creator_id INTEGER NOT NULL REFERENCES principal (id),
-    created_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
-    updater_id INTEGER NOT NULL REFERENCES principal (id),
-    updated_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
-    key TEXT NOT NULL REFERENCES label_key(key),
-    value TEXT NOT NULL
-);
-
--- key/value's are unique within the label_value table.
-CREATE UNIQUE INDEX idx_label_value_unique_key_value ON label_value(key, value);
-
-ALTER SEQUENCE label_value_id_seq RESTART WITH 101;
-
-CREATE TRIGGER update_label_value_updated_ts
-BEFORE
-UPDATE
-    ON label_value FOR EACH ROW
-EXECUTE FUNCTION trigger_update_updated_ts();
-
--- db_label stores labels associated with databases.
-CREATE TABLE db_label (
-    id SERIAL PRIMARY KEY,
-    row_status row_status NOT NULL DEFAULT 'NORMAL',
-    creator_id INTEGER NOT NULL REFERENCES principal (id),
-    created_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
-    updater_id INTEGER NOT NULL REFERENCES principal (id),
-    updated_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
-    database_id INTEGER NOT NULL REFERENCES db (id),
-    key TEXT NOT NULL,
-    value TEXT NOT NULL
-);
-
--- database_id/key's are unique within the db_label table.
-CREATE UNIQUE INDEX idx_db_label_unique_database_id_key ON db_label(database_id, key);
-
-ALTER SEQUENCE db_label_id_seq RESTART WITH 101;
-
-CREATE TRIGGER update_db_label_updated_ts
-BEFORE
-UPDATE
-    ON db_label FOR EACH ROW
-EXECUTE FUNCTION trigger_update_updated_ts();
-
 -- Deployment Configuration.
 -- deployment_config stores deployment configurations at project level.
 CREATE TABLE deployment_config (
@@ -1136,7 +1061,7 @@ CREATE TABLE sheet (
     name TEXT NOT NULL,
     statement TEXT NOT NULL,
     visibility TEXT NOT NULL CHECK (visibility IN ('PRIVATE', 'PROJECT', 'PUBLIC')) DEFAULT 'PRIVATE',
-    source TEXT NOT NULL CONSTRAINT sheet_source_check CHECK (source IN ('BYTEBASE', 'GITLAB', 'GITHUB', 'BITBUCKET', 'BYTEBASE_ARTIFACT')) DEFAULT 'BYTEBASE',
+    source TEXT NOT NULL CONSTRAINT sheet_source_check CHECK (source IN ('BYTEBASE', 'GITLAB', 'GITHUB', 'BITBUCKET', 'AZURE_DEVOPS', 'BYTEBASE_ARTIFACT')) DEFAULT 'BYTEBASE',
     type TEXT NOT NULL CHECK (type IN ('SQL')) DEFAULT 'SQL',
     payload JSONB NOT NULL DEFAULT '{}'
 );
@@ -1300,4 +1225,52 @@ CREATE TRIGGER update_schema_group_updated_ts
 BEFORE
 UPDATE
     ON schema_group FOR EACH ROW
+EXECUTE FUNCTION trigger_update_updated_ts();
+
+-- changelist table stores project changelists.
+CREATE TABLE changelist (
+    id SERIAL PRIMARY KEY,
+    row_status row_status NOT NULL DEFAULT 'NORMAL',
+    creator_id INTEGER NOT NULL REFERENCES principal (id),
+    created_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
+    updater_id INTEGER NOT NULL REFERENCES principal (id),
+    updated_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
+    project_id INTEGER NOT NULL REFERENCES project (id),
+    name TEXT NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}'
+);
+
+CREATE UNIQUE INDEX idx_changelist_project_id_name ON changelist(project_id, name);
+
+ALTER SEQUENCE changelist_id_seq RESTART WITH 101;
+
+CREATE TRIGGER update_changelist_updated_ts
+BEFORE
+UPDATE
+    ON changelist FOR EACH ROW
+EXECUTE FUNCTION trigger_update_updated_ts();
+
+CREATE TABLE branch (
+  id SERIAL PRIMARY KEY,
+  row_status row_status NOT NULL DEFAULT 'NORMAL',
+  creator_id INTEGER NOT NULL REFERENCES principal (id),
+  created_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
+  updater_id INTEGER NOT NULL REFERENCES principal (id),
+  updated_ts BIGINT NOT NULL DEFAULT extract(epoch from now()),
+  project_id INTEGER NOT NULL REFERENCES project (id),
+  name TEXT NOT NULL,
+  engine TEXT NOT NULL,
+  base JSONB NOT NULL DEFAULT '{}',
+  head JSONB NOT NULL DEFAULT '{}',
+  config JSONB NOT NULL DEFAULT '{}'
+);
+
+CREATE UNIQUE INDEX idx_branch_unique_project_id_name ON branch(project_id, name);
+
+ALTER SEQUENCE branch_id_seq RESTART WITH 101;
+
+CREATE TRIGGER update_branch_updated_ts
+BEFORE
+UPDATE
+    ON branch FOR EACH ROW
 EXECUTE FUNCTION trigger_update_updated_ts();

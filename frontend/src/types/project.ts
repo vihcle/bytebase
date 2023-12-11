@@ -1,12 +1,12 @@
-import { RowStatus } from "./common";
-import { ProjectId } from "./id";
-import { Principal } from "./principal";
-import { ExternalRepositoryInfo, RepositoryConfig } from "./repository";
-import { SchemaChange } from "@/types/proto/v1/project_service";
 import {
   OAuthToken,
   ExternalVersionControl,
 } from "@/types/proto/v1/externalvs_service";
+import { SchemaChange } from "@/types/proto/v1/project_service";
+import { RowStatus } from "./common";
+import { ProjectId } from "./id";
+import { Principal } from "./principal";
+import { ExternalRepositoryInfo, RepositoryConfig } from "./repository";
 
 export type ProjectRoleType =
   | "OWNER"
@@ -38,21 +38,7 @@ export type Project = {
   workflowType: ProjectWorkflowType;
   visibility: ProjectVisibility;
   tenantMode: ProjectTenantMode;
-  dbNameTemplate: string;
   schemaChangeType: SchemaChangeType;
-};
-
-export type ProjectPatch = {
-  // Standard fields
-  rowStatus?: RowStatus;
-
-  // Domain specific fields
-  name?: string;
-  key?: string;
-  schemaChangeType?: SchemaChangeType;
-  workflowType?: ProjectWorkflowType;
-  dbNameTemplate?: string;
-  tenantMode?: ProjectTenantMode;
 };
 
 // Project Member

@@ -1,60 +1,20 @@
 <template>
   <div v-if="ready" class="mb-2 space-y-2">
     <div
-      v-if="
-        filterTypes.includes('project') || filterTypes.includes('environment')
-      "
-      class="flex items-center gap-x-4"
+      class="flex flex-col md:flex-row items-end md:items-center gap-y-2 gap-x-2"
     >
-      <div class="flex-1 flex items-center gap-x-4">
-        <EnvironmentTabFilter
-          v-if="filterTypes.includes('environment')"
-          class="flex-1"
-          :environment="params.environment?.uid ?? String(UNKNOWN_ID)"
-          :include-all="true"
-          :disabled="loading"
-          @update:environment="changeEnvironmentId"
-        />
-      </div>
-
-      <div class="flex items-center justify-end gap-x-3">
-        <slot name="suffix" />
-      </div>
-    </div>
-
-    <div class="flex items-center gap-x-4">
-      <NInputGroup class="flex-1">
-        <ProjectSelect
-          v-if="filterTypes.includes('project')"
-          :project="params.project?.uid ?? String(UNKNOWN_ID)"
-          :include-default-project="canVisitDefaultProject"
-          :include-all="true"
-          :disabled="loading"
-          @update:project="changeProjectId"
-        />
-        <InstanceSelect
-          v-if="filterTypes.includes('instance')"
-          :instance="params.instance?.uid ?? String(UNKNOWN_ID)"
-          :environment="params.environment?.uid"
-          :include-all="true"
-          :filter="instanceFilter"
-          :disabled="loading"
-          @update:instance="changeInstanceId"
-        />
-        <DatabaseSelect
-          v-if="filterTypes.includes('database')"
-          :database="params.database?.uid ?? String(UNKNOWN_ID)"
-          :environment="params.environment?.uid"
-          :instance="params.instance?.uid"
-          :project="params.project?.uid"
-          :include-all="true"
-          :filter="(db) => instanceFilter(db.instanceEntity)"
-          :disabled="loading"
-          @update:database="changeDatabaseId"
-        />
+      <AdvancedSearchBox
+        v-if="supportOptionIdList.length > 0"
+        :params="params"
+        :autofocus="false"
+        :placeholder="''"
+        class="flex-1 hidden md:block"
+        :support-option-id-list="supportOptionIdList"
+        @update:params="$emit('update:params', $event)"
+      />
+      <NInputGroup style="width: auto">
         <NDatePicker
-          v-if="filterTypes.includes('time-range')"
-          :value="params.fromTime"
+          :value="fromTime"
           :disabled="loading"
           :is-date-disabled="isDateDisabled"
           :placeholder="$t('slow-query.filter.from-date')"
@@ -65,8 +25,7 @@
           @update:value="changeFromTime($event)"
         />
         <NDatePicker
-          v-if="filterTypes.includes('time-range')"
-          :value="params.toTime"
+          :value="toTime"
           :disabled="loading"
           :is-date-disabled="isDateDisabled"
           :placeholder="$t('slow-query.filter.to-date')"
@@ -78,90 +37,36 @@
         />
       </NInputGroup>
 
-      <div
-        v-if="
-          !filterTypes.includes('project') &&
-          !filterTypes.includes('environment')
-        "
-        class="flex items-center justify-end"
-      >
+      <div class="flex items-center justify-end space-x-2">
         <slot name="suffix" />
       </div>
     </div>
   </div>
 </template>
 <script lang="ts" setup>
-import { computed } from "vue";
-import { NDatePicker, NInputGroup } from "naive-ui";
 import dayjs from "dayjs";
-
-import { UNKNOWN_ID } from "@/types";
-import {
-  useCurrentUserV1,
-  useDatabaseV1Store,
-  useEnvironmentV1Store,
-  useInstanceV1Store,
-  useProjectV1Store,
-  useSlowQueryPolicyList,
-} from "@/store";
-import { hasWorkspacePermissionV1, instanceV1SupportSlowQuery } from "@/utils";
-import type { FilterType, SlowQueryFilterParams } from "./types";
-import {
-  ProjectSelect,
-  InstanceSelect,
-  EnvironmentTabFilter,
-  DatabaseSelect,
-} from "@/components/v2";
-import { Instance } from "@/types/proto/v1/instance_service";
+import { NDatePicker, NInputGroup } from "naive-ui";
+import { useSlowQueryPolicyList } from "@/store";
+import { SearchParams, SearchScopeId } from "@/utils";
 
 const props = defineProps<{
-  params: SlowQueryFilterParams;
-  filterTypes: readonly FilterType[];
+  fromTime: number | undefined;
+  toTime: number | undefined;
+  params: SearchParams;
+  supportOptionIdList: SearchScopeId[];
   loading?: boolean;
 }>();
 
 const emit = defineEmits<{
-  (event: "update:params", params: SlowQueryFilterParams): void;
+  (
+    event: "update:time",
+    params: { fromTime: number | undefined; toTime: number | undefined }
+  ): void;
+  (event: "update:params", params: SearchParams): void;
 }>();
 
-const currentUserV1 = useCurrentUserV1();
-const { list: policyList, ready } = useSlowQueryPolicyList();
+const { ready } = useSlowQueryPolicyList();
 
-const canVisitDefaultProject = computed(() => {
-  return hasWorkspacePermissionV1(
-    "bb.permission.workspace.manage-database",
-    currentUserV1.value.userRole
-  );
-});
-
-const changeEnvironmentId = (id: string) => {
-  const environment = useEnvironmentV1Store().getEnvironmentByUID(id);
-  update({ environment });
-};
-const changeInstanceId = (uid: string | undefined) => {
-  if (uid && uid !== String(UNKNOWN_ID)) {
-    const instance = useInstanceV1Store().getInstanceByUID(uid);
-    update({ instance });
-    return;
-  }
-  update({ instance: undefined });
-};
-const changeDatabaseId = (uid: string | undefined) => {
-  if (uid && uid !== String(UNKNOWN_ID)) {
-    const database = useDatabaseV1Store().getDatabaseByUID(uid);
-    update({ database });
-    return;
-  }
-  update({ database: undefined });
-};
-const changeProjectId = (id: string | undefined) => {
-  if (id && id !== String(UNKNOWN_ID)) {
-    const project = useProjectV1Store().getProjectByUID(id);
-    update({ project });
-    return;
-  }
-  update({ project: undefined });
-};
 const changeTime = (
   fromTime: number | undefined,
   toTime: number | undefined
@@ -179,35 +84,15 @@ const changeTime = (
     // toTime is the end of the day
     toTime = dayjs(toTime).endOf("day").valueOf();
   }
-  update({ fromTime, toTime });
+  emit("update:time", { fromTime, toTime });
 };
 const changeFromTime = (fromTime: number | undefined) => {
-  const { toTime } = props.params;
+  const { toTime } = props;
   changeTime(fromTime, toTime);
 };
 const changeToTime = (toTime: number | undefined) => {
-  const { fromTime } = props.params;
+  const { fromTime } = props;
   changeTime(fromTime, toTime);
-};
-
-const update = (params: Partial<SlowQueryFilterParams>) => {
-  emit("update:params", {
-    ...props.params,
-    ...params,
-  });
-};
-
-const instanceFilter = (instance: Instance) => {
-  if (!instanceV1SupportSlowQuery(instance)) {
-    return false;
-  }
-  const policy = policyList.value.find(
-    (policy) => policy.resourceUid === instance.uid
-  );
-  if (!policy) {
-    return false;
-  }
-  return !!policy.slowQueryPolicy?.active;
 };
 
 const isDateDisabled = (date: number) => {

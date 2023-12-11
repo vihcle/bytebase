@@ -3,9 +3,12 @@ import { reactive } from "vue";
 import { databaseServiceClient } from "@/grpcweb";
 import {
   ChangeHistory,
+  ChangeHistoryView,
+  ChangeHistory_Type,
   GetChangeHistoryRequest,
   ListChangeHistoriesRequest,
 } from "@/types/proto/v1/database_service";
+import { extractDatabaseResourceName } from "@/utils";
 
 export const useChangeHistoryStore = defineStore("changeHistory_v1", () => {
   const changeHistoryMapByName = reactive(new Map<string, ChangeHistory>());
@@ -24,7 +27,6 @@ export const useChangeHistoryStore = defineStore("changeHistory_v1", () => {
     historyList: ChangeHistory[]
   ) => {
     changeHistoryListMapByDatabase.set(parent, historyList);
-    await upsertChangeHistoryMap(historyList);
   };
 
   const fetchChangeHistoryList = async (
@@ -62,7 +64,53 @@ export const useChangeHistoryStore = defineStore("changeHistory_v1", () => {
     return await fetchChangeHistory({ name });
   };
   const getChangeHistoryByName = (name: string) => {
-    return changeHistoryMapByName.get(name);
+    const detail = changeHistoryMapByName.get(name);
+    if (detail) {
+      return detail;
+    }
+    const { full: parent } = extractDatabaseResourceName(name);
+    const brief = changeHistoryListMapByDatabase
+      .get(parent)
+      ?.find((ch) => ch.name === name);
+    return brief;
+  };
+  const exportChangeHistoryFullStatementByName = async (
+    name: string
+  ): Promise<{
+    changeHistory: ChangeHistory | undefined;
+    type: "MIGRATE" | "BASELINE" | "UNSUPPORTED";
+    statement: string;
+  }> => {
+    const changeHistory = await databaseServiceClient.getChangeHistory({
+      name,
+      view: ChangeHistoryView.CHANGE_HISTORY_VIEW_FULL,
+    });
+    if (changeHistory) {
+      if (
+        changeHistory.type === ChangeHistory_Type.MIGRATE ||
+        changeHistory.type === ChangeHistory_Type.MIGRATE_SDL ||
+        changeHistory.type === ChangeHistory_Type.MIGRATE_GHOST ||
+        changeHistory.type === ChangeHistory_Type.BRANCH ||
+        changeHistory.type === ChangeHistory_Type.DATA
+      ) {
+        return {
+          changeHistory,
+          type: "MIGRATE",
+          statement: changeHistory.statement,
+        };
+      } else if (changeHistory.type === ChangeHistory_Type.BASELINE) {
+        return {
+          changeHistory,
+          type: "BASELINE",
+          statement: changeHistory.schema,
+        };
+      }
+    }
+    return {
+      changeHistory,
+      type: "UNSUPPORTED",
+      statement: "",
+    };
   };
 
   return {
@@ -72,5 +120,6 @@ export const useChangeHistoryStore = defineStore("changeHistory_v1", () => {
     fetchChangeHistory,
     getOrFetchChangeHistoryByName,
     getChangeHistoryByName,
+    exportChangeHistoryFullStatementByName,
   };
 });

@@ -33,13 +33,16 @@
         <div class="col-span-1">
           <label
             for="name"
-            class="text-base leading-6 font-medium text-control"
+            class="flex text-base leading-6 font-medium text-control"
           >
             {{ $t("project.create-modal.key") }}
+            <NTooltip>
+              <template #trigger>
+                <heroicons-outline:information-circle class="ml-1 w-4 h-auto" />
+              </template>
+              {{ $t("project.key-hint") }}
+            </NTooltip>
             <span class="text-red-600">*</span>
-            <span class="ml-1 text-sm font-normal">
-              {{ $t("project.create-modal.key-hint") }}
-            </span>
           </label>
           <BBTextField
             class="mt-4 w-full uppercase"
@@ -77,7 +80,7 @@
                 />
                 <label class="label">{{ $t("project.mode.batch") }}</label>
                 <LearnMoreLink
-                  url="https://www.bytebase.com/docs/concepts/batch-mode/?source=console"
+                  url="https://www.bytebase.com/docs/change-database/batch-change/?source=console"
                 />
                 <FeatureBadge feature="bb.feature.multi-tenancy" />
               </div>
@@ -118,23 +121,21 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, reactive, ref } from "vue";
-import { useRouter } from "vue-router";
 import { isEmpty } from "lodash-es";
-import { useI18n } from "vue-i18n";
 import { NButton } from "naive-ui";
-import { useEventListener } from "@vueuse/core";
 import { Status } from "nice-grpc-common";
-
-import { projectV1Slug, randomString } from "@/utils";
-import { ResourceId, ValidatedMessage, emptyProject } from "@/types";
-import { hasFeature, pushNotification, useUIStateStore } from "@/store";
-import { useProjectV1Store } from "@/store/modules/v1/project";
-import { projectNamePrefix } from "@/store/modules/v1/common";
-import { getErrorCode } from "@/utils/grpcweb";
+import { computed, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
 import { DrawerContent } from "@/components/v2";
 import ResourceIdField from "@/components/v2/Form/ResourceIdField.vue";
+import { hasFeature, pushNotification, useUIStateStore } from "@/store";
+import { projectNamePrefix } from "@/store/modules/v1/common";
+import { useProjectV1Store } from "@/store/modules/v1/project";
+import { ResourceId, ValidatedMessage, emptyProject } from "@/types";
 import { Project, TenantMode } from "@/types/proto/v1/project_service";
+import { projectV1Slug, randomString } from "@/utils";
+import { getErrorCode } from "@/utils/grpcweb";
 
 interface LocalState {
   project: Project;
@@ -162,12 +163,6 @@ const state = reactive<LocalState>({
   isCreating: false,
 });
 const resourceIdField = ref<InstanceType<typeof ResourceIdField>>();
-
-useEventListener("keydown", (e) => {
-  if (e.code == "Escape") {
-    emit("dismiss");
-  }
-});
 
 const validateResourceId = async (
   resourceId: ResourceId

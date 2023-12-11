@@ -1,27 +1,25 @@
-import { isUndefined } from "lodash-es";
-
+import Long from "long";
 import { useCurrentUserV1, useProjectV1Store } from "@/store";
 import {
-  Task,
-  SheetIssueBacktracePayload,
-  TaskDatabaseCreatePayload,
-  TaskDatabaseDataUpdatePayload,
-  TaskDatabaseSchemaUpdateGhostSyncPayload,
-  TaskDatabaseSchemaUpdatePayload,
-  TaskDatabaseSchemaUpdateSDLPayload,
-  SheetId,
-} from "@/types";
+  getUserEmailFromIdentifier,
+  getProjectAndSheetId,
+} from "@/store/modules/v1/common";
+import { Sheet, Sheet_Visibility } from "@/types/proto/v1/sheet_service";
 import {
   hasPermissionInProjectV1,
   hasWorkspacePermissionV1,
   isMemberOfProjectV1,
 } from "../../utils";
-import { Sheet, Sheet_Visibility } from "@/types/proto/v1/sheet_service";
-import {
-  getUserEmailFromIdentifier,
-  getProjectAndSheetId,
-  getSheetPathByLegacyProject,
-} from "@/store/modules/v1/common";
+
+export const extractSheetUID = (name: string) => {
+  const pattern = /(?:^|\/)sheets\/([^/]+)(?:$|\/)/;
+  const matches = name.match(pattern);
+  return matches?.[1] ?? "-1";
+};
+
+export const isLocalSheet = (name: string) => {
+  return extractSheetUID(name).startsWith("-");
+};
 
 export const isSheetReadableV1 = (sheet: Sheet) => {
   const currentUserV1 = useCurrentUserV1();
@@ -61,11 +59,6 @@ export const isSheetReadableV1 = (sheet: Sheet) => {
 };
 
 export const isSheetWritableV1 = (sheet: Sheet) => {
-  // If the sheet is linked to an issue, it's NOT writable
-  if (getSheetIssueBacktracePayloadV1(sheet)) {
-    return false;
-  }
-
   const currentUserV1 = useCurrentUserV1();
 
   // writable to
@@ -108,55 +101,11 @@ export const isSheetWritableV1 = (sheet: Sheet) => {
   return false;
 };
 
-export const getSheetIssueBacktracePayloadV1 = (sheet: Sheet) => {
-  const maybePayload = JSON.parse(
-    sheet.payload ?? "{}"
-  ) as SheetIssueBacktracePayload;
-  if (
-    maybePayload.type === "bb.sheet.issue-backtrace" &&
-    !isUndefined(maybePayload.issueId) &&
-    !isUndefined(maybePayload.issueName)
-  ) {
-    return maybePayload;
-  }
-
-  return undefined;
+export const setSheetStatement = (sheet: Sheet, statement: string) => {
+  sheet.content = new TextEncoder().encode(statement);
+  sheet.contentSize = Long.fromNumber(statement.length);
 };
 
-export const sheetNameOfTask = (task: Task) => {
-  const project = task.database?.project;
-  if (!project) {
-    return "";
-  }
-
-  let sheetId: SheetId;
-
-  switch (task.type) {
-    case "bb.task.database.create":
-      sheetId = (task.payload as TaskDatabaseCreatePayload).sheetId || "";
-      break;
-    case "bb.task.database.schema.update":
-      sheetId = (task.payload as TaskDatabaseSchemaUpdatePayload).sheetId || "";
-      break;
-    case "bb.task.database.schema.update-sdl":
-      sheetId =
-        (task.payload as TaskDatabaseSchemaUpdateSDLPayload).sheetId || "";
-      break;
-    case "bb.task.database.data.update":
-      sheetId = (task.payload as TaskDatabaseDataUpdatePayload).sheetId || "";
-      break;
-    case "bb.task.database.schema.update.ghost.sync":
-      sheetId =
-        (task.payload as TaskDatabaseSchemaUpdateGhostSyncPayload).sheetId ||
-        "";
-      break;
-    default:
-      return "";
-  }
-
-  if (!sheetId) {
-    return "";
-  }
-
-  return getSheetPathByLegacyProject(project, sheetId);
+export const getSheetStatement = (sheet: Sheet) => {
+  return new TextDecoder().decode(sheet.content);
 };

@@ -6,7 +6,10 @@
     "oracle": "Oracle",
     "oceanbase": "OceanBase",
     "snowflake": "Snowflake",
-    "mssql": "SQL Server"
+    "mssql": "SQL Server",
+    "dm": "DM",
+    "mariadb": "MariaDB",
+    "oceanbase_oracle": "OceanBase (Oracle)"
   },
   "category": {
     "engine": "Engine",
@@ -221,6 +224,10 @@
     "column-disallow-changing-order": {
       "title": "Prohibit changing the order of columns in a table",
       "description": "Modifying the order of columns may cause some applications or views that depend on the default order of the original table to produce unexpected results, such as \"select *\". Suggested error level: Warning"
+    },
+    "column-disallow-drop-in-index": {
+      "title": "Prohibit dropping columns in index",
+      "description": "Prohibit dropping columns in index. Suggested error level: Error"
     },
     "column-set-default-for-not-null": {
       "title": "Enforce default value on \"NOT NULL\" columns",

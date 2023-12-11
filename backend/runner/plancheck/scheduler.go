@@ -4,27 +4,26 @@ package plancheck
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
 
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/component/state"
-	enterpriseAPI "github.com/bytebase/bytebase/backend/enterprise/api"
+	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/store"
-
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 const (
-	planCheckSchedulerInterval = time.Duration(1) * time.Second
+	planCheckSchedulerInterval = 5 * time.Second
 )
 
 // NewScheduler creates a new plan check scheduler.
-func NewScheduler(s *store.Store, licenseService enterpriseAPI.LicenseService, stateCfg *state.State) *Scheduler {
+func NewScheduler(s *store.Store, licenseService enterprise.LicenseService, stateCfg *state.State) *Scheduler {
 	return &Scheduler{
 		store:          s,
 		licenseService: licenseService,
@@ -36,7 +35,7 @@ func NewScheduler(s *store.Store, licenseService enterpriseAPI.LicenseService, s
 // Scheduler is the plan check run scheduler.
 type Scheduler struct {
 	store          *store.Store
-	licenseService enterpriseAPI.LicenseService
+	licenseService enterprise.LicenseService
 	stateCfg       *state.State
 	executors      map[store.PlanCheckRunType]Executor
 }
@@ -46,10 +45,12 @@ func (s *Scheduler) Run(ctx context.Context, wg *sync.WaitGroup) {
 	ticker := time.NewTicker(planCheckSchedulerInterval)
 	defer ticker.Stop()
 	defer wg.Done()
-	log.Debug(fmt.Sprintf("Plan check scheduler started and will run every %v", planCheckSchedulerInterval))
+	slog.Debug(fmt.Sprintf("Plan check scheduler started and will run every %v", planCheckSchedulerInterval))
 	for {
 		select {
 		case <-ticker.C:
+			s.runOnce(ctx)
+		case <-s.stateCfg.PlanCheckTickleChan:
 			s.runOnce(ctx)
 		case <-ctx.Done():
 			return
@@ -75,7 +76,7 @@ func (s *Scheduler) runOnce(ctx context.Context) {
 			if !ok {
 				err = errors.Errorf("%v", r)
 			}
-			log.Error("Plan check scheduler PANIC RECOVER", zap.Error(err), zap.Stack("panic-stack"))
+			slog.Error("Plan check scheduler PANIC RECOVER", log.BBError(err), log.BBStack("panic-stack"))
 		}
 	}()
 
@@ -85,7 +86,7 @@ func (s *Scheduler) runOnce(ctx context.Context) {
 		},
 	})
 	if err != nil {
-		log.Error("failed to list running plan check runs", zap.Error(err))
+		slog.Error("failed to list running plan check runs", log.BBError(err))
 		return
 	}
 
@@ -97,35 +98,21 @@ func (s *Scheduler) runOnce(ctx context.Context) {
 func (s *Scheduler) runPlanCheckRun(ctx context.Context, planCheckRun *store.PlanCheckRunMessage) {
 	executor, ok := s.executors[planCheckRun.Type]
 	if !ok {
-		log.Error("Skip running plan check for unknown type", zap.Int("uid", planCheckRun.UID), zap.Int("plan_uid", planCheckRun.PlanUID), zap.String("type", string(planCheckRun.Type)))
+		slog.Error("Skip running plan check for unknown type", slog.Int("uid", planCheckRun.UID), slog.Int64("plan_uid", planCheckRun.PlanUID), slog.String("type", string(planCheckRun.Type)))
 		return
 	}
 	if _, ok := s.stateCfg.RunningPlanChecks.Load(planCheckRun.UID); ok {
 		return
 	}
 
-	databaseUID := int(planCheckRun.Config.DatabaseId)
-	db, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{UID: &databaseUID})
-	if err != nil {
-		log.Error("failed to get db for plan check run")
-		s.markPlanCheckRunFailed(ctx, planCheckRun, errors.Wrapf(err, "failed to get database for plan check run").Error())
-		return
-	}
-	instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
-		ResourceID: &db.InstanceID,
-	})
-	if err != nil {
-		log.Error("failed to get instance for plan check run")
-		s.markPlanCheckRunFailed(ctx, planCheckRun, errors.Wrapf(err, "failed to get instance for plan check run").Error())
-		return
-	}
+	instanceUID := int(planCheckRun.Config.InstanceUid)
 
 	s.stateCfg.Lock()
-	if s.stateCfg.InstanceOutstandingConnections[instance.UID] >= state.InstanceMaximumConnectionNumber {
+	if s.stateCfg.InstanceOutstandingConnections[instanceUID] >= state.InstanceMaximumConnectionNumber {
 		s.stateCfg.Unlock()
 		return
 	}
-	s.stateCfg.InstanceOutstandingConnections[instance.UID]++
+	s.stateCfg.InstanceOutstandingConnections[instanceUID]++
 	s.stateCfg.Unlock()
 
 	s.stateCfg.RunningPlanChecks.Store(planCheckRun.UID, true)
@@ -133,10 +120,10 @@ func (s *Scheduler) runPlanCheckRun(ctx context.Context, planCheckRun *store.Pla
 		defer func() {
 			s.stateCfg.RunningPlanChecks.Delete(planCheckRun.UID)
 			s.stateCfg.Lock()
-			s.stateCfg.InstanceOutstandingConnections[instance.UID]--
+			s.stateCfg.InstanceOutstandingConnections[instanceUID]--
 			s.stateCfg.Unlock()
 		}()
-		results, err := executor.Run(ctx, planCheckRun)
+		results, err := runExecutorOnce(ctx, executor, planCheckRun.Config)
 		if err != nil {
 			s.markPlanCheckRunFailed(ctx, planCheckRun, err.Error())
 			return
@@ -155,7 +142,7 @@ func (s *Scheduler) markPlanCheckRunDone(ctx context.Context, planCheckRun *stor
 		result,
 		planCheckRun.UID,
 	); err != nil {
-		log.Error("failed to mark plan check run failed", zap.Error(err))
+		slog.Error("failed to mark plan check run failed", log.BBError(err))
 	}
 }
 
@@ -169,6 +156,6 @@ func (s *Scheduler) markPlanCheckRunFailed(ctx context.Context, planCheckRun *st
 		result,
 		planCheckRun.UID,
 	); err != nil {
-		log.Error("failed to mark plan check run failed", zap.Error(err))
+		slog.Error("failed to mark plan check run failed", log.BBError(err))
 	}
 }

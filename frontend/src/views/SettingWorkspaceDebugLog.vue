@@ -71,19 +71,28 @@
         </div>
       </BBDialog>
     </div>
-    <DebugLogEmptyView v-else />
+    <NoDataPlaceholder v-else>
+      <NButton v-if="!isDebug" type="primary" @click="enableDebug">
+        {{ $t("debug-log.open-debug-mode") }}
+      </NButton>
+    </NoDataPlaceholder>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { reactive, ref, computed } from "vue";
-import { NGrid, NGi } from "naive-ui";
-import { useI18n } from "vue-i18n";
-import download from "downloadjs";
-import dayjs from "dayjs";
 import { useClipboard } from "@vueuse/core";
+import dayjs from "dayjs";
+import download from "downloadjs";
+import { NGrid, NGi } from "naive-ui";
+import { storeToRefs } from "pinia";
+import { reactive, ref, computed } from "vue";
+import { useI18n } from "vue-i18n";
 import { BBDialog } from "@/bbkit";
-import { useDebugLogList, useNotificationStore } from "@/store";
+import {
+  useDebugLogList,
+  useActuatorV1Store,
+  useNotificationStore,
+} from "@/store";
 import { DebugLog } from "@/types/proto/v1/actuator_service";
 
 const dialog = ref<InstanceType<typeof BBDialog> | null>(null);
@@ -107,6 +116,23 @@ const { copy } = useClipboard({
 });
 const notificationStore = useNotificationStore();
 const debugLogList = useDebugLogList();
+const actuatorStore = useActuatorV1Store();
+
+const { isDebug } = storeToRefs(actuatorStore);
+
+const enableDebug = () => {
+  actuatorStore
+    .patchDebug({
+      debug: true,
+    })
+    .then(() => {
+      notificationStore.pushNotification({
+        module: "bytebase",
+        style: "SUCCESS",
+        title: t("debug-log.enabled"),
+      });
+    });
+};
 
 const logKeyMap = {
   recordTime: t("debug-log.table.record-ts"),

@@ -1,101 +1,85 @@
+import dayjs from "dayjs";
+import { uniq } from "lodash-es";
 import { defineStore } from "pinia";
-import { ref } from "vue";
-import { uniq, uniqBy } from "lodash-es";
-
+import { ref, watch, WatchCallback } from "vue";
 import { issueServiceClient } from "@/grpcweb";
-import { useActivityV1Store } from "./activity";
 import {
-  IdType,
   ActivityIssueCommentCreatePayload,
-  Issue as LegacyIssue,
   PresetRoleType,
+  ComposedIssue,
+  IssueFilter,
 } from "@/types";
+import { UserRole, UserType } from "@/types/proto/v1/auth_service";
 import {
-  Issue,
+  issueStatusToJSON,
   ApprovalStep,
   ApprovalNode_Type,
   ApprovalNode_GroupValue,
 } from "@/types/proto/v1/issue_service";
-import { projectNamePrefix, issueNamePrefix } from "./common";
+import { memberListInProjectV1 } from "@/utils";
 import { useUserStore } from "../user";
-import { User, UserRole, UserType } from "@/types/proto/v1/auth_service";
-import { extractUserResourceName, memberListInProjectV1 } from "@/utils";
-import { useProjectV1Store } from ".";
+import { useActivityV1Store } from "./activity";
+import { projectNamePrefix, issueNamePrefix } from "./common";
+import { shallowComposeIssue } from "./experimental-issue";
 
-const issueName = (legacyIssue: LegacyIssue) => {
-  return `projects/${legacyIssue.project.id}/issues/${legacyIssue.id}`;
+export type ListIssueParams = {
+  find: IssueFilter;
+  pageSize?: number;
+  pageToken?: string;
 };
 
-const emptyIssue = (legacyIssue: LegacyIssue) => {
-  return Issue.fromJSON({
-    name: issueName(legacyIssue),
-    approvalFindingDone: false,
-  });
+export const buildIssueFilter = (find: IssueFilter): string => {
+  const filter: string[] = [];
+  if (find.principal) {
+    filter.push(`principal = "${find.principal}"`);
+  }
+  if (find.creator) {
+    filter.push(`creator = "${find.creator}"`);
+  }
+  if (find.assignee) {
+    filter.push(`assignee = "${find.assignee}"`);
+  }
+  if (find.subscriber) {
+    filter.push(`subscriber = "${find.subscriber}"`);
+  }
+  if (find.statusList) {
+    filter.push(
+      `status = "${find.statusList
+        .map((s) => issueStatusToJSON(s))
+        .join(" | ")}"`
+    );
+  }
+  if (find.createdTsAfter) {
+    filter.push(
+      `create_time >= "${dayjs(find.createdTsAfter).utc().format()}"`
+    );
+  }
+  if (find.createdTsBefore) {
+    filter.push(
+      `create_time <= "${dayjs(find.createdTsBefore).utc().format()}"`
+    );
+  }
+  if (find.type) {
+    filter.push(`type = "${find.type}"`);
+  }
+  if (find.instance) {
+    filter.push(`instance = "${find.instance}"`);
+  }
+  if (find.database) {
+    filter.push(`database = "${find.database}"`);
+  }
+  return filter.join(" && ");
 };
 
 export const useIssueV1Store = defineStore("issue_v1", () => {
-  const issuesByName = ref(new Map<string, Issue>());
-
-  const getIssueByIssue = (issue: LegacyIssue) => {
-    return issuesByName.value.get(issueName(issue)) ?? emptyIssue(issue);
-  };
-
-  const setIssueIssue = async (legacyIssue: LegacyIssue, issue: Issue) => {
-    await fetchReviewApproversAndCandidates(legacyIssue, issue);
-    issuesByName.value.set(issueName(legacyIssue), issue);
-  };
-
-  const fetchIssueByLegacyIssue = async (
-    legacyIssue: LegacyIssue,
-    force = false
-  ) => {
-    const name = issueName(legacyIssue);
-
-    try {
-      const issue = await issueServiceClient.getIssue({
-        name,
-        force,
-      });
-      await setIssueIssue(legacyIssue, issue);
-      return issue;
-    } catch (error) {
-      return Issue.fromJSON({});
-    }
-  };
-
-  const approveIssue = async (legacyIssue: LegacyIssue, comment?: string) => {
-    const issue = await issueServiceClient.approveIssue({
-      name: issueName(legacyIssue),
-      comment,
-    });
-    await setIssueIssue(legacyIssue, issue);
-  };
-
-  const rejectIssue = async (legacyIssue: LegacyIssue, comment?: string) => {
-    const issue = await issueServiceClient.rejectIssue({
-      name: issueName(legacyIssue),
-      comment,
-    });
-    await setIssueIssue(legacyIssue, issue);
-  };
-
-  const requestIssue = async (legacyIssue: LegacyIssue, comment?: string) => {
-    const issue = await issueServiceClient.requestIssue({
-      name: issueName(legacyIssue),
-      comment,
-    });
-    await setIssueIssue(legacyIssue, issue);
-  };
-
-  const regenerateReview = async (legacyIssue: LegacyIssue) => {
-    const issue = await issueServiceClient.updateIssue({
+  const regenerateReviewV1 = async (name: string) => {
+    await issueServiceClient.updateIssue({
       issue: {
-        name: issueName(legacyIssue),
+        name,
         approvalFindingDone: false,
       },
       updateMask: ["approval_finding_done"],
     });
-    await setIssueIssue(legacyIssue, issue);
   };
 
   const createIssueComment = async ({
@@ -103,7 +87,7 @@ export const useIssueV1Store = defineStore("issue_v1", () => {
     comment,
     payload,
   }: {
-    issueId: IdType;
+    issueId: string;
     comment: string;
     payload?: ActivityIssueCommentCreatePayload;
   }) => {
@@ -114,7 +98,7 @@ export const useIssueV1Store = defineStore("issue_v1", () => {
         payload: JSON.stringify(payload ?? {}),
       },
     });
-    await useActivityV1Store().fetchActivityListByIssueId(issueId);
+    await useActivityV1Store().fetchActivityListByIssueUID(issueId);
   };
 
   const updateIssueComment = async ({
@@ -123,7 +107,7 @@ export const useIssueV1Store = defineStore("issue_v1", () => {
     comment,
   }: {
     commentId: string;
-    issueId: IdType;
+    issueId: string;
     comment: string;
   }) => {
     await issueServiceClient.updateIssueComment({
@@ -134,55 +118,43 @@ export const useIssueV1Store = defineStore("issue_v1", () => {
       },
       updateMask: ["comment"],
     });
-    await useActivityV1Store().fetchActivityListByIssueId(issueId);
+    await useActivityV1Store().fetchActivityListByIssueUID(issueId);
+  };
+
+  const listIssues = async ({ find, pageSize, pageToken }: ListIssueParams) => {
+    const resp = await issueServiceClient.listIssues({
+      parent: find.project,
+      filter: buildIssueFilter(find),
+      query: find.query,
+      pageSize,
+      pageToken,
+    });
+
+    const composedIssues = await Promise.all(
+      resp.issues.map((issue) => shallowComposeIssue(issue))
+    );
+    return {
+      nextPageToken: resp.nextPageToken,
+      issues: composedIssues,
+    };
   };
 
   return {
-    getIssueByIssue,
-    fetchIssueByLegacyIssue: fetchIssueByLegacyIssue,
-    approveIssue,
-    rejectIssue,
-    requestIssue,
-    regenerateReview,
+    listIssues,
+    regenerateReviewV1,
     createIssueComment,
     updateIssueComment,
   };
 });
 
-const fetchReviewApproversAndCandidates = async (
-  legacyIssue: LegacyIssue,
-  issue: Issue
-) => {
-  const userStore = useUserStore();
-  const approvers = issue.approvers.map((approver) => {
-    return userStore.getUserByEmail(
-      extractUserResourceName(approver.principal)
-    );
-  });
-  const candidates = issue.approvalTemplates
-    .flatMap((template) => {
-      const steps = template.flow?.steps ?? [];
-      return steps.flatMap((step) =>
-        candidatesOfApprovalStep(legacyIssue, step)
-      );
-    })
-    .map((user) => userStore.getUserByName(user));
-  const users = [...approvers, ...candidates].filter(
-    (user) => user !== undefined
-  ) as User[];
-  return uniqBy(users, "name");
-};
-
-export const candidatesOfApprovalStep = (
-  legacyIssue: LegacyIssue,
+export const candidatesOfApprovalStepV1 = (
+  issue: ComposedIssue,
   step: ApprovalStep
 ) => {
   const workspaceMemberList = useUserStore().activeUserList.filter(
     (user) => user.userType === UserType.USER
   );
-  const project = useProjectV1Store().getProjectByUID(
-    String(legacyIssue.project.id)
-  );
+  const project = issue.projectEntity;
   const projectMemberList = memberListInProjectV1(project, project.iamPolicy)
     .filter((member) => member.user.userType === UserType.USER)
     .map((member) => ({
@@ -224,9 +196,6 @@ export const candidatesOfApprovalStep = (
       return [];
     };
     const candidatesForCustomRoles = (role: string) => {
-      const project = useProjectV1Store().getProjectByUID(
-        String(legacyIssue.project.id)
-      );
       const memberList = memberListInProjectV1(project, project.iamPolicy);
       return memberList
         .filter((member) => member.user.userType === UserType.USER)
@@ -244,4 +213,13 @@ export const candidatesOfApprovalStep = (
   });
 
   return uniq(candidates.map((user) => user.name));
+};
+
+// expose global list refresh features
+const REFRESH_ISSUE_LIST = ref(Math.random());
+export const refreshIssueList = () => {
+  REFRESH_ISSUE_LIST.value = Math.random();
+};
+export const useRefreshIssueList = (callback: WatchCallback) => {
+  watch(REFRESH_ISSUE_LIST, callback);
 };

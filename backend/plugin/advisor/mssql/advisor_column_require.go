@@ -3,15 +3,15 @@ package mssql
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/antlr4-go/antlr/v4"
 	parser "github.com/bytebase/tsql-parser"
 	"github.com/pkg/errors"
-	"golang.org/x/exp/slices"
 
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
-	bbparser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	tsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/tsql"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -19,7 +19,7 @@ var (
 )
 
 func init() {
-	advisor.Register(db.MSSQL, advisor.MSSQLColumnRequirement, &ColumnRequireAdvisor{})
+	advisor.Register(storepb.Engine_MSSQL, advisor.MSSQLColumnRequirement, &ColumnRequireAdvisor{})
 }
 
 // ColumnRequireAdvisor is the advisor checking for column requirement..
@@ -104,7 +104,7 @@ func (l *columnRequireChecker) EnterColumn_definition(ctx *parser.Column_definit
 		return
 	}
 
-	normalizedColumnName := bbparser.NormalizeTSQLIdentifier(ctx.Id_())
+	normalizedColumnName := tsqlparser.NormalizeTSQLIdentifier(ctx.Id_())
 	delete(l.currentMissingColumn, normalizedColumnName)
 }
 
@@ -117,8 +117,8 @@ func (l *columnRequireChecker) ExitCreate_table(ctx *parser.Create_tableContext)
 		return
 	}
 
-	slices.SortFunc[string](columnNames, func(i, j string) bool {
-		return i < j
+	sort.Slice(columnNames, func(i, j int) bool {
+		return columnNames[i] < columnNames[j]
 	})
 	for _, column := range columnNames {
 		l.adviceList = append(l.adviceList, advisor.Advice{
@@ -142,7 +142,7 @@ func (l *columnRequireChecker) EnterAlter_table(ctx *parser.Alter_tableContext) 
 	tableName := ctx.Table_name(0).GetText()
 	allColumnNames := ctx.AllId_()
 	for _, columnName := range allColumnNames {
-		normalizedColumnName := bbparser.NormalizeTSQLIdentifier(columnName)
+		normalizedColumnName := tsqlparser.NormalizeTSQLIdentifier(columnName)
 		if _, ok := l.requireColumns[normalizedColumnName]; ok {
 			l.adviceList = append(l.adviceList, advisor.Advice{
 				Status:  l.level,

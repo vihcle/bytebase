@@ -1,30 +1,32 @@
 <template>
   <NSelect
+    v-bind="$attrs"
     :value="project"
     :options="options"
     :placeholder="$t('project.select')"
     :filterable="true"
     :filter="filterByName"
+    :disabled="disabled"
+    class="bb-project-select"
     style="width: 12rem"
     @update:value="$emit('update:project', $event)"
   />
 </template>
 
 <script lang="ts" setup>
+import { intersection } from "lodash-es";
+import { NSelect, SelectOption } from "naive-ui";
 import { computed, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { NSelect, SelectOption } from "naive-ui";
-
 import { useCurrentUserV1, useProjectV1Store } from "@/store";
 import { DEFAULT_PROJECT_ID, UNKNOWN_ID, unknownProject } from "@/types";
+import { State } from "@/types/proto/v1/common";
 import {
   Project,
   TenantMode,
   Workflow,
 } from "@/types/proto/v1/project_service";
-import { State } from "@/types/proto/v1/common";
-import { roleListInProjectV1 } from "@/utils";
-import { intersection } from "lodash-es";
+import { hasWorkspacePermissionV1, roleListInProjectV1 } from "@/utils";
 
 interface ProjectSelectOption extends SelectOption {
   value: string;
@@ -33,16 +35,20 @@ interface ProjectSelectOption extends SelectOption {
 
 const props = withDefaults(
   defineProps<{
-    project: string | undefined; // UNKNOWN_ID(-1) to "ALL"
+    disabled?: boolean;
+    project?: string | undefined; // UNKNOWN_ID(-1) to "ALL"
     allowedProjectRoleList?: string[]; // Empty array([]) to "ALL"
     allowedProjectTenantModeList?: TenantMode[];
     allowedProjectWorkflowTypeList?: Workflow[];
     includeAll?: boolean;
     includeDefaultProject?: boolean;
     includeArchived?: boolean;
+    filterByCurrentUser?: boolean;
     filter?: (project: Project, index: number) => boolean;
   }>(),
   {
+    disabled: false,
+    project: undefined,
     allowedProjectRoleList: () => [],
     allowedProjectTenantModeList: () => [
       TenantMode.TENANT_MODE_DISABLED,
@@ -52,6 +58,7 @@ const props = withDefaults(
     includeAll: false,
     includeDefaultProject: false,
     includeArchived: false,
+    filterByCurrentUser: true,
     filter: () => true,
   }
 );
@@ -68,11 +75,20 @@ const prepare = () => {
   projectV1Store.fetchProjectList(true /* showDeleted */);
 };
 
+const hasWorkspaceManageProjectPermission = computed(() =>
+  hasWorkspacePermissionV1(
+    "bb.permission.workspace.manage-project",
+    currentUserV1.value.userRole
+  )
+);
+
 const rawProjectList = computed(() => {
-  let list = projectV1Store.getProjectListByUser(
-    currentUserV1.value,
-    true /* showDeleted */
-  );
+  let list = props.filterByCurrentUser
+    ? projectV1Store.getProjectListByUser(
+        currentUserV1.value,
+        true /* showDeleted */
+      )
+    : projectV1Store.getProjectList(true /* showDeleted */);
   // Filter the default project
   list = list.filter((project) => {
     return project.uid !== String(DEFAULT_PROJECT_ID);
@@ -104,7 +120,11 @@ const combinedProjectList = computed(() => {
     return false;
   });
 
-  if (props.allowedProjectRoleList.length > 0) {
+  // If the current user is not workspace admin/DBA, filter the project list by the given role list.
+  if (
+    !hasWorkspaceManageProjectPermission.value &&
+    props.allowedProjectRoleList.length > 0
+  ) {
     list = list.filter((project) => {
       const roles = roleListInProjectV1(project.iamPolicy, currentUserV1.value);
       return intersection(props.allowedProjectRoleList, roles).length > 0;
@@ -156,7 +176,7 @@ const options = computed(() => {
       value: project.uid,
       label:
         project.uid === String(DEFAULT_PROJECT_ID)
-          ? t("database.unassigned")
+          ? t("common.unassigned")
           : project.uid === String(UNKNOWN_ID)
           ? t("project.all")
           : project.title,

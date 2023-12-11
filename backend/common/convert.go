@@ -1,13 +1,17 @@
 package common
 
 import (
+	"encoding/base64"
+
 	"github.com/google/cel-go/cel"
 	"github.com/pkg/errors"
-	v1alpha1 "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
+	exprproto "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 	"google.golang.org/genproto/googleapis/type/expr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+const celLimit = 1024 * 1024
 
 // RiskFactors are the variables when evaluating the risk level.
 var RiskFactors = []cel.EnvOption{
@@ -30,22 +34,58 @@ var RiskFactors = []cel.EnvOption{
 var ApprovalFactors = []cel.EnvOption{
 	cel.Variable("level", cel.IntType),
 	cel.Variable("source", cel.IntType),
+	cel.ParserExpressionSizeLimit(celLimit),
 }
 
 // QueryExportPolicyCELAttributes are the variables when evaluating query and export permissions.
 var QueryExportPolicyCELAttributes = []cel.EnvOption{
 	cel.Variable("resource.environment_name", cel.StringType),
-	cel.Variable("request.time", cel.TimestampType),
-	cel.Variable("request.statement", cel.StringType),
-	cel.Variable("request.row_limit", cel.IntType),
-	cel.Variable("request.export_format", cel.StringType),
 	cel.Variable("resource.database", cel.StringType),
 	cel.Variable("resource.schema", cel.StringType),
 	cel.Variable("resource.table", cel.StringType),
+	cel.Variable("request.statement", cel.StringType),
+	cel.Variable("request.row_limit", cel.IntType),
+	cel.Variable("request.time", cel.TimestampType),
+	cel.ParserExpressionSizeLimit(celLimit),
+}
+
+// MaskingRulePolicyCELAttributes are the variables when evaluating masking rule.
+var MaskingRulePolicyCELAttributes = []cel.EnvOption{
+	cel.Variable("environment_id", cel.StringType),
+	cel.Variable("project_id", cel.StringType),
+	cel.Variable("instance_id", cel.StringType),
+	cel.Variable("database_name", cel.StringType),
+	cel.Variable("schema_name", cel.StringType),
+	cel.Variable("table_name", cel.StringType),
+	cel.Variable("column_name", cel.StringType),
+	cel.Variable("classification_level", cel.StringType),
+	cel.ParserExpressionSizeLimit(celLimit),
+}
+
+// MaskingExceptionPolicyCELAttributes are the variables when evaluating masking exception.
+var MaskingExceptionPolicyCELAttributes = []cel.EnvOption{
+	cel.Variable("resource.instance_id", cel.StringType),
+	cel.Variable("resource.database_name", cel.StringType),
+	cel.Variable("resource.table_name", cel.StringType),
+	cel.Variable("resource.schema_name", cel.StringType),
+	cel.Variable("resource.column_name", cel.StringType),
+	cel.Variable("request.time", cel.TimestampType),
+	cel.ParserExpressionSizeLimit(celLimit),
+}
+
+var ProjectMemberCELAttributes = []cel.EnvOption{
+	cel.Variable("resource.environment_name", cel.StringType),
+	cel.Variable("resource.database", cel.StringType),
+	cel.Variable("resource.schema", cel.StringType),
+	cel.Variable("resource.table", cel.StringType),
+	cel.Variable("request.statement", cel.StringType),
+	cel.Variable("request.row_limit", cel.IntType),
+	cel.Variable("request.time", cel.TimestampType),
+	cel.ParserExpressionSizeLimit(celLimit),
 }
 
 // ConvertParsedRisk converts parsed risk to unparsed format.
-func ConvertParsedRisk(expression *v1alpha1.ParsedExpr) (*expr.Expr, error) {
+func ConvertParsedRisk(expression *exprproto.ParsedExpr) (*expr.Expr, error) {
 	if expression == nil || expression.Expr == nil {
 		return nil, nil
 	}
@@ -60,7 +100,7 @@ func ConvertParsedRisk(expression *v1alpha1.ParsedExpr) (*expr.Expr, error) {
 }
 
 // ConvertUnparsedRisk converts unparsed risk to parsed format.
-func ConvertUnparsedRisk(expression *expr.Expr) (*v1alpha1.ParsedExpr, error) {
+func ConvertUnparsedRisk(expression *expr.Expr) (*exprproto.ParsedExpr, error) {
 	if expression == nil || expression.Expression == "" {
 		return nil, nil
 	}
@@ -81,7 +121,7 @@ func ConvertUnparsedRisk(expression *expr.Expr) (*v1alpha1.ParsedExpr, error) {
 }
 
 // ConvertParsedApproval converts parsed approval to unparsed format.
-func ConvertParsedApproval(expression *v1alpha1.ParsedExpr) (*expr.Expr, error) {
+func ConvertParsedApproval(expression *exprproto.ParsedExpr) (*expr.Expr, error) {
 	if expression == nil || expression.Expr == nil {
 		return nil, nil
 	}
@@ -96,7 +136,7 @@ func ConvertParsedApproval(expression *v1alpha1.ParsedExpr) (*expr.Expr, error) 
 }
 
 // ConvertUnparsedApproval converts unparsed approval to parsed format.
-func ConvertUnparsedApproval(expression *expr.Expr) (*v1alpha1.ParsedExpr, error) {
+func ConvertUnparsedApproval(expression *expr.Expr) (*exprproto.ParsedExpr, error) {
 	if expression == nil || expression.Expression == "" {
 		return nil, nil
 	}
@@ -135,10 +175,70 @@ func ValidateGroupCELExpr(expr string) (cel.Program, error) {
 	return prog, nil
 }
 
+// ValidateMaskingRuleCELExpr validates masking rule expr.
+func ValidateMaskingRuleCELExpr(expr string) (cel.Program, error) {
+	e, err := cel.NewEnv(
+		MaskingRulePolicyCELAttributes...,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	ast, issues := e.Parse(expr)
+	if issues != nil && issues.Err() != nil {
+		return nil, status.Errorf(codes.InvalidArgument, issues.Err().Error())
+	}
+	prog, err := e.Program(ast)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+	return prog, nil
+}
+
+// ValidateMaskingExceptionCELExpr validates masking exception expr.
+func ValidateMaskingExceptionCELExpr(expr string) (cel.Program, error) {
+	e, err := cel.NewEnv(
+		MaskingExceptionPolicyCELAttributes...,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	ast, issues := e.Parse(expr)
+	if issues != nil && issues.Err() != nil {
+		return nil, status.Errorf(codes.InvalidArgument, issues.Err().Error())
+	}
+	prog, err := e.Program(ast)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+	return prog, nil
+}
+
+func ValidateProjectMemberCELExpr(expression *expr.Expr) (cel.Program, error) {
+	if expression == nil || expression.Expression == "" {
+		return nil, nil
+	}
+	e, err := cel.NewEnv(
+		ProjectMemberCELAttributes...,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	ast, issues := e.Parse(expression.Expression)
+	if issues != nil && issues.Err() != nil {
+		return nil, status.Errorf(codes.InvalidArgument, issues.Err().Error())
+	}
+	prog, err := e.Program(ast)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+	return prog, nil
+}
+
 // QueryExportFactors is the factors for query and export.
 type QueryExportFactors struct {
 	DatabaseNames []string
 	ExportRows    int64
+	Statement     string
 }
 
 // GetQueryExportFactors is used to get risk factors from query and export expressions.
@@ -153,12 +253,19 @@ func GetQueryExportFactors(expression string) (*QueryExportFactors, error) {
 	if issues != nil {
 		return nil, errors.Errorf("found issue %v", issues)
 	}
-	callExpr := ast.Expr().GetCallExpr()
+	parsedExpr, err := cel.AstToParsedExpr(ast)
+	if err != nil {
+		return nil, err
+	}
+	callExpr := parsedExpr.Expr.GetCallExpr()
 	findField(callExpr, factors)
 	return factors, nil
 }
 
-func findField(callExpr *v1alpha1.Expr_Call, factors *QueryExportFactors) {
+func findField(callExpr *exprproto.Expr_Call, factors *QueryExportFactors) {
+	if callExpr == nil {
+		return
+	}
 	if len(callExpr.Args) == 2 {
 		idExpr := callExpr.Args[0].GetIdentExpr()
 		if idExpr != nil {
@@ -174,13 +281,19 @@ func findField(callExpr *v1alpha1.Expr_Call, factors *QueryExportFactors) {
 					factors.DatabaseNames = append(factors.DatabaseNames, element.GetConstExpr().GetStringValue())
 				}
 			}
+			if idExpr.Name == "request.statement" && callExpr.Function == "_==_" {
+				encodedStatment := callExpr.Args[1].GetConstExpr().GetStringValue()
+				statement, err := base64.StdEncoding.DecodeString(encodedStatment)
+				if err != nil {
+					return
+				}
+				factors.Statement = string(statement)
+			}
 			return
 		}
 	}
 	for _, arg := range callExpr.Args {
 		callExpr := arg.GetCallExpr()
-		if callExpr != nil {
-			findField(callExpr, factors)
-		}
+		findField(callExpr, factors)
 	}
 }

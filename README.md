@@ -13,7 +13,6 @@
 </h1>
 
 <p align="center">
-  <a href="https://demo.bytebase.com?source=github" target="_blank"><b>🔥 Live Demo</b></a> •
   <a href="https://bytebase.com/docs/get-started/install/overview" target="_blank"><b>⚙️ Install</b></a> •
   <a href="https://bytebase.com/docs"><b>📚 Docs</b></a> •
   <a href="https://discord.gg/huyw7gRsyA"><b>💬 Discord</b></a> •
@@ -89,9 +88,9 @@
   Want to control the data access but don't know how?
 </p>
 
-|                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |                                                                                                    |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| <b>All-in-one SQL Editor</b><br />Web-based IDE specifically for performing SQL specific tasks.<br /><br/><b>Data Anonymization</b><br />State-of-the-art [column level anonymization](https://www.bytebase.com/docs/sql-editor/anonymize-data) engine to cover complex situations like subquery, CTE.<br /><br /><b>Data Access Control</b><br />Organization level policy to centralize the [data access control](https://www.bytebase.com/docs/security/data-access-control). | <img src="https://raw.githubusercontent.com/bytebase/bytebase/main/docs/assets/sql-editor.webp" /> |
+|                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |                                                                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| <b>All-in-one SQL Editor</b><br />Web-based IDE specifically for performing SQL specific tasks.<br /><br/><b>Data Masking</b><br />State-of-the-art [column level masking](https://www.bytebase.com/docs/sql-editor/mask-data) engine to cover complex situations like subquery, CTE.<br /><br /><b>Data Access Control</b><br />Organization level policy to centralize the [data access control](https://www.bytebase.com/docs/security/data-access-control). | <img src="https://raw.githubusercontent.com/bytebase/bytebase/main/docs/assets/sql-editor.webp" /> |
 
 <br />
 
@@ -121,7 +120,7 @@
 
 # 🖖 Intro
 
-Bytebase is a Database CI/CD solution for the Developers and DBAs. It's the **only database CI/CD project** included by the [CNCF Landscape](https://landscape.cncf.io/?selected=bytebase). The Bytebase family consists of these tools:
+Bytebase is a Database CI/CD solution for the Developers and DBAs. It's the **only database CI/CD project** included by the [CNCF Landscape](https://landscape.cncf.io/?selected=bytebase) and [Platform Engineering](https://platformengineering.org/tools/bytebase). The Bytebase family consists of these tools:
 
 - [Bytebase Console](https://bytebase.com/?source=github): A web-based GUI for developers and DBAs to manage the database development lifecycle.
 - [Bytebase CLI (bb)](https://www.bytebase.com/docs/cli/overview): The CLI to help developers integrate database changes into the existing CI/CD workflow.
@@ -133,7 +132,7 @@ Bytebase is a Database CI/CD solution for the Developers and DBAs. It's the **on
 
 |     | Topic                                                               |
 | --- | :------------------------------------------------------------------ |
-| 🏗️  | <b>[Installation](#-installation)</b>                               |
+| 🔧  | <b>[Installation](#-installation)</b>                               |
 | 🎮  | <b>[Demo](#-demo)</b>                                               |
 | 👩‍🏫  | <b>[Tutorials](#-tutorials)</b>                                     |
 | 💎  | <b>[Design Principles](#-design-principles)</b>                     |
@@ -144,21 +143,15 @@ Bytebase is a Database CI/CD solution for the Developers and DBAs. It's the **on
 
 <br />
 
-# 🏗️ Installation
+# 🔧 Installation
 
-### One liner
-
-```bash
-# One-liner installation script from latest release
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/bytebase/install/main/install.sh)"
-
-```
-
-- [Build from source](https://www.bytebase.com/docs/get-started/install/build-from-source-code)
+- One liner installation script from latest release
+  ```bash
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/bytebase/install/main/install.sh)"
+  ```
 - [Docker](https://www.bytebase.com/docs/get-started/install/deploy-with-docker)
 - [Kubernetes](https://www.bytebase.com/docs/get-started/install/deploy-to-kubernetes)
-- [render.com](https://www.bytebase.com/docs/get-started/install/deploy-to-render)
-- [Rainbond](https://www.bytebase.com/docs/get-started/install/deploy-to-rainbond)
+- [Build from source](https://www.bytebase.com/docs/get-started/install/build-from-source-code)
 
 <br />
 
@@ -173,7 +166,7 @@ our product experts.
 
 # 👩‍🏫 Tutorials
 
-Product tutorials are available at https://www.bytebase.com/tutorial
+Product tutorials are available at https://www.bytebase.com/tutorial.
 
 ## Integrations
 
@@ -214,10 +207,10 @@ More details in [Data Model Doc](https://www.bytebase.com/docs/concepts/data-mod
 
 More details in [Roles and Permissions Doc](https://www.bytebase.com/docs/concepts/roles-and-permissions).
 
-Bytebase employs RBAC (Role-Based-Access-Control) and provides two role sets at the workspace and project level:
+Bytebase employs RBAC (role based access control) and provides two role sets at the workspace and project level:
 
-- Workspace roles: `Owner`, `DBA`, `Developer`. The workspace role maps to the role in an engineering organization.
-- Project roles: `Owner`, `Developer`. The project level role maps to the role in a specific team or project.
+- Workspace roles: `Admin`, `DBA`, `Member`. The workspace role maps to the role in an organization.
+- Project roles: `Owner`, `Developer`, `Releaser`, `Querier`, `Exporter`, `Viewer`. The project level role maps to the role in a specific team or project.
 
 Every user is assigned a workspace role, and if a particular user is involved in a particular project, then she will also be assigned a project role accordingly.
 
@@ -263,7 +256,7 @@ Below diagram describes a typical mapping between an engineering org and the cor
 
 ### Prerequisites
 
-- [Go](https://golang.org/doc/install) (1.20.1 or later)
+- [Go](https://golang.org/doc/install) (1.21.5 or later)
 - [pnpm](https://pnpm.io/installation)
 - [Air](https://github.com/bytebase/air) (**our forked repo @87187cc with the proper signal handling**). This is for backend live reload.
   ```bash
@@ -278,10 +271,17 @@ Below diagram describes a typical mapping between an engineering org and the cor
    git clone https://github.com/bytebase/bytebase
    ```
 
+1. Create an external Postgres database on localhost.
+
+   ```sql
+   CREATE USER bbdev SUPERUSER;
+   CREATE DATABASE bbdev;
+   ```
+
 1. Start backend using air (with live reload).
 
    ```bash
-   air -c scripts/.air.toml
+   PG_URL=postgresql://bbdev@localhost/bbdev air -c scripts/.air.toml
    ```
 
    Change the open file limit if you encounter "error: too many open files".
@@ -304,6 +304,11 @@ Below diagram describes a typical mapping between an engineering org and the cor
 
    Bytebase should now be running at http://localhost:3000 and change either frontend or backend code would trigger live reload.
 
+### Tips
+
+- Use [Code Inspector](https://en.inspector.fe-dev.cn/guide/start.html#method1-recommend) to locate
+  frontend code from UI. Hold `Option + Shift` on Mac or `Alt + Shift` on Windows
+
 <br />
 
 # Bytebase vs Flyway, Liquibase
@@ -315,7 +320,7 @@ Either Flyway or Liquibase is a library and CLI focusing on schema change. While
 solution covering the entire database development lifecycle for Developers and DBAs to collaborate.
 
 Another key difference is Bytebase **doesn't** support Oracle and SQL Server. This is a conscious
-decision we make so that we can focus on supporting other databases without good tooliing support.
+decision we make so that we can focus on supporting other databases without good tooling support.
 In particular, many of our users tell us Bytebase is by far the best (and sometimes the only) database
 tool that can support their PostgreSQL and ClickHouse use cases.
 

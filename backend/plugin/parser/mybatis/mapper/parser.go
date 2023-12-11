@@ -33,8 +33,8 @@ func NewParser(stmt string) *Parser {
 	}
 }
 
-// GetRestoreContext returns the restore context.
-func (p *Parser) GetRestoreContext() *ast.RestoreContext {
+// NewRestoreContext returns the restore context.
+func (p *Parser) NewRestoreContext() *ast.RestoreContext {
 	return &ast.RestoreContext{
 		SQLMap:                           p.sqlMap,
 		Variable:                         make(map[string]string),
@@ -67,7 +67,11 @@ func (p *Parser) Parse() (*ast.RootNode, error) {
 		case xml.StartElement:
 			newNode := p.newNodeByStartElement(&ele)
 			if ele.Name.Local == "sql" {
-				p.sqlMap[newNode.(*ast.SQLNode).ID] = newNode.(*ast.SQLNode)
+				node, ok := newNode.(*ast.SQLNode)
+				if !ok {
+					return nil, errors.Errorf("failed convert to SQL node")
+				}
+				p.sqlMap[newNode.(*ast.SQLNode).ID] = node
 			}
 			startElementStack = append(startElementStack, &ele)
 			nodeStack = append(nodeStack, newNode)

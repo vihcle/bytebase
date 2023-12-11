@@ -1,5 +1,5 @@
 <template>
-  <div class="w-full mt-4 space-y-4">
+  <div class="w-full space-y-4">
     <FeatureAttention
       v-if="!hasDataAccessControlFeature"
       feature="bb.feature.access-control"
@@ -86,30 +86,29 @@
 </template>
 
 <script lang="ts" setup>
+import { useDebounceFn } from "@vueuse/core";
 import { NCheckbox } from "naive-ui";
 import { computed, reactive, watch, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
-
+import { BBTableColumn } from "@/bbkit/types";
+import UpgradeSubscriptionButton from "@/components/UpgradeSubscriptionButton.vue";
+import { EnvironmentV1Name } from "@/components/v2";
+import { resolveCELExpr } from "@/plugins/cel";
 import {
   featureToRef,
   pushNotification,
   useCurrentUserV1,
   useEnvironmentV1List,
 } from "@/store";
-import { BBTableColumn } from "@/bbkit/types";
-import { hasWorkspacePermissionV1 } from "@/utils";
 import { usePolicyV1Store } from "@/store/modules/v1/policy";
+import { ALL_USERS_USER_NAME } from "@/types";
 import { Environment } from "@/types/proto/v1/environment_service";
-import { EnvironmentV1Name } from "@/components/v2";
-import { resolveCELExpr } from "@/plugins/cel";
+import { Binding, IamPolicy } from "@/types/proto/v1/iam_policy";
 import {
   PolicyResourceType,
   PolicyType,
 } from "@/types/proto/v1/org_policy_service";
-import { IamPolicy } from "@/types/proto/v1/iam_policy";
-import { Expr } from "@/types/proto/google/type/expr";
-import { useDebounceFn } from "@vueuse/core";
-import UpgradeSubscriptionButton from "@/components/UpgradeSubscriptionButton.vue";
+import { hasWorkspacePermissionV1 } from "@/utils";
 
 interface EnvironmentPolicy {
   environment: Environment;
@@ -180,7 +179,7 @@ onMounted(async () => {
     }
 
     for (const binding of policy.workspaceIamPolicy.bindings) {
-      if (!binding.members.includes("allUsers")) {
+      if (!binding.members.includes(ALL_USERS_USER_NAME)) {
         continue;
       }
 
@@ -247,26 +246,30 @@ const buildWorkspaceIAMPolicy = (envPolicyList: EnvironmentPolicy[]) => {
     .filter((item) => item.allowExportData)
     .map((item) => item.environment.name);
   if (allowQueryEnvNameList.length > 0) {
-    workspaceIamPolicy.bindings.push({
-      role: "roles/QUERIER",
-      members: ["allUsers"],
-      condition: Expr.fromPartial({
-        expression: `resource.environment_name in ["${allowQueryEnvNameList.join(
-          '", "'
-        )}"]`,
-      }),
-    });
+    workspaceIamPolicy.bindings.push(
+      Binding.fromPartial({
+        role: "roles/QUERIER",
+        members: [ALL_USERS_USER_NAME],
+        condition: {
+          expression: `resource.environment_name in ["${allowQueryEnvNameList.join(
+            '", "'
+          )}"]`,
+        },
+      })
+    );
   }
   if (allowExportEnvNameList.length > 0) {
-    workspaceIamPolicy.bindings.push({
-      role: "roles/EXPORTER",
-      members: ["allUsers"],
-      condition: Expr.fromPartial({
-        expression: `resource.environment_name in ["${allowExportEnvNameList.join(
-          '", "'
-        )}"]`,
-      }),
-    });
+    workspaceIamPolicy.bindings.push(
+      Binding.fromPartial({
+        role: "roles/EXPORTER",
+        members: [ALL_USERS_USER_NAME],
+        condition: {
+          expression: `resource.environment_name in ["${allowExportEnvNameList.join(
+            '", "'
+          )}"]`,
+        },
+      })
+    );
   }
   return workspaceIamPolicy;
 };

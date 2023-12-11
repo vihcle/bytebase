@@ -56,12 +56,11 @@
       <label for="name" class="textlabel">
         {{ $t("common.name") }} <span class="text-red-600">*</span>
       </label>
-      <input
+      <NInput
         id="name"
-        v-model="state.webhook.title"
+        v-model:value="state.webhook.title"
         name="name"
-        type="text"
-        class="textfield mt-1 w-full"
+        class="mt-1 w-full"
         :placeholder="namePlaceholder"
         :disabled="!allowEdit"
       />
@@ -198,12 +197,11 @@
           >.
         </template>
       </div>
-      <input
+      <NInput
         id="url"
-        v-model="state.webhook.url"
+        v-model:value="state.webhook.url"
         name="url"
-        type="text"
-        class="textfield mt-1 w-full"
+        class="mt-1 w-full"
         :placeholder="urlPlaceholder"
         :disabled="!allowEdit"
       />
@@ -229,6 +227,9 @@
         />
       </div>
     </div>
+    <NButton @click.prevent="testWebhook">
+      {{ $t("project.webhook.test-webhook") }}
+    </NButton>
     <div
       class="flex pt-5"
       :class="!create && allowEdit ? 'justify-between' : 'justify-end'"
@@ -277,27 +278,26 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, computed, PropType, watch } from "vue";
 import { cloneDeep, isEmpty, isEqual } from "lodash-es";
-import { useRouter } from "vue-router";
+import { reactive, computed, PropType, watch } from "vue";
 import { useI18n } from "vue-i18n";
-
-import { projectV1Slug, projectWebhookV1Slug } from "../utils";
+import { useRouter } from "vue-router";
 import {
   pushNotification,
   useProjectWebhookV1Store,
   useGracefulRequest,
 } from "@/store";
 import {
+  projectWebhookV1ActivityItemList,
+  projectWebhookV1TypeItemList,
+} from "@/types";
+import {
   Activity_Type,
   Project,
   Webhook,
   Webhook_Type,
 } from "@/types/proto/v1/project_service";
-import {
-  projectWebhookV1ActivityItemList,
-  projectWebhookV1TypeItemList,
-} from "@/types";
+import { projectV1Slug, projectWebhookV1Slug } from "../utils";
 
 interface LocalState {
   webhook: Webhook;
@@ -488,6 +488,31 @@ const deleteWebhook = () => {
       }),
     });
     cancel();
+  });
+};
+
+const testWebhook = () => {
+  useGracefulRequest(async () => {
+    const result = await useProjectWebhookV1Store().testProjectWebhook(
+      props.project,
+      state.webhook
+    );
+
+    if (result.error) {
+      pushNotification({
+        module: "bytebase",
+        style: "CRITICAL",
+        title: t("project.webhook.fail-tested-title"),
+        description: result.error,
+        manualHide: true,
+      });
+    } else {
+      pushNotification({
+        module: "bytebase",
+        style: "SUCCESS",
+        title: t("project.webhook.success-tested-prompt"),
+      });
+    }
   });
 };
 </script>

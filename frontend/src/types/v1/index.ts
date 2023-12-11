@@ -9,3 +9,5 @@ export * from "./user";
 export * from "./repository";
 export * from "./sql";
 export * from "./webTerminal";
+export * from "./issue";
+export * from "./changelist";

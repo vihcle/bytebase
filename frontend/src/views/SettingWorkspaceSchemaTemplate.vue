@@ -1,130 +1,53 @@
 <template>
-  <div class="w-full space-y-4 text-sm">
-    <FeatureAttention
-      feature="bb.feature.schema-template"
-      custom-class="my-4"
-    />
-    <div class="space-y-4">
-      <div class="flex items-center justify-between gap-x-6">
-        <div class="flex-1 textinfolabel">
-          {{ $t("schema-template.description") }}
-        </div>
-        <div>
-          <NButton
-            type="primary"
-            :disabled="!hasPermission"
-            @click="createSchemaTemplate"
-          >
-            {{ $t("schema-template.add-field") }}
-          </NButton>
-        </div>
-      </div>
-    </div>
-    <div class="flex items-center gap-x-5 my-5 pb-5 border-b">
-      <label
-        v-for="item in engineList"
-        :key="item"
-        class="flex items-center gap-x-1 text-sm text-gray-600"
+  <div class="w-full space-y-4">
+    <FeatureAttention feature="bb.feature.schema-template" />
+    <NTabs v-model:value="state.selectedTab" type="line">
+      <NTabPane
+        name="FIELD_TEMPLATE"
+        :tab="$t('schema-template.field-template.self')"
       >
-        <input
-          type="checkbox"
-          :value="item"
-          :checked="state.selectedEngine.has(item)"
-          class="h-4 w-4 border-gray-300 rounded text-indigo-600 focus:ring-indigo-500"
-          @input="toggleEngineCheck(item)"
+        <FieldTemplates
+          :show-engine-filter="true"
+          :readonly="!hasFeature || !hasPermission"
         />
-        <EngineIcon :engine="item" custom-class="ml-0 mr-1" />
-        <span
-          class="items-center text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-800"
-        >
-          {{ countTemplateByEngine(item) }}
-        </span>
-      </label>
-      <BBTableSearch
-        ref="searchField"
-        class="ml-auto"
-        :placeholder="$t('schema-template.search-by-name-or-comment')"
-        @change-text="(val: string) => state.searchText = val"
-      />
-    </div>
-    <FieldTemplateView
-      :engine="engine"
-      :readonly="!hasPermission"
-      :template-list="filteredTemplateList"
-      @view="editSchemaTemplate"
-      @apply="(template: SchemaTemplateSetting_FieldTemplate) => $emit('apply', template)"
-    />
+      </NTabPane>
+      <NTabPane
+        name="TABLE_TEMPLATE"
+        :tab="$t('schema-template.table-template.self')"
+      >
+        <TableTemplates
+          :show-engine-filter="true"
+          :readonly="!hasFeature || !hasPermission"
+        />
+      </NTabPane>
+      <NTabPane
+        name="COLUMN_TYPE_RESTRICTION"
+        :tab="$t('schema-template.column-type-restriction.self')"
+      >
+        <ColumnTypes :readonly="!hasFeature || !hasPermission" />
+      </NTabPane>
+    </NTabs>
   </div>
-  <Drawer :show="state.showDrawer" @close="state.showDrawer = false">
-    <FieldTemplateForm
-      :create="!state.template.column?.name"
-      :template="state.template"
-      @dismiss="state.showDrawer = false"
-    />
-  </Drawer>
-  <FeatureModal
-    feature="bb.feature.schema-template"
-    :open="state.showFeatureModal"
-    @cancel="state.showFeatureModal = false"
-  />
 </template>
 
 <script lang="ts" setup>
-import { reactive, computed, onMounted } from "vue";
-import { NButton } from "naive-ui";
-import { Drawer } from "@/components/v2";
-import { v1 as uuidv1 } from "uuid";
-
-import { featureToRef, useSchemaEditorStore } from "@/store";
+import { NTabs, NTabPane } from "naive-ui";
+import { reactive, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { featureToRef } from "@/store";
 import { useWorkspacePermissionV1 } from "@/utils";
-import { SchemaTemplateSetting_FieldTemplate } from "@/types/proto/v1/setting_service";
-import { Engine } from "@/types/proto/v1/common";
-import { engineList } from "@/components/SchemaTemplate/utils";
+import ColumnTypes from "@/views/SchemaTemplate/ColumnTypes.vue";
+import FieldTemplates from "@/views/SchemaTemplate/FieldTemplates.vue";
+import TableTemplates from "@/views/SchemaTemplate/TableTemplates.vue";
 
 interface LocalState {
-  template: SchemaTemplateSetting_FieldTemplate;
-  showDrawer: boolean;
-  showFeatureModal: boolean;
-  searchText: string;
-  selectedEngine: Set<Engine>;
+  selectedTab: "FIELD_TEMPLATE" | "COLUMN_TYPE_RESTRICTION" | "TABLE_TEMPLATE";
 }
 
-const props = defineProps<{
-  engine?: Engine;
-}>();
-
-defineEmits<{
-  (event: "apply", item: SchemaTemplateSetting_FieldTemplate): void;
-}>();
-
-const initialTemplate = () => ({
-  id: uuidv1(),
-  engine: props.engine ?? Engine.MYSQL,
-  category: "",
-  column: {
-    name: "",
-    type: "",
-    nullable: false,
-    comment: "",
-    position: 0,
-    characterSet: "",
-    collation: "",
-  },
-});
-
+const route = useRoute();
+const router = useRouter();
 const state = reactive<LocalState>({
-  showDrawer: false,
-  showFeatureModal: false,
-  template: initialTemplate(),
-  searchText: "",
-  selectedEngine: new Set<Engine>(),
-});
-const store = useSchemaEditorStore();
-
-onMounted(() => {
-  if (props.engine) {
-    state.selectedEngine.add(props.engine);
-  }
+  selectedTab: "FIELD_TEMPLATE",
 });
 
 const hasFeature = featureToRef("bb.feature.schema-template");
@@ -132,56 +55,40 @@ const hasPermission = useWorkspacePermissionV1(
   "bb.permission.workspace.manage-general"
 );
 
-const createSchemaTemplate = () => {
-  if (!hasFeature.value) {
-    state.showFeatureModal = true;
-    return;
+watch(
+  () => route.hash,
+  (hash) => {
+    switch (hash) {
+      case "#column-type-restriction":
+        state.selectedTab = "COLUMN_TYPE_RESTRICTION";
+        break;
+      case "#table-template":
+        state.selectedTab = "TABLE_TEMPLATE";
+        break;
+      default:
+        state.selectedTab = "FIELD_TEMPLATE";
+        break;
+    }
+  },
+  {
+    immediate: true,
   }
-  state.template = initialTemplate();
-  state.showDrawer = true;
-};
+);
 
-const editSchemaTemplate = (template: SchemaTemplateSetting_FieldTemplate) => {
-  state.template = template;
-  state.showDrawer = true;
-};
-
-const toggleEngineCheck = (engine: Engine) => {
-  if (state.selectedEngine.has(engine)) {
-    state.selectedEngine.delete(engine);
-  } else {
-    state.selectedEngine.add(engine);
+watch(
+  () => state.selectedTab,
+  (tab) => {
+    switch (tab) {
+      case "COLUMN_TYPE_RESTRICTION":
+        router.push({ hash: "#column-type-restriction" });
+        break;
+      case "TABLE_TEMPLATE":
+        router.push({ hash: "#table-template" });
+        break;
+      default:
+        router.push({ hash: "" });
+        break;
+    }
   }
-};
-
-const countTemplateByEngine = (engine: Engine) => {
-  return store.schemaTemplateList.filter(
-    (template) => template.engine === engine
-  ).length;
-};
-
-const filteredTemplateList = computed(() => {
-  if (state.selectedEngine.size === 0) {
-    return store.schemaTemplateList.filter(filterTemplateByKeyword);
-  }
-  return store.schemaTemplateList.filter(
-    (template) =>
-      state.selectedEngine.has(template.engine) &&
-      filterTemplateByKeyword(template)
-  );
-});
-
-const filterTemplateByKeyword = (
-  template: SchemaTemplateSetting_FieldTemplate
-) => {
-  const keyword = state.searchText.trim().toLowerCase();
-  if (!keyword) return true;
-  if (template.column?.name.toLowerCase().includes(keyword)) {
-    return true;
-  }
-  if (template.column?.comment.toLowerCase().includes(keyword)) {
-    return true;
-  }
-  return false;
-};
+);
 </script>

@@ -1,6 +1,6 @@
 /* eslint-disable */
-import type { CallContext, CallOptions } from "nice-grpc-common";
-import * as _m0 from "protobufjs/minimal";
+import Long from "long";
+import _m0 from "protobufjs/minimal";
 import { Empty } from "../google/protobuf/empty";
 import { FieldMask } from "../google/protobuf/field_mask";
 import { Expr } from "../google/type/expr";
@@ -375,39 +375,9 @@ export interface ListProjectsResponse {
   nextPageToken: string;
 }
 
-export interface SearchProjectsRequest {
-  /**
-   * The maximum number of projects to return. The service may return fewer than
-   * this value.
-   * If unspecified, at most 50 projects will be returned.
-   * The maximum value is 1000; values above 1000 will be coerced to 1000.
-   */
-  pageSize: number;
-  /**
-   * A page token, received from a previous `ListProjects` call.
-   * Provide this to retrieve the subsequent page.
-   *
-   * When paginating, all other parameters provided to `ListProjects` must match
-   * the call that provided the page token.
-   */
-  pageToken: string;
-  /** Filter is used to filter projects returned in the list. */
-  filter: string;
-}
-
-export interface SearchProjectsResponse {
-  /** The projects from the specified request. */
-  projects: Project[];
-  /**
-   * A token, which can be sent as `page_token` to retrieve the next page.
-   * If this field is omitted, there are no subsequent pages.
-   */
-  nextPageToken: string;
-}
-
 export interface CreateProjectRequest {
   /** The project to create. */
-  project?:
+  project:
     | Project
     | undefined;
   /**
@@ -427,11 +397,11 @@ export interface UpdateProjectRequest {
    * The project's `name` field is used to identify the project to update.
    * Format: projects/{project}
    */
-  project?:
+  project:
     | Project
     | undefined;
   /** The list of fields to update. */
-  updateMask?: string[] | undefined;
+  updateMask: string[] | undefined;
 }
 
 export interface DeleteProjectRequest {
@@ -472,7 +442,7 @@ export interface BatchGetIamPolicyResponse {
 
 export interface BatchGetIamPolicyResponse_PolicyResult {
   project: string;
-  policy?: IamPolicy | undefined;
+  policy: IamPolicy | undefined;
 }
 
 export interface SetIamPolicyRequest {
@@ -481,28 +451,28 @@ export interface SetIamPolicyRequest {
    * Format: projects/{project}
    */
   project: string;
-  policy?: IamPolicy | undefined;
+  policy: IamPolicy | undefined;
 }
 
 export interface GetDeploymentConfigRequest {
   /**
    * The name of the resource.
-   * Format: projects/{project}/deploymentConfig
+   * Format: projects/{project}/deploymentConfigs/default.
    */
   name: string;
 }
 
 export interface UpdateDeploymentConfigRequest {
-  config?: DeploymentConfig | undefined;
+  config: DeploymentConfig | undefined;
 }
 
 export interface UpdateProjectGitOpsInfoRequest {
   /** The binding for the project and external version control. */
-  projectGitopsInfo?:
+  projectGitopsInfo:
     | ProjectGitOpsInfo
     | undefined;
   /** The mask of the fields to be updated. */
-  updateMask?:
+  updateMask:
     | string[]
     | undefined;
   /** If true, the gitops will be created if it does not exist. */
@@ -554,10 +524,9 @@ export interface Project {
   workflow: Workflow;
   visibility: Visibility;
   tenantMode: TenantMode;
-  dbNameTemplate: string;
   schemaChange: SchemaChange;
   webhooks: Webhook[];
-  dataCategoryConfigId: string;
+  dataClassificationConfigId: string;
 }
 
 export interface AddWebhookRequest {
@@ -567,21 +536,21 @@ export interface AddWebhookRequest {
    */
   project: string;
   /** The webhook to add. */
-  webhook?: Webhook | undefined;
+  webhook: Webhook | undefined;
 }
 
 export interface UpdateWebhookRequest {
   /** The webhook to modify. */
-  webhook?:
+  webhook:
     | Webhook
     | undefined;
   /** The list of fields to update. */
-  updateMask?: string[] | undefined;
+  updateMask: string[] | undefined;
 }
 
 export interface RemoveWebhookRequest {
   /** The webhook to remove. Identified by its url. */
-  webhook?: Webhook | undefined;
+  webhook: Webhook | undefined;
 }
 
 export interface TestWebhookRequest {
@@ -591,7 +560,7 @@ export interface TestWebhookRequest {
    */
   project: string;
   /** The webhook to test. Identified by its url. */
-  webhook?: Webhook | undefined;
+  webhook: Webhook | undefined;
 }
 
 export interface TestWebhookResponse {
@@ -697,12 +666,12 @@ export function webhook_TypeToJSON(object: Webhook_Type): string {
 export interface DeploymentConfig {
   /**
    * The name of the resource.
-   * Format: projects/{project}/deploymentConfig
+   * Format: projects/{project}/deploymentConfigs/default.
    */
   name: string;
   /** The title of the deployment config. */
   title: string;
-  schedule?: Schedule | undefined;
+  schedule: Schedule | undefined;
 }
 
 export interface Schedule {
@@ -712,11 +681,11 @@ export interface Schedule {
 export interface ScheduleDeployment {
   /** The title of the deployment (stage) in a schedule. */
   title: string;
-  spec?: DeploymentSpec | undefined;
+  spec: DeploymentSpec | undefined;
 }
 
 export interface DeploymentSpec {
-  labelSelector?: LabelSelector | undefined;
+  labelSelector: LabelSelector | undefined;
 }
 
 export interface LabelSelector {
@@ -736,6 +705,14 @@ export interface Activity {
 export enum Activity_Type {
   TYPE_UNSPECIFIED = 0,
   /**
+   * TYPE_NOTIFY_ISSUE_APPROVED - Notifications via webhooks.
+   *
+   * TYPE_NOTIFY_ISSUE_APPROVED represents the issue approved notification.
+   */
+  TYPE_NOTIFY_ISSUE_APPROVED = 23,
+  /** TYPE_NOTIFY_PIPELINE_ROLLOUT - TYPE_NOTIFY_PIPELINE_ROLLOUT represents the pipeline rollout notification. */
+  TYPE_NOTIFY_PIPELINE_ROLLOUT = 24,
+  /**
    * TYPE_ISSUE_CREATE - Issue related activity types.
    *
    * TYPE_ISSUE_CREATE represents creating an issue.
@@ -753,6 +730,8 @@ export enum Activity_Type {
   TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE = 5,
   /** TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE - TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE represents the pipeline task status change, including PENDING, PENDING_APPROVAL, RUNNING, SUCCESS, FAILURE, CANCELED for now. */
   TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE = 6,
+  /** TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE - TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE represents the pipeline task run status change, including PENDING, RUNNING, DONE, FAILED, CANCELED. */
+  TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE = 22,
   /** TYPE_ISSUE_PIPELINE_TASK_FILE_COMMIT - TYPE_ISSUE_PIPELINE_TASK_FILE_COMMIT represents the VCS trigger to commit a file to update the task statement. */
   TYPE_ISSUE_PIPELINE_TASK_FILE_COMMIT = 7,
   /** TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE - TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE represents the manual update of the task statement. */
@@ -783,8 +762,6 @@ export enum Activity_Type {
   TYPE_PROJECT_MEMBER_CREATE = 16,
   /** TYPE_PROJECT_MEMBER_DELETE - TYPE_PROJECT_MEMBER_DELETE represents removing a member from the project. */
   TYPE_PROJECT_MEMBER_DELETE = 17,
-  /** TYPE_PROJECT_MEMBER_ROLE_UPDATE - TYPE_PROJECT_MEMBER_ROLE_UPDATE represents updating the member role, for example, from ADMIN to MEMBER. */
-  TYPE_PROJECT_MEMBER_ROLE_UPDATE = 18,
   /**
    * TYPE_SQL_EDITOR_QUERY - SQL Editor related activity types.
    * TYPE_SQL_EDITOR_QUERY represents executing query in SQL Editor.
@@ -803,6 +780,12 @@ export function activity_TypeFromJSON(object: any): Activity_Type {
     case 0:
     case "TYPE_UNSPECIFIED":
       return Activity_Type.TYPE_UNSPECIFIED;
+    case 23:
+    case "TYPE_NOTIFY_ISSUE_APPROVED":
+      return Activity_Type.TYPE_NOTIFY_ISSUE_APPROVED;
+    case 24:
+    case "TYPE_NOTIFY_PIPELINE_ROLLOUT":
+      return Activity_Type.TYPE_NOTIFY_PIPELINE_ROLLOUT;
     case 1:
     case "TYPE_ISSUE_CREATE":
       return Activity_Type.TYPE_ISSUE_CREATE;
@@ -824,6 +807,9 @@ export function activity_TypeFromJSON(object: any): Activity_Type {
     case 6:
     case "TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE":
       return Activity_Type.TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE;
+    case 22:
+    case "TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE":
+      return Activity_Type.TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE;
     case 7:
     case "TYPE_ISSUE_PIPELINE_TASK_FILE_COMMIT":
       return Activity_Type.TYPE_ISSUE_PIPELINE_TASK_FILE_COMMIT;
@@ -857,9 +843,6 @@ export function activity_TypeFromJSON(object: any): Activity_Type {
     case 17:
     case "TYPE_PROJECT_MEMBER_DELETE":
       return Activity_Type.TYPE_PROJECT_MEMBER_DELETE;
-    case 18:
-    case "TYPE_PROJECT_MEMBER_ROLE_UPDATE":
-      return Activity_Type.TYPE_PROJECT_MEMBER_ROLE_UPDATE;
     case 19:
     case "TYPE_SQL_EDITOR_QUERY":
       return Activity_Type.TYPE_SQL_EDITOR_QUERY;
@@ -877,6 +860,10 @@ export function activity_TypeToJSON(object: Activity_Type): string {
   switch (object) {
     case Activity_Type.TYPE_UNSPECIFIED:
       return "TYPE_UNSPECIFIED";
+    case Activity_Type.TYPE_NOTIFY_ISSUE_APPROVED:
+      return "TYPE_NOTIFY_ISSUE_APPROVED";
+    case Activity_Type.TYPE_NOTIFY_PIPELINE_ROLLOUT:
+      return "TYPE_NOTIFY_PIPELINE_ROLLOUT";
     case Activity_Type.TYPE_ISSUE_CREATE:
       return "TYPE_ISSUE_CREATE";
     case Activity_Type.TYPE_ISSUE_COMMENT_CREATE:
@@ -891,6 +878,8 @@ export function activity_TypeToJSON(object: Activity_Type): string {
       return "TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE";
     case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE:
       return "TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE";
+    case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE:
+      return "TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE";
     case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_FILE_COMMIT:
       return "TYPE_ISSUE_PIPELINE_TASK_FILE_COMMIT";
     case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE:
@@ -913,8 +902,6 @@ export function activity_TypeToJSON(object: Activity_Type): string {
       return "TYPE_PROJECT_MEMBER_CREATE";
     case Activity_Type.TYPE_PROJECT_MEMBER_DELETE:
       return "TYPE_PROJECT_MEMBER_DELETE";
-    case Activity_Type.TYPE_PROJECT_MEMBER_ROLE_UPDATE:
-      return "TYPE_PROJECT_MEMBER_ROLE_UPDATE";
     case Activity_Type.TYPE_SQL_EDITOR_QUERY:
       return "TYPE_SQL_EDITOR_QUERY";
     case Activity_Type.TYPE_DATABASE_RECOVERY_PITR_DONE:
@@ -976,7 +963,7 @@ export interface CreateDatabaseGroupRequest {
    */
   parent: string;
   /** The database group to create. */
-  databaseGroup?:
+  databaseGroup:
     | DatabaseGroup
     | undefined;
   /**
@@ -998,11 +985,11 @@ export interface UpdateDatabaseGroupRequest {
    * The database group's `name` field is used to identify the database group to update.
    * Format: projects/{project}/databaseGroups/{databaseGroup}
    */
-  databaseGroup?:
+  databaseGroup:
     | DatabaseGroup
     | undefined;
   /** The list of fields to update. */
-  updateMask?: string[] | undefined;
+  updateMask: string[] | undefined;
 }
 
 export interface DeleteDatabaseGroupRequest {
@@ -1025,7 +1012,7 @@ export interface DatabaseGroup {
    */
   databasePlaceholder: string;
   /** The condition that is associated with this database group. */
-  databaseExpr?:
+  databaseExpr:
     | Expr
     | undefined;
   /** The list of databases that match the database group condition. */
@@ -1049,7 +1036,7 @@ export interface CreateSchemaGroupRequest {
    */
   parent: string;
   /** The schema group to create. */
-  schemaGroup?:
+  schemaGroup:
     | SchemaGroup
     | undefined;
   /**
@@ -1071,11 +1058,11 @@ export interface UpdateSchemaGroupRequest {
    * The schema group's `name` field is used to identify the schema group to update.
    * Format: projects/{project}/databaseGroups/{databaseGroup}/schemaGroups/{schemaGroup}
    */
-  schemaGroup?:
+  schemaGroup:
     | SchemaGroup
     | undefined;
   /** The list of fields to update. */
-  updateMask?: string[] | undefined;
+  updateMask: string[] | undefined;
 }
 
 export interface DeleteSchemaGroupRequest {
@@ -1139,7 +1126,7 @@ export interface SchemaGroup {
    * The table condition that is associated with this schema group.
    * The table_placeholder in the sheet script will be rendered to the actual table name.
    */
-  tableExpr?:
+  tableExpr:
     | Expr
     | undefined;
   /**
@@ -1166,6 +1153,80 @@ export interface SchemaGroup_Table {
   database: string;
   schema: string;
   table: string;
+}
+
+export interface GetProjectProtectionRulesRequest {
+  /**
+   * The name of the protection rules.
+   * Format: projects/{project}/protectionRules
+   */
+  name: string;
+}
+
+export interface UpdateProjectProtectionRulesRequest {
+  protectionRules: ProtectionRules | undefined;
+}
+
+export interface ProtectionRules {
+  /**
+   * The name of the protection rules.
+   * Format: projects/{project}/protectionRules
+   */
+  name: string;
+  rules: ProtectionRule[];
+}
+
+export interface ProtectionRule {
+  /** A unique identifier for a node in UUID format. */
+  id: string;
+  target: ProtectionRule_Target;
+  /** The name of the branch/changelist or wildcard. */
+  nameFilter: string;
+  /**
+   * The roles allowed to create branches or changelists.
+   * Format: roles/OWNER.
+   */
+  createAllowedRoles: string[];
+}
+
+/** The type of target. */
+export enum ProtectionRule_Target {
+  PROTECTION_TARGET_UNSPECIFIED = 0,
+  BRANCH = 1,
+  CHANGELIST = 2,
+  UNRECOGNIZED = -1,
+}
+
+export function protectionRule_TargetFromJSON(object: any): ProtectionRule_Target {
+  switch (object) {
+    case 0:
+    case "PROTECTION_TARGET_UNSPECIFIED":
+      return ProtectionRule_Target.PROTECTION_TARGET_UNSPECIFIED;
+    case 1:
+    case "BRANCH":
+      return ProtectionRule_Target.BRANCH;
+    case 2:
+    case "CHANGELIST":
+      return ProtectionRule_Target.CHANGELIST;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return ProtectionRule_Target.UNRECOGNIZED;
+  }
+}
+
+export function protectionRule_TargetToJSON(object: ProtectionRule_Target): string {
+  switch (object) {
+    case ProtectionRule_Target.PROTECTION_TARGET_UNSPECIFIED:
+      return "PROTECTION_TARGET_UNSPECIFIED";
+    case ProtectionRule_Target.BRANCH:
+      return "BRANCH";
+    case ProtectionRule_Target.CHANGELIST:
+      return "CHANGELIST";
+    case ProtectionRule_Target.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
 }
 
 function createBaseGetProjectRequest(): GetProjectRequest {
@@ -1204,19 +1265,20 @@ export const GetProjectRequest = {
   },
 
   fromJSON(object: any): GetProjectRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: GetProjectRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetProjectRequest>): GetProjectRequest {
     return GetProjectRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetProjectRequest>): GetProjectRequest {
     const message = createBaseGetProjectRequest();
     message.name = object.name ?? "";
@@ -1281,24 +1343,29 @@ export const ListProjectsRequest = {
 
   fromJSON(object: any): ListProjectsRequest {
     return {
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
-      showDeleted: isSet(object.showDeleted) ? Boolean(object.showDeleted) : false,
+      pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
+      showDeleted: isSet(object.showDeleted) ? globalThis.Boolean(object.showDeleted) : false,
     };
   },
 
   toJSON(message: ListProjectsRequest): unknown {
     const obj: any = {};
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
-    message.showDeleted !== undefined && (obj.showDeleted = message.showDeleted);
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      obj.pageToken = message.pageToken;
+    }
+    if (message.showDeleted === true) {
+      obj.showDeleted = message.showDeleted;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListProjectsRequest>): ListProjectsRequest {
     return ListProjectsRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListProjectsRequest>): ListProjectsRequest {
     const message = createBaseListProjectsRequest();
     message.pageSize = object.pageSize ?? 0;
@@ -1355,187 +1422,27 @@ export const ListProjectsResponse = {
 
   fromJSON(object: any): ListProjectsResponse {
     return {
-      projects: Array.isArray(object?.projects) ? object.projects.map((e: any) => Project.fromJSON(e)) : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+      projects: globalThis.Array.isArray(object?.projects) ? object.projects.map((e: any) => Project.fromJSON(e)) : [],
+      nextPageToken: isSet(object.nextPageToken) ? globalThis.String(object.nextPageToken) : "",
     };
   },
 
   toJSON(message: ListProjectsResponse): unknown {
     const obj: any = {};
-    if (message.projects) {
-      obj.projects = message.projects.map((e) => e ? Project.toJSON(e) : undefined);
-    } else {
-      obj.projects = [];
+    if (message.projects?.length) {
+      obj.projects = message.projects.map((e) => Project.toJSON(e));
     }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    if (message.nextPageToken !== "") {
+      obj.nextPageToken = message.nextPageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListProjectsResponse>): ListProjectsResponse {
     return ListProjectsResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListProjectsResponse>): ListProjectsResponse {
     const message = createBaseListProjectsResponse();
-    message.projects = object.projects?.map((e) => Project.fromPartial(e)) || [];
-    message.nextPageToken = object.nextPageToken ?? "";
-    return message;
-  },
-};
-
-function createBaseSearchProjectsRequest(): SearchProjectsRequest {
-  return { pageSize: 0, pageToken: "", filter: "" };
-}
-
-export const SearchProjectsRequest = {
-  encode(message: SearchProjectsRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.pageSize !== 0) {
-      writer.uint32(8).int32(message.pageSize);
-    }
-    if (message.pageToken !== "") {
-      writer.uint32(18).string(message.pageToken);
-    }
-    if (message.filter !== "") {
-      writer.uint32(26).string(message.filter);
-    }
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): SearchProjectsRequest {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseSearchProjectsRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 8) {
-            break;
-          }
-
-          message.pageSize = reader.int32();
-          continue;
-        case 2:
-          if (tag !== 18) {
-            break;
-          }
-
-          message.pageToken = reader.string();
-          continue;
-        case 3:
-          if (tag !== 26) {
-            break;
-          }
-
-          message.filter = reader.string();
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): SearchProjectsRequest {
-    return {
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
-      filter: isSet(object.filter) ? String(object.filter) : "",
-    };
-  },
-
-  toJSON(message: SearchProjectsRequest): unknown {
-    const obj: any = {};
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
-    message.filter !== undefined && (obj.filter = message.filter);
-    return obj;
-  },
-
-  create(base?: DeepPartial<SearchProjectsRequest>): SearchProjectsRequest {
-    return SearchProjectsRequest.fromPartial(base ?? {});
-  },
-
-  fromPartial(object: DeepPartial<SearchProjectsRequest>): SearchProjectsRequest {
-    const message = createBaseSearchProjectsRequest();
-    message.pageSize = object.pageSize ?? 0;
-    message.pageToken = object.pageToken ?? "";
-    message.filter = object.filter ?? "";
-    return message;
-  },
-};
-
-function createBaseSearchProjectsResponse(): SearchProjectsResponse {
-  return { projects: [], nextPageToken: "" };
-}
-
-export const SearchProjectsResponse = {
-  encode(message: SearchProjectsResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    for (const v of message.projects) {
-      Project.encode(v!, writer.uint32(10).fork()).ldelim();
-    }
-    if (message.nextPageToken !== "") {
-      writer.uint32(18).string(message.nextPageToken);
-    }
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): SearchProjectsResponse {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseSearchProjectsResponse();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 10) {
-            break;
-          }
-
-          message.projects.push(Project.decode(reader, reader.uint32()));
-          continue;
-        case 2:
-          if (tag !== 18) {
-            break;
-          }
-
-          message.nextPageToken = reader.string();
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): SearchProjectsResponse {
-    return {
-      projects: Array.isArray(object?.projects) ? object.projects.map((e: any) => Project.fromJSON(e)) : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
-    };
-  },
-
-  toJSON(message: SearchProjectsResponse): unknown {
-    const obj: any = {};
-    if (message.projects) {
-      obj.projects = message.projects.map((e) => e ? Project.toJSON(e) : undefined);
-    } else {
-      obj.projects = [];
-    }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
-    return obj;
-  },
-
-  create(base?: DeepPartial<SearchProjectsResponse>): SearchProjectsResponse {
-    return SearchProjectsResponse.fromPartial(base ?? {});
-  },
-
-  fromPartial(object: DeepPartial<SearchProjectsResponse>): SearchProjectsResponse {
-    const message = createBaseSearchProjectsResponse();
     message.projects = object.projects?.map((e) => Project.fromPartial(e)) || [];
     message.nextPageToken = object.nextPageToken ?? "";
     return message;
@@ -1590,21 +1497,24 @@ export const CreateProjectRequest = {
   fromJSON(object: any): CreateProjectRequest {
     return {
       project: isSet(object.project) ? Project.fromJSON(object.project) : undefined,
-      projectId: isSet(object.projectId) ? String(object.projectId) : "",
+      projectId: isSet(object.projectId) ? globalThis.String(object.projectId) : "",
     };
   },
 
   toJSON(message: CreateProjectRequest): unknown {
     const obj: any = {};
-    message.project !== undefined && (obj.project = message.project ? Project.toJSON(message.project) : undefined);
-    message.projectId !== undefined && (obj.projectId = message.projectId);
+    if (message.project !== undefined) {
+      obj.project = Project.toJSON(message.project);
+    }
+    if (message.projectId !== "") {
+      obj.projectId = message.projectId;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<CreateProjectRequest>): CreateProjectRequest {
     return CreateProjectRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<CreateProjectRequest>): CreateProjectRequest {
     const message = createBaseCreateProjectRequest();
     message.project = (object.project !== undefined && object.project !== null)
@@ -1669,15 +1579,18 @@ export const UpdateProjectRequest = {
 
   toJSON(message: UpdateProjectRequest): unknown {
     const obj: any = {};
-    message.project !== undefined && (obj.project = message.project ? Project.toJSON(message.project) : undefined);
-    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
+    if (message.project !== undefined) {
+      obj.project = Project.toJSON(message.project);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateProjectRequest>): UpdateProjectRequest {
     return UpdateProjectRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateProjectRequest>): UpdateProjectRequest {
     const message = createBaseUpdateProjectRequest();
     message.project = (object.project !== undefined && object.project !== null)
@@ -1735,22 +1648,25 @@ export const DeleteProjectRequest = {
 
   fromJSON(object: any): DeleteProjectRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      force: isSet(object.force) ? Boolean(object.force) : false,
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      force: isSet(object.force) ? globalThis.Boolean(object.force) : false,
     };
   },
 
   toJSON(message: DeleteProjectRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.force !== undefined && (obj.force = message.force);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.force === true) {
+      obj.force = message.force;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<DeleteProjectRequest>): DeleteProjectRequest {
     return DeleteProjectRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DeleteProjectRequest>): DeleteProjectRequest {
     const message = createBaseDeleteProjectRequest();
     message.name = object.name ?? "";
@@ -1795,19 +1711,20 @@ export const UndeleteProjectRequest = {
   },
 
   fromJSON(object: any): UndeleteProjectRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: UndeleteProjectRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UndeleteProjectRequest>): UndeleteProjectRequest {
     return UndeleteProjectRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UndeleteProjectRequest>): UndeleteProjectRequest {
     const message = createBaseUndeleteProjectRequest();
     message.name = object.name ?? "";
@@ -1851,19 +1768,20 @@ export const GetIamPolicyRequest = {
   },
 
   fromJSON(object: any): GetIamPolicyRequest {
-    return { project: isSet(object.project) ? String(object.project) : "" };
+    return { project: isSet(object.project) ? globalThis.String(object.project) : "" };
   },
 
   toJSON(message: GetIamPolicyRequest): unknown {
     const obj: any = {};
-    message.project !== undefined && (obj.project = message.project);
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetIamPolicyRequest>): GetIamPolicyRequest {
     return GetIamPolicyRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetIamPolicyRequest>): GetIamPolicyRequest {
     const message = createBaseGetIamPolicyRequest();
     message.project = object.project ?? "";
@@ -1918,18 +1836,18 @@ export const BatchGetIamPolicyRequest = {
 
   fromJSON(object: any): BatchGetIamPolicyRequest {
     return {
-      scope: isSet(object.scope) ? String(object.scope) : "",
-      names: Array.isArray(object?.names) ? object.names.map((e: any) => String(e)) : [],
+      scope: isSet(object.scope) ? globalThis.String(object.scope) : "",
+      names: globalThis.Array.isArray(object?.names) ? object.names.map((e: any) => globalThis.String(e)) : [],
     };
   },
 
   toJSON(message: BatchGetIamPolicyRequest): unknown {
     const obj: any = {};
-    message.scope !== undefined && (obj.scope = message.scope);
-    if (message.names) {
-      obj.names = message.names.map((e) => e);
-    } else {
-      obj.names = [];
+    if (message.scope !== "") {
+      obj.scope = message.scope;
+    }
+    if (message.names?.length) {
+      obj.names = message.names;
     }
     return obj;
   },
@@ -1937,7 +1855,6 @@ export const BatchGetIamPolicyRequest = {
   create(base?: DeepPartial<BatchGetIamPolicyRequest>): BatchGetIamPolicyRequest {
     return BatchGetIamPolicyRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<BatchGetIamPolicyRequest>): BatchGetIamPolicyRequest {
     const message = createBaseBatchGetIamPolicyRequest();
     message.scope = object.scope ?? "";
@@ -1983,7 +1900,7 @@ export const BatchGetIamPolicyResponse = {
 
   fromJSON(object: any): BatchGetIamPolicyResponse {
     return {
-      policyResults: Array.isArray(object?.policyResults)
+      policyResults: globalThis.Array.isArray(object?.policyResults)
         ? object.policyResults.map((e: any) => BatchGetIamPolicyResponse_PolicyResult.fromJSON(e))
         : [],
     };
@@ -1991,12 +1908,8 @@ export const BatchGetIamPolicyResponse = {
 
   toJSON(message: BatchGetIamPolicyResponse): unknown {
     const obj: any = {};
-    if (message.policyResults) {
-      obj.policyResults = message.policyResults.map((e) =>
-        e ? BatchGetIamPolicyResponse_PolicyResult.toJSON(e) : undefined
-      );
-    } else {
-      obj.policyResults = [];
+    if (message.policyResults?.length) {
+      obj.policyResults = message.policyResults.map((e) => BatchGetIamPolicyResponse_PolicyResult.toJSON(e));
     }
     return obj;
   },
@@ -2004,7 +1917,6 @@ export const BatchGetIamPolicyResponse = {
   create(base?: DeepPartial<BatchGetIamPolicyResponse>): BatchGetIamPolicyResponse {
     return BatchGetIamPolicyResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<BatchGetIamPolicyResponse>): BatchGetIamPolicyResponse {
     const message = createBaseBatchGetIamPolicyResponse();
     message.policyResults = object.policyResults?.map((e) => BatchGetIamPolicyResponse_PolicyResult.fromPartial(e)) ||
@@ -2060,22 +1972,25 @@ export const BatchGetIamPolicyResponse_PolicyResult = {
 
   fromJSON(object: any): BatchGetIamPolicyResponse_PolicyResult {
     return {
-      project: isSet(object.project) ? String(object.project) : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
       policy: isSet(object.policy) ? IamPolicy.fromJSON(object.policy) : undefined,
     };
   },
 
   toJSON(message: BatchGetIamPolicyResponse_PolicyResult): unknown {
     const obj: any = {};
-    message.project !== undefined && (obj.project = message.project);
-    message.policy !== undefined && (obj.policy = message.policy ? IamPolicy.toJSON(message.policy) : undefined);
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.policy !== undefined) {
+      obj.policy = IamPolicy.toJSON(message.policy);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<BatchGetIamPolicyResponse_PolicyResult>): BatchGetIamPolicyResponse_PolicyResult {
     return BatchGetIamPolicyResponse_PolicyResult.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<BatchGetIamPolicyResponse_PolicyResult>): BatchGetIamPolicyResponse_PolicyResult {
     const message = createBaseBatchGetIamPolicyResponse_PolicyResult();
     message.project = object.project ?? "";
@@ -2133,22 +2048,25 @@ export const SetIamPolicyRequest = {
 
   fromJSON(object: any): SetIamPolicyRequest {
     return {
-      project: isSet(object.project) ? String(object.project) : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
       policy: isSet(object.policy) ? IamPolicy.fromJSON(object.policy) : undefined,
     };
   },
 
   toJSON(message: SetIamPolicyRequest): unknown {
     const obj: any = {};
-    message.project !== undefined && (obj.project = message.project);
-    message.policy !== undefined && (obj.policy = message.policy ? IamPolicy.toJSON(message.policy) : undefined);
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.policy !== undefined) {
+      obj.policy = IamPolicy.toJSON(message.policy);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<SetIamPolicyRequest>): SetIamPolicyRequest {
     return SetIamPolicyRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SetIamPolicyRequest>): SetIamPolicyRequest {
     const message = createBaseSetIamPolicyRequest();
     message.project = object.project ?? "";
@@ -2195,19 +2113,20 @@ export const GetDeploymentConfigRequest = {
   },
 
   fromJSON(object: any): GetDeploymentConfigRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: GetDeploymentConfigRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetDeploymentConfigRequest>): GetDeploymentConfigRequest {
     return GetDeploymentConfigRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetDeploymentConfigRequest>): GetDeploymentConfigRequest {
     const message = createBaseGetDeploymentConfigRequest();
     message.name = object.name ?? "";
@@ -2256,14 +2175,15 @@ export const UpdateDeploymentConfigRequest = {
 
   toJSON(message: UpdateDeploymentConfigRequest): unknown {
     const obj: any = {};
-    message.config !== undefined && (obj.config = message.config ? DeploymentConfig.toJSON(message.config) : undefined);
+    if (message.config !== undefined) {
+      obj.config = DeploymentConfig.toJSON(message.config);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateDeploymentConfigRequest>): UpdateDeploymentConfigRequest {
     return UpdateDeploymentConfigRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateDeploymentConfigRequest>): UpdateDeploymentConfigRequest {
     const message = createBaseUpdateDeploymentConfigRequest();
     message.config = (object.config !== undefined && object.config !== null)
@@ -2334,24 +2254,27 @@ export const UpdateProjectGitOpsInfoRequest = {
         ? ProjectGitOpsInfo.fromJSON(object.projectGitopsInfo)
         : undefined,
       updateMask: isSet(object.updateMask) ? FieldMask.unwrap(FieldMask.fromJSON(object.updateMask)) : undefined,
-      allowMissing: isSet(object.allowMissing) ? Boolean(object.allowMissing) : false,
+      allowMissing: isSet(object.allowMissing) ? globalThis.Boolean(object.allowMissing) : false,
     };
   },
 
   toJSON(message: UpdateProjectGitOpsInfoRequest): unknown {
     const obj: any = {};
-    message.projectGitopsInfo !== undefined && (obj.projectGitopsInfo = message.projectGitopsInfo
-      ? ProjectGitOpsInfo.toJSON(message.projectGitopsInfo)
-      : undefined);
-    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
-    message.allowMissing !== undefined && (obj.allowMissing = message.allowMissing);
+    if (message.projectGitopsInfo !== undefined) {
+      obj.projectGitopsInfo = ProjectGitOpsInfo.toJSON(message.projectGitopsInfo);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
+    if (message.allowMissing === true) {
+      obj.allowMissing = message.allowMissing;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateProjectGitOpsInfoRequest>): UpdateProjectGitOpsInfoRequest {
     return UpdateProjectGitOpsInfoRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateProjectGitOpsInfoRequest>): UpdateProjectGitOpsInfoRequest {
     const message = createBaseUpdateProjectGitOpsInfoRequest();
     message.projectGitopsInfo = (object.projectGitopsInfo !== undefined && object.projectGitopsInfo !== null)
@@ -2399,19 +2322,20 @@ export const UnsetProjectGitOpsInfoRequest = {
   },
 
   fromJSON(object: any): UnsetProjectGitOpsInfoRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: UnsetProjectGitOpsInfoRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UnsetProjectGitOpsInfoRequest>): UnsetProjectGitOpsInfoRequest {
     return UnsetProjectGitOpsInfoRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UnsetProjectGitOpsInfoRequest>): UnsetProjectGitOpsInfoRequest {
     const message = createBaseUnsetProjectGitOpsInfoRequest();
     message.name = object.name ?? "";
@@ -2455,19 +2379,20 @@ export const GetProjectGitOpsInfoRequest = {
   },
 
   fromJSON(object: any): GetProjectGitOpsInfoRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: GetProjectGitOpsInfoRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetProjectGitOpsInfoRequest>): GetProjectGitOpsInfoRequest {
     return GetProjectGitOpsInfoRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetProjectGitOpsInfoRequest>): GetProjectGitOpsInfoRequest {
     const message = createBaseGetProjectGitOpsInfoRequest();
     message.name = object.name ?? "";
@@ -2511,19 +2436,20 @@ export const SetupSQLReviewCIRequest = {
   },
 
   fromJSON(object: any): SetupSQLReviewCIRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: SetupSQLReviewCIRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<SetupSQLReviewCIRequest>): SetupSQLReviewCIRequest {
     return SetupSQLReviewCIRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SetupSQLReviewCIRequest>): SetupSQLReviewCIRequest {
     const message = createBaseSetupSQLReviewCIRequest();
     message.name = object.name ?? "";
@@ -2567,19 +2493,20 @@ export const SetupSQLReviewCIResponse = {
   },
 
   fromJSON(object: any): SetupSQLReviewCIResponse {
-    return { pullRequestUrl: isSet(object.pullRequestUrl) ? String(object.pullRequestUrl) : "" };
+    return { pullRequestUrl: isSet(object.pullRequestUrl) ? globalThis.String(object.pullRequestUrl) : "" };
   },
 
   toJSON(message: SetupSQLReviewCIResponse): unknown {
     const obj: any = {};
-    message.pullRequestUrl !== undefined && (obj.pullRequestUrl = message.pullRequestUrl);
+    if (message.pullRequestUrl !== "") {
+      obj.pullRequestUrl = message.pullRequestUrl;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<SetupSQLReviewCIResponse>): SetupSQLReviewCIResponse {
     return SetupSQLReviewCIResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SetupSQLReviewCIResponse>): SetupSQLReviewCIResponse {
     const message = createBaseSetupSQLReviewCIResponse();
     message.pullRequestUrl = object.pullRequestUrl ?? "";
@@ -2597,10 +2524,9 @@ function createBaseProject(): Project {
     workflow: 0,
     visibility: 0,
     tenantMode: 0,
-    dbNameTemplate: "",
     schemaChange: 0,
     webhooks: [],
-    dataCategoryConfigId: "",
+    dataClassificationConfigId: "",
   };
 }
 
@@ -2630,17 +2556,14 @@ export const Project = {
     if (message.tenantMode !== 0) {
       writer.uint32(64).int32(message.tenantMode);
     }
-    if (message.dbNameTemplate !== "") {
-      writer.uint32(74).string(message.dbNameTemplate);
-    }
     if (message.schemaChange !== 0) {
       writer.uint32(80).int32(message.schemaChange);
     }
     for (const v of message.webhooks) {
       Webhook.encode(v!, writer.uint32(90).fork()).ldelim();
     }
-    if (message.dataCategoryConfigId !== "") {
-      writer.uint32(98).string(message.dataCategoryConfigId);
+    if (message.dataClassificationConfigId !== "") {
+      writer.uint32(98).string(message.dataClassificationConfigId);
     }
     return writer;
   },
@@ -2708,13 +2631,6 @@ export const Project = {
 
           message.tenantMode = reader.int32() as any;
           continue;
-        case 9:
-          if (tag !== 74) {
-            break;
-          }
-
-          message.dbNameTemplate = reader.string();
-          continue;
         case 10:
           if (tag !== 80) {
             break;
@@ -2734,7 +2650,7 @@ export const Project = {
             break;
           }
 
-          message.dataCategoryConfigId = reader.string();
+          message.dataClassificationConfigId = reader.string();
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -2747,46 +2663,63 @@ export const Project = {
 
   fromJSON(object: any): Project {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      uid: isSet(object.uid) ? String(object.uid) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      uid: isSet(object.uid) ? globalThis.String(object.uid) : "",
       state: isSet(object.state) ? stateFromJSON(object.state) : 0,
-      title: isSet(object.title) ? String(object.title) : "",
-      key: isSet(object.key) ? String(object.key) : "",
+      title: isSet(object.title) ? globalThis.String(object.title) : "",
+      key: isSet(object.key) ? globalThis.String(object.key) : "",
       workflow: isSet(object.workflow) ? workflowFromJSON(object.workflow) : 0,
       visibility: isSet(object.visibility) ? visibilityFromJSON(object.visibility) : 0,
       tenantMode: isSet(object.tenantMode) ? tenantModeFromJSON(object.tenantMode) : 0,
-      dbNameTemplate: isSet(object.dbNameTemplate) ? String(object.dbNameTemplate) : "",
       schemaChange: isSet(object.schemaChange) ? schemaChangeFromJSON(object.schemaChange) : 0,
-      webhooks: Array.isArray(object?.webhooks) ? object.webhooks.map((e: any) => Webhook.fromJSON(e)) : [],
-      dataCategoryConfigId: isSet(object.dataCategoryConfigId) ? String(object.dataCategoryConfigId) : "",
+      webhooks: globalThis.Array.isArray(object?.webhooks) ? object.webhooks.map((e: any) => Webhook.fromJSON(e)) : [],
+      dataClassificationConfigId: isSet(object.dataClassificationConfigId)
+        ? globalThis.String(object.dataClassificationConfigId)
+        : "",
     };
   },
 
   toJSON(message: Project): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.uid !== undefined && (obj.uid = message.uid);
-    message.state !== undefined && (obj.state = stateToJSON(message.state));
-    message.title !== undefined && (obj.title = message.title);
-    message.key !== undefined && (obj.key = message.key);
-    message.workflow !== undefined && (obj.workflow = workflowToJSON(message.workflow));
-    message.visibility !== undefined && (obj.visibility = visibilityToJSON(message.visibility));
-    message.tenantMode !== undefined && (obj.tenantMode = tenantModeToJSON(message.tenantMode));
-    message.dbNameTemplate !== undefined && (obj.dbNameTemplate = message.dbNameTemplate);
-    message.schemaChange !== undefined && (obj.schemaChange = schemaChangeToJSON(message.schemaChange));
-    if (message.webhooks) {
-      obj.webhooks = message.webhooks.map((e) => e ? Webhook.toJSON(e) : undefined);
-    } else {
-      obj.webhooks = [];
+    if (message.name !== "") {
+      obj.name = message.name;
     }
-    message.dataCategoryConfigId !== undefined && (obj.dataCategoryConfigId = message.dataCategoryConfigId);
+    if (message.uid !== "") {
+      obj.uid = message.uid;
+    }
+    if (message.state !== 0) {
+      obj.state = stateToJSON(message.state);
+    }
+    if (message.title !== "") {
+      obj.title = message.title;
+    }
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.workflow !== 0) {
+      obj.workflow = workflowToJSON(message.workflow);
+    }
+    if (message.visibility !== 0) {
+      obj.visibility = visibilityToJSON(message.visibility);
+    }
+    if (message.tenantMode !== 0) {
+      obj.tenantMode = tenantModeToJSON(message.tenantMode);
+    }
+    if (message.schemaChange !== 0) {
+      obj.schemaChange = schemaChangeToJSON(message.schemaChange);
+    }
+    if (message.webhooks?.length) {
+      obj.webhooks = message.webhooks.map((e) => Webhook.toJSON(e));
+    }
+    if (message.dataClassificationConfigId !== "") {
+      obj.dataClassificationConfigId = message.dataClassificationConfigId;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<Project>): Project {
     return Project.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<Project>): Project {
     const message = createBaseProject();
     message.name = object.name ?? "";
@@ -2797,10 +2730,9 @@ export const Project = {
     message.workflow = object.workflow ?? 0;
     message.visibility = object.visibility ?? 0;
     message.tenantMode = object.tenantMode ?? 0;
-    message.dbNameTemplate = object.dbNameTemplate ?? "";
     message.schemaChange = object.schemaChange ?? 0;
     message.webhooks = object.webhooks?.map((e) => Webhook.fromPartial(e)) || [];
-    message.dataCategoryConfigId = object.dataCategoryConfigId ?? "";
+    message.dataClassificationConfigId = object.dataClassificationConfigId ?? "";
     return message;
   },
 };
@@ -2852,22 +2784,25 @@ export const AddWebhookRequest = {
 
   fromJSON(object: any): AddWebhookRequest {
     return {
-      project: isSet(object.project) ? String(object.project) : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
       webhook: isSet(object.webhook) ? Webhook.fromJSON(object.webhook) : undefined,
     };
   },
 
   toJSON(message: AddWebhookRequest): unknown {
     const obj: any = {};
-    message.project !== undefined && (obj.project = message.project);
-    message.webhook !== undefined && (obj.webhook = message.webhook ? Webhook.toJSON(message.webhook) : undefined);
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.webhook !== undefined) {
+      obj.webhook = Webhook.toJSON(message.webhook);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<AddWebhookRequest>): AddWebhookRequest {
     return AddWebhookRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<AddWebhookRequest>): AddWebhookRequest {
     const message = createBaseAddWebhookRequest();
     message.project = object.project ?? "";
@@ -2932,15 +2867,18 @@ export const UpdateWebhookRequest = {
 
   toJSON(message: UpdateWebhookRequest): unknown {
     const obj: any = {};
-    message.webhook !== undefined && (obj.webhook = message.webhook ? Webhook.toJSON(message.webhook) : undefined);
-    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
+    if (message.webhook !== undefined) {
+      obj.webhook = Webhook.toJSON(message.webhook);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateWebhookRequest>): UpdateWebhookRequest {
     return UpdateWebhookRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateWebhookRequest>): UpdateWebhookRequest {
     const message = createBaseUpdateWebhookRequest();
     message.webhook = (object.webhook !== undefined && object.webhook !== null)
@@ -2992,14 +2930,15 @@ export const RemoveWebhookRequest = {
 
   toJSON(message: RemoveWebhookRequest): unknown {
     const obj: any = {};
-    message.webhook !== undefined && (obj.webhook = message.webhook ? Webhook.toJSON(message.webhook) : undefined);
+    if (message.webhook !== undefined) {
+      obj.webhook = Webhook.toJSON(message.webhook);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<RemoveWebhookRequest>): RemoveWebhookRequest {
     return RemoveWebhookRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<RemoveWebhookRequest>): RemoveWebhookRequest {
     const message = createBaseRemoveWebhookRequest();
     message.webhook = (object.webhook !== undefined && object.webhook !== null)
@@ -3056,22 +2995,25 @@ export const TestWebhookRequest = {
 
   fromJSON(object: any): TestWebhookRequest {
     return {
-      project: isSet(object.project) ? String(object.project) : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
       webhook: isSet(object.webhook) ? Webhook.fromJSON(object.webhook) : undefined,
     };
   },
 
   toJSON(message: TestWebhookRequest): unknown {
     const obj: any = {};
-    message.project !== undefined && (obj.project = message.project);
-    message.webhook !== undefined && (obj.webhook = message.webhook ? Webhook.toJSON(message.webhook) : undefined);
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.webhook !== undefined) {
+      obj.webhook = Webhook.toJSON(message.webhook);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<TestWebhookRequest>): TestWebhookRequest {
     return TestWebhookRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<TestWebhookRequest>): TestWebhookRequest {
     const message = createBaseTestWebhookRequest();
     message.project = object.project ?? "";
@@ -3118,19 +3060,20 @@ export const TestWebhookResponse = {
   },
 
   fromJSON(object: any): TestWebhookResponse {
-    return { error: isSet(object.error) ? String(object.error) : "" };
+    return { error: isSet(object.error) ? globalThis.String(object.error) : "" };
   },
 
   toJSON(message: TestWebhookResponse): unknown {
     const obj: any = {};
-    message.error !== undefined && (obj.error = message.error);
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<TestWebhookResponse>): TestWebhookResponse {
     return TestWebhookResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<TestWebhookResponse>): TestWebhookResponse {
     const message = createBaseTestWebhookResponse();
     message.error = object.error ?? "";
@@ -3227,11 +3170,11 @@ export const Webhook = {
 
   fromJSON(object: any): Webhook {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
       type: isSet(object.type) ? webhook_TypeFromJSON(object.type) : 0,
-      title: isSet(object.title) ? String(object.title) : "",
-      url: isSet(object.url) ? String(object.url) : "",
-      notificationTypes: Array.isArray(object?.notificationTypes)
+      title: isSet(object.title) ? globalThis.String(object.title) : "",
+      url: isSet(object.url) ? globalThis.String(object.url) : "",
+      notificationTypes: globalThis.Array.isArray(object?.notificationTypes)
         ? object.notificationTypes.map((e: any) => activity_TypeFromJSON(e))
         : [],
     };
@@ -3239,14 +3182,20 @@ export const Webhook = {
 
   toJSON(message: Webhook): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.type !== undefined && (obj.type = webhook_TypeToJSON(message.type));
-    message.title !== undefined && (obj.title = message.title);
-    message.url !== undefined && (obj.url = message.url);
-    if (message.notificationTypes) {
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.type !== 0) {
+      obj.type = webhook_TypeToJSON(message.type);
+    }
+    if (message.title !== "") {
+      obj.title = message.title;
+    }
+    if (message.url !== "") {
+      obj.url = message.url;
+    }
+    if (message.notificationTypes?.length) {
       obj.notificationTypes = message.notificationTypes.map((e) => activity_TypeToJSON(e));
-    } else {
-      obj.notificationTypes = [];
     }
     return obj;
   },
@@ -3254,7 +3203,6 @@ export const Webhook = {
   create(base?: DeepPartial<Webhook>): Webhook {
     return Webhook.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<Webhook>): Webhook {
     const message = createBaseWebhook();
     message.name = object.name ?? "";
@@ -3323,24 +3271,29 @@ export const DeploymentConfig = {
 
   fromJSON(object: any): DeploymentConfig {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      title: isSet(object.title) ? String(object.title) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      title: isSet(object.title) ? globalThis.String(object.title) : "",
       schedule: isSet(object.schedule) ? Schedule.fromJSON(object.schedule) : undefined,
     };
   },
 
   toJSON(message: DeploymentConfig): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.title !== undefined && (obj.title = message.title);
-    message.schedule !== undefined && (obj.schedule = message.schedule ? Schedule.toJSON(message.schedule) : undefined);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.title !== "") {
+      obj.title = message.title;
+    }
+    if (message.schedule !== undefined) {
+      obj.schedule = Schedule.toJSON(message.schedule);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<DeploymentConfig>): DeploymentConfig {
     return DeploymentConfig.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DeploymentConfig>): DeploymentConfig {
     const message = createBaseDeploymentConfig();
     message.name = object.name ?? "";
@@ -3389,7 +3342,7 @@ export const Schedule = {
 
   fromJSON(object: any): Schedule {
     return {
-      deployments: Array.isArray(object?.deployments)
+      deployments: globalThis.Array.isArray(object?.deployments)
         ? object.deployments.map((e: any) => ScheduleDeployment.fromJSON(e))
         : [],
     };
@@ -3397,10 +3350,8 @@ export const Schedule = {
 
   toJSON(message: Schedule): unknown {
     const obj: any = {};
-    if (message.deployments) {
-      obj.deployments = message.deployments.map((e) => e ? ScheduleDeployment.toJSON(e) : undefined);
-    } else {
-      obj.deployments = [];
+    if (message.deployments?.length) {
+      obj.deployments = message.deployments.map((e) => ScheduleDeployment.toJSON(e));
     }
     return obj;
   },
@@ -3408,7 +3359,6 @@ export const Schedule = {
   create(base?: DeepPartial<Schedule>): Schedule {
     return Schedule.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<Schedule>): Schedule {
     const message = createBaseSchedule();
     message.deployments = object.deployments?.map((e) => ScheduleDeployment.fromPartial(e)) || [];
@@ -3463,22 +3413,25 @@ export const ScheduleDeployment = {
 
   fromJSON(object: any): ScheduleDeployment {
     return {
-      title: isSet(object.title) ? String(object.title) : "",
+      title: isSet(object.title) ? globalThis.String(object.title) : "",
       spec: isSet(object.spec) ? DeploymentSpec.fromJSON(object.spec) : undefined,
     };
   },
 
   toJSON(message: ScheduleDeployment): unknown {
     const obj: any = {};
-    message.title !== undefined && (obj.title = message.title);
-    message.spec !== undefined && (obj.spec = message.spec ? DeploymentSpec.toJSON(message.spec) : undefined);
+    if (message.title !== "") {
+      obj.title = message.title;
+    }
+    if (message.spec !== undefined) {
+      obj.spec = DeploymentSpec.toJSON(message.spec);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ScheduleDeployment>): ScheduleDeployment {
     return ScheduleDeployment.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ScheduleDeployment>): ScheduleDeployment {
     const message = createBaseScheduleDeployment();
     message.title = object.title ?? "";
@@ -3530,15 +3483,15 @@ export const DeploymentSpec = {
 
   toJSON(message: DeploymentSpec): unknown {
     const obj: any = {};
-    message.labelSelector !== undefined &&
-      (obj.labelSelector = message.labelSelector ? LabelSelector.toJSON(message.labelSelector) : undefined);
+    if (message.labelSelector !== undefined) {
+      obj.labelSelector = LabelSelector.toJSON(message.labelSelector);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<DeploymentSpec>): DeploymentSpec {
     return DeploymentSpec.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DeploymentSpec>): DeploymentSpec {
     const message = createBaseDeploymentSpec();
     message.labelSelector = (object.labelSelector !== undefined && object.labelSelector !== null)
@@ -3585,7 +3538,7 @@ export const LabelSelector = {
 
   fromJSON(object: any): LabelSelector {
     return {
-      matchExpressions: Array.isArray(object?.matchExpressions)
+      matchExpressions: globalThis.Array.isArray(object?.matchExpressions)
         ? object.matchExpressions.map((e: any) => LabelSelectorRequirement.fromJSON(e))
         : [],
     };
@@ -3593,10 +3546,8 @@ export const LabelSelector = {
 
   toJSON(message: LabelSelector): unknown {
     const obj: any = {};
-    if (message.matchExpressions) {
-      obj.matchExpressions = message.matchExpressions.map((e) => e ? LabelSelectorRequirement.toJSON(e) : undefined);
-    } else {
-      obj.matchExpressions = [];
+    if (message.matchExpressions?.length) {
+      obj.matchExpressions = message.matchExpressions.map((e) => LabelSelectorRequirement.toJSON(e));
     }
     return obj;
   },
@@ -3604,7 +3555,6 @@ export const LabelSelector = {
   create(base?: DeepPartial<LabelSelector>): LabelSelector {
     return LabelSelector.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<LabelSelector>): LabelSelector {
     const message = createBaseLabelSelector();
     message.matchExpressions = object.matchExpressions?.map((e) => LabelSelectorRequirement.fromPartial(e)) || [];
@@ -3669,20 +3619,22 @@ export const LabelSelectorRequirement = {
 
   fromJSON(object: any): LabelSelectorRequirement {
     return {
-      key: isSet(object.key) ? String(object.key) : "",
+      key: isSet(object.key) ? globalThis.String(object.key) : "",
       operator: isSet(object.operator) ? operatorTypeFromJSON(object.operator) : 0,
-      values: Array.isArray(object?.values) ? object.values.map((e: any) => String(e)) : [],
+      values: globalThis.Array.isArray(object?.values) ? object.values.map((e: any) => globalThis.String(e)) : [],
     };
   },
 
   toJSON(message: LabelSelectorRequirement): unknown {
     const obj: any = {};
-    message.key !== undefined && (obj.key = message.key);
-    message.operator !== undefined && (obj.operator = operatorTypeToJSON(message.operator));
-    if (message.values) {
-      obj.values = message.values.map((e) => e);
-    } else {
-      obj.values = [];
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.operator !== 0) {
+      obj.operator = operatorTypeToJSON(message.operator);
+    }
+    if (message.values?.length) {
+      obj.values = message.values;
     }
     return obj;
   },
@@ -3690,7 +3642,6 @@ export const LabelSelectorRequirement = {
   create(base?: DeepPartial<LabelSelectorRequirement>): LabelSelectorRequirement {
     return LabelSelectorRequirement.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<LabelSelectorRequirement>): LabelSelectorRequirement {
     const message = createBaseLabelSelectorRequirement();
     message.key = object.key ?? "";
@@ -3737,7 +3688,6 @@ export const Activity = {
   create(base?: DeepPartial<Activity>): Activity {
     return Activity.fromPartial(base ?? {});
   },
-
   fromPartial(_: DeepPartial<Activity>): Activity {
     const message = createBaseActivity();
     return message;
@@ -3801,24 +3751,29 @@ export const ListDatabaseGroupsRequest = {
 
   fromJSON(object: any): ListDatabaseGroupsRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
     };
   },
 
   toJSON(message: ListDatabaseGroupsRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      obj.pageToken = message.pageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListDatabaseGroupsRequest>): ListDatabaseGroupsRequest {
     return ListDatabaseGroupsRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListDatabaseGroupsRequest>): ListDatabaseGroupsRequest {
     const message = createBaseListDatabaseGroupsRequest();
     message.parent = object.parent ?? "";
@@ -3875,28 +3830,27 @@ export const ListDatabaseGroupsResponse = {
 
   fromJSON(object: any): ListDatabaseGroupsResponse {
     return {
-      databaseGroups: Array.isArray(object?.databaseGroups)
+      databaseGroups: globalThis.Array.isArray(object?.databaseGroups)
         ? object.databaseGroups.map((e: any) => DatabaseGroup.fromJSON(e))
         : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+      nextPageToken: isSet(object.nextPageToken) ? globalThis.String(object.nextPageToken) : "",
     };
   },
 
   toJSON(message: ListDatabaseGroupsResponse): unknown {
     const obj: any = {};
-    if (message.databaseGroups) {
-      obj.databaseGroups = message.databaseGroups.map((e) => e ? DatabaseGroup.toJSON(e) : undefined);
-    } else {
-      obj.databaseGroups = [];
+    if (message.databaseGroups?.length) {
+      obj.databaseGroups = message.databaseGroups.map((e) => DatabaseGroup.toJSON(e));
     }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    if (message.nextPageToken !== "") {
+      obj.nextPageToken = message.nextPageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListDatabaseGroupsResponse>): ListDatabaseGroupsResponse {
     return ListDatabaseGroupsResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListDatabaseGroupsResponse>): ListDatabaseGroupsResponse {
     const message = createBaseListDatabaseGroupsResponse();
     message.databaseGroups = object.databaseGroups?.map((e) => DatabaseGroup.fromPartial(e)) || [];
@@ -3952,22 +3906,25 @@ export const GetDatabaseGroupRequest = {
 
   fromJSON(object: any): GetDatabaseGroupRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
       view: isSet(object.view) ? databaseGroupViewFromJSON(object.view) : 0,
     };
   },
 
   toJSON(message: GetDatabaseGroupRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.view !== undefined && (obj.view = databaseGroupViewToJSON(message.view));
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.view !== 0) {
+      obj.view = databaseGroupViewToJSON(message.view);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetDatabaseGroupRequest>): GetDatabaseGroupRequest {
     return GetDatabaseGroupRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetDatabaseGroupRequest>): GetDatabaseGroupRequest {
     const message = createBaseGetDatabaseGroupRequest();
     message.name = object.name ?? "";
@@ -4043,27 +4000,33 @@ export const CreateDatabaseGroupRequest = {
 
   fromJSON(object: any): CreateDatabaseGroupRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
       databaseGroup: isSet(object.databaseGroup) ? DatabaseGroup.fromJSON(object.databaseGroup) : undefined,
-      databaseGroupId: isSet(object.databaseGroupId) ? String(object.databaseGroupId) : "",
-      validateOnly: isSet(object.validateOnly) ? Boolean(object.validateOnly) : false,
+      databaseGroupId: isSet(object.databaseGroupId) ? globalThis.String(object.databaseGroupId) : "",
+      validateOnly: isSet(object.validateOnly) ? globalThis.Boolean(object.validateOnly) : false,
     };
   },
 
   toJSON(message: CreateDatabaseGroupRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.databaseGroup !== undefined &&
-      (obj.databaseGroup = message.databaseGroup ? DatabaseGroup.toJSON(message.databaseGroup) : undefined);
-    message.databaseGroupId !== undefined && (obj.databaseGroupId = message.databaseGroupId);
-    message.validateOnly !== undefined && (obj.validateOnly = message.validateOnly);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.databaseGroup !== undefined) {
+      obj.databaseGroup = DatabaseGroup.toJSON(message.databaseGroup);
+    }
+    if (message.databaseGroupId !== "") {
+      obj.databaseGroupId = message.databaseGroupId;
+    }
+    if (message.validateOnly === true) {
+      obj.validateOnly = message.validateOnly;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<CreateDatabaseGroupRequest>): CreateDatabaseGroupRequest {
     return CreateDatabaseGroupRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<CreateDatabaseGroupRequest>): CreateDatabaseGroupRequest {
     const message = createBaseCreateDatabaseGroupRequest();
     message.parent = object.parent ?? "";
@@ -4130,16 +4093,18 @@ export const UpdateDatabaseGroupRequest = {
 
   toJSON(message: UpdateDatabaseGroupRequest): unknown {
     const obj: any = {};
-    message.databaseGroup !== undefined &&
-      (obj.databaseGroup = message.databaseGroup ? DatabaseGroup.toJSON(message.databaseGroup) : undefined);
-    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
+    if (message.databaseGroup !== undefined) {
+      obj.databaseGroup = DatabaseGroup.toJSON(message.databaseGroup);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateDatabaseGroupRequest>): UpdateDatabaseGroupRequest {
     return UpdateDatabaseGroupRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateDatabaseGroupRequest>): UpdateDatabaseGroupRequest {
     const message = createBaseUpdateDatabaseGroupRequest();
     message.databaseGroup = (object.databaseGroup !== undefined && object.databaseGroup !== null)
@@ -4186,19 +4151,20 @@ export const DeleteDatabaseGroupRequest = {
   },
 
   fromJSON(object: any): DeleteDatabaseGroupRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: DeleteDatabaseGroupRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<DeleteDatabaseGroupRequest>): DeleteDatabaseGroupRequest {
     return DeleteDatabaseGroupRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DeleteDatabaseGroupRequest>): DeleteDatabaseGroupRequest {
     const message = createBaseDeleteDatabaseGroupRequest();
     message.name = object.name ?? "";
@@ -4283,13 +4249,13 @@ export const DatabaseGroup = {
 
   fromJSON(object: any): DatabaseGroup {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      databasePlaceholder: isSet(object.databasePlaceholder) ? String(object.databasePlaceholder) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      databasePlaceholder: isSet(object.databasePlaceholder) ? globalThis.String(object.databasePlaceholder) : "",
       databaseExpr: isSet(object.databaseExpr) ? Expr.fromJSON(object.databaseExpr) : undefined,
-      matchedDatabases: Array.isArray(object?.matchedDatabases)
+      matchedDatabases: globalThis.Array.isArray(object?.matchedDatabases)
         ? object.matchedDatabases.map((e: any) => DatabaseGroup_Database.fromJSON(e))
         : [],
-      unmatchedDatabases: Array.isArray(object?.unmatchedDatabases)
+      unmatchedDatabases: globalThis.Array.isArray(object?.unmatchedDatabases)
         ? object.unmatchedDatabases.map((e: any) => DatabaseGroup_Database.fromJSON(e))
         : [],
     };
@@ -4297,19 +4263,20 @@ export const DatabaseGroup = {
 
   toJSON(message: DatabaseGroup): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.databasePlaceholder !== undefined && (obj.databasePlaceholder = message.databasePlaceholder);
-    message.databaseExpr !== undefined &&
-      (obj.databaseExpr = message.databaseExpr ? Expr.toJSON(message.databaseExpr) : undefined);
-    if (message.matchedDatabases) {
-      obj.matchedDatabases = message.matchedDatabases.map((e) => e ? DatabaseGroup_Database.toJSON(e) : undefined);
-    } else {
-      obj.matchedDatabases = [];
+    if (message.name !== "") {
+      obj.name = message.name;
     }
-    if (message.unmatchedDatabases) {
-      obj.unmatchedDatabases = message.unmatchedDatabases.map((e) => e ? DatabaseGroup_Database.toJSON(e) : undefined);
-    } else {
-      obj.unmatchedDatabases = [];
+    if (message.databasePlaceholder !== "") {
+      obj.databasePlaceholder = message.databasePlaceholder;
+    }
+    if (message.databaseExpr !== undefined) {
+      obj.databaseExpr = Expr.toJSON(message.databaseExpr);
+    }
+    if (message.matchedDatabases?.length) {
+      obj.matchedDatabases = message.matchedDatabases.map((e) => DatabaseGroup_Database.toJSON(e));
+    }
+    if (message.unmatchedDatabases?.length) {
+      obj.unmatchedDatabases = message.unmatchedDatabases.map((e) => DatabaseGroup_Database.toJSON(e));
     }
     return obj;
   },
@@ -4317,7 +4284,6 @@ export const DatabaseGroup = {
   create(base?: DeepPartial<DatabaseGroup>): DatabaseGroup {
     return DatabaseGroup.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DatabaseGroup>): DatabaseGroup {
     const message = createBaseDatabaseGroup();
     message.name = object.name ?? "";
@@ -4367,19 +4333,20 @@ export const DatabaseGroup_Database = {
   },
 
   fromJSON(object: any): DatabaseGroup_Database {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: DatabaseGroup_Database): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<DatabaseGroup_Database>): DatabaseGroup_Database {
     return DatabaseGroup_Database.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DatabaseGroup_Database>): DatabaseGroup_Database {
     const message = createBaseDatabaseGroup_Database();
     message.name = object.name ?? "";
@@ -4454,27 +4421,33 @@ export const CreateSchemaGroupRequest = {
 
   fromJSON(object: any): CreateSchemaGroupRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
       schemaGroup: isSet(object.schemaGroup) ? SchemaGroup.fromJSON(object.schemaGroup) : undefined,
-      schemaGroupId: isSet(object.schemaGroupId) ? String(object.schemaGroupId) : "",
-      validateOnly: isSet(object.validateOnly) ? Boolean(object.validateOnly) : false,
+      schemaGroupId: isSet(object.schemaGroupId) ? globalThis.String(object.schemaGroupId) : "",
+      validateOnly: isSet(object.validateOnly) ? globalThis.Boolean(object.validateOnly) : false,
     };
   },
 
   toJSON(message: CreateSchemaGroupRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.schemaGroup !== undefined &&
-      (obj.schemaGroup = message.schemaGroup ? SchemaGroup.toJSON(message.schemaGroup) : undefined);
-    message.schemaGroupId !== undefined && (obj.schemaGroupId = message.schemaGroupId);
-    message.validateOnly !== undefined && (obj.validateOnly = message.validateOnly);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.schemaGroup !== undefined) {
+      obj.schemaGroup = SchemaGroup.toJSON(message.schemaGroup);
+    }
+    if (message.schemaGroupId !== "") {
+      obj.schemaGroupId = message.schemaGroupId;
+    }
+    if (message.validateOnly === true) {
+      obj.validateOnly = message.validateOnly;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<CreateSchemaGroupRequest>): CreateSchemaGroupRequest {
     return CreateSchemaGroupRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<CreateSchemaGroupRequest>): CreateSchemaGroupRequest {
     const message = createBaseCreateSchemaGroupRequest();
     message.parent = object.parent ?? "";
@@ -4541,16 +4514,18 @@ export const UpdateSchemaGroupRequest = {
 
   toJSON(message: UpdateSchemaGroupRequest): unknown {
     const obj: any = {};
-    message.schemaGroup !== undefined &&
-      (obj.schemaGroup = message.schemaGroup ? SchemaGroup.toJSON(message.schemaGroup) : undefined);
-    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
+    if (message.schemaGroup !== undefined) {
+      obj.schemaGroup = SchemaGroup.toJSON(message.schemaGroup);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateSchemaGroupRequest>): UpdateSchemaGroupRequest {
     return UpdateSchemaGroupRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateSchemaGroupRequest>): UpdateSchemaGroupRequest {
     const message = createBaseUpdateSchemaGroupRequest();
     message.schemaGroup = (object.schemaGroup !== undefined && object.schemaGroup !== null)
@@ -4597,19 +4572,20 @@ export const DeleteSchemaGroupRequest = {
   },
 
   fromJSON(object: any): DeleteSchemaGroupRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: DeleteSchemaGroupRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<DeleteSchemaGroupRequest>): DeleteSchemaGroupRequest {
     return DeleteSchemaGroupRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DeleteSchemaGroupRequest>): DeleteSchemaGroupRequest {
     const message = createBaseDeleteSchemaGroupRequest();
     message.name = object.name ?? "";
@@ -4674,24 +4650,29 @@ export const ListSchemaGroupsRequest = {
 
   fromJSON(object: any): ListSchemaGroupsRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
     };
   },
 
   toJSON(message: ListSchemaGroupsRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      obj.pageToken = message.pageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListSchemaGroupsRequest>): ListSchemaGroupsRequest {
     return ListSchemaGroupsRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListSchemaGroupsRequest>): ListSchemaGroupsRequest {
     const message = createBaseListSchemaGroupsRequest();
     message.parent = object.parent ?? "";
@@ -4748,28 +4729,27 @@ export const ListSchemaGroupsResponse = {
 
   fromJSON(object: any): ListSchemaGroupsResponse {
     return {
-      schemaGroups: Array.isArray(object?.schemaGroups)
+      schemaGroups: globalThis.Array.isArray(object?.schemaGroups)
         ? object.schemaGroups.map((e: any) => SchemaGroup.fromJSON(e))
         : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+      nextPageToken: isSet(object.nextPageToken) ? globalThis.String(object.nextPageToken) : "",
     };
   },
 
   toJSON(message: ListSchemaGroupsResponse): unknown {
     const obj: any = {};
-    if (message.schemaGroups) {
-      obj.schemaGroups = message.schemaGroups.map((e) => e ? SchemaGroup.toJSON(e) : undefined);
-    } else {
-      obj.schemaGroups = [];
+    if (message.schemaGroups?.length) {
+      obj.schemaGroups = message.schemaGroups.map((e) => SchemaGroup.toJSON(e));
     }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    if (message.nextPageToken !== "") {
+      obj.nextPageToken = message.nextPageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListSchemaGroupsResponse>): ListSchemaGroupsResponse {
     return ListSchemaGroupsResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListSchemaGroupsResponse>): ListSchemaGroupsResponse {
     const message = createBaseListSchemaGroupsResponse();
     message.schemaGroups = object.schemaGroups?.map((e) => SchemaGroup.fromPartial(e)) || [];
@@ -4825,22 +4805,25 @@ export const GetSchemaGroupRequest = {
 
   fromJSON(object: any): GetSchemaGroupRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
       view: isSet(object.view) ? schemaGroupViewFromJSON(object.view) : 0,
     };
   },
 
   toJSON(message: GetSchemaGroupRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.view !== undefined && (obj.view = schemaGroupViewToJSON(message.view));
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.view !== 0) {
+      obj.view = schemaGroupViewToJSON(message.view);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetSchemaGroupRequest>): GetSchemaGroupRequest {
     return GetSchemaGroupRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetSchemaGroupRequest>): GetSchemaGroupRequest {
     const message = createBaseGetSchemaGroupRequest();
     message.name = object.name ?? "";
@@ -4926,13 +4909,13 @@ export const SchemaGroup = {
 
   fromJSON(object: any): SchemaGroup {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
       tableExpr: isSet(object.tableExpr) ? Expr.fromJSON(object.tableExpr) : undefined,
-      tablePlaceholder: isSet(object.tablePlaceholder) ? String(object.tablePlaceholder) : "",
-      matchedTables: Array.isArray(object?.matchedTables)
+      tablePlaceholder: isSet(object.tablePlaceholder) ? globalThis.String(object.tablePlaceholder) : "",
+      matchedTables: globalThis.Array.isArray(object?.matchedTables)
         ? object.matchedTables.map((e: any) => SchemaGroup_Table.fromJSON(e))
         : [],
-      unmatchedTables: Array.isArray(object?.unmatchedTables)
+      unmatchedTables: globalThis.Array.isArray(object?.unmatchedTables)
         ? object.unmatchedTables.map((e: any) => SchemaGroup_Table.fromJSON(e))
         : [],
     };
@@ -4940,18 +4923,20 @@ export const SchemaGroup = {
 
   toJSON(message: SchemaGroup): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.tableExpr !== undefined && (obj.tableExpr = message.tableExpr ? Expr.toJSON(message.tableExpr) : undefined);
-    message.tablePlaceholder !== undefined && (obj.tablePlaceholder = message.tablePlaceholder);
-    if (message.matchedTables) {
-      obj.matchedTables = message.matchedTables.map((e) => e ? SchemaGroup_Table.toJSON(e) : undefined);
-    } else {
-      obj.matchedTables = [];
+    if (message.name !== "") {
+      obj.name = message.name;
     }
-    if (message.unmatchedTables) {
-      obj.unmatchedTables = message.unmatchedTables.map((e) => e ? SchemaGroup_Table.toJSON(e) : undefined);
-    } else {
-      obj.unmatchedTables = [];
+    if (message.tableExpr !== undefined) {
+      obj.tableExpr = Expr.toJSON(message.tableExpr);
+    }
+    if (message.tablePlaceholder !== "") {
+      obj.tablePlaceholder = message.tablePlaceholder;
+    }
+    if (message.matchedTables?.length) {
+      obj.matchedTables = message.matchedTables.map((e) => SchemaGroup_Table.toJSON(e));
+    }
+    if (message.unmatchedTables?.length) {
+      obj.unmatchedTables = message.unmatchedTables.map((e) => SchemaGroup_Table.toJSON(e));
     }
     return obj;
   },
@@ -4959,7 +4944,6 @@ export const SchemaGroup = {
   create(base?: DeepPartial<SchemaGroup>): SchemaGroup {
     return SchemaGroup.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SchemaGroup>): SchemaGroup {
     const message = createBaseSchemaGroup();
     message.name = object.name ?? "";
@@ -5030,29 +5014,332 @@ export const SchemaGroup_Table = {
 
   fromJSON(object: any): SchemaGroup_Table {
     return {
-      database: isSet(object.database) ? String(object.database) : "",
-      schema: isSet(object.schema) ? String(object.schema) : "",
-      table: isSet(object.table) ? String(object.table) : "",
+      database: isSet(object.database) ? globalThis.String(object.database) : "",
+      schema: isSet(object.schema) ? globalThis.String(object.schema) : "",
+      table: isSet(object.table) ? globalThis.String(object.table) : "",
     };
   },
 
   toJSON(message: SchemaGroup_Table): unknown {
     const obj: any = {};
-    message.database !== undefined && (obj.database = message.database);
-    message.schema !== undefined && (obj.schema = message.schema);
-    message.table !== undefined && (obj.table = message.table);
+    if (message.database !== "") {
+      obj.database = message.database;
+    }
+    if (message.schema !== "") {
+      obj.schema = message.schema;
+    }
+    if (message.table !== "") {
+      obj.table = message.table;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<SchemaGroup_Table>): SchemaGroup_Table {
     return SchemaGroup_Table.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SchemaGroup_Table>): SchemaGroup_Table {
     const message = createBaseSchemaGroup_Table();
     message.database = object.database ?? "";
     message.schema = object.schema ?? "";
     message.table = object.table ?? "";
+    return message;
+  },
+};
+
+function createBaseGetProjectProtectionRulesRequest(): GetProjectProtectionRulesRequest {
+  return { name: "" };
+}
+
+export const GetProjectProtectionRulesRequest = {
+  encode(message: GetProjectProtectionRulesRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): GetProjectProtectionRulesRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetProjectProtectionRulesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GetProjectProtectionRulesRequest {
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
+  },
+
+  toJSON(message: GetProjectProtectionRulesRequest): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GetProjectProtectionRulesRequest>): GetProjectProtectionRulesRequest {
+    return GetProjectProtectionRulesRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GetProjectProtectionRulesRequest>): GetProjectProtectionRulesRequest {
+    const message = createBaseGetProjectProtectionRulesRequest();
+    message.name = object.name ?? "";
+    return message;
+  },
+};
+
+function createBaseUpdateProjectProtectionRulesRequest(): UpdateProjectProtectionRulesRequest {
+  return { protectionRules: undefined };
+}
+
+export const UpdateProjectProtectionRulesRequest = {
+  encode(message: UpdateProjectProtectionRulesRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.protectionRules !== undefined) {
+      ProtectionRules.encode(message.protectionRules, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): UpdateProjectProtectionRulesRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseUpdateProjectProtectionRulesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.protectionRules = ProtectionRules.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): UpdateProjectProtectionRulesRequest {
+    return {
+      protectionRules: isSet(object.protectionRules) ? ProtectionRules.fromJSON(object.protectionRules) : undefined,
+    };
+  },
+
+  toJSON(message: UpdateProjectProtectionRulesRequest): unknown {
+    const obj: any = {};
+    if (message.protectionRules !== undefined) {
+      obj.protectionRules = ProtectionRules.toJSON(message.protectionRules);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<UpdateProjectProtectionRulesRequest>): UpdateProjectProtectionRulesRequest {
+    return UpdateProjectProtectionRulesRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<UpdateProjectProtectionRulesRequest>): UpdateProjectProtectionRulesRequest {
+    const message = createBaseUpdateProjectProtectionRulesRequest();
+    message.protectionRules = (object.protectionRules !== undefined && object.protectionRules !== null)
+      ? ProtectionRules.fromPartial(object.protectionRules)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseProtectionRules(): ProtectionRules {
+  return { name: "", rules: [] };
+}
+
+export const ProtectionRules = {
+  encode(message: ProtectionRules, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    for (const v of message.rules) {
+      ProtectionRule.encode(v!, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ProtectionRules {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseProtectionRules();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.rules.push(ProtectionRule.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ProtectionRules {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      rules: globalThis.Array.isArray(object?.rules) ? object.rules.map((e: any) => ProtectionRule.fromJSON(e)) : [],
+    };
+  },
+
+  toJSON(message: ProtectionRules): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.rules?.length) {
+      obj.rules = message.rules.map((e) => ProtectionRule.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ProtectionRules>): ProtectionRules {
+    return ProtectionRules.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ProtectionRules>): ProtectionRules {
+    const message = createBaseProtectionRules();
+    message.name = object.name ?? "";
+    message.rules = object.rules?.map((e) => ProtectionRule.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseProtectionRule(): ProtectionRule {
+  return { id: "", target: 0, nameFilter: "", createAllowedRoles: [] };
+}
+
+export const ProtectionRule = {
+  encode(message: ProtectionRule, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.id !== "") {
+      writer.uint32(10).string(message.id);
+    }
+    if (message.target !== 0) {
+      writer.uint32(16).int32(message.target);
+    }
+    if (message.nameFilter !== "") {
+      writer.uint32(26).string(message.nameFilter);
+    }
+    for (const v of message.createAllowedRoles) {
+      writer.uint32(34).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ProtectionRule {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseProtectionRule();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.id = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.target = reader.int32() as any;
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.nameFilter = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.createAllowedRoles.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ProtectionRule {
+    return {
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      target: isSet(object.target) ? protectionRule_TargetFromJSON(object.target) : 0,
+      nameFilter: isSet(object.nameFilter) ? globalThis.String(object.nameFilter) : "",
+      createAllowedRoles: globalThis.Array.isArray(object?.createAllowedRoles)
+        ? object.createAllowedRoles.map((e: any) => globalThis.String(e))
+        : [],
+    };
+  },
+
+  toJSON(message: ProtectionRule): unknown {
+    const obj: any = {};
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.target !== 0) {
+      obj.target = protectionRule_TargetToJSON(message.target);
+    }
+    if (message.nameFilter !== "") {
+      obj.nameFilter = message.nameFilter;
+    }
+    if (message.createAllowedRoles?.length) {
+      obj.createAllowedRoles = message.createAllowedRoles;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ProtectionRule>): ProtectionRule {
+    return ProtectionRule.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ProtectionRule>): ProtectionRule {
+    const message = createBaseProtectionRule();
+    message.id = object.id ?? "";
+    message.target = object.target ?? 0;
+    message.nameFilter = object.nameFilter ?? "";
+    message.createAllowedRoles = object.createAllowedRoles?.map((e) => e) || [];
     return message;
   },
 };
@@ -5112,45 +5399,6 @@ export const ProjectServiceDefinition = {
         _unknownFields: {
           8410: [new Uint8Array([0])],
           578365826: [new Uint8Array([14, 18, 12, 47, 118, 49, 47, 112, 114, 111, 106, 101, 99, 116, 115])],
-        },
-      },
-    },
-    /** Search for projects that the caller has both projects.get permission on, and also satisfy the specified query. */
-    searchProjects: {
-      name: "SearchProjects",
-      requestType: SearchProjectsRequest,
-      requestStream: false,
-      responseType: SearchProjectsResponse,
-      responseStream: false,
-      options: {
-        _unknownFields: {
-          8410: [new Uint8Array([0])],
-          578365826: [
-            new Uint8Array([
-              21,
-              18,
-              19,
-              47,
-              118,
-              49,
-              47,
-              112,
-              114,
-              111,
-              106,
-              101,
-              99,
-              116,
-              115,
-              58,
-              115,
-              101,
-              97,
-              114,
-              99,
-              104,
-            ]),
-          ],
         },
       },
     },
@@ -5542,9 +5790,9 @@ export const ProjectServiceDefinition = {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              40,
+              43,
               18,
-              38,
+              41,
               47,
               118,
               49,
@@ -5582,6 +5830,9 @@ export const ProjectServiceDefinition = {
               102,
               105,
               103,
+              115,
+              47,
+              42,
               125,
             ]),
           ],
@@ -5598,7 +5849,7 @@ export const ProjectServiceDefinition = {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              55,
+              58,
               58,
               6,
               99,
@@ -5608,7 +5859,7 @@ export const ProjectServiceDefinition = {
               105,
               103,
               50,
-              45,
+              48,
               47,
               118,
               49,
@@ -5653,6 +5904,9 @@ export const ProjectServiceDefinition = {
               102,
               105,
               103,
+              115,
+              47,
+              42,
               125,
             ]),
           ],
@@ -7029,209 +7283,151 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    getProjectProtectionRules: {
+      name: "GetProjectProtectionRules",
+      requestType: GetProjectProtectionRulesRequest,
+      requestStream: false,
+      responseType: ProtectionRules,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              39,
+              18,
+              37,
+              47,
+              118,
+              49,
+              47,
+              123,
+              110,
+              97,
+              109,
+              101,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              112,
+              114,
+              111,
+              116,
+              101,
+              99,
+              116,
+              105,
+              111,
+              110,
+              82,
+              117,
+              108,
+              101,
+              115,
+              125,
+            ]),
+          ],
+        },
+      },
+    },
+    updateProjectProtectionRules: {
+      name: "UpdateProjectProtectionRules",
+      requestType: UpdateProjectProtectionRulesRequest,
+      requestStream: false,
+      responseType: ProtectionRules,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              59,
+              58,
+              1,
+              42,
+              34,
+              54,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              114,
+              111,
+              116,
+              101,
+              99,
+              116,
+              105,
+              111,
+              110,
+              95,
+              114,
+              117,
+              108,
+              101,
+              115,
+              46,
+              110,
+              97,
+              109,
+              101,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              112,
+              114,
+              111,
+              116,
+              101,
+              99,
+              116,
+              105,
+              111,
+              110,
+              82,
+              117,
+              108,
+              101,
+              115,
+              125,
+            ]),
+          ],
+        },
+      },
+    },
   },
 } as const;
-
-export interface ProjectServiceImplementation<CallContextExt = {}> {
-  getProject(request: GetProjectRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Project>>;
-  listProjects(
-    request: ListProjectsRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListProjectsResponse>>;
-  /** Search for projects that the caller has both projects.get permission on, and also satisfy the specified query. */
-  searchProjects(
-    request: SearchProjectsRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<SearchProjectsResponse>>;
-  createProject(request: CreateProjectRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Project>>;
-  updateProject(request: UpdateProjectRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Project>>;
-  deleteProject(request: DeleteProjectRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Empty>>;
-  undeleteProject(
-    request: UndeleteProjectRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<Project>>;
-  getIamPolicy(request: GetIamPolicyRequest, context: CallContext & CallContextExt): Promise<DeepPartial<IamPolicy>>;
-  batchGetIamPolicy(
-    request: BatchGetIamPolicyRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<BatchGetIamPolicyResponse>>;
-  setIamPolicy(request: SetIamPolicyRequest, context: CallContext & CallContextExt): Promise<DeepPartial<IamPolicy>>;
-  getDeploymentConfig(
-    request: GetDeploymentConfigRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<DeploymentConfig>>;
-  updateDeploymentConfig(
-    request: UpdateDeploymentConfigRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<DeploymentConfig>>;
-  addWebhook(request: AddWebhookRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Project>>;
-  updateWebhook(request: UpdateWebhookRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Project>>;
-  removeWebhook(request: RemoveWebhookRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Project>>;
-  testWebhook(
-    request: TestWebhookRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<TestWebhookResponse>>;
-  updateProjectGitOpsInfo(
-    request: UpdateProjectGitOpsInfoRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ProjectGitOpsInfo>>;
-  unsetProjectGitOpsInfo(
-    request: UnsetProjectGitOpsInfoRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<Empty>>;
-  setupProjectSQLReviewCI(
-    request: SetupSQLReviewCIRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<SetupSQLReviewCIResponse>>;
-  getProjectGitOpsInfo(
-    request: GetProjectGitOpsInfoRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ProjectGitOpsInfo>>;
-  listDatabaseGroups(
-    request: ListDatabaseGroupsRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListDatabaseGroupsResponse>>;
-  getDatabaseGroup(
-    request: GetDatabaseGroupRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<DatabaseGroup>>;
-  createDatabaseGroup(
-    request: CreateDatabaseGroupRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<DatabaseGroup>>;
-  updateDatabaseGroup(
-    request: UpdateDatabaseGroupRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<DatabaseGroup>>;
-  deleteDatabaseGroup(
-    request: DeleteDatabaseGroupRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<Empty>>;
-  listSchemaGroups(
-    request: ListSchemaGroupsRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListSchemaGroupsResponse>>;
-  getSchemaGroup(
-    request: GetSchemaGroupRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<SchemaGroup>>;
-  createSchemaGroup(
-    request: CreateSchemaGroupRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<SchemaGroup>>;
-  updateSchemaGroup(
-    request: UpdateSchemaGroupRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<SchemaGroup>>;
-  deleteSchemaGroup(
-    request: DeleteSchemaGroupRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<Empty>>;
-}
-
-export interface ProjectServiceClient<CallOptionsExt = {}> {
-  getProject(request: DeepPartial<GetProjectRequest>, options?: CallOptions & CallOptionsExt): Promise<Project>;
-  listProjects(
-    request: DeepPartial<ListProjectsRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ListProjectsResponse>;
-  /** Search for projects that the caller has both projects.get permission on, and also satisfy the specified query. */
-  searchProjects(
-    request: DeepPartial<SearchProjectsRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<SearchProjectsResponse>;
-  createProject(request: DeepPartial<CreateProjectRequest>, options?: CallOptions & CallOptionsExt): Promise<Project>;
-  updateProject(request: DeepPartial<UpdateProjectRequest>, options?: CallOptions & CallOptionsExt): Promise<Project>;
-  deleteProject(request: DeepPartial<DeleteProjectRequest>, options?: CallOptions & CallOptionsExt): Promise<Empty>;
-  undeleteProject(
-    request: DeepPartial<UndeleteProjectRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<Project>;
-  getIamPolicy(request: DeepPartial<GetIamPolicyRequest>, options?: CallOptions & CallOptionsExt): Promise<IamPolicy>;
-  batchGetIamPolicy(
-    request: DeepPartial<BatchGetIamPolicyRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<BatchGetIamPolicyResponse>;
-  setIamPolicy(request: DeepPartial<SetIamPolicyRequest>, options?: CallOptions & CallOptionsExt): Promise<IamPolicy>;
-  getDeploymentConfig(
-    request: DeepPartial<GetDeploymentConfigRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<DeploymentConfig>;
-  updateDeploymentConfig(
-    request: DeepPartial<UpdateDeploymentConfigRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<DeploymentConfig>;
-  addWebhook(request: DeepPartial<AddWebhookRequest>, options?: CallOptions & CallOptionsExt): Promise<Project>;
-  updateWebhook(request: DeepPartial<UpdateWebhookRequest>, options?: CallOptions & CallOptionsExt): Promise<Project>;
-  removeWebhook(request: DeepPartial<RemoveWebhookRequest>, options?: CallOptions & CallOptionsExt): Promise<Project>;
-  testWebhook(
-    request: DeepPartial<TestWebhookRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<TestWebhookResponse>;
-  updateProjectGitOpsInfo(
-    request: DeepPartial<UpdateProjectGitOpsInfoRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ProjectGitOpsInfo>;
-  unsetProjectGitOpsInfo(
-    request: DeepPartial<UnsetProjectGitOpsInfoRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<Empty>;
-  setupProjectSQLReviewCI(
-    request: DeepPartial<SetupSQLReviewCIRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<SetupSQLReviewCIResponse>;
-  getProjectGitOpsInfo(
-    request: DeepPartial<GetProjectGitOpsInfoRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ProjectGitOpsInfo>;
-  listDatabaseGroups(
-    request: DeepPartial<ListDatabaseGroupsRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ListDatabaseGroupsResponse>;
-  getDatabaseGroup(
-    request: DeepPartial<GetDatabaseGroupRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<DatabaseGroup>;
-  createDatabaseGroup(
-    request: DeepPartial<CreateDatabaseGroupRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<DatabaseGroup>;
-  updateDatabaseGroup(
-    request: DeepPartial<UpdateDatabaseGroupRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<DatabaseGroup>;
-  deleteDatabaseGroup(
-    request: DeepPartial<DeleteDatabaseGroupRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<Empty>;
-  listSchemaGroups(
-    request: DeepPartial<ListSchemaGroupsRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ListSchemaGroupsResponse>;
-  getSchemaGroup(
-    request: DeepPartial<GetSchemaGroupRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<SchemaGroup>;
-  createSchemaGroup(
-    request: DeepPartial<CreateSchemaGroupRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<SchemaGroup>;
-  updateSchemaGroup(
-    request: DeepPartial<UpdateSchemaGroupRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<SchemaGroup>;
-  deleteSchemaGroup(
-    request: DeepPartial<DeleteSchemaGroupRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<Empty>;
-}
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
 export type DeepPartial<T> = T extends Builtin ? T
-  : T extends Array<infer U> ? Array<DeepPartial<U>> : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
+  : T extends Long ? string | number | Long : T extends globalThis.Array<infer U> ? globalThis.Array<DeepPartial<U>>
+  : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
+
+if (_m0.util.Long !== Long) {
+  _m0.util.Long = Long as any;
+  _m0.configure();
+}
 
 function isSet(value: any): boolean {
   return value !== null && value !== undefined;

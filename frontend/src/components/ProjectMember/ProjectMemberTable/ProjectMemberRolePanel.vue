@@ -1,15 +1,19 @@
 <template>
-  <NDrawer
+  <Drawer
     :show="true"
     width="auto"
-    :auto-focus="false"
     @update:show="(show: boolean) => !show && $emit('close')"
   >
-    <NDrawerContent
+    <DrawerContent
       :title="panelTitle"
       :closable="true"
-      class="w-[64rem] max-w-[100vw] relative"
+      class="w-[72rem] max-w-[100vw] relative"
     >
+      <div class="w-full flex flex-row justify-end items-center">
+        <NButton type="primary" @click="state.showAddMemberPanel = true">{{
+          $t("project.members.grant-access")
+        }}</NButton>
+      </div>
       <div v-for="role in roleList" :key="role.role" class="mb-4">
         <template v-if="role.singleBindingList.length > 0">
           <div
@@ -39,37 +43,50 @@
             </NTooltip>
           </div>
           <BBGrid
-            :column-list="COLUMNS"
+            :column-list="getGridColumns(role.role)"
             :row-clickable="false"
             :data-source="role.singleBindingList"
             class="border"
           >
             <template #item="{ item }: SingleBindingRow">
-              <div class="bb-grid-cell !p-0 items-center justify-center">
-                <RoleExpiredTip v-if="checkRoleExpired(item)" />
-              </div>
               <div class="bb-grid-cell">
-                <span class="shrink-0 mr-1">{{
-                  extractDatabaseName(item.databaseResource)
-                }}</span>
-                <template v-if="item.databaseResource">
-                  <InstanceV1Name
-                    class="text-gray-500"
-                    :instance="
-                      extractDatabase(item.databaseResource).instanceEntity
-                    "
-                    :link="false"
-                  />
-                </template>
+                <span
+                  class="text-blue-600 cursor-pointer hover:opacity-80"
+                  @click="editingBinding = item.rawBinding"
+                >
+                  {{
+                    item.rawBinding.condition?.title ||
+                    displayRoleTitle(item.rawBinding.role)
+                  }}
+                </span>
               </div>
-              <div class="bb-grid-cell">
-                {{ extractSchemaName(item.databaseResource) }}
-              </div>
-              <div class="bb-grid-cell">
-                {{ extractTableName(item.databaseResource) }}
-              </div>
+              <template
+                v-if="isRoleShouldShowDatabaseRelatedColumns(role.role)"
+              >
+                <div class="bb-grid-cell">
+                  <span class="shrink-0 mr-1">{{
+                    extractDatabaseName(item.databaseResource)
+                  }}</span>
+                  <template v-if="item.databaseResource">
+                    <InstanceV1Name
+                      class="text-gray-500"
+                      :instance="
+                        extractDatabase(item.databaseResource).instanceEntity
+                      "
+                      :link="false"
+                    />
+                  </template>
+                </div>
+                <div class="bb-grid-cell">
+                  {{ extractSchemaName(item.databaseResource) }}
+                </div>
+                <div class="bb-grid-cell">
+                  {{ extractTableName(item.databaseResource) }}
+                </div>
+              </template>
               <div class="bb-grid-cell">
                 {{ extractExpiration(item.expiration) }}
+                <RoleExpiredTip v-if="checkRoleExpired(item)" />
               </div>
               <div class="bb-grid-cell">
                 <RoleDescription :description="item.description || ''" />
@@ -77,25 +94,24 @@
               <div class="bb-grid-cell space-x-1">
                 <NTooltip v-if="allowAdmin" trigger="hover">
                   <template #trigger>
-                    <button
+                    <NButton
+                      tag="div"
+                      text
                       class="cursor-pointer opacity-60 hover:opacity-100"
-                      @click="editingBinding = item"
-                    >
-                      <heroicons-outline:pencil class="w-4 h-4" />
-                    </button>
-                  </template>
-                  {{ $t("common.edit") }}
-                </NTooltip>
-                <NTooltip v-if="allowAdmin" trigger="hover">
-                  <template #trigger>
-                    <button
-                      class="cursor-pointer opacity-60 hover:opacity-100"
+                      :disabled="!allowDeleteCondition(item)"
                       @click="handleDeleteCondition(item)"
                     >
                       <heroicons-outline:trash class="w-4 h-4" />
-                    </button>
+                    </NButton>
                   </template>
-                  {{ $t("common.delete") }}
+                  <template #default>
+                    <template v-if="!allowDeleteCondition(item)">
+                      {{ $t("project.members.cannot-remove-last-owner") }}
+                    </template>
+                    <template v-else>
+                      {{ $t("common.delete") }}
+                    </template>
+                  </template>
                 </NTooltip>
               </div>
             </template>
@@ -103,39 +119,52 @@
         </template>
       </div>
       <template #footer>
-        <div class="flex items-center justify-end gap-x-2">
-          <NButton @click="$emit('close')">{{ $t("common.cancel") }}</NButton>
-          <NButton type="primary" @click="$emit('close')">
-            {{ $t("common.ok") }}
-          </NButton>
+        <div class="w-full flex flex-row justify-between items-center">
+          <div>
+            <BBButtonConfirm
+              :style="'DELETE'"
+              :button-text="$t('project.members.revoke-member')"
+              :require-confirm="true"
+              @confirm="handleDeleteMember"
+            />
+          </div>
+          <div class="flex items-center justify-end gap-x-2">
+            <NButton @click="$emit('close')">{{ $t("common.cancel") }}</NButton>
+            <NButton type="primary" @click="$emit('close')">
+              {{ $t("common.ok") }}
+            </NButton>
+          </div>
         </div>
       </template>
-    </NDrawerContent>
-  </NDrawer>
+    </DrawerContent>
+  </Drawer>
 
-  <EditProjectMemberPanel
+  <EditProjectRolePanel
     v-if="editingBinding"
     :project="project"
-    :member="member"
-    :single-binding="editingBinding"
+    :binding="editingBinding"
     @close="editingBinding = null"
+  />
+
+  <AddProjectMembersPanel
+    v-if="state.showAddMemberPanel"
+    :project="project"
+    :bindings="[
+      Binding.fromPartial({
+        members: [getUserEmailInBinding(member.user.email)],
+      }),
+    ]"
+    @close="state.showAddMemberPanel = false"
   />
 </template>
 
 <script lang="ts" setup>
-import { cloneDeep, isEqual } from "lodash-es";
-import {
-  NButton,
-  NDrawer,
-  NDrawerContent,
-  NTooltip,
-  useDialog,
-} from "naive-ui";
-import { computed, ref, watch } from "vue";
+import { cloneDeep, isEqual, uniqBy } from "lodash-es";
+import { NButton, NTooltip, useDialog } from "naive-ui";
+import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-
-import { ComposedProject, DatabaseResource, PresetRoleType } from "@/types";
-import { State } from "@/types/proto/v1/common";
+import { BBGrid, BBGridRow } from "@/bbkit";
+import { Drawer, DrawerContent, InstanceV1Name } from "@/components/v2";
 import {
   useCurrentUserV1,
   useDatabaseV1Store,
@@ -143,6 +172,16 @@ import {
   useProjectIamPolicyStore,
   useUserStore,
 } from "@/store";
+import {
+  ComposedProject,
+  DatabaseResource,
+  PresetRoleType,
+  PresetRoleTypeList,
+  getUserEmailInBinding,
+} from "@/types";
+import { User } from "@/types/proto/v1/auth_service";
+import { State } from "@/types/proto/v1/common";
+import { Binding } from "@/types/proto/v1/iam_policy";
 import {
   displayRoleTitle,
   hasPermissionInProjectV1,
@@ -152,13 +191,16 @@ import {
   convertFromExpr,
   stringifyConditionExpression,
 } from "@/utils/issue/cel";
-import { ComposedProjectMember, SingleBinding } from "./types";
-import { BBGridColumn, BBGrid, BBGridRow } from "@/bbkit";
+import EditProjectRolePanel from "../ProjectRoleTable/EditProjectRolePanel.vue";
 import RoleDescription from "./RoleDescription.vue";
-import EditProjectMemberPanel from "../AddProjectMember/EditProjectMemberPanel.vue";
 import RoleExpiredTip from "./RoleExpiredTip.vue";
+import { ComposedProjectMember, SingleBinding } from "./types";
 
 export type SingleBindingRow = BBGridRow<SingleBinding>;
+
+interface LocalState {
+  showAddMemberPanel: boolean;
+}
 
 const props = defineProps<{
   project: ComposedProject;
@@ -177,13 +219,16 @@ const databaseStore = useDatabaseV1Store();
 const projectIamPolicyStore = useProjectIamPolicyStore();
 const projectResourceName = computed(() => props.project.name);
 const { policy: iamPolicy } = useProjectIamPolicy(projectResourceName);
+const state = reactive<LocalState>({
+  showAddMemberPanel: false,
+});
 const roleList = ref<
   {
     role: string;
     singleBindingList: SingleBinding[];
   }[]
 >([]);
-const editingBinding = ref<SingleBinding | null>(null);
+const editingBinding = ref<Binding | null>(null);
 
 const panelTitle = computed(() => {
   return t("project.members.edit", {
@@ -191,39 +236,53 @@ const panelTitle = computed(() => {
   });
 });
 
-const COLUMNS = computed(() => {
-  const columns: BBGridColumn[] = [
-    {
-      title: "",
-      width: "2rem",
-    },
+const isRoleShouldShowDatabaseRelatedColumns = (role: string) => {
+  return role === PresetRoleType.QUERIER || role === PresetRoleType.EXPORTER;
+};
+
+const getGridColumns = (role: string) => {
+  const placeholder = {
+    title: "",
+    width: "2rem",
+  };
+  const conditionName = {
+    title: t("project.members.condition-name"),
+    width: "minmax(min-content, auto)",
+  };
+  const databaseRelatedColumns = [
     {
       title: t("common.database"),
-      width: "2fr",
+      width: "minmax(min-content, auto)",
     },
     {
       title: t("common.schema"),
-      width: "6rem",
+      width: "minmax(min-content, auto)",
     },
     {
       title: t("common.table"),
-      width: "6rem",
-    },
-    {
-      title: t("common.expiration"),
-      width: "12rem",
-    },
-    {
-      title: t("common.description"),
-      width: "6rem",
-    },
-    {
-      title: "",
-      width: "4rem",
+      width: "minmax(min-content, auto)",
     },
   ];
-  return columns;
-});
+  const expiration = {
+    title: t("common.expiration"),
+    width: "minmax(min-content, auto)",
+  };
+  const description = {
+    title: t("common.description"),
+    width: "minmax(min-content, auto)",
+  };
+  if (isRoleShouldShowDatabaseRelatedColumns(role)) {
+    return [
+      conditionName,
+      ...databaseRelatedColumns,
+      expiration,
+      description,
+      placeholder,
+    ];
+  } else {
+    return [conditionName, expiration, description, placeholder];
+  }
+};
 
 const allowAdmin = computed(() => {
   if (
@@ -257,15 +316,25 @@ const allowRemoveRole = (role: string) => {
   }
 
   if (role === PresetRoleType.OWNER) {
-    const binding = iamPolicy.value.bindings.find(
+    const ownerBindings = iamPolicy.value.bindings.filter(
       (binding) => binding.role === PresetRoleType.OWNER
     );
-    const members = (binding?.members || [])
-      .map((userIdentifier) => {
-        return userStore.getUserByIdentifier(userIdentifier);
-      })
-      .filter((user) => user?.state === State.ACTIVE);
-    if (!binding || members.length === 1) {
+    const members: User[] = [];
+    // Find those never expires owner members.
+    for (const binding of ownerBindings) {
+      if (binding.condition?.expression !== "") {
+        continue;
+      }
+      members.push(
+        ...((binding?.members || [])
+          .map((userIdentifier) => {
+            return userStore.getUserByIdentifier(userIdentifier);
+          })
+          .filter((user) => user && user.state === State.ACTIVE) as User[])
+      );
+    }
+    // If there is only one owner, disallow removing.
+    if (uniqBy(members, "email").length <= 1) {
       return false;
     }
   }
@@ -284,7 +353,7 @@ const handleDeleteRole = (role: string) => {
     positiveText: t("common.revoke"),
     negativeText: t("common.cancel"),
     onPositiveClick: async () => {
-      const user = `user:${props.member.user.email}`;
+      const user = getUserEmailInBinding(props.member.user.email);
       const policy = cloneDeep(iamPolicy.value);
       for (const binding of policy.bindings) {
         if (binding.role !== role) {
@@ -309,25 +378,29 @@ const handleDeleteRole = (role: string) => {
   });
 };
 
-const handleDeleteCondition = async (singleBinding: SingleBinding) => {
-  let role = `${displayRoleTitle(singleBinding.rawBinding.role)}`;
-  if (singleBinding.databaseResource) {
-    const database = await databaseStore.getOrFetchDatabaseByName(
-      String(singleBinding.databaseResource.databaseName)
-    );
-    role = `${role} - ${database.databaseName}`;
+const allowDeleteCondition = (singleBinding: SingleBinding) => {
+  if (singleBinding.rawBinding.role === PresetRoleType.OWNER) {
+    return allowRemoveRole(PresetRoleType.OWNER);
   }
+  return true;
+};
+
+const handleDeleteCondition = async (singleBinding: SingleBinding) => {
+  const conditionName =
+    singleBinding.rawBinding.condition?.title ||
+    displayRoleTitle(singleBinding.rawBinding.role);
   const title = t("project.members.revoke-role-from-user", {
-    role: role,
+    role: conditionName,
     user: props.member.user.title,
   });
+
   dialog.create({
     title: title,
     content: t("common.cannot-undo-this-action"),
     positiveText: t("common.revoke"),
     negativeText: t("common.cancel"),
     onPositiveClick: async () => {
-      const user = `user:${props.member.user.email}`;
+      const user = getUserEmailInBinding(props.member.user.email);
       const policy = cloneDeep(iamPolicy.value);
       const rawBinding = policy.bindings.find((binding) =>
         isEqual(binding, singleBinding.rawBinding)
@@ -340,31 +413,27 @@ const handleDeleteCondition = async (singleBinding: SingleBinding) => {
         return member !== user;
       });
 
-      if (rawBinding.parsedExpr?.expr) {
-        const conditionExpr = convertFromExpr(rawBinding.parsedExpr.expr);
-        if (conditionExpr.databaseResources) {
-          conditionExpr.databaseResources =
-            conditionExpr.databaseResources.filter(
-              (resource) => !isEqual(resource, singleBinding.databaseResource)
-            );
-          if (conditionExpr.databaseResources.length === 0) {
-            policy.bindings = policy.bindings.filter(
-              (binding) => !isEqual(binding, rawBinding)
-            );
-          } else {
-            const newBinding = cloneDeep(rawBinding);
-            newBinding.members = [user];
-            newBinding.condition!.expression =
-              stringifyConditionExpression(conditionExpr);
-            policy.bindings.push(newBinding);
-          }
-        }
-      }
-
       if (rawBinding.members.length === 0) {
         policy.bindings = policy.bindings.filter(
           (binding) => !isEqual(binding, rawBinding)
         );
+      } else {
+        if (rawBinding.parsedExpr?.expr) {
+          const conditionExpr = convertFromExpr(rawBinding.parsedExpr.expr);
+          if (conditionExpr.databaseResources) {
+            conditionExpr.databaseResources =
+              conditionExpr.databaseResources.filter(
+                (resource) => !isEqual(resource, singleBinding.databaseResource)
+              );
+            if (conditionExpr.databaseResources.length !== 0) {
+              const newBinding = cloneDeep(rawBinding);
+              newBinding.members = [user];
+              newBinding.condition!.expression =
+                stringifyConditionExpression(conditionExpr);
+              policy.bindings.push(newBinding);
+            }
+          }
+        }
       }
 
       await projectIamPolicyStore.updateProjectIamPolicy(
@@ -373,6 +442,23 @@ const handleDeleteCondition = async (singleBinding: SingleBinding) => {
       );
     },
   });
+};
+
+const handleDeleteMember = async () => {
+  const user = getUserEmailInBinding(props.member.user.email);
+  const policy = cloneDeep(iamPolicy.value);
+  for (const binding of policy.bindings) {
+    binding.members = binding.members.filter((member) => {
+      return member !== user;
+    });
+  }
+  policy.bindings = policy.bindings.filter(
+    (binding) => binding.members.length > 0
+  );
+  await projectIamPolicyStore.updateProjectIamPolicy(
+    projectResourceName.value,
+    policy
+  );
 };
 
 const extractDatabaseName = (databaseResource?: DatabaseResource) => {
@@ -422,7 +508,7 @@ const extractTableName = (databaseResource?: DatabaseResource) => {
 
 const extractExpiration = (expiration?: Date) => {
   if (!expiration) {
-    return "*";
+    return t("project.members.never-expires");
   }
   return expiration.toLocaleString();
 };
@@ -442,7 +528,9 @@ watch(
       singleBindingList: SingleBinding[];
     }[] = [];
     const rawBindingList = iamPolicy.value?.bindings?.filter((binding) => {
-      return binding.members.includes(`user:${props.member.user.email}`);
+      return binding.members.includes(
+        getUserEmailInBinding(props.member.user.email)
+      );
     });
     for (const rawBinding of rawBindingList) {
       const singleBindingList = [];
@@ -488,10 +576,18 @@ watch(
         });
       }
     }
-
     if (tempRoleList.length === 0) {
       emits("close");
     }
+
+    // Sort by role type.
+    tempRoleList.sort((a, b) => {
+      if (!PresetRoleTypeList.includes(a.role)) return -1;
+      if (!PresetRoleTypeList.includes(b.role)) return 1;
+      return (
+        PresetRoleTypeList.indexOf(a.role) - PresetRoleTypeList.indexOf(b.role)
+      );
+    });
     roleList.value = tempRoleList;
   },
   {

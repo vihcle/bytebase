@@ -1,5 +1,6 @@
 <template>
   <NSelect
+    v-bind="$attrs"
     :value="instance"
     :options="options"
     :placeholder="$t('instance.select')"
@@ -9,21 +10,19 @@
     :virtual-scroll="true"
     :fallback-option="false"
     class="bb-instance-select"
-    style="width: 12rem"
     @update:value="$emit('update:instance', $event)"
   />
 </template>
 
 <script lang="ts" setup>
-import { computed, watch, h } from "vue";
 import { NSelect, SelectOption } from "naive-ui";
+import { computed, watch, h } from "vue";
 import { useI18n } from "vue-i18n";
-
+import { useEnvironmentV1Store, useInstanceV1List } from "@/store";
 import { ComposedInstance, UNKNOWN_ID, unknownInstance } from "@/types";
-import { InstanceV1EngineIcon } from "../Model";
 import { Engine, State } from "@/types/proto/v1/common";
 import { supportedEngineV1List } from "@/utils";
-import { useEnvironmentV1Store, useInstanceV1List } from "@/store";
+import { InstanceV1EngineIcon } from "../Model/Instance";
 
 interface InstanceSelectOption extends SelectOption {
   value: string;
@@ -32,7 +31,7 @@ interface InstanceSelectOption extends SelectOption {
 
 const props = withDefaults(
   defineProps<{
-    instance: string | undefined;
+    instance?: string | undefined;
     environment?: string;
     allowedEngineList?: readonly Engine[];
     includeAll?: boolean;
@@ -41,6 +40,7 @@ const props = withDefaults(
     filter?: (instance: ComposedInstance, index: number) => boolean;
   }>(),
   {
+    instance: undefined,
     environment: undefined,
     allowedEngineList: () => supportedEngineV1List(),
     includeAll: false,
@@ -153,8 +153,9 @@ watch([() => props.instance, combinedInstanceList], resetInvalidSelection, {
 });
 </script>
 
-<style>
-.bb-instance-select .n-base-selection--active .bb-instance-select--engine-icon {
+<style lang="postcss" scoped>
+.bb-instance-select
+  :deep(.n-base-selection--active .bb-instance-select--engine-icon) {
   opacity: 0.3;
 }
 </style>

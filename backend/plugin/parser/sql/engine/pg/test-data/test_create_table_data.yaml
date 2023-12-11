@@ -6,7 +6,7 @@
 - stmt: |-
     CREATE TABLE tech_book(
       a char(20),
-      b character(30) default 'this is default',
+      b character(30) NULL default 'this is default',
       c varchar(330),
       d character varying(400),
       e text
@@ -14,7 +14,7 @@
   want: |-
     CREATE TABLE "tech_book" (
         "a" character(20),
-        "b" character(30) DEFAULT 'this is default',
+        "b" character(30) NULL DEFAULT 'this is default',
         "c" character varying(330),
         "d" character varying(400),
         "e" text
@@ -71,7 +71,7 @@
       c int,
       PRIMARY KEY(a, b, c),
       CONSTRAINT uk1 UNIQUE(a, b)
-    )
+    ) partition by range(a, b, (c+1))
   want: |-
     CREATE TABLE "t" (
         "a" integer,
@@ -79,4 +79,33 @@
         "c" integer,
         PRIMARY KEY ("a", "b", "c"),
         CONSTRAINT "uk1" UNIQUE ("a", "b")
+    )
+    PARTITION BY RANGE ("a", "b", (c + 1));
+
+- stmt: |-
+    CREATE TABLE t (
+      a numeric,
+      b numeric,
+      c numeric GENERATED ALWAYS AS (a * b) STORED
+    );
+  want: |-
+    CREATE TABLE "t" (
+        "a" numeric,
+        "b" numeric,
+        "c" numeric GENERATED ALWAYS AS (a * b) STORED
+    );
+
+- stmt: |-
+    CREATE TABLE public.t (
+      action text NOT NULL,
+      action_date timestamp NOT NULL,
+      number smallint GENERATED ALWAYS AS ((date_part('week'::text, ((action_date)::date + '1 day'::interval)))::smallint) STORED,
+      year smallint GENERATED ALWAYS AS ((date_part('year'::text, date_trunc('week'::text, action_date)))::smallint) STORED
+    );
+  want: |-
+    CREATE TABLE "public"."t" (
+        "action" text NOT NULL,
+        "action_date" timestamp NOT NULL,
+        "number" smallint GENERATED ALWAYS AS (date_part('week'::text, action_date::date + '1 day'::interval)::smallint) STORED,
+        "year" smallint GENERATED ALWAYS AS (date_part('year'::text, date_trunc('week'::text, action_date))::smallint) STORED
     );

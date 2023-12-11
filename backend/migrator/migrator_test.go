@@ -8,15 +8,13 @@ import (
 
 	"github.com/blang/semver/v4"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/bytebase/bytebase/backend/common"
-	"github.com/bytebase/bytebase/backend/common/log"
 	dbdriver "github.com/bytebase/bytebase/backend/plugin/db"
 	_ "github.com/bytebase/bytebase/backend/plugin/db/pg"
-	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	"github.com/bytebase/bytebase/backend/resources/postgres"
 	"github.com/bytebase/bytebase/backend/store"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 func TestGetMinorMigrationVersions(t *testing.T) {
@@ -140,32 +138,29 @@ func TestGetPatchVersions(t *testing.T) {
 }
 
 var (
-	pgUser        = "test"
 	pgPort        = 6000
 	serverVersion = "server-version"
 )
 
 func TestMigrationCompatibility(t *testing.T) {
-	log.SetLevel(zap.DebugLevel)
 	pgDir := t.TempDir()
+
 	pgBinDir, err := postgres.Install(path.Join(pgDir, "resource"))
-	pgDataDir := path.Join(pgDir, "data")
 	require.NoError(t, err)
-	err = postgres.InitDB(pgBinDir, pgDataDir, pgUser)
-	require.NoError(t, err)
-	err = postgres.Start(pgPort, pgBinDir, pgDataDir, false /* serverLog */)
-	require.NoError(t, err)
+
+	stopInstance := postgres.SetupTestInstance(pgBinDir, t.TempDir(), pgPort)
+	defer stopInstance()
 
 	ctx := context.Background()
 	connCfg := dbdriver.ConnectionConfig{
-		Username: pgUser,
+		Username: postgres.TestPgUser,
 		Password: "",
 		Host:     common.GetPostgresSocketDir(),
 		Port:     fmt.Sprintf("%d", pgPort),
 	}
 	defaultDriver, err := dbdriver.Open(
 		ctx,
-		dbdriver.Postgres,
+		storepb.Engine_POSTGRES,
 		dbdriver.DriverConfig{DbBinDir: pgBinDir},
 		connCfg,
 		dbdriver.ConnectionContext{},
@@ -179,20 +174,20 @@ func TestMigrationCompatibility(t *testing.T) {
 
 	metadataConnConfig := connCfg
 	metadataConnConfig.Database = databaseName
-	metadataConnConfig.StrictUseDb = true
 	metadataDriver, err := dbdriver.Open(
 		ctx,
-		dbdriver.Postgres,
+		storepb.Engine_POSTGRES,
 		dbdriver.DriverConfig{DbBinDir: pgBinDir},
 		metadataConnConfig,
 		dbdriver.ConnectionContext{},
 	)
 	require.NoError(t, err)
 
-	db := store.NewDB(metadataConnConfig, pgBinDir, "", false, "", common.ReleaseModeDev)
-	err = db.Open(ctx)
+	db := store.NewDB(metadataConnConfig, pgBinDir, false, common.ReleaseModeDev)
+	err = db.Open(ctx, true /* createDB */)
 	require.NoError(t, err)
-	storeInstance := store.New(db)
+	storeInstance, err := store.New(db)
+	require.NoError(t, err)
 
 	releaseVersion, err := getProdCutoffVersion()
 	require.NoError(t, err)
@@ -206,9 +201,7 @@ func TestMigrationCompatibility(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, histories, 1)
-	_, version, _, err := util.FromStoredVersion(histories[0].Version)
-	require.NoError(t, err)
-	require.Equal(t, version, releaseVersion.String())
+	require.Equal(t, histories[0].Version.Version, releaseVersion.String())
 
 	// Check no migration after passing current version as the release cutoff version.
 	err = migrate(ctx, storeInstance, metadataDriver, releaseVersion, releaseVersion, common.ReleaseModeProd, serverVersion, databaseName)
@@ -233,13 +226,10 @@ func TestMigrationCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	// The extra one is for the initial schema setup.
 	require.Len(t, histories, len(devMigrations)+1)
-
-	err = postgres.Stop(pgBinDir, pgDataDir)
-	require.NoError(t, err)
 }
 
 func TestGetCutoffVersion(t *testing.T) {
 	releaseVersion, err := getProdCutoffVersion()
 	require.NoError(t, err)
-	require.Equal(t, semver.MustParse("2.5.3"), releaseVersion)
+	require.Equal(t, semver.MustParse("2.12.2"), releaseVersion)
 }

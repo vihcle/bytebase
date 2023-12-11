@@ -9,10 +9,9 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-	"go.uber.org/zap/zapcore"
 
 	"github.com/bytebase/bytebase/backend/plugin/advisor/catalog"
-	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // Status is the advisor result status.
@@ -31,11 +30,11 @@ const (
 )
 
 // NewStatusBySQLReviewRuleLevel returns status by SQLReviewRuleLevel.
-func NewStatusBySQLReviewRuleLevel(level SQLReviewRuleLevel) (Status, error) {
+func NewStatusBySQLReviewRuleLevel(level storepb.SQLReviewRuleLevel) (Status, error) {
 	switch level {
-	case SchemaRuleLevelError:
+	case storepb.SQLReviewRuleLevel_ERROR:
 		return Error, nil
-	case SchemaRuleLevelWarning:
+	case storepb.SQLReviewRuleLevel_WARNING:
 		return Warn, nil
 	}
 	return "", errors.Errorf("unexpected rule level type: %s", level)
@@ -111,6 +110,9 @@ const (
 
 	// MySQLColumnDisallowChanging is an advisor type for MySQL disallow CHANGE COLUMN statement.
 	MySQLColumnDisallowChanging Type = "bb.plugin.advisor.mysql.column.disallow-change"
+
+	// MySQLColumnDisallowDropInIndex is an advisor type for MySQL disallow DROP COLUMN in index.
+	MySQLColumnDisallowDropInIndex Type = "bb.plugin.advisor.mysql.column.disallow-drop-in-index"
 
 	// MySQLColumnDisallowChangingOrder is an advisor type for MySQL disallow changing column order.
 	MySQLColumnDisallowChangingOrder Type = "bb.plugin.advisor.mysql.column.disallow-changing-order"
@@ -487,31 +489,8 @@ type Advice struct {
 	Title   string `json:"title"`
 	Content string `json:"content"`
 	Line    int    `json:"line"`
+	Column  int    `json:"column"`
 	Details string `json:"details,omitempty"`
-}
-
-// MarshalLogObject constructs a field that carries Advice.
-func (a Advice) MarshalLogObject(enc zapcore.ObjectEncoder) error {
-	enc.AddString("status", string(a.Status))
-	enc.AddInt("code", int(a.Code))
-	enc.AddString("title", a.Title)
-	enc.AddString("content", a.Content)
-	enc.AddInt("line", a.Line)
-	enc.AddString("details", a.Details)
-	return nil
-}
-
-// ZapAdviceArray is a helper to format zap.Array.
-type ZapAdviceArray []Advice
-
-// MarshalLogArray implements the zapcore.ArrayMarshaler interface.
-func (array ZapAdviceArray) MarshalLogArray(enc zapcore.ArrayEncoder) error {
-	for i := range array {
-		if err := enc.AppendObject(array[i]); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // SyntaxMode is the type of syntax mode.
@@ -532,7 +511,7 @@ type Context struct {
 
 	// SQL review rule special fields.
 	AST     any
-	Rule    *SQLReviewRule
+	Rule    *storepb.SQLReviewRule
 	Catalog *catalog.Finder
 	Driver  *sql.DB
 	Context context.Context
@@ -550,13 +529,13 @@ type Advisor interface {
 
 var (
 	advisorMu sync.RWMutex
-	advisors  = make(map[db.Type]map[Type]Advisor)
+	advisors  = make(map[storepb.Engine]map[Type]Advisor)
 )
 
 // Register makes a advisor available by the provided id.
 // If Register is called twice with the same name or if advisor is nil,
 // it panics.
-func Register(dbType db.Type, advType Type, f Advisor) {
+func Register(dbType storepb.Engine, advType Type, f Advisor) {
 	advisorMu.Lock()
 	defer advisorMu.Unlock()
 	if f == nil {
@@ -576,7 +555,7 @@ func Register(dbType db.Type, advType Type, f Advisor) {
 }
 
 // Check runs the advisor and returns the advices.
-func Check(dbType db.Type, advType Type, ctx Context, statement string) (adviceList []Advice, err error) {
+func Check(dbType storepb.Engine, advType Type, ctx Context, statement string) (adviceList []Advice, err error) {
 	defer func() {
 		if panicErr := recover(); panicErr != nil {
 			err = errors.Errorf("panic in advisor check: %v", panicErr)
@@ -596,22 +575,4 @@ func Check(dbType db.Type, advType Type, ctx Context, statement string) (adviceL
 	}
 
 	return f.Check(ctx, statement)
-}
-
-// IsSyntaxCheckSupported checks the engine type if syntax check supports it.
-func IsSyntaxCheckSupported(dbType db.Type) bool {
-	switch dbType {
-	case db.MySQL, db.TiDB, db.MariaDB, db.Postgres, db.Oracle, db.OceanBase, db.Snowflake, db.MSSQL:
-		return true
-	}
-	return false
-}
-
-// IsSQLReviewSupported checks the engine type if SQL review supports it.
-func IsSQLReviewSupported(dbType db.Type) bool {
-	switch dbType {
-	case db.MySQL, db.TiDB, db.MariaDB, db.Postgres, db.Oracle, db.OceanBase, db.Snowflake, db.MSSQL:
-		return true
-	}
-	return false
 }

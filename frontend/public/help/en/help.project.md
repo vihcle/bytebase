@@ -2,14 +2,14 @@
 title: What is 'project' ?
 ---
 
-- Bytebase project is similar to the project concept in other common dev tools such as GitLab, Jira.
+- The Bytebase project shares similarities with project concepts found in other popular development tools like GitLab and Jira.
 
-- A project has its own members, and every issue and database always belongs to a single project.
+- Each project has its own set of members, and every issue and database is always associated with a single project.
 
-- A project can also be configured to link to a repository to enable version control workflow.
+- A project can also be configured to associate with a code repository to enable GitOps workflows.
 
 #### Learn more
 
-- [Create a Project](https://www.bytebase.com/docs/get-started/work-with-a-project/create-a-project)
-- [Use UI Workflow](https://www.bytebase.com/docs/get-started/step-by-step/change-schema)
-- [Use GitOps workflow](https://www.bytebase.com/docs/vcs-integration/enable-gitops-workflow)
+- [Create a Project](https://www.bytebase.com/docs/get-started/step-by-step/create-a-project)
+- [UI Workflow](https://www.bytebase.com/docs/change-database/change-workflow)
+- [GitOps workflow](https://www.bytebase.com/docs/vcs-integration/enable-gitops-workflow)

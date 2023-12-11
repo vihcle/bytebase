@@ -103,7 +103,7 @@
       v-if="state.showLoadingSQLReviewPRModal"
       class="relative overflow-hidden"
       :show-close="false"
-      :esc-closable="false"
+      :close-on-esc="false"
       :title="$t('repository.sql-review-ci-setup')"
     >
       <div
@@ -129,34 +129,34 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, computed, PropType } from "vue";
-import { useRouter } from "vue-router";
-import isEmpty from "lodash-es/isEmpty";
 import { cloneDeep } from "lodash-es";
-import { BBStepTabItem } from "../bbkit/types";
-import { ExternalRepositoryInfo, ProjectRepositoryConfig } from "../types";
-import { projectSlugV1 } from "../utils";
+import isEmpty from "lodash-es/isEmpty";
+import { reactive, computed, PropType } from "vue";
 import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
 import { useRepositoryV1Store, hasFeature, useProjectV1Store } from "@/store";
 import { getVCSUid } from "@/store/modules/v1/common";
-import {
-  Project,
-  TenantMode,
-  SchemaChange,
-} from "@/types/proto/v1/project_service";
 import {
   OAuthToken,
   ProjectGitOpsInfo,
   ExternalVersionControl,
   ExternalVersionControl_Type,
 } from "@/types/proto/v1/externalvs_service";
+import {
+  Project,
+  TenantMode,
+  SchemaChange,
+} from "@/types/proto/v1/project_service";
+import { BBStepTabItem } from "../bbkit/types";
+import { ExternalRepositoryInfo, ProjectRepositoryConfig } from "../types";
+import { projectSlugV1 } from "../utils";
 
 // Default file path template is to organize migration files from different environments under separate directories.
 const DEFAULT_FILE_PATH_TEMPLATE =
   "{{ENV_ID}}/{{DB_NAME}}##{{VERSION}}##{{TYPE}}##{{DESCRIPTION}}.sql";
 // Default schema path template is co-locate with the corresponding db's migration files and use .(dot) to appear the first.
 const DEFAULT_SCHEMA_PATH_TEMPLATE = "{{ENV_ID}}/.{{DB_NAME}}##LATEST.sql";
-// Default sheet path tempalte is to organize script files for SQL Editor.
+// Default sheet path template is to organize script files for SQL Editor.
 const DEFAULT_SHEET_PATH_TEMPLATE =
   "script/{{ENV_ID}}##{{DB_NAME}}##{{NAME}}.sql";
 
@@ -218,10 +218,10 @@ const state = reactive<LocalState>({
   config: {
     vcs: {} as ExternalVersionControl,
     code: "",
-    token: {
+    token: OAuthToken.fromPartial({
       accessToken: "",
       refreshToken: "",
-    },
+    }),
     repositoryInfo: {
       externalId: "",
       name: "",
@@ -283,6 +283,8 @@ const createSQLReviewCI = async () => {
     const pullRequestURL = await repositoryV1Store.setupSQLReviewCI(
       props.project.name
     );
+    // refresh repository
+    await repositoryV1Store.fetchRepositoryByProject(props.project.name, true);
     state.sqlReviewCIPullRequestURL = pullRequestURL;
     state.showSetupSQLReviewCIModal = true;
     window.open(pullRequestURL, "_blank");

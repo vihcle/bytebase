@@ -1,4 +1,5 @@
-import ChangeHistoryTable from "./ChangeHistoryTable.vue";
+import AffectedTableSelect from "./AffectedTableSelect.vue";
 import ChangeHistoryStatusIcon from "./ChangeHistoryStatusIcon.vue";
+import ChangeHistoryTable from "./ChangeHistoryTable.vue";
 
-export { ChangeHistoryTable, ChangeHistoryStatusIcon };
+export { ChangeHistoryTable, ChangeHistoryStatusIcon, AffectedTableSelect };

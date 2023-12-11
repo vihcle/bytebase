@@ -32,9 +32,11 @@ func getConfigBytes(config *storepb.IdentityProviderConfig) ([]byte, error) {
 	} else if v := config.GetOidcConfig(); v != nil {
 		configBytes, err := protojson.Marshal(v)
 		return configBytes, err
-	} else {
-		return nil, errors.Errorf("unexpected provider type")
+	} else if v := config.GetLdapConfig(); v != nil {
+		configBytes, err := protojson.Marshal(v)
+		return configBytes, err
 	}
+	return nil, errors.Errorf("unexpected provider type")
 }
 
 // FindIdentityProviderMessage is the message for finding identity providers.
@@ -104,15 +106,15 @@ func (s *Store) CreateIdentityProvider(ctx context.Context, create *IdentityProv
 		return nil, err
 	}
 
-	s.idpCache.Store(identityProvider.ResourceID, identityProvider)
+	s.idpCache.Add(identityProvider.ResourceID, identityProvider)
 	return identityProvider, nil
 }
 
 // GetIdentityProvider gets an identity provider.
 func (s *Store) GetIdentityProvider(ctx context.Context, find *FindIdentityProviderMessage) (*IdentityProviderMessage, error) {
 	if find.ResourceID != nil {
-		if identityProvider, ok := s.idpCache.Load(*find.ResourceID); ok {
-			return identityProvider.(*IdentityProviderMessage), nil
+		if v, ok := s.idpCache.Get(*find.ResourceID); ok {
+			return v, nil
 		}
 	}
 	// We will always return the resource regardless of its deleted state.
@@ -139,7 +141,7 @@ func (s *Store) GetIdentityProvider(ctx context.Context, find *FindIdentityProvi
 	}
 
 	identityProvider := identityProviders[0]
-	s.idpCache.Store(identityProvider.ResourceID, identityProvider)
+	s.idpCache.Add(identityProvider.ResourceID, identityProvider)
 	return identityProvider, nil
 }
 
@@ -160,7 +162,7 @@ func (s *Store) ListIdentityProviders(ctx context.Context, find *FindIdentityPro
 	}
 
 	for _, identityProvider := range identityProviders {
-		s.idpCache.Store(identityProvider.ResourceID, identityProvider)
+		s.idpCache.Add(identityProvider.ResourceID, identityProvider)
 	}
 	return identityProviders, nil
 }
@@ -181,7 +183,7 @@ func (s *Store) UpdateIdentityProvider(ctx context.Context, patch *UpdateIdentit
 		return nil, err
 	}
 
-	s.idpCache.Store(identityProvider.ResourceID, identityProvider)
+	s.idpCache.Add(identityProvider.ResourceID, identityProvider)
 	return identityProvider, nil
 }
 
@@ -312,6 +314,8 @@ func convertIdentityProviderType(identityProviderType string) storepb.IdentityPr
 		return storepb.IdentityProviderType_OAUTH2
 	} else if identityProviderType == "OIDC" {
 		return storepb.IdentityProviderType_OIDC
+	} else if identityProviderType == "LDAP" {
+		return storepb.IdentityProviderType_LDAP
 	}
 	return storepb.IdentityProviderType_IDENTITY_PROVIDER_TYPE_UNSPECIFIED
 }
@@ -335,6 +339,15 @@ func convertIdentityProviderConfigString(identityProviderType storepb.IdentityPr
 		}
 		identityProviderConfig.Config = &storepb.IdentityProviderConfig_OidcConfig{
 			OidcConfig: &formattedConfig,
+		}
+	} else if identityProviderType == storepb.IdentityProviderType_LDAP {
+		var formattedConfig storepb.LDAPIdentityProviderConfig
+		decoder := protojson.UnmarshalOptions{DiscardUnknown: true}
+		if err := decoder.Unmarshal([]byte(config), &formattedConfig); err != nil {
+			return nil
+		}
+		identityProviderConfig.Config = &storepb.IdentityProviderConfig_LdapConfig{
+			LdapConfig: &formattedConfig,
 		}
 	}
 	return identityProviderConfig

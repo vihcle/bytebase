@@ -15,7 +15,9 @@ export const externalVersionControlPrefix = "externalVersionControls/";
 export const logNamePrefix = "logs/";
 export const issueNamePrefix = "issues/";
 export const secretNamePrefix = "secrets/";
-export const schemaDesignNamePrefix = "schemaDesigns/";
+export const branchNamePrefix = "branches/";
+
+export const protectionRulesSuffix = "/protectionRules";
 
 export const getNameParentTokens = (
   name: string,
@@ -54,6 +56,16 @@ export const getLogId = (name: string): number => {
   return getNumberId(name, logNamePrefix);
 };
 
+export const getIssueId = (name: string): number => {
+  return getNumberId(name, issueNamePrefix);
+};
+
+export const getProjectName = (name: string): string => {
+  const tokens = getNameParentTokens(name, [projectNamePrefix]);
+  const projectId = tokens[0];
+  return projectId;
+};
+
 export const getProjectAndSheetId = (name: string): string[] => {
   const tokens = getNameParentTokens(name, [
     projectNamePrefix,
@@ -67,17 +79,13 @@ export const getProjectAndSheetId = (name: string): string[] => {
   return tokens;
 };
 
-export const getProjectAndSchemaDesignSheetId = (name: string): string[] => {
-  const tokens = getNameParentTokens(name, [
-    projectNamePrefix,
-    schemaDesignNamePrefix,
-  ]);
-
-  if (tokens.length != 2) {
+export const getProjectAndBranchId = (name: string): string[] => {
+  const branchRegex = /^projects\/([^/]+)\/branches\/(.+)$/;
+  const matches = name.match(branchRegex);
+  if (!matches || matches.length != 3) {
     return ["", ""];
   }
-
-  return tokens;
+  return [matches[1], matches[2]];
 };
 
 export const getInstanceAndDatabaseId = (name: string): string[] => {

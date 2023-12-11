@@ -9,27 +9,36 @@ export interface DatabaseTreeOption<L = "environment" | "database">
   value: string;
 }
 
+const databaseValuePrefix = "database-";
+
+export const getDatabaseTreeValue = (databaseUid: string) =>
+  `${databaseValuePrefix}${databaseUid}`;
+
+export const isDatabaseTreeValue = (value: string) =>
+  value.startsWith(databaseValuePrefix);
+
 export const mapTreeOptions = (databaseList: ComposedDatabase[]) => {
   const environmentV1Store = useEnvironmentV1Store();
   const databaseListGroupByEnvironment = groupBy(
     databaseList,
-    (db) => db.instanceEntity.environmentEntity.uid
+    (db) => db.effectiveEnvironment
   );
   return Object.keys(databaseListGroupByEnvironment).map<
     DatabaseTreeOption<"environment">
-  >((environmentId) => {
-    const environment = environmentV1Store.getEnvironmentByUID(environmentId);
-    const group = databaseListGroupByEnvironment[environmentId];
+  >((environmentName) => {
+    const environment =
+      environmentV1Store.getEnvironmentByName(environmentName);
+    const group = databaseListGroupByEnvironment[environmentName];
     const children = group.map<DatabaseTreeOption<"database">>((db) => ({
       level: "database",
-      value: `database-${db.uid}`,
+      value: getDatabaseTreeValue(db.uid),
       label: db.name,
       isLeaf: true,
     }));
     return {
       level: "environment",
-      value: `environment-${environmentId}`,
-      label: environment.title,
+      value: `environment-${environment?.uid}`,
+      label: environment?.title,
       children,
     };
   });

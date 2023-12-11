@@ -31,13 +31,22 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onBeforeMount, reactive } from "vue";
 import { cloneDeep } from "lodash-es";
+import { computed, onBeforeMount, reactive } from "vue";
+import { toRef } from "vue";
 import {
   TransferMultipleDatabaseForm,
   TransferSource,
   TransferSourceSelector,
 } from "@/components/TransferDatabaseForm";
+import {
+  pushNotification,
+  useCurrentUserV1,
+  useDatabaseV1Store,
+  useProjectV1ByUID,
+  useProjectV1Store,
+} from "@/store";
+import { Project } from "@/types/proto/v1/project_service";
 import {
   DEFAULT_PROJECT_ID,
   ComposedInstance,
@@ -46,21 +55,10 @@ import {
   ComposedDatabase,
 } from "../types";
 import {
-  buildDatabaseNameRegExpByTemplate,
   filterDatabaseV1ByKeyword,
-  PRESET_LABEL_KEY_PLACEHOLDERS,
   sortDatabaseV1List,
   useWorkspacePermissionV1,
 } from "../utils";
-import {
-  pushNotification,
-  useCurrentUserV1,
-  useDatabaseV1Store,
-  useProjectV1ByUID,
-  useProjectV1Store,
-} from "@/store";
-import { toRef } from "vue";
-import { Project } from "@/types/proto/v1/project_service";
 
 interface LocalState {
   transferSource: TransferSource;
@@ -98,7 +96,7 @@ const hasWorkspaceManageDatabasePermission = useWorkspacePermissionV1(
 const { project } = useProjectV1ByUID(toRef(props, "projectId"));
 
 const prepare = async () => {
-  await databaseStore.searchDatabaseList({
+  await databaseStore.fetchDatabaseList({
     parent: "instances/-",
   });
 };
@@ -161,18 +159,11 @@ const filteredDatabaseList = computed(() => {
 });
 
 const transferDatabase = async (databaseList: ComposedDatabase[]) => {
-  const transferOneDatabase = async (
-    database: ComposedDatabase,
-    labels?: Record<string, string>
-  ) => {
+  const transferOneDatabase = async (database: ComposedDatabase) => {
     const targetProject = useProjectV1Store().getProjectByUID(props.projectId);
     const databasePatch = cloneDeep(database);
     databasePatch.project = targetProject.name;
     const updateMask = ["project"];
-    if (labels) {
-      databasePatch.labels = labels;
-      updateMask.push("labels");
-    }
     const updated = await useDatabaseV1Store().updateDatabase({
       database: databasePatch,
       updateMask,
@@ -183,8 +174,7 @@ const transferDatabase = async (databaseList: ComposedDatabase[]) => {
   try {
     state.loading = true;
     const requests = databaseList.map((db) => {
-      const labels = parseLabelsIfNeeded(db);
-      transferOneDatabase(db, labels);
+      transferOneDatabase(db);
     });
     await Promise.all(requests);
     const displayDatabaseName =
@@ -201,27 +191,5 @@ const transferDatabase = async (databaseList: ComposedDatabase[]) => {
   } finally {
     state.loading = false;
   }
-};
-
-const parseLabelsIfNeeded = (database: ComposedDatabase) => {
-  const { dbNameTemplate } = project.value;
-  if (!dbNameTemplate) return undefined;
-
-  const regex = buildDatabaseNameRegExpByTemplate(dbNameTemplate);
-  const match = database.name.match(regex);
-  if (!match) return undefined;
-
-  const labels: Record<string, string> = {
-    "bb.environment": database.instanceEntity.environment,
-  };
-
-  PRESET_LABEL_KEY_PLACEHOLDERS.forEach(([placeholder, key]) => {
-    const value = match.groups?.[placeholder];
-    if (value) {
-      labels[key] = value;
-    }
-  });
-
-  return labels;
 };
 </script>

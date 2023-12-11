@@ -1,10 +1,10 @@
+import { uniqBy } from "lodash-es";
 import type {
   CompletionItem,
   CompletionItemKind,
 } from "vscode-languageserver-types";
-import { uniqBy } from "lodash-es";
+import type { SQLDialect } from "@/types";
 import { ICONS, SortText } from "../utils";
-import { SQLDialect } from "@/plugins/sql-lsp/types";
 import { keywordGroupsOfDialect } from "./keywords";
 
 const createCandidate = (

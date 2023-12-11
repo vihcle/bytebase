@@ -1,16 +1,59 @@
 /* eslint-disable */
-import * as Long from "long";
-import type { CallContext, CallOptions } from "nice-grpc-common";
-import * as _m0 from "protobufjs/minimal";
+import Long from "long";
+import _m0 from "protobufjs/minimal";
 import { Duration } from "../google/protobuf/duration";
 import { Empty } from "../google/protobuf/empty";
 import { FieldMask } from "../google/protobuf/field_mask";
 import { Timestamp } from "../google/protobuf/timestamp";
-import { StringValue } from "../google/protobuf/wrappers";
-import { State, stateFromJSON, stateToJSON } from "./common";
+import { MaskingLevel, maskingLevelFromJSON, maskingLevelToJSON, State, stateFromJSON, stateToJSON } from "./common";
 import { PushEvent } from "./vcs";
 
 export const protobufPackage = "bytebase.v1";
+
+export enum DatabaseMetadataView {
+  /**
+   * DATABASE_METADATA_VIEW_UNSPECIFIED - The default and unset value.
+   * The API will default to the BASIC view.
+   */
+  DATABASE_METADATA_VIEW_UNSPECIFIED = 0,
+  /** DATABASE_METADATA_VIEW_BASIC - Include basic information of schema object names such as schema, table, view, function names. */
+  DATABASE_METADATA_VIEW_BASIC = 1,
+  /** DATABASE_METADATA_VIEW_FULL - Include everything such as columns and column masking level. */
+  DATABASE_METADATA_VIEW_FULL = 2,
+  UNRECOGNIZED = -1,
+}
+
+export function databaseMetadataViewFromJSON(object: any): DatabaseMetadataView {
+  switch (object) {
+    case 0:
+    case "DATABASE_METADATA_VIEW_UNSPECIFIED":
+      return DatabaseMetadataView.DATABASE_METADATA_VIEW_UNSPECIFIED;
+    case 1:
+    case "DATABASE_METADATA_VIEW_BASIC":
+      return DatabaseMetadataView.DATABASE_METADATA_VIEW_BASIC;
+    case 2:
+    case "DATABASE_METADATA_VIEW_FULL":
+      return DatabaseMetadataView.DATABASE_METADATA_VIEW_FULL;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return DatabaseMetadataView.UNRECOGNIZED;
+  }
+}
+
+export function databaseMetadataViewToJSON(object: DatabaseMetadataView): string {
+  switch (object) {
+    case DatabaseMetadataView.DATABASE_METADATA_VIEW_UNSPECIFIED:
+      return "DATABASE_METADATA_VIEW_UNSPECIFIED";
+    case DatabaseMetadataView.DATABASE_METADATA_VIEW_BASIC:
+      return "DATABASE_METADATA_VIEW_BASIC";
+    case DatabaseMetadataView.DATABASE_METADATA_VIEW_FULL:
+      return "DATABASE_METADATA_VIEW_FULL";
+    case DatabaseMetadataView.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
 
 export enum ChangeHistoryView {
   /**
@@ -66,8 +109,8 @@ export interface GetDatabaseRequest {
 export interface ListDatabasesRequest {
   /**
    * The parent, which owns this collection of databases.
-   * Format: instances/{instance}
-   * Use "instances/-" to list all databases.
+   * - instances/{instance}: list all databases for an instance. Use "instances/-" to list all databases.
+   * - projects/{project}: list all databases in a project.
    */
   parent: string;
   /**
@@ -88,6 +131,7 @@ export interface ListDatabasesRequest {
   /**
    * Filter is used to filter databases returned in the list.
    * For example, "project = projects/{project}" can be used to list databases in a project.
+   * Note: the project filter will be moved to parent.
    */
   filter: string;
 }
@@ -148,11 +192,11 @@ export interface UpdateDatabaseRequest {
    * The database's `name` field is used to identify the database to update.
    * Format: instances/{instance}/databases/{database}
    */
-  database?:
+  database:
     | Database
     | undefined;
   /** The list of fields to update. */
-  updateMask?: string[] | undefined;
+  updateMask: string[] | undefined;
 }
 
 export interface BatchUpdateDatabasesRequest {
@@ -192,6 +236,28 @@ export interface GetDatabaseMetadataRequest {
    * Format: instances/{instance}/databases/{database}/metadata
    */
   name: string;
+  /** The view to return. Defaults to DATABASE_METADATA_VIEW_BASIC. */
+  view: DatabaseMetadataView;
+  /**
+   * The filter used for a specific schema object such as
+   * "schemas/schema-a/tables/table-a".
+   * The column masking level will only be returned when a table filter is used.
+   */
+  filter: string;
+}
+
+export interface UpdateDatabaseMetadataRequest {
+  /**
+   * The database metadata to update.
+   *
+   * The database_metadata's `name` field is used to identify the database metadata to update.
+   * Format: instances/{instance}/databases/{database}/metadata
+   */
+  databaseMetadata:
+    | DatabaseMetadata
+    | undefined;
+  /** The list of fields to update. */
+  updateMask: string[] | undefined;
 }
 
 export interface GetDatabaseSchemaRequest {
@@ -204,6 +270,33 @@ export interface GetDatabaseSchemaRequest {
   sdlFormat: boolean;
 }
 
+export interface DiffSchemaRequest {
+  /**
+   * The name of the database or change history.
+   * Format:
+   * database: instances/{instance}/databases/{database}
+   * change history: instances/{instance}/databases/{database}/changeHistories/{changeHistory}
+   */
+  name: string;
+  /** The target schema. */
+  schema?:
+    | string
+    | undefined;
+  /**
+   * The resource name of the change history
+   * Format: instances/{instance}/databases/{database}/changeHistories/{changeHistory}
+   */
+  changeHistory?:
+    | string
+    | undefined;
+  /** Format the schema dump into SDL format. */
+  sdlFormat: boolean;
+}
+
+export interface DiffSchemaResponse {
+  diff: string;
+}
+
 export interface GetBackupSettingRequest {
   /**
    * The name of the database to retrieve backup setting.
@@ -214,7 +307,7 @@ export interface GetBackupSettingRequest {
 
 export interface UpdateBackupSettingRequest {
   /** The database backup setting to update. */
-  setting?: BackupSetting | undefined;
+  setting: BackupSetting | undefined;
 }
 
 /** CreateBackupRequest is the request message for CreateBackup. */
@@ -224,7 +317,7 @@ export interface CreateBackupRequest {
    * Format: instances/{instance}/databases/{database}
    */
   parent: string;
-  backup?: Backup | undefined;
+  backup: Backup | undefined;
 }
 
 /** ListBackupsRequest is the request message for ListBackup. */
@@ -273,7 +366,7 @@ export interface Database {
   /** The existence of a database on latest sync. */
   syncState: State;
   /** The latest synchronization time. */
-  successfulSyncTime?:
+  successfulSyncTime:
     | Date
     | undefined;
   /**
@@ -304,6 +397,11 @@ export interface Database_LabelsEntry {
 
 /** DatabaseMetadata is the metadata for databases. */
 export interface DatabaseMetadata {
+  /**
+   * The database metadata name.
+   *
+   * Format: instances/{instance}/databases/{database}/metadata
+   */
   name: string;
   /** The schemas is the list of schemas in a database. */
   schemas: SchemaMetadata[];
@@ -313,6 +411,8 @@ export interface DatabaseMetadata {
   collation: string;
   /** The extensions is the list of extensions in a database. */
   extensions: ExtensionMetadata[];
+  /** The schema_configs is the list of configs for schemas in a database. */
+  schemaConfigs: SchemaConfig[];
 }
 
 /**
@@ -350,19 +450,85 @@ export interface TableMetadata {
   /** The collation is the collation of a table. */
   collation: string;
   /** The row_count is the estimated number of rows of a table. */
-  rowCount: number;
+  rowCount: Long;
   /** The data_size is the estimated data size of a table. */
-  dataSize: number;
+  dataSize: Long;
   /** The index_size is the estimated index size of a table. */
-  indexSize: number;
+  indexSize: Long;
   /** The data_free is the estimated free data size of a table. */
-  dataFree: number;
+  dataFree: Long;
   /** The create_options is the create option of a table. */
   createOptions: string;
-  /** The comment is the comment of a table. */
+  /**
+   * The comment is the comment of a table.
+   * classification and user_comment is parsed from the comment.
+   */
   comment: string;
+  /** The classification is the classification of a table parsed from the comment. */
+  classification: string;
+  /** The user_comment is the user comment of a table parsed from the comment. */
+  userComment: string;
   /** The foreign_keys is the list of foreign keys in a table. */
   foreignKeys: ForeignKeyMetadata[];
+  /** The partitions is the list of partitions in a table. */
+  partitions: TablePartitionMetadata[];
+}
+
+/** TablePartitionMetadata is the metadata for table partitions. */
+export interface TablePartitionMetadata {
+  /** The name is the name of a table partition. */
+  name: string;
+  /** The type of a table partition. */
+  type: TablePartitionMetadata_Type;
+  /** The expression is the expression of a table partition. */
+  expression: string;
+  /** The subpartitions is the list of subpartitions in a table partition. */
+  subpartitions: TablePartitionMetadata[];
+}
+
+export enum TablePartitionMetadata_Type {
+  TYPE_UNSPECIFIED = 0,
+  RANGE = 1,
+  LIST = 2,
+  HASH = 3,
+  UNRECOGNIZED = -1,
+}
+
+export function tablePartitionMetadata_TypeFromJSON(object: any): TablePartitionMetadata_Type {
+  switch (object) {
+    case 0:
+    case "TYPE_UNSPECIFIED":
+      return TablePartitionMetadata_Type.TYPE_UNSPECIFIED;
+    case 1:
+    case "RANGE":
+      return TablePartitionMetadata_Type.RANGE;
+    case 2:
+    case "LIST":
+      return TablePartitionMetadata_Type.LIST;
+    case 3:
+    case "HASH":
+      return TablePartitionMetadata_Type.HASH;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return TablePartitionMetadata_Type.UNRECOGNIZED;
+  }
+}
+
+export function tablePartitionMetadata_TypeToJSON(object: TablePartitionMetadata_Type): string {
+  switch (object) {
+    case TablePartitionMetadata_Type.TYPE_UNSPECIFIED:
+      return "TYPE_UNSPECIFIED";
+    case TablePartitionMetadata_Type.RANGE:
+      return "RANGE";
+    case TablePartitionMetadata_Type.LIST:
+      return "LIST";
+    case TablePartitionMetadata_Type.HASH:
+      return "HASH";
+    case TablePartitionMetadata_Type.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
 }
 
 /** ColumnMetadata is the metadata for columns. */
@@ -371,8 +537,10 @@ export interface ColumnMetadata {
   name: string;
   /** The position is the position in columns. */
   position: number;
-  /** The default is the default of a column. Use google.protobuf.StringValue to distinguish between an empty string default value or no default. */
-  default?:
+  hasDefault: boolean;
+  defaultNull?: boolean | undefined;
+  defaultString?: string | undefined;
+  defaultExpression?:
     | string
     | undefined;
   /** The nullable is the nullable of a column. */
@@ -383,8 +551,20 @@ export interface ColumnMetadata {
   characterSet: string;
   /** The collation is the collation of a column. */
   collation: string;
-  /** The comment is the comment of a column. */
+  /**
+   * The comment is the comment of a column.
+   * classification and user_comment is parsed from the comment.
+   */
   comment: string;
+  /** The classification is the classification of a column parsed from the comment. */
+  classification: string;
+  /** The user_comment is the user comment of a column parsed from the comment. */
+  userComment: string;
+  /**
+   * The effective_masking_level is the effective masking level of the column, evaluate from the
+   * column masking data and global masking rules.
+   */
+  effectiveMaskingLevel: MaskingLevel;
 }
 
 /** ViewMetadata is the metadata for views. */
@@ -639,7 +819,43 @@ export interface ForeignKeyMetadata {
   matchType: string;
 }
 
-/** DatabaseMetadata is the metadata for databases. */
+export interface DatabaseConfig {
+  name: string;
+  /** The schema_configs is the list of configs for schemas in a database. */
+  schemaConfigs: SchemaConfig[];
+}
+
+export interface SchemaConfig {
+  /**
+   * The name is the schema name.
+   * It is an empty string for databases without such concept such as MySQL.
+   */
+  name: string;
+  /** The table_configs is the list of configs for tables in a schema. */
+  tableConfigs: TableConfig[];
+}
+
+export interface TableConfig {
+  /** The name is the name of a table. */
+  name: string;
+  /** The column_configs is the ordered list of configs for columns in a table. */
+  columnConfigs: ColumnConfig[];
+}
+
+export interface ColumnConfig {
+  /** The name is the name of a column. */
+  name: string;
+  semanticTypeId: string;
+  /** The user labels for a column. */
+  labels: { [key: string]: string };
+}
+
+export interface ColumnConfig_LabelsEntry {
+  key: string;
+  value: string;
+}
+
+/** DatabaseSchema is the metadata for databases. */
 export interface DatabaseSchema {
   /** The schema dump from database. */
   schema: string;
@@ -658,7 +874,7 @@ export interface BackupSetting {
    * If not specified, Backups created under this BackupPlan will be deleted after 7 DAYS.
    * It will be rounded up to the number of days.
    */
-  backupRetainDuration?:
+  backupRetainDuration:
     | Duration
     | undefined;
   /**
@@ -680,11 +896,11 @@ export interface Backup {
    */
   name: string;
   /** The timestamp when the backup resource was created initially. */
-  createTime?:
+  createTime:
     | Date
     | undefined;
   /** The timestamp when the backup resource was updated. */
-  updateTime?:
+  updateTime:
     | Date
     | undefined;
   /** The state of the backup. */
@@ -844,7 +1060,7 @@ export interface SlowQueryLog {
    */
   project: string;
   /** The statistics of the slow query log. */
-  statistics?: SlowQueryStatistics | undefined;
+  statistics: SlowQueryStatistics | undefined;
 }
 
 /** SlowQueryStatistics is the statistics of the slow query log. */
@@ -854,15 +1070,15 @@ export interface SlowQueryStatistics {
   /** The count of the slow query log. */
   count: number;
   /** The latest log time of the slow query log. */
-  latestLogTime?:
+  latestLogTime:
     | Date
     | undefined;
   /** The average query time of the slow query log. */
-  averageQueryTime?:
+  averageQueryTime:
     | Duration
     | undefined;
   /** The maximum query time of the slow query log. */
-  maximumQueryTime?:
+  maximumQueryTime:
     | Duration
     | undefined;
   /** The average rows sent of the slow query log. */
@@ -884,15 +1100,15 @@ export interface SlowQueryStatistics {
 /** SlowQueryDetails is the details of the slow query log. */
 export interface SlowQueryDetails {
   /** The start time of the slow query log. */
-  startTime?:
+  startTime:
     | Date
     | undefined;
   /** The query time of the slow query log. */
-  queryTime?:
+  queryTime:
     | Duration
     | undefined;
   /** The lock time of the slow query log. */
-  lockTime?:
+  lockTime:
     | Duration
     | undefined;
   /** The rows sent of the slow query log. */
@@ -938,11 +1154,11 @@ export interface ListSecretsResponse {
 
 export interface UpdateSecretRequest {
   /** The secret to be created or updated. */
-  secret?:
+  secret:
     | Secret
     | undefined;
   /** The mask of the fields to be updated. */
-  updateMask?:
+  updateMask:
     | string[]
     | undefined;
   /** If true, the secret will be created if it does not exist. */
@@ -967,11 +1183,11 @@ export interface Secret {
    */
   name: string;
   /** Not used. The timestamp when the secret resource was created initially. */
-  createdTime?:
+  createdTime:
     | Date
     | undefined;
   /** Not used. The timestamp when the secret resource was updated. */
-  updatedTime?:
+  updatedTime:
     | Date
     | undefined;
   /** The value of the secret. */
@@ -1006,8 +1222,8 @@ export interface ChangeHistory {
   creator: string;
   /** Format: users/hello@world.com */
   updater: string;
-  createTime?: Date | undefined;
-  updateTime?:
+  createTime: Date | undefined;
+  updateTime:
     | Date
     | undefined;
   /** release version of Bytebase */
@@ -1017,15 +1233,22 @@ export interface ChangeHistory {
   status: ChangeHistory_Status;
   version: string;
   description: string;
+  /** The statement is used for preview purpose. */
   statement: string;
+  /**
+   * The name of the sheet resource.
+   * Format: projects/{project}/sheets/{sheet}
+   */
+  statementSheet: string;
   schema: string;
   prevSchema: string;
-  executionDuration?:
+  executionDuration:
     | Duration
     | undefined;
   /** Format: projects/{project}/issues/{issue} */
   issue: string;
-  pushEvent?: PushEvent | undefined;
+  pushEvent: PushEvent | undefined;
+  changedResources: ChangedResources | undefined;
 }
 
 export enum ChangeHistory_Source {
@@ -1181,6 +1404,24 @@ export function changeHistory_StatusToJSON(object: ChangeHistory_Status): string
   }
 }
 
+export interface ChangedResources {
+  databases: ChangedResourceDatabase[];
+}
+
+export interface ChangedResourceDatabase {
+  name: string;
+  schemas: ChangedResourceSchema[];
+}
+
+export interface ChangedResourceSchema {
+  name: string;
+  tables: ChangedResourceTable[];
+}
+
+export interface ChangedResourceTable {
+  name: string;
+}
+
 export interface ListChangeHistoriesRequest {
   /**
    * The parent of the change histories.
@@ -1202,6 +1443,29 @@ export interface ListChangeHistoriesRequest {
    */
   pageToken: string;
   view: ChangeHistoryView;
+  /**
+   * The filter of the change histories.
+   * Follow the CEL syntax.
+   * currently, we have one function for CEL:
+   * - tableExists(database, schema, table): return true if the table exists in changed resources.
+   *
+   * examples:
+   * Use
+   *   tableExists("db", "public", "table1")
+   * to filter the change histories which have the table "table1" in the schema "public" of the database "db".
+   * For MySQL, the schema is always "", such as tableExists("db", "", "table1").
+   *
+   * Combine multiple functions with "&&" and "||", we MUST use the Disjunctive Normal Form(DNF).
+   * In other words, the CEL expression consists of several parts connected by OR operators.
+   * For example, the following expression is valid:
+   * (
+   *  tableExists("db", "public", "table1") &&
+   *  tableExists("db", "public", "table2")
+   * ) || (
+   *  tableExists("db", "public", "table3")
+   * )
+   */
+  filter: string;
 }
 
 export interface ListChangeHistoriesResponse {
@@ -1261,19 +1525,20 @@ export const GetDatabaseRequest = {
   },
 
   fromJSON(object: any): GetDatabaseRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: GetDatabaseRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetDatabaseRequest>): GetDatabaseRequest {
     return GetDatabaseRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetDatabaseRequest>): GetDatabaseRequest {
     const message = createBaseGetDatabaseRequest();
     message.name = object.name ?? "";
@@ -1348,26 +1613,33 @@ export const ListDatabasesRequest = {
 
   fromJSON(object: any): ListDatabasesRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
-      filter: isSet(object.filter) ? String(object.filter) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
+      filter: isSet(object.filter) ? globalThis.String(object.filter) : "",
     };
   },
 
   toJSON(message: ListDatabasesRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
-    message.filter !== undefined && (obj.filter = message.filter);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      obj.pageToken = message.pageToken;
+    }
+    if (message.filter !== "") {
+      obj.filter = message.filter;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListDatabasesRequest>): ListDatabasesRequest {
     return ListDatabasesRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListDatabasesRequest>): ListDatabasesRequest {
     const message = createBaseListDatabasesRequest();
     message.parent = object.parent ?? "";
@@ -1425,26 +1697,27 @@ export const ListDatabasesResponse = {
 
   fromJSON(object: any): ListDatabasesResponse {
     return {
-      databases: Array.isArray(object?.databases) ? object.databases.map((e: any) => Database.fromJSON(e)) : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+      databases: globalThis.Array.isArray(object?.databases)
+        ? object.databases.map((e: any) => Database.fromJSON(e))
+        : [],
+      nextPageToken: isSet(object.nextPageToken) ? globalThis.String(object.nextPageToken) : "",
     };
   },
 
   toJSON(message: ListDatabasesResponse): unknown {
     const obj: any = {};
-    if (message.databases) {
-      obj.databases = message.databases.map((e) => e ? Database.toJSON(e) : undefined);
-    } else {
-      obj.databases = [];
+    if (message.databases?.length) {
+      obj.databases = message.databases.map((e) => Database.toJSON(e));
     }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    if (message.nextPageToken !== "") {
+      obj.nextPageToken = message.nextPageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListDatabasesResponse>): ListDatabasesResponse {
     return ListDatabasesResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListDatabasesResponse>): ListDatabasesResponse {
     const message = createBaseListDatabasesResponse();
     message.databases = object.databases?.map((e) => Database.fromPartial(e)) || [];
@@ -1520,26 +1793,33 @@ export const SearchDatabasesRequest = {
 
   fromJSON(object: any): SearchDatabasesRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
-      filter: isSet(object.filter) ? String(object.filter) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
+      filter: isSet(object.filter) ? globalThis.String(object.filter) : "",
     };
   },
 
   toJSON(message: SearchDatabasesRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
-    message.filter !== undefined && (obj.filter = message.filter);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      obj.pageToken = message.pageToken;
+    }
+    if (message.filter !== "") {
+      obj.filter = message.filter;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<SearchDatabasesRequest>): SearchDatabasesRequest {
     return SearchDatabasesRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SearchDatabasesRequest>): SearchDatabasesRequest {
     const message = createBaseSearchDatabasesRequest();
     message.parent = object.parent ?? "";
@@ -1597,26 +1877,27 @@ export const SearchDatabasesResponse = {
 
   fromJSON(object: any): SearchDatabasesResponse {
     return {
-      databases: Array.isArray(object?.databases) ? object.databases.map((e: any) => Database.fromJSON(e)) : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+      databases: globalThis.Array.isArray(object?.databases)
+        ? object.databases.map((e: any) => Database.fromJSON(e))
+        : [],
+      nextPageToken: isSet(object.nextPageToken) ? globalThis.String(object.nextPageToken) : "",
     };
   },
 
   toJSON(message: SearchDatabasesResponse): unknown {
     const obj: any = {};
-    if (message.databases) {
-      obj.databases = message.databases.map((e) => e ? Database.toJSON(e) : undefined);
-    } else {
-      obj.databases = [];
+    if (message.databases?.length) {
+      obj.databases = message.databases.map((e) => Database.toJSON(e));
     }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    if (message.nextPageToken !== "") {
+      obj.nextPageToken = message.nextPageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<SearchDatabasesResponse>): SearchDatabasesResponse {
     return SearchDatabasesResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SearchDatabasesResponse>): SearchDatabasesResponse {
     const message = createBaseSearchDatabasesResponse();
     message.databases = object.databases?.map((e) => Database.fromPartial(e)) || [];
@@ -1679,15 +1960,18 @@ export const UpdateDatabaseRequest = {
 
   toJSON(message: UpdateDatabaseRequest): unknown {
     const obj: any = {};
-    message.database !== undefined && (obj.database = message.database ? Database.toJSON(message.database) : undefined);
-    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
+    if (message.database !== undefined) {
+      obj.database = Database.toJSON(message.database);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateDatabaseRequest>): UpdateDatabaseRequest {
     return UpdateDatabaseRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateDatabaseRequest>): UpdateDatabaseRequest {
     const message = createBaseUpdateDatabaseRequest();
     message.database = (object.database !== undefined && object.database !== null)
@@ -1745,8 +2029,8 @@ export const BatchUpdateDatabasesRequest = {
 
   fromJSON(object: any): BatchUpdateDatabasesRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      requests: Array.isArray(object?.requests)
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      requests: globalThis.Array.isArray(object?.requests)
         ? object.requests.map((e: any) => UpdateDatabaseRequest.fromJSON(e))
         : [],
     };
@@ -1754,11 +2038,11 @@ export const BatchUpdateDatabasesRequest = {
 
   toJSON(message: BatchUpdateDatabasesRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    if (message.requests) {
-      obj.requests = message.requests.map((e) => e ? UpdateDatabaseRequest.toJSON(e) : undefined);
-    } else {
-      obj.requests = [];
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.requests?.length) {
+      obj.requests = message.requests.map((e) => UpdateDatabaseRequest.toJSON(e));
     }
     return obj;
   },
@@ -1766,7 +2050,6 @@ export const BatchUpdateDatabasesRequest = {
   create(base?: DeepPartial<BatchUpdateDatabasesRequest>): BatchUpdateDatabasesRequest {
     return BatchUpdateDatabasesRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<BatchUpdateDatabasesRequest>): BatchUpdateDatabasesRequest {
     const message = createBaseBatchUpdateDatabasesRequest();
     message.parent = object.parent ?? "";
@@ -1812,16 +2095,16 @@ export const BatchUpdateDatabasesResponse = {
 
   fromJSON(object: any): BatchUpdateDatabasesResponse {
     return {
-      databases: Array.isArray(object?.databases) ? object.databases.map((e: any) => Database.fromJSON(e)) : [],
+      databases: globalThis.Array.isArray(object?.databases)
+        ? object.databases.map((e: any) => Database.fromJSON(e))
+        : [],
     };
   },
 
   toJSON(message: BatchUpdateDatabasesResponse): unknown {
     const obj: any = {};
-    if (message.databases) {
-      obj.databases = message.databases.map((e) => e ? Database.toJSON(e) : undefined);
-    } else {
-      obj.databases = [];
+    if (message.databases?.length) {
+      obj.databases = message.databases.map((e) => Database.toJSON(e));
     }
     return obj;
   },
@@ -1829,7 +2112,6 @@ export const BatchUpdateDatabasesResponse = {
   create(base?: DeepPartial<BatchUpdateDatabasesResponse>): BatchUpdateDatabasesResponse {
     return BatchUpdateDatabasesResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<BatchUpdateDatabasesResponse>): BatchUpdateDatabasesResponse {
     const message = createBaseBatchUpdateDatabasesResponse();
     message.databases = object.databases?.map((e) => Database.fromPartial(e)) || [];
@@ -1873,19 +2155,20 @@ export const SyncDatabaseRequest = {
   },
 
   fromJSON(object: any): SyncDatabaseRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: SyncDatabaseRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<SyncDatabaseRequest>): SyncDatabaseRequest {
     return SyncDatabaseRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SyncDatabaseRequest>): SyncDatabaseRequest {
     const message = createBaseSyncDatabaseRequest();
     message.name = object.name ?? "";
@@ -1930,7 +2213,6 @@ export const SyncDatabaseResponse = {
   create(base?: DeepPartial<SyncDatabaseResponse>): SyncDatabaseResponse {
     return SyncDatabaseResponse.fromPartial(base ?? {});
   },
-
   fromPartial(_: DeepPartial<SyncDatabaseResponse>): SyncDatabaseResponse {
     const message = createBaseSyncDatabaseResponse();
     return message;
@@ -1938,13 +2220,19 @@ export const SyncDatabaseResponse = {
 };
 
 function createBaseGetDatabaseMetadataRequest(): GetDatabaseMetadataRequest {
-  return { name: "" };
+  return { name: "", view: 0, filter: "" };
 }
 
 export const GetDatabaseMetadataRequest = {
   encode(message: GetDatabaseMetadataRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.name !== "") {
       writer.uint32(10).string(message.name);
+    }
+    if (message.view !== 0) {
+      writer.uint32(16).int32(message.view);
+    }
+    if (message.filter !== "") {
+      writer.uint32(26).string(message.filter);
     }
     return writer;
   },
@@ -1963,6 +2251,20 @@ export const GetDatabaseMetadataRequest = {
 
           message.name = reader.string();
           continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.view = reader.int32() as any;
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.filter = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1973,22 +2275,111 @@ export const GetDatabaseMetadataRequest = {
   },
 
   fromJSON(object: any): GetDatabaseMetadataRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      view: isSet(object.view) ? databaseMetadataViewFromJSON(object.view) : 0,
+      filter: isSet(object.filter) ? globalThis.String(object.filter) : "",
+    };
   },
 
   toJSON(message: GetDatabaseMetadataRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.view !== 0) {
+      obj.view = databaseMetadataViewToJSON(message.view);
+    }
+    if (message.filter !== "") {
+      obj.filter = message.filter;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetDatabaseMetadataRequest>): GetDatabaseMetadataRequest {
     return GetDatabaseMetadataRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetDatabaseMetadataRequest>): GetDatabaseMetadataRequest {
     const message = createBaseGetDatabaseMetadataRequest();
     message.name = object.name ?? "";
+    message.view = object.view ?? 0;
+    message.filter = object.filter ?? "";
+    return message;
+  },
+};
+
+function createBaseUpdateDatabaseMetadataRequest(): UpdateDatabaseMetadataRequest {
+  return { databaseMetadata: undefined, updateMask: undefined };
+}
+
+export const UpdateDatabaseMetadataRequest = {
+  encode(message: UpdateDatabaseMetadataRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.databaseMetadata !== undefined) {
+      DatabaseMetadata.encode(message.databaseMetadata, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.updateMask !== undefined) {
+      FieldMask.encode(FieldMask.wrap(message.updateMask), writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): UpdateDatabaseMetadataRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseUpdateDatabaseMetadataRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.databaseMetadata = DatabaseMetadata.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.updateMask = FieldMask.unwrap(FieldMask.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): UpdateDatabaseMetadataRequest {
+    return {
+      databaseMetadata: isSet(object.databaseMetadata) ? DatabaseMetadata.fromJSON(object.databaseMetadata) : undefined,
+      updateMask: isSet(object.updateMask) ? FieldMask.unwrap(FieldMask.fromJSON(object.updateMask)) : undefined,
+    };
+  },
+
+  toJSON(message: UpdateDatabaseMetadataRequest): unknown {
+    const obj: any = {};
+    if (message.databaseMetadata !== undefined) {
+      obj.databaseMetadata = DatabaseMetadata.toJSON(message.databaseMetadata);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<UpdateDatabaseMetadataRequest>): UpdateDatabaseMetadataRequest {
+    return UpdateDatabaseMetadataRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<UpdateDatabaseMetadataRequest>): UpdateDatabaseMetadataRequest {
+    const message = createBaseUpdateDatabaseMetadataRequest();
+    message.databaseMetadata = (object.databaseMetadata !== undefined && object.databaseMetadata !== null)
+      ? DatabaseMetadata.fromPartial(object.databaseMetadata)
+      : undefined;
+    message.updateMask = object.updateMask ?? undefined;
     return message;
   },
 };
@@ -2040,26 +2431,190 @@ export const GetDatabaseSchemaRequest = {
 
   fromJSON(object: any): GetDatabaseSchemaRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      sdlFormat: isSet(object.sdlFormat) ? Boolean(object.sdlFormat) : false,
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      sdlFormat: isSet(object.sdlFormat) ? globalThis.Boolean(object.sdlFormat) : false,
     };
   },
 
   toJSON(message: GetDatabaseSchemaRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.sdlFormat !== undefined && (obj.sdlFormat = message.sdlFormat);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.sdlFormat === true) {
+      obj.sdlFormat = message.sdlFormat;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetDatabaseSchemaRequest>): GetDatabaseSchemaRequest {
     return GetDatabaseSchemaRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetDatabaseSchemaRequest>): GetDatabaseSchemaRequest {
     const message = createBaseGetDatabaseSchemaRequest();
     message.name = object.name ?? "";
     message.sdlFormat = object.sdlFormat ?? false;
+    return message;
+  },
+};
+
+function createBaseDiffSchemaRequest(): DiffSchemaRequest {
+  return { name: "", schema: undefined, changeHistory: undefined, sdlFormat: false };
+}
+
+export const DiffSchemaRequest = {
+  encode(message: DiffSchemaRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.schema !== undefined) {
+      writer.uint32(18).string(message.schema);
+    }
+    if (message.changeHistory !== undefined) {
+      writer.uint32(26).string(message.changeHistory);
+    }
+    if (message.sdlFormat === true) {
+      writer.uint32(32).bool(message.sdlFormat);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): DiffSchemaRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDiffSchemaRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.schema = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.changeHistory = reader.string();
+          continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.sdlFormat = reader.bool();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DiffSchemaRequest {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      schema: isSet(object.schema) ? globalThis.String(object.schema) : undefined,
+      changeHistory: isSet(object.changeHistory) ? globalThis.String(object.changeHistory) : undefined,
+      sdlFormat: isSet(object.sdlFormat) ? globalThis.Boolean(object.sdlFormat) : false,
+    };
+  },
+
+  toJSON(message: DiffSchemaRequest): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.schema !== undefined) {
+      obj.schema = message.schema;
+    }
+    if (message.changeHistory !== undefined) {
+      obj.changeHistory = message.changeHistory;
+    }
+    if (message.sdlFormat === true) {
+      obj.sdlFormat = message.sdlFormat;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DiffSchemaRequest>): DiffSchemaRequest {
+    return DiffSchemaRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DiffSchemaRequest>): DiffSchemaRequest {
+    const message = createBaseDiffSchemaRequest();
+    message.name = object.name ?? "";
+    message.schema = object.schema ?? undefined;
+    message.changeHistory = object.changeHistory ?? undefined;
+    message.sdlFormat = object.sdlFormat ?? false;
+    return message;
+  },
+};
+
+function createBaseDiffSchemaResponse(): DiffSchemaResponse {
+  return { diff: "" };
+}
+
+export const DiffSchemaResponse = {
+  encode(message: DiffSchemaResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.diff !== "") {
+      writer.uint32(10).string(message.diff);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): DiffSchemaResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDiffSchemaResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.diff = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DiffSchemaResponse {
+    return { diff: isSet(object.diff) ? globalThis.String(object.diff) : "" };
+  },
+
+  toJSON(message: DiffSchemaResponse): unknown {
+    const obj: any = {};
+    if (message.diff !== "") {
+      obj.diff = message.diff;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DiffSchemaResponse>): DiffSchemaResponse {
+    return DiffSchemaResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DiffSchemaResponse>): DiffSchemaResponse {
+    const message = createBaseDiffSchemaResponse();
+    message.diff = object.diff ?? "";
     return message;
   },
 };
@@ -2100,19 +2655,20 @@ export const GetBackupSettingRequest = {
   },
 
   fromJSON(object: any): GetBackupSettingRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: GetBackupSettingRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetBackupSettingRequest>): GetBackupSettingRequest {
     return GetBackupSettingRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetBackupSettingRequest>): GetBackupSettingRequest {
     const message = createBaseGetBackupSettingRequest();
     message.name = object.name ?? "";
@@ -2161,15 +2717,15 @@ export const UpdateBackupSettingRequest = {
 
   toJSON(message: UpdateBackupSettingRequest): unknown {
     const obj: any = {};
-    message.setting !== undefined &&
-      (obj.setting = message.setting ? BackupSetting.toJSON(message.setting) : undefined);
+    if (message.setting !== undefined) {
+      obj.setting = BackupSetting.toJSON(message.setting);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateBackupSettingRequest>): UpdateBackupSettingRequest {
     return UpdateBackupSettingRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateBackupSettingRequest>): UpdateBackupSettingRequest {
     const message = createBaseUpdateBackupSettingRequest();
     message.setting = (object.setting !== undefined && object.setting !== null)
@@ -2226,22 +2782,25 @@ export const CreateBackupRequest = {
 
   fromJSON(object: any): CreateBackupRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
       backup: isSet(object.backup) ? Backup.fromJSON(object.backup) : undefined,
     };
   },
 
   toJSON(message: CreateBackupRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.backup !== undefined && (obj.backup = message.backup ? Backup.toJSON(message.backup) : undefined);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.backup !== undefined) {
+      obj.backup = Backup.toJSON(message.backup);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<CreateBackupRequest>): CreateBackupRequest {
     return CreateBackupRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<CreateBackupRequest>): CreateBackupRequest {
     const message = createBaseCreateBackupRequest();
     message.parent = object.parent ?? "";
@@ -2309,24 +2868,29 @@ export const ListBackupsRequest = {
 
   fromJSON(object: any): ListBackupsRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
     };
   },
 
   toJSON(message: ListBackupsRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      obj.pageToken = message.pageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListBackupsRequest>): ListBackupsRequest {
     return ListBackupsRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListBackupsRequest>): ListBackupsRequest {
     const message = createBaseListBackupsRequest();
     message.parent = object.parent ?? "";
@@ -2383,26 +2947,25 @@ export const ListBackupsResponse = {
 
   fromJSON(object: any): ListBackupsResponse {
     return {
-      backups: Array.isArray(object?.backups) ? object.backups.map((e: any) => Backup.fromJSON(e)) : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+      backups: globalThis.Array.isArray(object?.backups) ? object.backups.map((e: any) => Backup.fromJSON(e)) : [],
+      nextPageToken: isSet(object.nextPageToken) ? globalThis.String(object.nextPageToken) : "",
     };
   },
 
   toJSON(message: ListBackupsResponse): unknown {
     const obj: any = {};
-    if (message.backups) {
-      obj.backups = message.backups.map((e) => e ? Backup.toJSON(e) : undefined);
-    } else {
-      obj.backups = [];
+    if (message.backups?.length) {
+      obj.backups = message.backups.map((e) => Backup.toJSON(e));
     }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    if (message.nextPageToken !== "") {
+      obj.nextPageToken = message.nextPageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListBackupsResponse>): ListBackupsResponse {
     return ListBackupsResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListBackupsResponse>): ListBackupsResponse {
     const message = createBaseListBackupsResponse();
     message.backups = object.backups?.map((e) => Backup.fromPartial(e)) || [];
@@ -2541,14 +3104,14 @@ export const Database = {
 
   fromJSON(object: any): Database {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      uid: isSet(object.uid) ? String(object.uid) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      uid: isSet(object.uid) ? globalThis.String(object.uid) : "",
       syncState: isSet(object.syncState) ? stateFromJSON(object.syncState) : 0,
       successfulSyncTime: isSet(object.successfulSyncTime) ? fromJsonTimestamp(object.successfulSyncTime) : undefined,
-      project: isSet(object.project) ? String(object.project) : "",
-      schemaVersion: isSet(object.schemaVersion) ? String(object.schemaVersion) : "",
-      environment: isSet(object.environment) ? String(object.environment) : "",
-      effectiveEnvironment: isSet(object.effectiveEnvironment) ? String(object.effectiveEnvironment) : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
+      schemaVersion: isSet(object.schemaVersion) ? globalThis.String(object.schemaVersion) : "",
+      environment: isSet(object.environment) ? globalThis.String(object.environment) : "",
+      effectiveEnvironment: isSet(object.effectiveEnvironment) ? globalThis.String(object.effectiveEnvironment) : "",
       labels: isObject(object.labels)
         ? Object.entries(object.labels).reduce<{ [key: string]: string }>((acc, [key, value]) => {
           acc[key] = String(value);
@@ -2560,19 +3123,38 @@ export const Database = {
 
   toJSON(message: Database): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.uid !== undefined && (obj.uid = message.uid);
-    message.syncState !== undefined && (obj.syncState = stateToJSON(message.syncState));
-    message.successfulSyncTime !== undefined && (obj.successfulSyncTime = message.successfulSyncTime.toISOString());
-    message.project !== undefined && (obj.project = message.project);
-    message.schemaVersion !== undefined && (obj.schemaVersion = message.schemaVersion);
-    message.environment !== undefined && (obj.environment = message.environment);
-    message.effectiveEnvironment !== undefined && (obj.effectiveEnvironment = message.effectiveEnvironment);
-    obj.labels = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.uid !== "") {
+      obj.uid = message.uid;
+    }
+    if (message.syncState !== 0) {
+      obj.syncState = stateToJSON(message.syncState);
+    }
+    if (message.successfulSyncTime !== undefined) {
+      obj.successfulSyncTime = message.successfulSyncTime.toISOString();
+    }
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.schemaVersion !== "") {
+      obj.schemaVersion = message.schemaVersion;
+    }
+    if (message.environment !== "") {
+      obj.environment = message.environment;
+    }
+    if (message.effectiveEnvironment !== "") {
+      obj.effectiveEnvironment = message.effectiveEnvironment;
+    }
     if (message.labels) {
-      Object.entries(message.labels).forEach(([k, v]) => {
-        obj.labels[k] = v;
-      });
+      const entries = Object.entries(message.labels);
+      if (entries.length > 0) {
+        obj.labels = {};
+        entries.forEach(([k, v]) => {
+          obj.labels[k] = v;
+        });
+      }
     }
     return obj;
   },
@@ -2580,7 +3162,6 @@ export const Database = {
   create(base?: DeepPartial<Database>): Database {
     return Database.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<Database>): Database {
     const message = createBaseDatabase();
     message.name = object.name ?? "";
@@ -2593,7 +3174,7 @@ export const Database = {
     message.effectiveEnvironment = object.effectiveEnvironment ?? "";
     message.labels = Object.entries(object.labels ?? {}).reduce<{ [key: string]: string }>((acc, [key, value]) => {
       if (value !== undefined) {
-        acc[key] = String(value);
+        acc[key] = globalThis.String(value);
       }
       return acc;
     }, {});
@@ -2647,20 +3228,26 @@ export const Database_LabelsEntry = {
   },
 
   fromJSON(object: any): Database_LabelsEntry {
-    return { key: isSet(object.key) ? String(object.key) : "", value: isSet(object.value) ? String(object.value) : "" };
+    return {
+      key: isSet(object.key) ? globalThis.String(object.key) : "",
+      value: isSet(object.value) ? globalThis.String(object.value) : "",
+    };
   },
 
   toJSON(message: Database_LabelsEntry): unknown {
     const obj: any = {};
-    message.key !== undefined && (obj.key = message.key);
-    message.value !== undefined && (obj.value = message.value);
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== "") {
+      obj.value = message.value;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<Database_LabelsEntry>): Database_LabelsEntry {
     return Database_LabelsEntry.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<Database_LabelsEntry>): Database_LabelsEntry {
     const message = createBaseDatabase_LabelsEntry();
     message.key = object.key ?? "";
@@ -2670,7 +3257,7 @@ export const Database_LabelsEntry = {
 };
 
 function createBaseDatabaseMetadata(): DatabaseMetadata {
-  return { name: "", schemas: [], characterSet: "", collation: "", extensions: [] };
+  return { name: "", schemas: [], characterSet: "", collation: "", extensions: [], schemaConfigs: [] };
 }
 
 export const DatabaseMetadata = {
@@ -2689,6 +3276,9 @@ export const DatabaseMetadata = {
     }
     for (const v of message.extensions) {
       ExtensionMetadata.encode(v!, writer.uint32(42).fork()).ldelim();
+    }
+    for (const v of message.schemaConfigs) {
+      SchemaConfig.encode(v!, writer.uint32(50).fork()).ldelim();
     }
     return writer;
   },
@@ -2735,6 +3325,13 @@ export const DatabaseMetadata = {
 
           message.extensions.push(ExtensionMetadata.decode(reader, reader.uint32()));
           continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.schemaConfigs.push(SchemaConfig.decode(reader, reader.uint32()));
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2746,30 +3343,40 @@ export const DatabaseMetadata = {
 
   fromJSON(object: any): DatabaseMetadata {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      schemas: Array.isArray(object?.schemas) ? object.schemas.map((e: any) => SchemaMetadata.fromJSON(e)) : [],
-      characterSet: isSet(object.characterSet) ? String(object.characterSet) : "",
-      collation: isSet(object.collation) ? String(object.collation) : "",
-      extensions: Array.isArray(object?.extensions)
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      schemas: globalThis.Array.isArray(object?.schemas)
+        ? object.schemas.map((e: any) => SchemaMetadata.fromJSON(e))
+        : [],
+      characterSet: isSet(object.characterSet) ? globalThis.String(object.characterSet) : "",
+      collation: isSet(object.collation) ? globalThis.String(object.collation) : "",
+      extensions: globalThis.Array.isArray(object?.extensions)
         ? object.extensions.map((e: any) => ExtensionMetadata.fromJSON(e))
+        : [],
+      schemaConfigs: globalThis.Array.isArray(object?.schemaConfigs)
+        ? object.schemaConfigs.map((e: any) => SchemaConfig.fromJSON(e))
         : [],
     };
   },
 
   toJSON(message: DatabaseMetadata): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    if (message.schemas) {
-      obj.schemas = message.schemas.map((e) => e ? SchemaMetadata.toJSON(e) : undefined);
-    } else {
-      obj.schemas = [];
+    if (message.name !== "") {
+      obj.name = message.name;
     }
-    message.characterSet !== undefined && (obj.characterSet = message.characterSet);
-    message.collation !== undefined && (obj.collation = message.collation);
-    if (message.extensions) {
-      obj.extensions = message.extensions.map((e) => e ? ExtensionMetadata.toJSON(e) : undefined);
-    } else {
-      obj.extensions = [];
+    if (message.schemas?.length) {
+      obj.schemas = message.schemas.map((e) => SchemaMetadata.toJSON(e));
+    }
+    if (message.characterSet !== "") {
+      obj.characterSet = message.characterSet;
+    }
+    if (message.collation !== "") {
+      obj.collation = message.collation;
+    }
+    if (message.extensions?.length) {
+      obj.extensions = message.extensions.map((e) => ExtensionMetadata.toJSON(e));
+    }
+    if (message.schemaConfigs?.length) {
+      obj.schemaConfigs = message.schemaConfigs.map((e) => SchemaConfig.toJSON(e));
     }
     return obj;
   },
@@ -2777,7 +3384,6 @@ export const DatabaseMetadata = {
   create(base?: DeepPartial<DatabaseMetadata>): DatabaseMetadata {
     return DatabaseMetadata.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DatabaseMetadata>): DatabaseMetadata {
     const message = createBaseDatabaseMetadata();
     message.name = object.name ?? "";
@@ -2785,6 +3391,7 @@ export const DatabaseMetadata = {
     message.characterSet = object.characterSet ?? "";
     message.collation = object.collation ?? "";
     message.extensions = object.extensions?.map((e) => ExtensionMetadata.fromPartial(e)) || [];
+    message.schemaConfigs = object.schemaConfigs?.map((e) => SchemaConfig.fromPartial(e)) || [];
     return message;
   },
 };
@@ -2876,42 +3483,38 @@ export const SchemaMetadata = {
 
   fromJSON(object: any): SchemaMetadata {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      tables: Array.isArray(object?.tables) ? object.tables.map((e: any) => TableMetadata.fromJSON(e)) : [],
-      views: Array.isArray(object?.views) ? object.views.map((e: any) => ViewMetadata.fromJSON(e)) : [],
-      functions: Array.isArray(object?.functions) ? object.functions.map((e: any) => FunctionMetadata.fromJSON(e)) : [],
-      streams: Array.isArray(object?.streams) ? object.streams.map((e: any) => StreamMetadata.fromJSON(e)) : [],
-      tasks: Array.isArray(object?.tasks) ? object.tasks.map((e: any) => TaskMetadata.fromJSON(e)) : [],
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      tables: globalThis.Array.isArray(object?.tables) ? object.tables.map((e: any) => TableMetadata.fromJSON(e)) : [],
+      views: globalThis.Array.isArray(object?.views) ? object.views.map((e: any) => ViewMetadata.fromJSON(e)) : [],
+      functions: globalThis.Array.isArray(object?.functions)
+        ? object.functions.map((e: any) => FunctionMetadata.fromJSON(e))
+        : [],
+      streams: globalThis.Array.isArray(object?.streams)
+        ? object.streams.map((e: any) => StreamMetadata.fromJSON(e))
+        : [],
+      tasks: globalThis.Array.isArray(object?.tasks) ? object.tasks.map((e: any) => TaskMetadata.fromJSON(e)) : [],
     };
   },
 
   toJSON(message: SchemaMetadata): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    if (message.tables) {
-      obj.tables = message.tables.map((e) => e ? TableMetadata.toJSON(e) : undefined);
-    } else {
-      obj.tables = [];
+    if (message.name !== "") {
+      obj.name = message.name;
     }
-    if (message.views) {
-      obj.views = message.views.map((e) => e ? ViewMetadata.toJSON(e) : undefined);
-    } else {
-      obj.views = [];
+    if (message.tables?.length) {
+      obj.tables = message.tables.map((e) => TableMetadata.toJSON(e));
     }
-    if (message.functions) {
-      obj.functions = message.functions.map((e) => e ? FunctionMetadata.toJSON(e) : undefined);
-    } else {
-      obj.functions = [];
+    if (message.views?.length) {
+      obj.views = message.views.map((e) => ViewMetadata.toJSON(e));
     }
-    if (message.streams) {
-      obj.streams = message.streams.map((e) => e ? StreamMetadata.toJSON(e) : undefined);
-    } else {
-      obj.streams = [];
+    if (message.functions?.length) {
+      obj.functions = message.functions.map((e) => FunctionMetadata.toJSON(e));
     }
-    if (message.tasks) {
-      obj.tasks = message.tasks.map((e) => e ? TaskMetadata.toJSON(e) : undefined);
-    } else {
-      obj.tasks = [];
+    if (message.streams?.length) {
+      obj.streams = message.streams.map((e) => StreamMetadata.toJSON(e));
+    }
+    if (message.tasks?.length) {
+      obj.tasks = message.tasks.map((e) => TaskMetadata.toJSON(e));
     }
     return obj;
   },
@@ -2919,7 +3522,6 @@ export const SchemaMetadata = {
   create(base?: DeepPartial<SchemaMetadata>): SchemaMetadata {
     return SchemaMetadata.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SchemaMetadata>): SchemaMetadata {
     const message = createBaseSchemaMetadata();
     message.name = object.name ?? "";
@@ -2939,13 +3541,16 @@ function createBaseTableMetadata(): TableMetadata {
     indexes: [],
     engine: "",
     collation: "",
-    rowCount: 0,
-    dataSize: 0,
-    indexSize: 0,
-    dataFree: 0,
+    rowCount: Long.ZERO,
+    dataSize: Long.ZERO,
+    indexSize: Long.ZERO,
+    dataFree: Long.ZERO,
     createOptions: "",
     comment: "",
+    classification: "",
+    userComment: "",
     foreignKeys: [],
+    partitions: [],
   };
 }
 
@@ -2966,16 +3571,16 @@ export const TableMetadata = {
     if (message.collation !== "") {
       writer.uint32(42).string(message.collation);
     }
-    if (message.rowCount !== 0) {
+    if (!message.rowCount.isZero()) {
       writer.uint32(48).int64(message.rowCount);
     }
-    if (message.dataSize !== 0) {
+    if (!message.dataSize.isZero()) {
       writer.uint32(56).int64(message.dataSize);
     }
-    if (message.indexSize !== 0) {
+    if (!message.indexSize.isZero()) {
       writer.uint32(64).int64(message.indexSize);
     }
-    if (message.dataFree !== 0) {
+    if (!message.dataFree.isZero()) {
       writer.uint32(72).int64(message.dataFree);
     }
     if (message.createOptions !== "") {
@@ -2984,8 +3589,17 @@ export const TableMetadata = {
     if (message.comment !== "") {
       writer.uint32(90).string(message.comment);
     }
+    if (message.classification !== "") {
+      writer.uint32(106).string(message.classification);
+    }
+    if (message.userComment !== "") {
+      writer.uint32(114).string(message.userComment);
+    }
     for (const v of message.foreignKeys) {
       ForeignKeyMetadata.encode(v!, writer.uint32(98).fork()).ldelim();
+    }
+    for (const v of message.partitions) {
+      TablePartitionMetadata.encode(v!, writer.uint32(122).fork()).ldelim();
     }
     return writer;
   },
@@ -3037,28 +3651,28 @@ export const TableMetadata = {
             break;
           }
 
-          message.rowCount = longToNumber(reader.int64() as Long);
+          message.rowCount = reader.int64() as Long;
           continue;
         case 7:
           if (tag !== 56) {
             break;
           }
 
-          message.dataSize = longToNumber(reader.int64() as Long);
+          message.dataSize = reader.int64() as Long;
           continue;
         case 8:
           if (tag !== 64) {
             break;
           }
 
-          message.indexSize = longToNumber(reader.int64() as Long);
+          message.indexSize = reader.int64() as Long;
           continue;
         case 9:
           if (tag !== 72) {
             break;
           }
 
-          message.dataFree = longToNumber(reader.int64() as Long);
+          message.dataFree = reader.int64() as Long;
           continue;
         case 10:
           if (tag !== 82) {
@@ -3074,12 +3688,33 @@ export const TableMetadata = {
 
           message.comment = reader.string();
           continue;
+        case 13:
+          if (tag !== 106) {
+            break;
+          }
+
+          message.classification = reader.string();
+          continue;
+        case 14:
+          if (tag !== 114) {
+            break;
+          }
+
+          message.userComment = reader.string();
+          continue;
         case 12:
           if (tag !== 98) {
             break;
           }
 
           message.foreignKeys.push(ForeignKeyMetadata.decode(reader, reader.uint32()));
+          continue;
+        case 15:
+          if (tag !== 122) {
+            break;
+          }
+
+          message.partitions.push(TablePartitionMetadata.decode(reader, reader.uint32()));
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -3092,48 +3727,78 @@ export const TableMetadata = {
 
   fromJSON(object: any): TableMetadata {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      columns: Array.isArray(object?.columns) ? object.columns.map((e: any) => ColumnMetadata.fromJSON(e)) : [],
-      indexes: Array.isArray(object?.indexes) ? object.indexes.map((e: any) => IndexMetadata.fromJSON(e)) : [],
-      engine: isSet(object.engine) ? String(object.engine) : "",
-      collation: isSet(object.collation) ? String(object.collation) : "",
-      rowCount: isSet(object.rowCount) ? Number(object.rowCount) : 0,
-      dataSize: isSet(object.dataSize) ? Number(object.dataSize) : 0,
-      indexSize: isSet(object.indexSize) ? Number(object.indexSize) : 0,
-      dataFree: isSet(object.dataFree) ? Number(object.dataFree) : 0,
-      createOptions: isSet(object.createOptions) ? String(object.createOptions) : "",
-      comment: isSet(object.comment) ? String(object.comment) : "",
-      foreignKeys: Array.isArray(object?.foreignKeys)
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      columns: globalThis.Array.isArray(object?.columns)
+        ? object.columns.map((e: any) => ColumnMetadata.fromJSON(e))
+        : [],
+      indexes: globalThis.Array.isArray(object?.indexes)
+        ? object.indexes.map((e: any) => IndexMetadata.fromJSON(e))
+        : [],
+      engine: isSet(object.engine) ? globalThis.String(object.engine) : "",
+      collation: isSet(object.collation) ? globalThis.String(object.collation) : "",
+      rowCount: isSet(object.rowCount) ? Long.fromValue(object.rowCount) : Long.ZERO,
+      dataSize: isSet(object.dataSize) ? Long.fromValue(object.dataSize) : Long.ZERO,
+      indexSize: isSet(object.indexSize) ? Long.fromValue(object.indexSize) : Long.ZERO,
+      dataFree: isSet(object.dataFree) ? Long.fromValue(object.dataFree) : Long.ZERO,
+      createOptions: isSet(object.createOptions) ? globalThis.String(object.createOptions) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
+      classification: isSet(object.classification) ? globalThis.String(object.classification) : "",
+      userComment: isSet(object.userComment) ? globalThis.String(object.userComment) : "",
+      foreignKeys: globalThis.Array.isArray(object?.foreignKeys)
         ? object.foreignKeys.map((e: any) => ForeignKeyMetadata.fromJSON(e))
+        : [],
+      partitions: globalThis.Array.isArray(object?.partitions)
+        ? object.partitions.map((e: any) => TablePartitionMetadata.fromJSON(e))
         : [],
     };
   },
 
   toJSON(message: TableMetadata): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    if (message.columns) {
-      obj.columns = message.columns.map((e) => e ? ColumnMetadata.toJSON(e) : undefined);
-    } else {
-      obj.columns = [];
+    if (message.name !== "") {
+      obj.name = message.name;
     }
-    if (message.indexes) {
-      obj.indexes = message.indexes.map((e) => e ? IndexMetadata.toJSON(e) : undefined);
-    } else {
-      obj.indexes = [];
+    if (message.columns?.length) {
+      obj.columns = message.columns.map((e) => ColumnMetadata.toJSON(e));
     }
-    message.engine !== undefined && (obj.engine = message.engine);
-    message.collation !== undefined && (obj.collation = message.collation);
-    message.rowCount !== undefined && (obj.rowCount = Math.round(message.rowCount));
-    message.dataSize !== undefined && (obj.dataSize = Math.round(message.dataSize));
-    message.indexSize !== undefined && (obj.indexSize = Math.round(message.indexSize));
-    message.dataFree !== undefined && (obj.dataFree = Math.round(message.dataFree));
-    message.createOptions !== undefined && (obj.createOptions = message.createOptions);
-    message.comment !== undefined && (obj.comment = message.comment);
-    if (message.foreignKeys) {
-      obj.foreignKeys = message.foreignKeys.map((e) => e ? ForeignKeyMetadata.toJSON(e) : undefined);
-    } else {
-      obj.foreignKeys = [];
+    if (message.indexes?.length) {
+      obj.indexes = message.indexes.map((e) => IndexMetadata.toJSON(e));
+    }
+    if (message.engine !== "") {
+      obj.engine = message.engine;
+    }
+    if (message.collation !== "") {
+      obj.collation = message.collation;
+    }
+    if (!message.rowCount.isZero()) {
+      obj.rowCount = (message.rowCount || Long.ZERO).toString();
+    }
+    if (!message.dataSize.isZero()) {
+      obj.dataSize = (message.dataSize || Long.ZERO).toString();
+    }
+    if (!message.indexSize.isZero()) {
+      obj.indexSize = (message.indexSize || Long.ZERO).toString();
+    }
+    if (!message.dataFree.isZero()) {
+      obj.dataFree = (message.dataFree || Long.ZERO).toString();
+    }
+    if (message.createOptions !== "") {
+      obj.createOptions = message.createOptions;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
+    if (message.classification !== "") {
+      obj.classification = message.classification;
+    }
+    if (message.userComment !== "") {
+      obj.userComment = message.userComment;
+    }
+    if (message.foreignKeys?.length) {
+      obj.foreignKeys = message.foreignKeys.map((e) => ForeignKeyMetadata.toJSON(e));
+    }
+    if (message.partitions?.length) {
+      obj.partitions = message.partitions.map((e) => TablePartitionMetadata.toJSON(e));
     }
     return obj;
   },
@@ -3141,7 +3806,6 @@ export const TableMetadata = {
   create(base?: DeepPartial<TableMetadata>): TableMetadata {
     return TableMetadata.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<TableMetadata>): TableMetadata {
     const message = createBaseTableMetadata();
     message.name = object.name ?? "";
@@ -3149,13 +3813,130 @@ export const TableMetadata = {
     message.indexes = object.indexes?.map((e) => IndexMetadata.fromPartial(e)) || [];
     message.engine = object.engine ?? "";
     message.collation = object.collation ?? "";
-    message.rowCount = object.rowCount ?? 0;
-    message.dataSize = object.dataSize ?? 0;
-    message.indexSize = object.indexSize ?? 0;
-    message.dataFree = object.dataFree ?? 0;
+    message.rowCount = (object.rowCount !== undefined && object.rowCount !== null)
+      ? Long.fromValue(object.rowCount)
+      : Long.ZERO;
+    message.dataSize = (object.dataSize !== undefined && object.dataSize !== null)
+      ? Long.fromValue(object.dataSize)
+      : Long.ZERO;
+    message.indexSize = (object.indexSize !== undefined && object.indexSize !== null)
+      ? Long.fromValue(object.indexSize)
+      : Long.ZERO;
+    message.dataFree = (object.dataFree !== undefined && object.dataFree !== null)
+      ? Long.fromValue(object.dataFree)
+      : Long.ZERO;
     message.createOptions = object.createOptions ?? "";
     message.comment = object.comment ?? "";
+    message.classification = object.classification ?? "";
+    message.userComment = object.userComment ?? "";
     message.foreignKeys = object.foreignKeys?.map((e) => ForeignKeyMetadata.fromPartial(e)) || [];
+    message.partitions = object.partitions?.map((e) => TablePartitionMetadata.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseTablePartitionMetadata(): TablePartitionMetadata {
+  return { name: "", type: 0, expression: "", subpartitions: [] };
+}
+
+export const TablePartitionMetadata = {
+  encode(message: TablePartitionMetadata, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.type !== 0) {
+      writer.uint32(16).int32(message.type);
+    }
+    if (message.expression !== "") {
+      writer.uint32(26).string(message.expression);
+    }
+    for (const v of message.subpartitions) {
+      TablePartitionMetadata.encode(v!, writer.uint32(34).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): TablePartitionMetadata {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTablePartitionMetadata();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.type = reader.int32() as any;
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.expression = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.subpartitions.push(TablePartitionMetadata.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TablePartitionMetadata {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      type: isSet(object.type) ? tablePartitionMetadata_TypeFromJSON(object.type) : 0,
+      expression: isSet(object.expression) ? globalThis.String(object.expression) : "",
+      subpartitions: globalThis.Array.isArray(object?.subpartitions)
+        ? object.subpartitions.map((e: any) => TablePartitionMetadata.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: TablePartitionMetadata): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.type !== 0) {
+      obj.type = tablePartitionMetadata_TypeToJSON(message.type);
+    }
+    if (message.expression !== "") {
+      obj.expression = message.expression;
+    }
+    if (message.subpartitions?.length) {
+      obj.subpartitions = message.subpartitions.map((e) => TablePartitionMetadata.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<TablePartitionMetadata>): TablePartitionMetadata {
+    return TablePartitionMetadata.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<TablePartitionMetadata>): TablePartitionMetadata {
+    const message = createBaseTablePartitionMetadata();
+    message.name = object.name ?? "";
+    message.type = object.type ?? 0;
+    message.expression = object.expression ?? "";
+    message.subpartitions = object.subpartitions?.map((e) => TablePartitionMetadata.fromPartial(e)) || [];
     return message;
   },
 };
@@ -3164,12 +3945,18 @@ function createBaseColumnMetadata(): ColumnMetadata {
   return {
     name: "",
     position: 0,
-    default: undefined,
+    hasDefault: false,
+    defaultNull: undefined,
+    defaultString: undefined,
+    defaultExpression: undefined,
     nullable: false,
     type: "",
     characterSet: "",
     collation: "",
     comment: "",
+    classification: "",
+    userComment: "",
+    effectiveMaskingLevel: 0,
   };
 }
 
@@ -3181,23 +3968,41 @@ export const ColumnMetadata = {
     if (message.position !== 0) {
       writer.uint32(16).int32(message.position);
     }
-    if (message.default !== undefined) {
-      StringValue.encode({ value: message.default! }, writer.uint32(26).fork()).ldelim();
+    if (message.hasDefault === true) {
+      writer.uint32(24).bool(message.hasDefault);
+    }
+    if (message.defaultNull !== undefined) {
+      writer.uint32(32).bool(message.defaultNull);
+    }
+    if (message.defaultString !== undefined) {
+      writer.uint32(42).string(message.defaultString);
+    }
+    if (message.defaultExpression !== undefined) {
+      writer.uint32(50).string(message.defaultExpression);
     }
     if (message.nullable === true) {
-      writer.uint32(32).bool(message.nullable);
+      writer.uint32(56).bool(message.nullable);
     }
     if (message.type !== "") {
-      writer.uint32(42).string(message.type);
+      writer.uint32(66).string(message.type);
     }
     if (message.characterSet !== "") {
-      writer.uint32(50).string(message.characterSet);
+      writer.uint32(74).string(message.characterSet);
     }
     if (message.collation !== "") {
-      writer.uint32(58).string(message.collation);
+      writer.uint32(82).string(message.collation);
     }
     if (message.comment !== "") {
-      writer.uint32(66).string(message.comment);
+      writer.uint32(90).string(message.comment);
+    }
+    if (message.classification !== "") {
+      writer.uint32(98).string(message.classification);
+    }
+    if (message.userComment !== "") {
+      writer.uint32(106).string(message.userComment);
+    }
+    if (message.effectiveMaskingLevel !== 0) {
+      writer.uint32(112).int32(message.effectiveMaskingLevel);
     }
     return writer;
   },
@@ -3224,46 +4029,88 @@ export const ColumnMetadata = {
           message.position = reader.int32();
           continue;
         case 3:
-          if (tag !== 26) {
+          if (tag !== 24) {
             break;
           }
 
-          message.default = StringValue.decode(reader, reader.uint32()).value;
+          message.hasDefault = reader.bool();
           continue;
         case 4:
           if (tag !== 32) {
             break;
           }
 
-          message.nullable = reader.bool();
+          message.defaultNull = reader.bool();
           continue;
         case 5:
           if (tag !== 42) {
             break;
           }
 
-          message.type = reader.string();
+          message.defaultString = reader.string();
           continue;
         case 6:
           if (tag !== 50) {
             break;
           }
 
-          message.characterSet = reader.string();
+          message.defaultExpression = reader.string();
           continue;
         case 7:
-          if (tag !== 58) {
+          if (tag !== 56) {
             break;
           }
 
-          message.collation = reader.string();
+          message.nullable = reader.bool();
           continue;
         case 8:
           if (tag !== 66) {
             break;
           }
 
+          message.type = reader.string();
+          continue;
+        case 9:
+          if (tag !== 74) {
+            break;
+          }
+
+          message.characterSet = reader.string();
+          continue;
+        case 10:
+          if (tag !== 82) {
+            break;
+          }
+
+          message.collation = reader.string();
+          continue;
+        case 11:
+          if (tag !== 90) {
+            break;
+          }
+
           message.comment = reader.string();
+          continue;
+        case 12:
+          if (tag !== 98) {
+            break;
+          }
+
+          message.classification = reader.string();
+          continue;
+        case 13:
+          if (tag !== 106) {
+            break;
+          }
+
+          message.userComment = reader.string();
+          continue;
+        case 14:
+          if (tag !== 112) {
+            break;
+          }
+
+          message.effectiveMaskingLevel = reader.int32() as any;
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -3276,44 +4123,91 @@ export const ColumnMetadata = {
 
   fromJSON(object: any): ColumnMetadata {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      position: isSet(object.position) ? Number(object.position) : 0,
-      default: isSet(object.default) ? String(object.default) : undefined,
-      nullable: isSet(object.nullable) ? Boolean(object.nullable) : false,
-      type: isSet(object.type) ? String(object.type) : "",
-      characterSet: isSet(object.characterSet) ? String(object.characterSet) : "",
-      collation: isSet(object.collation) ? String(object.collation) : "",
-      comment: isSet(object.comment) ? String(object.comment) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      position: isSet(object.position) ? globalThis.Number(object.position) : 0,
+      hasDefault: isSet(object.hasDefault) ? globalThis.Boolean(object.hasDefault) : false,
+      defaultNull: isSet(object.defaultNull) ? globalThis.Boolean(object.defaultNull) : undefined,
+      defaultString: isSet(object.defaultString) ? globalThis.String(object.defaultString) : undefined,
+      defaultExpression: isSet(object.defaultExpression) ? globalThis.String(object.defaultExpression) : undefined,
+      nullable: isSet(object.nullable) ? globalThis.Boolean(object.nullable) : false,
+      type: isSet(object.type) ? globalThis.String(object.type) : "",
+      characterSet: isSet(object.characterSet) ? globalThis.String(object.characterSet) : "",
+      collation: isSet(object.collation) ? globalThis.String(object.collation) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
+      classification: isSet(object.classification) ? globalThis.String(object.classification) : "",
+      userComment: isSet(object.userComment) ? globalThis.String(object.userComment) : "",
+      effectiveMaskingLevel: isSet(object.effectiveMaskingLevel)
+        ? maskingLevelFromJSON(object.effectiveMaskingLevel)
+        : 0,
     };
   },
 
   toJSON(message: ColumnMetadata): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.position !== undefined && (obj.position = Math.round(message.position));
-    message.default !== undefined && (obj.default = message.default);
-    message.nullable !== undefined && (obj.nullable = message.nullable);
-    message.type !== undefined && (obj.type = message.type);
-    message.characterSet !== undefined && (obj.characterSet = message.characterSet);
-    message.collation !== undefined && (obj.collation = message.collation);
-    message.comment !== undefined && (obj.comment = message.comment);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.position !== 0) {
+      obj.position = Math.round(message.position);
+    }
+    if (message.hasDefault === true) {
+      obj.hasDefault = message.hasDefault;
+    }
+    if (message.defaultNull !== undefined) {
+      obj.defaultNull = message.defaultNull;
+    }
+    if (message.defaultString !== undefined) {
+      obj.defaultString = message.defaultString;
+    }
+    if (message.defaultExpression !== undefined) {
+      obj.defaultExpression = message.defaultExpression;
+    }
+    if (message.nullable === true) {
+      obj.nullable = message.nullable;
+    }
+    if (message.type !== "") {
+      obj.type = message.type;
+    }
+    if (message.characterSet !== "") {
+      obj.characterSet = message.characterSet;
+    }
+    if (message.collation !== "") {
+      obj.collation = message.collation;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
+    if (message.classification !== "") {
+      obj.classification = message.classification;
+    }
+    if (message.userComment !== "") {
+      obj.userComment = message.userComment;
+    }
+    if (message.effectiveMaskingLevel !== 0) {
+      obj.effectiveMaskingLevel = maskingLevelToJSON(message.effectiveMaskingLevel);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ColumnMetadata>): ColumnMetadata {
     return ColumnMetadata.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ColumnMetadata>): ColumnMetadata {
     const message = createBaseColumnMetadata();
     message.name = object.name ?? "";
     message.position = object.position ?? 0;
-    message.default = object.default ?? undefined;
+    message.hasDefault = object.hasDefault ?? false;
+    message.defaultNull = object.defaultNull ?? undefined;
+    message.defaultString = object.defaultString ?? undefined;
+    message.defaultExpression = object.defaultExpression ?? undefined;
     message.nullable = object.nullable ?? false;
     message.type = object.type ?? "";
     message.characterSet = object.characterSet ?? "";
     message.collation = object.collation ?? "";
     message.comment = object.comment ?? "";
+    message.classification = object.classification ?? "";
+    message.userComment = object.userComment ?? "";
+    message.effectiveMaskingLevel = object.effectiveMaskingLevel ?? 0;
     return message;
   },
 };
@@ -3385,10 +4279,10 @@ export const ViewMetadata = {
 
   fromJSON(object: any): ViewMetadata {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      definition: isSet(object.definition) ? String(object.definition) : "",
-      comment: isSet(object.comment) ? String(object.comment) : "",
-      dependentColumns: Array.isArray(object?.dependentColumns)
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      definition: isSet(object.definition) ? globalThis.String(object.definition) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
+      dependentColumns: globalThis.Array.isArray(object?.dependentColumns)
         ? object.dependentColumns.map((e: any) => DependentColumn.fromJSON(e))
         : [],
     };
@@ -3396,13 +4290,17 @@ export const ViewMetadata = {
 
   toJSON(message: ViewMetadata): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.definition !== undefined && (obj.definition = message.definition);
-    message.comment !== undefined && (obj.comment = message.comment);
-    if (message.dependentColumns) {
-      obj.dependentColumns = message.dependentColumns.map((e) => e ? DependentColumn.toJSON(e) : undefined);
-    } else {
-      obj.dependentColumns = [];
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.definition !== "") {
+      obj.definition = message.definition;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
+    if (message.dependentColumns?.length) {
+      obj.dependentColumns = message.dependentColumns.map((e) => DependentColumn.toJSON(e));
     }
     return obj;
   },
@@ -3410,7 +4308,6 @@ export const ViewMetadata = {
   create(base?: DeepPartial<ViewMetadata>): ViewMetadata {
     return ViewMetadata.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ViewMetadata>): ViewMetadata {
     const message = createBaseViewMetadata();
     message.name = object.name ?? "";
@@ -3478,24 +4375,29 @@ export const DependentColumn = {
 
   fromJSON(object: any): DependentColumn {
     return {
-      schema: isSet(object.schema) ? String(object.schema) : "",
-      table: isSet(object.table) ? String(object.table) : "",
-      column: isSet(object.column) ? String(object.column) : "",
+      schema: isSet(object.schema) ? globalThis.String(object.schema) : "",
+      table: isSet(object.table) ? globalThis.String(object.table) : "",
+      column: isSet(object.column) ? globalThis.String(object.column) : "",
     };
   },
 
   toJSON(message: DependentColumn): unknown {
     const obj: any = {};
-    message.schema !== undefined && (obj.schema = message.schema);
-    message.table !== undefined && (obj.table = message.table);
-    message.column !== undefined && (obj.column = message.column);
+    if (message.schema !== "") {
+      obj.schema = message.schema;
+    }
+    if (message.table !== "") {
+      obj.table = message.table;
+    }
+    if (message.column !== "") {
+      obj.column = message.column;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<DependentColumn>): DependentColumn {
     return DependentColumn.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DependentColumn>): DependentColumn {
     const message = createBaseDependentColumn();
     message.schema = object.schema ?? "";
@@ -3552,22 +4454,25 @@ export const FunctionMetadata = {
 
   fromJSON(object: any): FunctionMetadata {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      definition: isSet(object.definition) ? String(object.definition) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      definition: isSet(object.definition) ? globalThis.String(object.definition) : "",
     };
   },
 
   toJSON(message: FunctionMetadata): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.definition !== undefined && (obj.definition = message.definition);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.definition !== "") {
+      obj.definition = message.definition;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<FunctionMetadata>): FunctionMetadata {
     return FunctionMetadata.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<FunctionMetadata>): FunctionMetadata {
     const message = createBaseFunctionMetadata();
     message.name = object.name ?? "";
@@ -3714,42 +4619,59 @@ export const TaskMetadata = {
 
   fromJSON(object: any): TaskMetadata {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      id: isSet(object.id) ? String(object.id) : "",
-      owner: isSet(object.owner) ? String(object.owner) : "",
-      comment: isSet(object.comment) ? String(object.comment) : "",
-      warehouse: isSet(object.warehouse) ? String(object.warehouse) : "",
-      schedule: isSet(object.schedule) ? String(object.schedule) : "",
-      predecessors: Array.isArray(object?.predecessors) ? object.predecessors.map((e: any) => String(e)) : [],
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
+      warehouse: isSet(object.warehouse) ? globalThis.String(object.warehouse) : "",
+      schedule: isSet(object.schedule) ? globalThis.String(object.schedule) : "",
+      predecessors: globalThis.Array.isArray(object?.predecessors)
+        ? object.predecessors.map((e: any) => globalThis.String(e))
+        : [],
       state: isSet(object.state) ? taskMetadata_StateFromJSON(object.state) : 0,
-      condition: isSet(object.condition) ? String(object.condition) : "",
-      definition: isSet(object.definition) ? String(object.definition) : "",
+      condition: isSet(object.condition) ? globalThis.String(object.condition) : "",
+      definition: isSet(object.definition) ? globalThis.String(object.definition) : "",
     };
   },
 
   toJSON(message: TaskMetadata): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.id !== undefined && (obj.id = message.id);
-    message.owner !== undefined && (obj.owner = message.owner);
-    message.comment !== undefined && (obj.comment = message.comment);
-    message.warehouse !== undefined && (obj.warehouse = message.warehouse);
-    message.schedule !== undefined && (obj.schedule = message.schedule);
-    if (message.predecessors) {
-      obj.predecessors = message.predecessors.map((e) => e);
-    } else {
-      obj.predecessors = [];
+    if (message.name !== "") {
+      obj.name = message.name;
     }
-    message.state !== undefined && (obj.state = taskMetadata_StateToJSON(message.state));
-    message.condition !== undefined && (obj.condition = message.condition);
-    message.definition !== undefined && (obj.definition = message.definition);
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.owner !== "") {
+      obj.owner = message.owner;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
+    if (message.warehouse !== "") {
+      obj.warehouse = message.warehouse;
+    }
+    if (message.schedule !== "") {
+      obj.schedule = message.schedule;
+    }
+    if (message.predecessors?.length) {
+      obj.predecessors = message.predecessors;
+    }
+    if (message.state !== 0) {
+      obj.state = taskMetadata_StateToJSON(message.state);
+    }
+    if (message.condition !== "") {
+      obj.condition = message.condition;
+    }
+    if (message.definition !== "") {
+      obj.definition = message.definition;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<TaskMetadata>): TaskMetadata {
     return TaskMetadata.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<TaskMetadata>): TaskMetadata {
     const message = createBaseTaskMetadata();
     message.name = object.name ?? "";
@@ -3873,34 +4795,49 @@ export const StreamMetadata = {
 
   fromJSON(object: any): StreamMetadata {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      tableName: isSet(object.tableName) ? String(object.tableName) : "",
-      owner: isSet(object.owner) ? String(object.owner) : "",
-      comment: isSet(object.comment) ? String(object.comment) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      tableName: isSet(object.tableName) ? globalThis.String(object.tableName) : "",
+      owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
       type: isSet(object.type) ? streamMetadata_TypeFromJSON(object.type) : 0,
-      stale: isSet(object.stale) ? Boolean(object.stale) : false,
+      stale: isSet(object.stale) ? globalThis.Boolean(object.stale) : false,
       mode: isSet(object.mode) ? streamMetadata_ModeFromJSON(object.mode) : 0,
-      definition: isSet(object.definition) ? String(object.definition) : "",
+      definition: isSet(object.definition) ? globalThis.String(object.definition) : "",
     };
   },
 
   toJSON(message: StreamMetadata): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.tableName !== undefined && (obj.tableName = message.tableName);
-    message.owner !== undefined && (obj.owner = message.owner);
-    message.comment !== undefined && (obj.comment = message.comment);
-    message.type !== undefined && (obj.type = streamMetadata_TypeToJSON(message.type));
-    message.stale !== undefined && (obj.stale = message.stale);
-    message.mode !== undefined && (obj.mode = streamMetadata_ModeToJSON(message.mode));
-    message.definition !== undefined && (obj.definition = message.definition);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.tableName !== "") {
+      obj.tableName = message.tableName;
+    }
+    if (message.owner !== "") {
+      obj.owner = message.owner;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
+    if (message.type !== 0) {
+      obj.type = streamMetadata_TypeToJSON(message.type);
+    }
+    if (message.stale === true) {
+      obj.stale = message.stale;
+    }
+    if (message.mode !== 0) {
+      obj.mode = streamMetadata_ModeToJSON(message.mode);
+    }
+    if (message.definition !== "") {
+      obj.definition = message.definition;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<StreamMetadata>): StreamMetadata {
     return StreamMetadata.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<StreamMetadata>): StreamMetadata {
     const message = createBaseStreamMetadata();
     message.name = object.name ?? "";
@@ -4012,36 +4949,47 @@ export const IndexMetadata = {
 
   fromJSON(object: any): IndexMetadata {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      expressions: Array.isArray(object?.expressions) ? object.expressions.map((e: any) => String(e)) : [],
-      type: isSet(object.type) ? String(object.type) : "",
-      unique: isSet(object.unique) ? Boolean(object.unique) : false,
-      primary: isSet(object.primary) ? Boolean(object.primary) : false,
-      visible: isSet(object.visible) ? Boolean(object.visible) : false,
-      comment: isSet(object.comment) ? String(object.comment) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      expressions: globalThis.Array.isArray(object?.expressions)
+        ? object.expressions.map((e: any) => globalThis.String(e))
+        : [],
+      type: isSet(object.type) ? globalThis.String(object.type) : "",
+      unique: isSet(object.unique) ? globalThis.Boolean(object.unique) : false,
+      primary: isSet(object.primary) ? globalThis.Boolean(object.primary) : false,
+      visible: isSet(object.visible) ? globalThis.Boolean(object.visible) : false,
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
     };
   },
 
   toJSON(message: IndexMetadata): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    if (message.expressions) {
-      obj.expressions = message.expressions.map((e) => e);
-    } else {
-      obj.expressions = [];
+    if (message.name !== "") {
+      obj.name = message.name;
     }
-    message.type !== undefined && (obj.type = message.type);
-    message.unique !== undefined && (obj.unique = message.unique);
-    message.primary !== undefined && (obj.primary = message.primary);
-    message.visible !== undefined && (obj.visible = message.visible);
-    message.comment !== undefined && (obj.comment = message.comment);
+    if (message.expressions?.length) {
+      obj.expressions = message.expressions;
+    }
+    if (message.type !== "") {
+      obj.type = message.type;
+    }
+    if (message.unique === true) {
+      obj.unique = message.unique;
+    }
+    if (message.primary === true) {
+      obj.primary = message.primary;
+    }
+    if (message.visible === true) {
+      obj.visible = message.visible;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<IndexMetadata>): IndexMetadata {
     return IndexMetadata.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<IndexMetadata>): IndexMetadata {
     const message = createBaseIndexMetadata();
     message.name = object.name ?? "";
@@ -4122,26 +5070,33 @@ export const ExtensionMetadata = {
 
   fromJSON(object: any): ExtensionMetadata {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      schema: isSet(object.schema) ? String(object.schema) : "",
-      version: isSet(object.version) ? String(object.version) : "",
-      description: isSet(object.description) ? String(object.description) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      schema: isSet(object.schema) ? globalThis.String(object.schema) : "",
+      version: isSet(object.version) ? globalThis.String(object.version) : "",
+      description: isSet(object.description) ? globalThis.String(object.description) : "",
     };
   },
 
   toJSON(message: ExtensionMetadata): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.schema !== undefined && (obj.schema = message.schema);
-    message.version !== undefined && (obj.version = message.version);
-    message.description !== undefined && (obj.description = message.description);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.schema !== "") {
+      obj.schema = message.schema;
+    }
+    if (message.version !== "") {
+      obj.version = message.version;
+    }
+    if (message.description !== "") {
+      obj.description = message.description;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ExtensionMetadata>): ExtensionMetadata {
     return ExtensionMetadata.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ExtensionMetadata>): ExtensionMetadata {
     const message = createBaseExtensionMetadata();
     message.name = object.name ?? "";
@@ -4268,44 +5223,51 @@ export const ForeignKeyMetadata = {
 
   fromJSON(object: any): ForeignKeyMetadata {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      columns: Array.isArray(object?.columns) ? object.columns.map((e: any) => String(e)) : [],
-      referencedSchema: isSet(object.referencedSchema) ? String(object.referencedSchema) : "",
-      referencedTable: isSet(object.referencedTable) ? String(object.referencedTable) : "",
-      referencedColumns: Array.isArray(object?.referencedColumns)
-        ? object.referencedColumns.map((e: any) => String(e))
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      columns: globalThis.Array.isArray(object?.columns) ? object.columns.map((e: any) => globalThis.String(e)) : [],
+      referencedSchema: isSet(object.referencedSchema) ? globalThis.String(object.referencedSchema) : "",
+      referencedTable: isSet(object.referencedTable) ? globalThis.String(object.referencedTable) : "",
+      referencedColumns: globalThis.Array.isArray(object?.referencedColumns)
+        ? object.referencedColumns.map((e: any) => globalThis.String(e))
         : [],
-      onDelete: isSet(object.onDelete) ? String(object.onDelete) : "",
-      onUpdate: isSet(object.onUpdate) ? String(object.onUpdate) : "",
-      matchType: isSet(object.matchType) ? String(object.matchType) : "",
+      onDelete: isSet(object.onDelete) ? globalThis.String(object.onDelete) : "",
+      onUpdate: isSet(object.onUpdate) ? globalThis.String(object.onUpdate) : "",
+      matchType: isSet(object.matchType) ? globalThis.String(object.matchType) : "",
     };
   },
 
   toJSON(message: ForeignKeyMetadata): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    if (message.columns) {
-      obj.columns = message.columns.map((e) => e);
-    } else {
-      obj.columns = [];
+    if (message.name !== "") {
+      obj.name = message.name;
     }
-    message.referencedSchema !== undefined && (obj.referencedSchema = message.referencedSchema);
-    message.referencedTable !== undefined && (obj.referencedTable = message.referencedTable);
-    if (message.referencedColumns) {
-      obj.referencedColumns = message.referencedColumns.map((e) => e);
-    } else {
-      obj.referencedColumns = [];
+    if (message.columns?.length) {
+      obj.columns = message.columns;
     }
-    message.onDelete !== undefined && (obj.onDelete = message.onDelete);
-    message.onUpdate !== undefined && (obj.onUpdate = message.onUpdate);
-    message.matchType !== undefined && (obj.matchType = message.matchType);
+    if (message.referencedSchema !== "") {
+      obj.referencedSchema = message.referencedSchema;
+    }
+    if (message.referencedTable !== "") {
+      obj.referencedTable = message.referencedTable;
+    }
+    if (message.referencedColumns?.length) {
+      obj.referencedColumns = message.referencedColumns;
+    }
+    if (message.onDelete !== "") {
+      obj.onDelete = message.onDelete;
+    }
+    if (message.onUpdate !== "") {
+      obj.onUpdate = message.onUpdate;
+    }
+    if (message.matchType !== "") {
+      obj.matchType = message.matchType;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ForeignKeyMetadata>): ForeignKeyMetadata {
     return ForeignKeyMetadata.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ForeignKeyMetadata>): ForeignKeyMetadata {
     const message = createBaseForeignKeyMetadata();
     message.name = object.name ?? "";
@@ -4316,6 +5278,416 @@ export const ForeignKeyMetadata = {
     message.onDelete = object.onDelete ?? "";
     message.onUpdate = object.onUpdate ?? "";
     message.matchType = object.matchType ?? "";
+    return message;
+  },
+};
+
+function createBaseDatabaseConfig(): DatabaseConfig {
+  return { name: "", schemaConfigs: [] };
+}
+
+export const DatabaseConfig = {
+  encode(message: DatabaseConfig, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    for (const v of message.schemaConfigs) {
+      SchemaConfig.encode(v!, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): DatabaseConfig {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDatabaseConfig();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.schemaConfigs.push(SchemaConfig.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DatabaseConfig {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      schemaConfigs: globalThis.Array.isArray(object?.schemaConfigs)
+        ? object.schemaConfigs.map((e: any) => SchemaConfig.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: DatabaseConfig): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.schemaConfigs?.length) {
+      obj.schemaConfigs = message.schemaConfigs.map((e) => SchemaConfig.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DatabaseConfig>): DatabaseConfig {
+    return DatabaseConfig.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DatabaseConfig>): DatabaseConfig {
+    const message = createBaseDatabaseConfig();
+    message.name = object.name ?? "";
+    message.schemaConfigs = object.schemaConfigs?.map((e) => SchemaConfig.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseSchemaConfig(): SchemaConfig {
+  return { name: "", tableConfigs: [] };
+}
+
+export const SchemaConfig = {
+  encode(message: SchemaConfig, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    for (const v of message.tableConfigs) {
+      TableConfig.encode(v!, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SchemaConfig {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSchemaConfig();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.tableConfigs.push(TableConfig.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SchemaConfig {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      tableConfigs: globalThis.Array.isArray(object?.tableConfigs)
+        ? object.tableConfigs.map((e: any) => TableConfig.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: SchemaConfig): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.tableConfigs?.length) {
+      obj.tableConfigs = message.tableConfigs.map((e) => TableConfig.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<SchemaConfig>): SchemaConfig {
+    return SchemaConfig.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<SchemaConfig>): SchemaConfig {
+    const message = createBaseSchemaConfig();
+    message.name = object.name ?? "";
+    message.tableConfigs = object.tableConfigs?.map((e) => TableConfig.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseTableConfig(): TableConfig {
+  return { name: "", columnConfigs: [] };
+}
+
+export const TableConfig = {
+  encode(message: TableConfig, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    for (const v of message.columnConfigs) {
+      ColumnConfig.encode(v!, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): TableConfig {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTableConfig();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.columnConfigs.push(ColumnConfig.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TableConfig {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      columnConfigs: globalThis.Array.isArray(object?.columnConfigs)
+        ? object.columnConfigs.map((e: any) => ColumnConfig.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: TableConfig): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.columnConfigs?.length) {
+      obj.columnConfigs = message.columnConfigs.map((e) => ColumnConfig.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<TableConfig>): TableConfig {
+    return TableConfig.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<TableConfig>): TableConfig {
+    const message = createBaseTableConfig();
+    message.name = object.name ?? "";
+    message.columnConfigs = object.columnConfigs?.map((e) => ColumnConfig.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseColumnConfig(): ColumnConfig {
+  return { name: "", semanticTypeId: "", labels: {} };
+}
+
+export const ColumnConfig = {
+  encode(message: ColumnConfig, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.semanticTypeId !== "") {
+      writer.uint32(18).string(message.semanticTypeId);
+    }
+    Object.entries(message.labels).forEach(([key, value]) => {
+      ColumnConfig_LabelsEntry.encode({ key: key as any, value }, writer.uint32(26).fork()).ldelim();
+    });
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ColumnConfig {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseColumnConfig();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.semanticTypeId = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          const entry3 = ColumnConfig_LabelsEntry.decode(reader, reader.uint32());
+          if (entry3.value !== undefined) {
+            message.labels[entry3.key] = entry3.value;
+          }
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ColumnConfig {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      semanticTypeId: isSet(object.semanticTypeId) ? globalThis.String(object.semanticTypeId) : "",
+      labels: isObject(object.labels)
+        ? Object.entries(object.labels).reduce<{ [key: string]: string }>((acc, [key, value]) => {
+          acc[key] = String(value);
+          return acc;
+        }, {})
+        : {},
+    };
+  },
+
+  toJSON(message: ColumnConfig): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.semanticTypeId !== "") {
+      obj.semanticTypeId = message.semanticTypeId;
+    }
+    if (message.labels) {
+      const entries = Object.entries(message.labels);
+      if (entries.length > 0) {
+        obj.labels = {};
+        entries.forEach(([k, v]) => {
+          obj.labels[k] = v;
+        });
+      }
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ColumnConfig>): ColumnConfig {
+    return ColumnConfig.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ColumnConfig>): ColumnConfig {
+    const message = createBaseColumnConfig();
+    message.name = object.name ?? "";
+    message.semanticTypeId = object.semanticTypeId ?? "";
+    message.labels = Object.entries(object.labels ?? {}).reduce<{ [key: string]: string }>((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[key] = globalThis.String(value);
+      }
+      return acc;
+    }, {});
+    return message;
+  },
+};
+
+function createBaseColumnConfig_LabelsEntry(): ColumnConfig_LabelsEntry {
+  return { key: "", value: "" };
+}
+
+export const ColumnConfig_LabelsEntry = {
+  encode(message: ColumnConfig_LabelsEntry, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== "") {
+      writer.uint32(18).string(message.value);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ColumnConfig_LabelsEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseColumnConfig_LabelsEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ColumnConfig_LabelsEntry {
+    return {
+      key: isSet(object.key) ? globalThis.String(object.key) : "",
+      value: isSet(object.value) ? globalThis.String(object.value) : "",
+    };
+  },
+
+  toJSON(message: ColumnConfig_LabelsEntry): unknown {
+    const obj: any = {};
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== "") {
+      obj.value = message.value;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ColumnConfig_LabelsEntry>): ColumnConfig_LabelsEntry {
+    return ColumnConfig_LabelsEntry.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ColumnConfig_LabelsEntry>): ColumnConfig_LabelsEntry {
+    const message = createBaseColumnConfig_LabelsEntry();
+    message.key = object.key ?? "";
+    message.value = object.value ?? "";
     return message;
   },
 };
@@ -4356,19 +5728,20 @@ export const DatabaseSchema = {
   },
 
   fromJSON(object: any): DatabaseSchema {
-    return { schema: isSet(object.schema) ? String(object.schema) : "" };
+    return { schema: isSet(object.schema) ? globalThis.String(object.schema) : "" };
   },
 
   toJSON(message: DatabaseSchema): unknown {
     const obj: any = {};
-    message.schema !== undefined && (obj.schema = message.schema);
+    if (message.schema !== "") {
+      obj.schema = message.schema;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<DatabaseSchema>): DatabaseSchema {
     return DatabaseSchema.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DatabaseSchema>): DatabaseSchema {
     const message = createBaseDatabaseSchema();
     message.schema = object.schema ?? "";
@@ -4443,30 +5816,35 @@ export const BackupSetting = {
 
   fromJSON(object: any): BackupSetting {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
       backupRetainDuration: isSet(object.backupRetainDuration)
         ? Duration.fromJSON(object.backupRetainDuration)
         : undefined,
-      cronSchedule: isSet(object.cronSchedule) ? String(object.cronSchedule) : "",
-      hookUrl: isSet(object.hookUrl) ? String(object.hookUrl) : "",
+      cronSchedule: isSet(object.cronSchedule) ? globalThis.String(object.cronSchedule) : "",
+      hookUrl: isSet(object.hookUrl) ? globalThis.String(object.hookUrl) : "",
     };
   },
 
   toJSON(message: BackupSetting): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.backupRetainDuration !== undefined && (obj.backupRetainDuration = message.backupRetainDuration
-      ? Duration.toJSON(message.backupRetainDuration)
-      : undefined);
-    message.cronSchedule !== undefined && (obj.cronSchedule = message.cronSchedule);
-    message.hookUrl !== undefined && (obj.hookUrl = message.hookUrl);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.backupRetainDuration !== undefined) {
+      obj.backupRetainDuration = Duration.toJSON(message.backupRetainDuration);
+    }
+    if (message.cronSchedule !== "") {
+      obj.cronSchedule = message.cronSchedule;
+    }
+    if (message.hookUrl !== "") {
+      obj.hookUrl = message.hookUrl;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<BackupSetting>): BackupSetting {
     return BackupSetting.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<BackupSetting>): BackupSetting {
     const message = createBaseBackupSetting();
     message.name = object.name ?? "";
@@ -4576,32 +5954,45 @@ export const Backup = {
 
   fromJSON(object: any): Backup {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
       createTime: isSet(object.createTime) ? fromJsonTimestamp(object.createTime) : undefined,
       updateTime: isSet(object.updateTime) ? fromJsonTimestamp(object.updateTime) : undefined,
       state: isSet(object.state) ? backup_BackupStateFromJSON(object.state) : 0,
       backupType: isSet(object.backupType) ? backup_BackupTypeFromJSON(object.backupType) : 0,
-      comment: isSet(object.comment) ? String(object.comment) : "",
-      uid: isSet(object.uid) ? String(object.uid) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
+      uid: isSet(object.uid) ? globalThis.String(object.uid) : "",
     };
   },
 
   toJSON(message: Backup): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.createTime !== undefined && (obj.createTime = message.createTime.toISOString());
-    message.updateTime !== undefined && (obj.updateTime = message.updateTime.toISOString());
-    message.state !== undefined && (obj.state = backup_BackupStateToJSON(message.state));
-    message.backupType !== undefined && (obj.backupType = backup_BackupTypeToJSON(message.backupType));
-    message.comment !== undefined && (obj.comment = message.comment);
-    message.uid !== undefined && (obj.uid = message.uid);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.createTime !== undefined) {
+      obj.createTime = message.createTime.toISOString();
+    }
+    if (message.updateTime !== undefined) {
+      obj.updateTime = message.updateTime.toISOString();
+    }
+    if (message.state !== 0) {
+      obj.state = backup_BackupStateToJSON(message.state);
+    }
+    if (message.backupType !== 0) {
+      obj.backupType = backup_BackupTypeToJSON(message.backupType);
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
+    if (message.uid !== "") {
+      obj.uid = message.uid;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<Backup>): Backup {
     return Backup.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<Backup>): Backup {
     const message = createBaseBackup();
     message.name = object.name ?? "";
@@ -4672,24 +6063,29 @@ export const ListSlowQueriesRequest = {
 
   fromJSON(object: any): ListSlowQueriesRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      filter: isSet(object.filter) ? String(object.filter) : "",
-      orderBy: isSet(object.orderBy) ? String(object.orderBy) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      filter: isSet(object.filter) ? globalThis.String(object.filter) : "",
+      orderBy: isSet(object.orderBy) ? globalThis.String(object.orderBy) : "",
     };
   },
 
   toJSON(message: ListSlowQueriesRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.filter !== undefined && (obj.filter = message.filter);
-    message.orderBy !== undefined && (obj.orderBy = message.orderBy);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.filter !== "") {
+      obj.filter = message.filter;
+    }
+    if (message.orderBy !== "") {
+      obj.orderBy = message.orderBy;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListSlowQueriesRequest>): ListSlowQueriesRequest {
     return ListSlowQueriesRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListSlowQueriesRequest>): ListSlowQueriesRequest {
     const message = createBaseListSlowQueriesRequest();
     message.parent = object.parent ?? "";
@@ -4736,7 +6132,7 @@ export const ListSlowQueriesResponse = {
 
   fromJSON(object: any): ListSlowQueriesResponse {
     return {
-      slowQueryLogs: Array.isArray(object?.slowQueryLogs)
+      slowQueryLogs: globalThis.Array.isArray(object?.slowQueryLogs)
         ? object.slowQueryLogs.map((e: any) => SlowQueryLog.fromJSON(e))
         : [],
     };
@@ -4744,10 +6140,8 @@ export const ListSlowQueriesResponse = {
 
   toJSON(message: ListSlowQueriesResponse): unknown {
     const obj: any = {};
-    if (message.slowQueryLogs) {
-      obj.slowQueryLogs = message.slowQueryLogs.map((e) => e ? SlowQueryLog.toJSON(e) : undefined);
-    } else {
-      obj.slowQueryLogs = [];
+    if (message.slowQueryLogs?.length) {
+      obj.slowQueryLogs = message.slowQueryLogs.map((e) => SlowQueryLog.toJSON(e));
     }
     return obj;
   },
@@ -4755,7 +6149,6 @@ export const ListSlowQueriesResponse = {
   create(base?: DeepPartial<ListSlowQueriesResponse>): ListSlowQueriesResponse {
     return ListSlowQueriesResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListSlowQueriesResponse>): ListSlowQueriesResponse {
     const message = createBaseListSlowQueriesResponse();
     message.slowQueryLogs = object.slowQueryLogs?.map((e) => SlowQueryLog.fromPartial(e)) || [];
@@ -4820,25 +6213,29 @@ export const SlowQueryLog = {
 
   fromJSON(object: any): SlowQueryLog {
     return {
-      resource: isSet(object.resource) ? String(object.resource) : "",
-      project: isSet(object.project) ? String(object.project) : "",
+      resource: isSet(object.resource) ? globalThis.String(object.resource) : "",
+      project: isSet(object.project) ? globalThis.String(object.project) : "",
       statistics: isSet(object.statistics) ? SlowQueryStatistics.fromJSON(object.statistics) : undefined,
     };
   },
 
   toJSON(message: SlowQueryLog): unknown {
     const obj: any = {};
-    message.resource !== undefined && (obj.resource = message.resource);
-    message.project !== undefined && (obj.project = message.project);
-    message.statistics !== undefined &&
-      (obj.statistics = message.statistics ? SlowQueryStatistics.toJSON(message.statistics) : undefined);
+    if (message.resource !== "") {
+      obj.resource = message.resource;
+    }
+    if (message.project !== "") {
+      obj.project = message.project;
+    }
+    if (message.statistics !== undefined) {
+      obj.statistics = SlowQueryStatistics.toJSON(message.statistics);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<SlowQueryLog>): SlowQueryLog {
     return SlowQueryLog.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SlowQueryLog>): SlowQueryLog {
     const message = createBaseSlowQueryLog();
     message.resource = object.resource ?? "";
@@ -4873,7 +6270,7 @@ export const SlowQueryStatistics = {
       writer.uint32(10).string(message.sqlFingerprint);
     }
     if (message.count !== 0) {
-      writer.uint32(16).int64(message.count);
+      writer.uint32(16).int32(message.count);
     }
     if (message.latestLogTime !== undefined) {
       Timestamp.encode(toTimestamp(message.latestLogTime), writer.uint32(26).fork()).ldelim();
@@ -4885,16 +6282,16 @@ export const SlowQueryStatistics = {
       Duration.encode(message.maximumQueryTime, writer.uint32(42).fork()).ldelim();
     }
     if (message.averageRowsSent !== 0) {
-      writer.uint32(48).int64(message.averageRowsSent);
+      writer.uint32(48).int32(message.averageRowsSent);
     }
     if (message.maximumRowsSent !== 0) {
-      writer.uint32(56).int64(message.maximumRowsSent);
+      writer.uint32(56).int32(message.maximumRowsSent);
     }
     if (message.averageRowsExamined !== 0) {
-      writer.uint32(64).int64(message.averageRowsExamined);
+      writer.uint32(64).int32(message.averageRowsExamined);
     }
     if (message.maximumRowsExamined !== 0) {
-      writer.uint32(72).int64(message.maximumRowsExamined);
+      writer.uint32(72).int32(message.maximumRowsExamined);
     }
     if (message.queryTimePercent !== 0) {
       writer.uint32(81).double(message.queryTimePercent);
@@ -4927,7 +6324,7 @@ export const SlowQueryStatistics = {
             break;
           }
 
-          message.count = longToNumber(reader.int64() as Long);
+          message.count = reader.int32();
           continue;
         case 3:
           if (tag !== 26) {
@@ -4955,28 +6352,28 @@ export const SlowQueryStatistics = {
             break;
           }
 
-          message.averageRowsSent = longToNumber(reader.int64() as Long);
+          message.averageRowsSent = reader.int32();
           continue;
         case 7:
           if (tag !== 56) {
             break;
           }
 
-          message.maximumRowsSent = longToNumber(reader.int64() as Long);
+          message.maximumRowsSent = reader.int32();
           continue;
         case 8:
           if (tag !== 64) {
             break;
           }
 
-          message.averageRowsExamined = longToNumber(reader.int64() as Long);
+          message.averageRowsExamined = reader.int32();
           continue;
         case 9:
           if (tag !== 72) {
             break;
           }
 
-          message.maximumRowsExamined = longToNumber(reader.int64() as Long);
+          message.maximumRowsExamined = reader.int32();
           continue;
         case 10:
           if (tag !== 81) {
@@ -5010,40 +6407,60 @@ export const SlowQueryStatistics = {
 
   fromJSON(object: any): SlowQueryStatistics {
     return {
-      sqlFingerprint: isSet(object.sqlFingerprint) ? String(object.sqlFingerprint) : "",
-      count: isSet(object.count) ? Number(object.count) : 0,
+      sqlFingerprint: isSet(object.sqlFingerprint) ? globalThis.String(object.sqlFingerprint) : "",
+      count: isSet(object.count) ? globalThis.Number(object.count) : 0,
       latestLogTime: isSet(object.latestLogTime) ? fromJsonTimestamp(object.latestLogTime) : undefined,
       averageQueryTime: isSet(object.averageQueryTime) ? Duration.fromJSON(object.averageQueryTime) : undefined,
       maximumQueryTime: isSet(object.maximumQueryTime) ? Duration.fromJSON(object.maximumQueryTime) : undefined,
-      averageRowsSent: isSet(object.averageRowsSent) ? Number(object.averageRowsSent) : 0,
-      maximumRowsSent: isSet(object.maximumRowsSent) ? Number(object.maximumRowsSent) : 0,
-      averageRowsExamined: isSet(object.averageRowsExamined) ? Number(object.averageRowsExamined) : 0,
-      maximumRowsExamined: isSet(object.maximumRowsExamined) ? Number(object.maximumRowsExamined) : 0,
-      queryTimePercent: isSet(object.queryTimePercent) ? Number(object.queryTimePercent) : 0,
-      countPercent: isSet(object.countPercent) ? Number(object.countPercent) : 0,
-      samples: Array.isArray(object?.samples) ? object.samples.map((e: any) => SlowQueryDetails.fromJSON(e)) : [],
+      averageRowsSent: isSet(object.averageRowsSent) ? globalThis.Number(object.averageRowsSent) : 0,
+      maximumRowsSent: isSet(object.maximumRowsSent) ? globalThis.Number(object.maximumRowsSent) : 0,
+      averageRowsExamined: isSet(object.averageRowsExamined) ? globalThis.Number(object.averageRowsExamined) : 0,
+      maximumRowsExamined: isSet(object.maximumRowsExamined) ? globalThis.Number(object.maximumRowsExamined) : 0,
+      queryTimePercent: isSet(object.queryTimePercent) ? globalThis.Number(object.queryTimePercent) : 0,
+      countPercent: isSet(object.countPercent) ? globalThis.Number(object.countPercent) : 0,
+      samples: globalThis.Array.isArray(object?.samples)
+        ? object.samples.map((e: any) => SlowQueryDetails.fromJSON(e))
+        : [],
     };
   },
 
   toJSON(message: SlowQueryStatistics): unknown {
     const obj: any = {};
-    message.sqlFingerprint !== undefined && (obj.sqlFingerprint = message.sqlFingerprint);
-    message.count !== undefined && (obj.count = Math.round(message.count));
-    message.latestLogTime !== undefined && (obj.latestLogTime = message.latestLogTime.toISOString());
-    message.averageQueryTime !== undefined &&
-      (obj.averageQueryTime = message.averageQueryTime ? Duration.toJSON(message.averageQueryTime) : undefined);
-    message.maximumQueryTime !== undefined &&
-      (obj.maximumQueryTime = message.maximumQueryTime ? Duration.toJSON(message.maximumQueryTime) : undefined);
-    message.averageRowsSent !== undefined && (obj.averageRowsSent = Math.round(message.averageRowsSent));
-    message.maximumRowsSent !== undefined && (obj.maximumRowsSent = Math.round(message.maximumRowsSent));
-    message.averageRowsExamined !== undefined && (obj.averageRowsExamined = Math.round(message.averageRowsExamined));
-    message.maximumRowsExamined !== undefined && (obj.maximumRowsExamined = Math.round(message.maximumRowsExamined));
-    message.queryTimePercent !== undefined && (obj.queryTimePercent = message.queryTimePercent);
-    message.countPercent !== undefined && (obj.countPercent = message.countPercent);
-    if (message.samples) {
-      obj.samples = message.samples.map((e) => e ? SlowQueryDetails.toJSON(e) : undefined);
-    } else {
-      obj.samples = [];
+    if (message.sqlFingerprint !== "") {
+      obj.sqlFingerprint = message.sqlFingerprint;
+    }
+    if (message.count !== 0) {
+      obj.count = Math.round(message.count);
+    }
+    if (message.latestLogTime !== undefined) {
+      obj.latestLogTime = message.latestLogTime.toISOString();
+    }
+    if (message.averageQueryTime !== undefined) {
+      obj.averageQueryTime = Duration.toJSON(message.averageQueryTime);
+    }
+    if (message.maximumQueryTime !== undefined) {
+      obj.maximumQueryTime = Duration.toJSON(message.maximumQueryTime);
+    }
+    if (message.averageRowsSent !== 0) {
+      obj.averageRowsSent = Math.round(message.averageRowsSent);
+    }
+    if (message.maximumRowsSent !== 0) {
+      obj.maximumRowsSent = Math.round(message.maximumRowsSent);
+    }
+    if (message.averageRowsExamined !== 0) {
+      obj.averageRowsExamined = Math.round(message.averageRowsExamined);
+    }
+    if (message.maximumRowsExamined !== 0) {
+      obj.maximumRowsExamined = Math.round(message.maximumRowsExamined);
+    }
+    if (message.queryTimePercent !== 0) {
+      obj.queryTimePercent = message.queryTimePercent;
+    }
+    if (message.countPercent !== 0) {
+      obj.countPercent = message.countPercent;
+    }
+    if (message.samples?.length) {
+      obj.samples = message.samples.map((e) => SlowQueryDetails.toJSON(e));
     }
     return obj;
   },
@@ -5051,7 +6468,6 @@ export const SlowQueryStatistics = {
   create(base?: DeepPartial<SlowQueryStatistics>): SlowQueryStatistics {
     return SlowQueryStatistics.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SlowQueryStatistics>): SlowQueryStatistics {
     const message = createBaseSlowQueryStatistics();
     message.sqlFingerprint = object.sqlFingerprint ?? "";
@@ -5090,10 +6506,10 @@ export const SlowQueryDetails = {
       Duration.encode(message.lockTime, writer.uint32(26).fork()).ldelim();
     }
     if (message.rowsSent !== 0) {
-      writer.uint32(32).int64(message.rowsSent);
+      writer.uint32(32).int32(message.rowsSent);
     }
     if (message.rowsExamined !== 0) {
-      writer.uint32(40).int64(message.rowsExamined);
+      writer.uint32(40).int32(message.rowsExamined);
     }
     if (message.sqlText !== "") {
       writer.uint32(50).string(message.sqlText);
@@ -5134,14 +6550,14 @@ export const SlowQueryDetails = {
             break;
           }
 
-          message.rowsSent = longToNumber(reader.int64() as Long);
+          message.rowsSent = reader.int32();
           continue;
         case 5:
           if (tag !== 40) {
             break;
           }
 
-          message.rowsExamined = longToNumber(reader.int64() as Long);
+          message.rowsExamined = reader.int32();
           continue;
         case 6:
           if (tag !== 50) {
@@ -5164,28 +6580,38 @@ export const SlowQueryDetails = {
       startTime: isSet(object.startTime) ? fromJsonTimestamp(object.startTime) : undefined,
       queryTime: isSet(object.queryTime) ? Duration.fromJSON(object.queryTime) : undefined,
       lockTime: isSet(object.lockTime) ? Duration.fromJSON(object.lockTime) : undefined,
-      rowsSent: isSet(object.rowsSent) ? Number(object.rowsSent) : 0,
-      rowsExamined: isSet(object.rowsExamined) ? Number(object.rowsExamined) : 0,
-      sqlText: isSet(object.sqlText) ? String(object.sqlText) : "",
+      rowsSent: isSet(object.rowsSent) ? globalThis.Number(object.rowsSent) : 0,
+      rowsExamined: isSet(object.rowsExamined) ? globalThis.Number(object.rowsExamined) : 0,
+      sqlText: isSet(object.sqlText) ? globalThis.String(object.sqlText) : "",
     };
   },
 
   toJSON(message: SlowQueryDetails): unknown {
     const obj: any = {};
-    message.startTime !== undefined && (obj.startTime = message.startTime.toISOString());
-    message.queryTime !== undefined &&
-      (obj.queryTime = message.queryTime ? Duration.toJSON(message.queryTime) : undefined);
-    message.lockTime !== undefined && (obj.lockTime = message.lockTime ? Duration.toJSON(message.lockTime) : undefined);
-    message.rowsSent !== undefined && (obj.rowsSent = Math.round(message.rowsSent));
-    message.rowsExamined !== undefined && (obj.rowsExamined = Math.round(message.rowsExamined));
-    message.sqlText !== undefined && (obj.sqlText = message.sqlText);
+    if (message.startTime !== undefined) {
+      obj.startTime = message.startTime.toISOString();
+    }
+    if (message.queryTime !== undefined) {
+      obj.queryTime = Duration.toJSON(message.queryTime);
+    }
+    if (message.lockTime !== undefined) {
+      obj.lockTime = Duration.toJSON(message.lockTime);
+    }
+    if (message.rowsSent !== 0) {
+      obj.rowsSent = Math.round(message.rowsSent);
+    }
+    if (message.rowsExamined !== 0) {
+      obj.rowsExamined = Math.round(message.rowsExamined);
+    }
+    if (message.sqlText !== "") {
+      obj.sqlText = message.sqlText;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<SlowQueryDetails>): SlowQueryDetails {
     return SlowQueryDetails.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<SlowQueryDetails>): SlowQueryDetails {
     const message = createBaseSlowQueryDetails();
     message.startTime = object.startTime ?? undefined;
@@ -5259,24 +6685,29 @@ export const ListSecretsRequest = {
 
   fromJSON(object: any): ListSecretsRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
     };
   },
 
   toJSON(message: ListSecretsRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      obj.pageToken = message.pageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListSecretsRequest>): ListSecretsRequest {
     return ListSecretsRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListSecretsRequest>): ListSecretsRequest {
     const message = createBaseListSecretsRequest();
     message.parent = object.parent ?? "";
@@ -5333,26 +6764,25 @@ export const ListSecretsResponse = {
 
   fromJSON(object: any): ListSecretsResponse {
     return {
-      secrets: Array.isArray(object?.secrets) ? object.secrets.map((e: any) => Secret.fromJSON(e)) : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+      secrets: globalThis.Array.isArray(object?.secrets) ? object.secrets.map((e: any) => Secret.fromJSON(e)) : [],
+      nextPageToken: isSet(object.nextPageToken) ? globalThis.String(object.nextPageToken) : "",
     };
   },
 
   toJSON(message: ListSecretsResponse): unknown {
     const obj: any = {};
-    if (message.secrets) {
-      obj.secrets = message.secrets.map((e) => e ? Secret.toJSON(e) : undefined);
-    } else {
-      obj.secrets = [];
+    if (message.secrets?.length) {
+      obj.secrets = message.secrets.map((e) => Secret.toJSON(e));
     }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    if (message.nextPageToken !== "") {
+      obj.nextPageToken = message.nextPageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListSecretsResponse>): ListSecretsResponse {
     return ListSecretsResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListSecretsResponse>): ListSecretsResponse {
     const message = createBaseListSecretsResponse();
     message.secrets = object.secrets?.map((e) => Secret.fromPartial(e)) || [];
@@ -5420,22 +6850,27 @@ export const UpdateSecretRequest = {
     return {
       secret: isSet(object.secret) ? Secret.fromJSON(object.secret) : undefined,
       updateMask: isSet(object.updateMask) ? FieldMask.unwrap(FieldMask.fromJSON(object.updateMask)) : undefined,
-      allowMissing: isSet(object.allowMissing) ? Boolean(object.allowMissing) : false,
+      allowMissing: isSet(object.allowMissing) ? globalThis.Boolean(object.allowMissing) : false,
     };
   },
 
   toJSON(message: UpdateSecretRequest): unknown {
     const obj: any = {};
-    message.secret !== undefined && (obj.secret = message.secret ? Secret.toJSON(message.secret) : undefined);
-    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
-    message.allowMissing !== undefined && (obj.allowMissing = message.allowMissing);
+    if (message.secret !== undefined) {
+      obj.secret = Secret.toJSON(message.secret);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
+    if (message.allowMissing === true) {
+      obj.allowMissing = message.allowMissing;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateSecretRequest>): UpdateSecretRequest {
     return UpdateSecretRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateSecretRequest>): UpdateSecretRequest {
     const message = createBaseUpdateSecretRequest();
     message.secret = (object.secret !== undefined && object.secret !== null)
@@ -5483,19 +6918,20 @@ export const DeleteSecretRequest = {
   },
 
   fromJSON(object: any): DeleteSecretRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: DeleteSecretRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<DeleteSecretRequest>): DeleteSecretRequest {
     return DeleteSecretRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<DeleteSecretRequest>): DeleteSecretRequest {
     const message = createBaseDeleteSecretRequest();
     message.name = object.name ?? "";
@@ -5580,28 +7016,37 @@ export const Secret = {
 
   fromJSON(object: any): Secret {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
       createdTime: isSet(object.createdTime) ? fromJsonTimestamp(object.createdTime) : undefined,
       updatedTime: isSet(object.updatedTime) ? fromJsonTimestamp(object.updatedTime) : undefined,
-      value: isSet(object.value) ? String(object.value) : "",
-      description: isSet(object.description) ? String(object.description) : "",
+      value: isSet(object.value) ? globalThis.String(object.value) : "",
+      description: isSet(object.description) ? globalThis.String(object.description) : "",
     };
   },
 
   toJSON(message: Secret): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.createdTime !== undefined && (obj.createdTime = message.createdTime.toISOString());
-    message.updatedTime !== undefined && (obj.updatedTime = message.updatedTime.toISOString());
-    message.value !== undefined && (obj.value = message.value);
-    message.description !== undefined && (obj.description = message.description);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.createdTime !== undefined) {
+      obj.createdTime = message.createdTime.toISOString();
+    }
+    if (message.updatedTime !== undefined) {
+      obj.updatedTime = message.updatedTime.toISOString();
+    }
+    if (message.value !== "") {
+      obj.value = message.value;
+    }
+    if (message.description !== "") {
+      obj.description = message.description;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<Secret>): Secret {
     return Secret.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<Secret>): Secret {
     const message = createBaseSecret();
     message.name = object.name ?? "";
@@ -5660,22 +7105,25 @@ export const AdviseIndexRequest = {
 
   fromJSON(object: any): AdviseIndexRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      statement: isSet(object.statement) ? String(object.statement) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      statement: isSet(object.statement) ? globalThis.String(object.statement) : "",
     };
   },
 
   toJSON(message: AdviseIndexRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.statement !== undefined && (obj.statement = message.statement);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.statement !== "") {
+      obj.statement = message.statement;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<AdviseIndexRequest>): AdviseIndexRequest {
     return AdviseIndexRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<AdviseIndexRequest>): AdviseIndexRequest {
     const message = createBaseAdviseIndexRequest();
     message.parent = object.parent ?? "";
@@ -5741,24 +7189,29 @@ export const AdviseIndexResponse = {
 
   fromJSON(object: any): AdviseIndexResponse {
     return {
-      currentIndex: isSet(object.currentIndex) ? String(object.currentIndex) : "",
-      suggestion: isSet(object.suggestion) ? String(object.suggestion) : "",
-      createIndexStatement: isSet(object.createIndexStatement) ? String(object.createIndexStatement) : "",
+      currentIndex: isSet(object.currentIndex) ? globalThis.String(object.currentIndex) : "",
+      suggestion: isSet(object.suggestion) ? globalThis.String(object.suggestion) : "",
+      createIndexStatement: isSet(object.createIndexStatement) ? globalThis.String(object.createIndexStatement) : "",
     };
   },
 
   toJSON(message: AdviseIndexResponse): unknown {
     const obj: any = {};
-    message.currentIndex !== undefined && (obj.currentIndex = message.currentIndex);
-    message.suggestion !== undefined && (obj.suggestion = message.suggestion);
-    message.createIndexStatement !== undefined && (obj.createIndexStatement = message.createIndexStatement);
+    if (message.currentIndex !== "") {
+      obj.currentIndex = message.currentIndex;
+    }
+    if (message.suggestion !== "") {
+      obj.suggestion = message.suggestion;
+    }
+    if (message.createIndexStatement !== "") {
+      obj.createIndexStatement = message.createIndexStatement;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<AdviseIndexResponse>): AdviseIndexResponse {
     return AdviseIndexResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<AdviseIndexResponse>): AdviseIndexResponse {
     const message = createBaseAdviseIndexResponse();
     message.currentIndex = object.currentIndex ?? "";
@@ -5783,11 +7236,13 @@ function createBaseChangeHistory(): ChangeHistory {
     version: "",
     description: "",
     statement: "",
+    statementSheet: "",
     schema: "",
     prevSchema: "",
     executionDuration: undefined,
     issue: "",
     pushEvent: undefined,
+    changedResources: undefined,
   };
 }
 
@@ -5832,6 +7287,9 @@ export const ChangeHistory = {
     if (message.statement !== "") {
       writer.uint32(106).string(message.statement);
     }
+    if (message.statementSheet !== "") {
+      writer.uint32(162).string(message.statementSheet);
+    }
     if (message.schema !== "") {
       writer.uint32(114).string(message.schema);
     }
@@ -5846,6 +7304,9 @@ export const ChangeHistory = {
     }
     if (message.pushEvent !== undefined) {
       PushEvent.encode(message.pushEvent, writer.uint32(146).fork()).ldelim();
+    }
+    if (message.changedResources !== undefined) {
+      ChangedResources.encode(message.changedResources, writer.uint32(154).fork()).ldelim();
     }
     return writer;
   },
@@ -5948,6 +7409,13 @@ export const ChangeHistory = {
 
           message.statement = reader.string();
           continue;
+        case 20:
+          if (tag !== 162) {
+            break;
+          }
+
+          message.statementSheet = reader.string();
+          continue;
         case 14:
           if (tag !== 114) {
             break;
@@ -5983,6 +7451,13 @@ export const ChangeHistory = {
 
           message.pushEvent = PushEvent.decode(reader, reader.uint32());
           continue;
+        case 19:
+          if (tag !== 154) {
+            break;
+          }
+
+          message.changedResources = ChangedResources.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -5994,56 +7469,97 @@ export const ChangeHistory = {
 
   fromJSON(object: any): ChangeHistory {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      uid: isSet(object.uid) ? String(object.uid) : "",
-      creator: isSet(object.creator) ? String(object.creator) : "",
-      updater: isSet(object.updater) ? String(object.updater) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      uid: isSet(object.uid) ? globalThis.String(object.uid) : "",
+      creator: isSet(object.creator) ? globalThis.String(object.creator) : "",
+      updater: isSet(object.updater) ? globalThis.String(object.updater) : "",
       createTime: isSet(object.createTime) ? fromJsonTimestamp(object.createTime) : undefined,
       updateTime: isSet(object.updateTime) ? fromJsonTimestamp(object.updateTime) : undefined,
-      releaseVersion: isSet(object.releaseVersion) ? String(object.releaseVersion) : "",
+      releaseVersion: isSet(object.releaseVersion) ? globalThis.String(object.releaseVersion) : "",
       source: isSet(object.source) ? changeHistory_SourceFromJSON(object.source) : 0,
       type: isSet(object.type) ? changeHistory_TypeFromJSON(object.type) : 0,
       status: isSet(object.status) ? changeHistory_StatusFromJSON(object.status) : 0,
-      version: isSet(object.version) ? String(object.version) : "",
-      description: isSet(object.description) ? String(object.description) : "",
-      statement: isSet(object.statement) ? String(object.statement) : "",
-      schema: isSet(object.schema) ? String(object.schema) : "",
-      prevSchema: isSet(object.prevSchema) ? String(object.prevSchema) : "",
+      version: isSet(object.version) ? globalThis.String(object.version) : "",
+      description: isSet(object.description) ? globalThis.String(object.description) : "",
+      statement: isSet(object.statement) ? globalThis.String(object.statement) : "",
+      statementSheet: isSet(object.statementSheet) ? globalThis.String(object.statementSheet) : "",
+      schema: isSet(object.schema) ? globalThis.String(object.schema) : "",
+      prevSchema: isSet(object.prevSchema) ? globalThis.String(object.prevSchema) : "",
       executionDuration: isSet(object.executionDuration) ? Duration.fromJSON(object.executionDuration) : undefined,
-      issue: isSet(object.issue) ? String(object.issue) : "",
+      issue: isSet(object.issue) ? globalThis.String(object.issue) : "",
       pushEvent: isSet(object.pushEvent) ? PushEvent.fromJSON(object.pushEvent) : undefined,
+      changedResources: isSet(object.changedResources) ? ChangedResources.fromJSON(object.changedResources) : undefined,
     };
   },
 
   toJSON(message: ChangeHistory): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.uid !== undefined && (obj.uid = message.uid);
-    message.creator !== undefined && (obj.creator = message.creator);
-    message.updater !== undefined && (obj.updater = message.updater);
-    message.createTime !== undefined && (obj.createTime = message.createTime.toISOString());
-    message.updateTime !== undefined && (obj.updateTime = message.updateTime.toISOString());
-    message.releaseVersion !== undefined && (obj.releaseVersion = message.releaseVersion);
-    message.source !== undefined && (obj.source = changeHistory_SourceToJSON(message.source));
-    message.type !== undefined && (obj.type = changeHistory_TypeToJSON(message.type));
-    message.status !== undefined && (obj.status = changeHistory_StatusToJSON(message.status));
-    message.version !== undefined && (obj.version = message.version);
-    message.description !== undefined && (obj.description = message.description);
-    message.statement !== undefined && (obj.statement = message.statement);
-    message.schema !== undefined && (obj.schema = message.schema);
-    message.prevSchema !== undefined && (obj.prevSchema = message.prevSchema);
-    message.executionDuration !== undefined &&
-      (obj.executionDuration = message.executionDuration ? Duration.toJSON(message.executionDuration) : undefined);
-    message.issue !== undefined && (obj.issue = message.issue);
-    message.pushEvent !== undefined &&
-      (obj.pushEvent = message.pushEvent ? PushEvent.toJSON(message.pushEvent) : undefined);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.uid !== "") {
+      obj.uid = message.uid;
+    }
+    if (message.creator !== "") {
+      obj.creator = message.creator;
+    }
+    if (message.updater !== "") {
+      obj.updater = message.updater;
+    }
+    if (message.createTime !== undefined) {
+      obj.createTime = message.createTime.toISOString();
+    }
+    if (message.updateTime !== undefined) {
+      obj.updateTime = message.updateTime.toISOString();
+    }
+    if (message.releaseVersion !== "") {
+      obj.releaseVersion = message.releaseVersion;
+    }
+    if (message.source !== 0) {
+      obj.source = changeHistory_SourceToJSON(message.source);
+    }
+    if (message.type !== 0) {
+      obj.type = changeHistory_TypeToJSON(message.type);
+    }
+    if (message.status !== 0) {
+      obj.status = changeHistory_StatusToJSON(message.status);
+    }
+    if (message.version !== "") {
+      obj.version = message.version;
+    }
+    if (message.description !== "") {
+      obj.description = message.description;
+    }
+    if (message.statement !== "") {
+      obj.statement = message.statement;
+    }
+    if (message.statementSheet !== "") {
+      obj.statementSheet = message.statementSheet;
+    }
+    if (message.schema !== "") {
+      obj.schema = message.schema;
+    }
+    if (message.prevSchema !== "") {
+      obj.prevSchema = message.prevSchema;
+    }
+    if (message.executionDuration !== undefined) {
+      obj.executionDuration = Duration.toJSON(message.executionDuration);
+    }
+    if (message.issue !== "") {
+      obj.issue = message.issue;
+    }
+    if (message.pushEvent !== undefined) {
+      obj.pushEvent = PushEvent.toJSON(message.pushEvent);
+    }
+    if (message.changedResources !== undefined) {
+      obj.changedResources = ChangedResources.toJSON(message.changedResources);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ChangeHistory>): ChangeHistory {
     return ChangeHistory.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ChangeHistory>): ChangeHistory {
     const message = createBaseChangeHistory();
     message.name = object.name ?? "";
@@ -6059,6 +7575,7 @@ export const ChangeHistory = {
     message.version = object.version ?? "";
     message.description = object.description ?? "";
     message.statement = object.statement ?? "";
+    message.statementSheet = object.statementSheet ?? "";
     message.schema = object.schema ?? "";
     message.prevSchema = object.prevSchema ?? "";
     message.executionDuration = (object.executionDuration !== undefined && object.executionDuration !== null)
@@ -6068,12 +7585,285 @@ export const ChangeHistory = {
     message.pushEvent = (object.pushEvent !== undefined && object.pushEvent !== null)
       ? PushEvent.fromPartial(object.pushEvent)
       : undefined;
+    message.changedResources = (object.changedResources !== undefined && object.changedResources !== null)
+      ? ChangedResources.fromPartial(object.changedResources)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseChangedResources(): ChangedResources {
+  return { databases: [] };
+}
+
+export const ChangedResources = {
+  encode(message: ChangedResources, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.databases) {
+      ChangedResourceDatabase.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ChangedResources {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseChangedResources();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.databases.push(ChangedResourceDatabase.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ChangedResources {
+    return {
+      databases: globalThis.Array.isArray(object?.databases)
+        ? object.databases.map((e: any) => ChangedResourceDatabase.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: ChangedResources): unknown {
+    const obj: any = {};
+    if (message.databases?.length) {
+      obj.databases = message.databases.map((e) => ChangedResourceDatabase.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ChangedResources>): ChangedResources {
+    return ChangedResources.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ChangedResources>): ChangedResources {
+    const message = createBaseChangedResources();
+    message.databases = object.databases?.map((e) => ChangedResourceDatabase.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseChangedResourceDatabase(): ChangedResourceDatabase {
+  return { name: "", schemas: [] };
+}
+
+export const ChangedResourceDatabase = {
+  encode(message: ChangedResourceDatabase, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    for (const v of message.schemas) {
+      ChangedResourceSchema.encode(v!, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ChangedResourceDatabase {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseChangedResourceDatabase();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.schemas.push(ChangedResourceSchema.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ChangedResourceDatabase {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      schemas: globalThis.Array.isArray(object?.schemas)
+        ? object.schemas.map((e: any) => ChangedResourceSchema.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: ChangedResourceDatabase): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.schemas?.length) {
+      obj.schemas = message.schemas.map((e) => ChangedResourceSchema.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ChangedResourceDatabase>): ChangedResourceDatabase {
+    return ChangedResourceDatabase.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ChangedResourceDatabase>): ChangedResourceDatabase {
+    const message = createBaseChangedResourceDatabase();
+    message.name = object.name ?? "";
+    message.schemas = object.schemas?.map((e) => ChangedResourceSchema.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseChangedResourceSchema(): ChangedResourceSchema {
+  return { name: "", tables: [] };
+}
+
+export const ChangedResourceSchema = {
+  encode(message: ChangedResourceSchema, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    for (const v of message.tables) {
+      ChangedResourceTable.encode(v!, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ChangedResourceSchema {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseChangedResourceSchema();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.tables.push(ChangedResourceTable.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ChangedResourceSchema {
+    return {
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      tables: globalThis.Array.isArray(object?.tables)
+        ? object.tables.map((e: any) => ChangedResourceTable.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: ChangedResourceSchema): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.tables?.length) {
+      obj.tables = message.tables.map((e) => ChangedResourceTable.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ChangedResourceSchema>): ChangedResourceSchema {
+    return ChangedResourceSchema.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ChangedResourceSchema>): ChangedResourceSchema {
+    const message = createBaseChangedResourceSchema();
+    message.name = object.name ?? "";
+    message.tables = object.tables?.map((e) => ChangedResourceTable.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseChangedResourceTable(): ChangedResourceTable {
+  return { name: "" };
+}
+
+export const ChangedResourceTable = {
+  encode(message: ChangedResourceTable, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ChangedResourceTable {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseChangedResourceTable();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ChangedResourceTable {
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
+  },
+
+  toJSON(message: ChangedResourceTable): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ChangedResourceTable>): ChangedResourceTable {
+    return ChangedResourceTable.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ChangedResourceTable>): ChangedResourceTable {
+    const message = createBaseChangedResourceTable();
+    message.name = object.name ?? "";
     return message;
   },
 };
 
 function createBaseListChangeHistoriesRequest(): ListChangeHistoriesRequest {
-  return { parent: "", pageSize: 0, pageToken: "", view: 0 };
+  return { parent: "", pageSize: 0, pageToken: "", view: 0, filter: "" };
 }
 
 export const ListChangeHistoriesRequest = {
@@ -6089,6 +7879,9 @@ export const ListChangeHistoriesRequest = {
     }
     if (message.view !== 0) {
       writer.uint32(32).int32(message.view);
+    }
+    if (message.filter !== "") {
+      writer.uint32(42).string(message.filter);
     }
     return writer;
   },
@@ -6128,6 +7921,13 @@ export const ListChangeHistoriesRequest = {
 
           message.view = reader.int32() as any;
           continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.filter = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -6139,32 +7939,44 @@ export const ListChangeHistoriesRequest = {
 
   fromJSON(object: any): ListChangeHistoriesRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
       view: isSet(object.view) ? changeHistoryViewFromJSON(object.view) : 0,
+      filter: isSet(object.filter) ? globalThis.String(object.filter) : "",
     };
   },
 
   toJSON(message: ListChangeHistoriesRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
-    message.view !== undefined && (obj.view = changeHistoryViewToJSON(message.view));
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      obj.pageToken = message.pageToken;
+    }
+    if (message.view !== 0) {
+      obj.view = changeHistoryViewToJSON(message.view);
+    }
+    if (message.filter !== "") {
+      obj.filter = message.filter;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListChangeHistoriesRequest>): ListChangeHistoriesRequest {
     return ListChangeHistoriesRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListChangeHistoriesRequest>): ListChangeHistoriesRequest {
     const message = createBaseListChangeHistoriesRequest();
     message.parent = object.parent ?? "";
     message.pageSize = object.pageSize ?? 0;
     message.pageToken = object.pageToken ?? "";
     message.view = object.view ?? 0;
+    message.filter = object.filter ?? "";
     return message;
   },
 };
@@ -6216,28 +8028,27 @@ export const ListChangeHistoriesResponse = {
 
   fromJSON(object: any): ListChangeHistoriesResponse {
     return {
-      changeHistories: Array.isArray(object?.changeHistories)
+      changeHistories: globalThis.Array.isArray(object?.changeHistories)
         ? object.changeHistories.map((e: any) => ChangeHistory.fromJSON(e))
         : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+      nextPageToken: isSet(object.nextPageToken) ? globalThis.String(object.nextPageToken) : "",
     };
   },
 
   toJSON(message: ListChangeHistoriesResponse): unknown {
     const obj: any = {};
-    if (message.changeHistories) {
-      obj.changeHistories = message.changeHistories.map((e) => e ? ChangeHistory.toJSON(e) : undefined);
-    } else {
-      obj.changeHistories = [];
+    if (message.changeHistories?.length) {
+      obj.changeHistories = message.changeHistories.map((e) => ChangeHistory.toJSON(e));
     }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    if (message.nextPageToken !== "") {
+      obj.nextPageToken = message.nextPageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListChangeHistoriesResponse>): ListChangeHistoriesResponse {
     return ListChangeHistoriesResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListChangeHistoriesResponse>): ListChangeHistoriesResponse {
     const message = createBaseListChangeHistoriesResponse();
     message.changeHistories = object.changeHistories?.map((e) => ChangeHistory.fromPartial(e)) || [];
@@ -6303,24 +8114,29 @@ export const GetChangeHistoryRequest = {
 
   fromJSON(object: any): GetChangeHistoryRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
       view: isSet(object.view) ? changeHistoryViewFromJSON(object.view) : 0,
-      sdlFormat: isSet(object.sdlFormat) ? Boolean(object.sdlFormat) : false,
+      sdlFormat: isSet(object.sdlFormat) ? globalThis.Boolean(object.sdlFormat) : false,
     };
   },
 
   toJSON(message: GetChangeHistoryRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.view !== undefined && (obj.view = changeHistoryViewToJSON(message.view));
-    message.sdlFormat !== undefined && (obj.sdlFormat = message.sdlFormat);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.view !== 0) {
+      obj.view = changeHistoryViewToJSON(message.view);
+    }
+    if (message.sdlFormat === true) {
+      obj.sdlFormat = message.sdlFormat;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetChangeHistoryRequest>): GetChangeHistoryRequest {
     return GetChangeHistoryRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetChangeHistoryRequest>): GetChangeHistoryRequest {
     const message = createBaseGetChangeHistoryRequest();
     message.name = object.name ?? "";
@@ -6399,7 +8215,44 @@ export const DatabaseServiceDefinition = {
           8410: [new Uint8Array([0])],
           578365826: [
             new Uint8Array([
-              36,
+              73,
+              90,
+              35,
+              18,
+              33,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              125,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
               18,
               34,
               47,
@@ -6436,67 +8289,6 @@ export const DatabaseServiceDefinition = {
               115,
               101,
               115,
-            ]),
-          ],
-        },
-      },
-    },
-    /** Search for databases that the caller has both projects.get permission on, and also satisfy the specified query. */
-    searchDatabases: {
-      name: "SearchDatabases",
-      requestType: SearchDatabasesRequest,
-      requestStream: false,
-      responseType: SearchDatabasesResponse,
-      responseStream: false,
-      options: {
-        _unknownFields: {
-          8410: [new Uint8Array([0])],
-          578365826: [
-            new Uint8Array([
-              43,
-              18,
-              41,
-              47,
-              118,
-              49,
-              47,
-              123,
-              112,
-              97,
-              114,
-              101,
-              110,
-              116,
-              61,
-              105,
-              110,
-              115,
-              116,
-              97,
-              110,
-              99,
-              101,
-              115,
-              47,
-              42,
-              125,
-              47,
-              100,
-              97,
-              116,
-              97,
-              98,
-              97,
-              115,
-              101,
-              115,
-              58,
-              115,
-              101,
-              97,
-              114,
-              99,
-              104,
             ]),
           ],
         },
@@ -6786,6 +8578,104 @@ export const DatabaseServiceDefinition = {
         },
       },
     },
+    updateDatabaseMetadata: {
+      name: "UpdateDatabaseMetadata",
+      requestType: UpdateDatabaseMetadataRequest,
+      requestStream: false,
+      responseType: DatabaseMetadata,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              82,
+              58,
+              17,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              95,
+              109,
+              101,
+              116,
+              97,
+              100,
+              97,
+              116,
+              97,
+              50,
+              61,
+              47,
+              118,
+              49,
+              47,
+              123,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              95,
+              109,
+              101,
+              116,
+              97,
+              100,
+              97,
+              116,
+              97,
+              46,
+              110,
+              97,
+              109,
+              101,
+              61,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              47,
+              42,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              47,
+              42,
+              47,
+              109,
+              101,
+              116,
+              97,
+              100,
+              97,
+              116,
+              97,
+              125,
+            ]),
+          ],
+        },
+      },
+    },
     getDatabaseSchema: {
       name: "GetDatabaseSchema",
       requestType: GetDatabaseSchemaRequest,
@@ -6840,6 +8730,139 @@ export const DatabaseServiceDefinition = {
               109,
               97,
               125,
+            ]),
+          ],
+        },
+      },
+    },
+    diffSchema: {
+      name: "DiffSchema",
+      requestType: DiffSchemaRequest,
+      requestStream: false,
+      responseType: DiffSchemaResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              117,
+              58,
+              1,
+              42,
+              90,
+              65,
+              34,
+              63,
+              47,
+              118,
+              49,
+              47,
+              123,
+              110,
+              97,
+              109,
+              101,
+              61,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              47,
+              42,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              47,
+              42,
+              47,
+              99,
+              104,
+              97,
+              110,
+              103,
+              101,
+              72,
+              105,
+              115,
+              116,
+              111,
+              114,
+              105,
+              101,
+              115,
+              47,
+              42,
+              125,
+              58,
+              100,
+              105,
+              102,
+              102,
+              83,
+              99,
+              104,
+              101,
+              109,
+              97,
+              34,
+              45,
+              47,
+              118,
+              49,
+              47,
+              123,
+              110,
+              97,
+              109,
+              101,
+              61,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              47,
+              42,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              47,
+              42,
+              125,
+              58,
+              100,
+              105,
+              102,
+              102,
+              83,
+              99,
+              104,
+              101,
+              109,
+              97,
             ]),
           ],
         },
@@ -7608,196 +9631,40 @@ export const DatabaseServiceDefinition = {
   },
 } as const;
 
-export interface DatabaseServiceImplementation<CallContextExt = {}> {
-  getDatabase(request: GetDatabaseRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Database>>;
-  listDatabases(
-    request: ListDatabasesRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListDatabasesResponse>>;
-  /** Search for databases that the caller has both projects.get permission on, and also satisfy the specified query. */
-  searchDatabases(
-    request: SearchDatabasesRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<SearchDatabasesResponse>>;
-  updateDatabase(request: UpdateDatabaseRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Database>>;
-  batchUpdateDatabases(
-    request: BatchUpdateDatabasesRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<BatchUpdateDatabasesResponse>>;
-  syncDatabase(
-    request: SyncDatabaseRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<SyncDatabaseResponse>>;
-  getDatabaseMetadata(
-    request: GetDatabaseMetadataRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<DatabaseMetadata>>;
-  getDatabaseSchema(
-    request: GetDatabaseSchemaRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<DatabaseSchema>>;
-  getBackupSetting(
-    request: GetBackupSettingRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<BackupSetting>>;
-  updateBackupSetting(
-    request: UpdateBackupSettingRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<BackupSetting>>;
-  createBackup(request: CreateBackupRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Backup>>;
-  listBackups(
-    request: ListBackupsRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListBackupsResponse>>;
-  listSlowQueries(
-    request: ListSlowQueriesRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListSlowQueriesResponse>>;
-  listSecrets(
-    request: ListSecretsRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListSecretsResponse>>;
-  updateSecret(request: UpdateSecretRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Secret>>;
-  deleteSecret(request: DeleteSecretRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Empty>>;
-  adviseIndex(
-    request: AdviseIndexRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<AdviseIndexResponse>>;
-  listChangeHistories(
-    request: ListChangeHistoriesRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListChangeHistoriesResponse>>;
-  getChangeHistory(
-    request: GetChangeHistoryRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ChangeHistory>>;
-}
-
-export interface DatabaseServiceClient<CallOptionsExt = {}> {
-  getDatabase(request: DeepPartial<GetDatabaseRequest>, options?: CallOptions & CallOptionsExt): Promise<Database>;
-  listDatabases(
-    request: DeepPartial<ListDatabasesRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ListDatabasesResponse>;
-  /** Search for databases that the caller has both projects.get permission on, and also satisfy the specified query. */
-  searchDatabases(
-    request: DeepPartial<SearchDatabasesRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<SearchDatabasesResponse>;
-  updateDatabase(
-    request: DeepPartial<UpdateDatabaseRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<Database>;
-  batchUpdateDatabases(
-    request: DeepPartial<BatchUpdateDatabasesRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<BatchUpdateDatabasesResponse>;
-  syncDatabase(
-    request: DeepPartial<SyncDatabaseRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<SyncDatabaseResponse>;
-  getDatabaseMetadata(
-    request: DeepPartial<GetDatabaseMetadataRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<DatabaseMetadata>;
-  getDatabaseSchema(
-    request: DeepPartial<GetDatabaseSchemaRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<DatabaseSchema>;
-  getBackupSetting(
-    request: DeepPartial<GetBackupSettingRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<BackupSetting>;
-  updateBackupSetting(
-    request: DeepPartial<UpdateBackupSettingRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<BackupSetting>;
-  createBackup(request: DeepPartial<CreateBackupRequest>, options?: CallOptions & CallOptionsExt): Promise<Backup>;
-  listBackups(
-    request: DeepPartial<ListBackupsRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ListBackupsResponse>;
-  listSlowQueries(
-    request: DeepPartial<ListSlowQueriesRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ListSlowQueriesResponse>;
-  listSecrets(
-    request: DeepPartial<ListSecretsRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ListSecretsResponse>;
-  updateSecret(request: DeepPartial<UpdateSecretRequest>, options?: CallOptions & CallOptionsExt): Promise<Secret>;
-  deleteSecret(request: DeepPartial<DeleteSecretRequest>, options?: CallOptions & CallOptionsExt): Promise<Empty>;
-  adviseIndex(
-    request: DeepPartial<AdviseIndexRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<AdviseIndexResponse>;
-  listChangeHistories(
-    request: DeepPartial<ListChangeHistoriesRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ListChangeHistoriesResponse>;
-  getChangeHistory(
-    request: DeepPartial<GetChangeHistoryRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ChangeHistory>;
-}
-
-declare const self: any | undefined;
-declare const window: any | undefined;
-declare const global: any | undefined;
-const tsProtoGlobalThis: any = (() => {
-  if (typeof globalThis !== "undefined") {
-    return globalThis;
-  }
-  if (typeof self !== "undefined") {
-    return self;
-  }
-  if (typeof window !== "undefined") {
-    return window;
-  }
-  if (typeof global !== "undefined") {
-    return global;
-  }
-  throw "Unable to locate global object";
-})();
-
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
 export type DeepPartial<T> = T extends Builtin ? T
-  : T extends Array<infer U> ? Array<DeepPartial<U>> : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
+  : T extends Long ? string | number | Long : T extends globalThis.Array<infer U> ? globalThis.Array<DeepPartial<U>>
+  : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
 
 function toTimestamp(date: Date): Timestamp {
-  const seconds = date.getTime() / 1_000;
+  const seconds = numberToLong(date.getTime() / 1_000);
   const nanos = (date.getTime() % 1_000) * 1_000_000;
   return { seconds, nanos };
 }
 
 function fromTimestamp(t: Timestamp): Date {
-  let millis = (t.seconds || 0) * 1_000;
+  let millis = (t.seconds.toNumber() || 0) * 1_000;
   millis += (t.nanos || 0) / 1_000_000;
-  return new Date(millis);
+  return new globalThis.Date(millis);
 }
 
 function fromJsonTimestamp(o: any): Date {
-  if (o instanceof Date) {
+  if (o instanceof globalThis.Date) {
     return o;
   } else if (typeof o === "string") {
-    return new Date(o);
+    return new globalThis.Date(o);
   } else {
     return fromTimestamp(Timestamp.fromJSON(o));
   }
 }
 
-function longToNumber(long: Long): number {
-  if (long.gt(Number.MAX_SAFE_INTEGER)) {
-    throw new tsProtoGlobalThis.Error("Value is larger than Number.MAX_SAFE_INTEGER");
-  }
-  return long.toNumber();
+function numberToLong(number: number) {
+  return Long.fromNumber(number);
 }
 
-// If you get a compile-error about 'Constructor<Long> and ... have no overlap',
-// add '--ts_proto_opt=esModuleInterop=true' as a flag when calling 'protoc'.
 if (_m0.util.Long !== Long) {
   _m0.util.Long = Long as any;
   _m0.configure();

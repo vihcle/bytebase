@@ -1,7 +1,6 @@
 <template>
   <div class="w-full">
-    <div class="w-full flex flex-row justify-between items-center">
-      <span>{{ $t("database-group.self") }}</span>
+    <div class="flex items-center justify-end">
       <div class="flex flex-row gap-x-2">
         <NButton @click="handleCreateSchemaGroup">
           <span class="mr-1">{{
@@ -25,7 +24,7 @@
   </div>
 
   <DatabaseGroupPanel
-    v-if="state.showDatabaseGroupPanel"
+    v-model:show="state.showDatabaseGroupPanel"
     :project="project"
     :resource-type="state.resourceType"
     :database-group="state.editingDatabaseGroup"
@@ -44,9 +43,9 @@ import { cloneDeep } from "lodash-es";
 import { computed, onMounted, reactive } from "vue";
 import { hasFeature, useDBGroupStore } from "@/store";
 import { ComposedProject } from "@/types";
-import DatabaseGroupTable from "./DatabaseGroupTable.vue";
-import DatabaseGroupPanel from "./DatabaseGroupPanel.vue";
 import { DatabaseGroup } from "@/types/proto/v1/project_service";
+import DatabaseGroupPanel from "./DatabaseGroupPanel.vue";
+import DatabaseGroupTable from "./DatabaseGroupTable.vue";
 import { ResourceType } from "./common/ExprEditor/context";
 
 interface LocalState {

@@ -8,50 +8,67 @@
           <router-view name="body" />
         </ProvideDashboardContext>
       </template>
-      <template #fallback>
-        <div class="flex flex-row justify-between p-4 space-x-2">
-          <span class="items-center flex">Loading...</span>
-          <button
-            class="items-center flex justify-center btn-normal"
-            @click.prevent="ping"
-          >
-            Ping
-          </button>
-        </div>
-      </template>
+    </Suspense>
+    <Suspense>
+      <HelpDrawer />
     </Suspense>
   </div>
 </template>
 
-<script lang="ts">
-import { defineComponent } from "vue";
-import { pushNotification, useActuatorV1Store } from "@/store";
-import ProvideDashboardContext from "@/components/ProvideDashboardContext.vue";
+<script lang="ts" setup>
+import { reactive, watch } from "vue";
+import { useRoute } from "vue-router";
 import BannersWrapper from "@/components/BannersWrapper.vue";
-import { ActuatorInfo } from "@/types/proto/v1/actuator_service";
+import HelpDrawer from "@/components/HelpDrawer";
+import ProvideDashboardContext from "@/components/ProvideDashboardContext.vue";
+import { useHelpStore, useUIStateStore } from "@/store";
+import { RouteMapList } from "@/types";
 
-export default defineComponent({
-  name: "DashboardLayout",
-  components: {
-    ProvideDashboardContext,
-    BannersWrapper,
-  },
-  setup() {
-    const actuatorStore = useActuatorV1Store();
+interface LocalState {
+  helpTimer: number | undefined;
+  RouteMapList: RouteMapList | null;
+}
 
-    const ping = () => {
-      actuatorStore.fetchServerInfo().then((info: ActuatorInfo) => {
-        pushNotification({
-          module: "bytebase",
-          style: "SUCCESS",
-          title: JSON.stringify(info),
-        });
-      });
-    };
-
-    return {
-      ping,
-    };
-  },
+const route = useRoute();
+const state = reactive<LocalState>({
+  helpTimer: undefined,
+  RouteMapList: null,
 });
+
+// watch route change for help
+watch(
+  () => route.name,
+  async (routeName) => {
+    const uiStateStore = useUIStateStore();
+    const helpStore = useHelpStore();
+
+    // Clear timer after every route change.
+    if (state.helpTimer) {
+      clearTimeout(state.helpTimer);
+      state.helpTimer = undefined;
+    }
+
+    // Hide opened help drawer if route changed.
+    helpStore.exitHelp();
+
+    if (!state.RouteMapList) {
+      const res = await fetch("/help/routeMapList.json");
+      state.RouteMapList = await res.json();
+    }
+
+    const helpId = state.RouteMapList?.find(
+      (pair) => pair.routeName === routeName
+    )?.helpName;
+
+    if (helpId && !uiStateStore.getIntroStateByKey(`${helpId}`)) {
+      state.helpTimer = window.setTimeout(() => {
+        helpStore.showHelp(helpId, true);
+        uiStateStore.saveIntroStateByKey({
+          key: `${helpId}`,
+          newState: true,
+        });
+      }, 1000);
+    }
+  }
+);
 </script>

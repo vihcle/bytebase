@@ -1,6 +1,5 @@
 {
   "common": {
-    "when": "When",
     "view": "View",
     "you": "you",
     "general": "General",
@@ -10,6 +9,7 @@
     "dingtalk": "DingTalk",
     "feishu": "Feishu",
     "wecom": "WeCom",
+    "system": "System",
     "custom": "Custom",
     "im": "IM",
     "overview": "Overview",
@@ -50,8 +50,6 @@
     "environment": "Environment",
     "environments": "Environments",
     "environment-name": "Environment Name",
-    "bookmark": "Bookmark",
-    "bookmarks": "Bookmarks",
     "quick-action": "Quick Action",
     "archive": "Archive",
     "archived": "Archived",
@@ -78,12 +76,15 @@
     "visit": "Visit",
     "role": {
       "self": "Role",
+      "admin": "Admin",
       "dba": "DBA",
+      "member": "Member",
       "owner": "Owner",
       "developer": "Developer",
-      "member": "Member",
       "exporter": "Exporter",
-      "querier": "Querier"
+      "querier": "Querier",
+      "releaser": "Releaser",
+      "viewer": "Viewer"
     },
     "assignee": "Assignee",
     "revert": "Revert",
@@ -140,6 +141,7 @@
     "confirm": "Confirm",
     "coming-later": "Coming later",
     "learn-more": "Learn more",
+    "troubleshoot": "Troubleshoot",
     "schema-version": "Schema version",
     "time": "Time",
     "manual": "Manual",
@@ -197,9 +199,6 @@
     },
     "no-data": "No data",
     "visibility": "Visibility",
-    "star": "Star",
-    "unstar": "Unstar",
-    "starred": "Starred",
     "duplicate": "Duplicate",
     "clear-search": "Clear search",
     "enable": "Enable",
@@ -210,6 +209,7 @@
     "pitr": "PITR",
     "fix": "Fix",
     "go-now": "Go now",
+    "sync": "Sync",
     "sync-now": "Sync Now",
     "show-help": "Show help",
     "success": "Succeed",
@@ -256,12 +256,28 @@
     },
     "expiration": "Expiration",
     "configure": "Configure",
+    "groups": "Groups",
     "database-groups": "Database Groups",
     "members": "Members",
     "warehouse": "Warehouse",
     "schedule": "Schedule",
     "state": "State",
-    "condition": "Condition"
+    "condition": "Condition",
+    "search-user": "Search user",
+    "branches": "Branches",
+    "merge": "Merge",
+    "info": "Info",
+    "minutes": "Minutes",
+    "go-to-configure": "Configure",
+    "updated-at-by": "Updated {time} by {user}",
+    "created-at-by": "Created {time} by {user}",
+    "filter-by-name": "Filter by name",
+    "tenant": "Tenant",
+    "license": "License",
+    "show-all": "Show all",
+    "view-details": "View details",
+    "force-verb": "Force {verb}",
+    "nothing-changed": "Nothing changed"
   },
   "error-page": {
     "go-back-home": "Go back home"
@@ -288,7 +304,8 @@
     "checking": "Checking...",
     "run-task": "Run checks",
     "check-result": {
-      "title": "Check result for {name}"
+      "title": "Check result for {name}",
+      "title-general": "Check result"
     },
     "check-type": {
       "fake": "Fake",
@@ -302,9 +319,11 @@
       "lgtm": "LGTM",
       "pitr": "PITR",
       "affected-rows": "Affected rows",
-      "sql-type": "SQL type"
+      "sql-type": "SQL type",
+      "summary-report": "Summary report"
     },
-    "earliest-allowed-time-hint": "'@:{'common.when'}' specifies the expected execution timing for this task. If this field is not specified, the task will be executed once it has passed all other gating criteria.",
+    "rollout-time": "Rollout time",
+    "earliest-allowed-time-hint": "@:{'task.rollout-time'} is when you want a task to run; if unspecified, it runs when all criteria are met.",
     "earliest-allowed-time-unset": "Unset",
     "comment": "Comment",
     "invoker": "Invoker",
@@ -357,7 +376,44 @@
     },
     "execution-time": "Execution time",
     "run-checks": "Run checks",
-    "run-checks-in-current-stage": "Run checks in current stage"
+    "run-checks-in-current-stage": "Run checks in current stage",
+    "database-create": {
+      "pending": "(pending create)",
+      "created": "(created)"
+    },
+    "action-failed-in-current-stage": "{action} failed tasks in current stage",
+    "action-all-tasks-in-current-stage": "{action} all tasks in current stage",
+    "cancel-task": "Cancel task | Cancel tasks",
+    "created": "Created",
+    "online-migration": {
+      "self": "Online migration",
+      "configure-ghost-parameters-for-db": "Configure gh-ost parameters for database '{db}'",
+      "configure-ghost-parameters": "Configure gh-ost parameters",
+      "ghost-parameters": "gh-ost parameters",
+      "configure": "Configure",
+      "error": {
+        "some-tasks-are-not-editable-in-batch-mode": "Some tasks are not editable in batch mode",
+        "task-is-not-editable": "This task is not editable",
+        "x-status-task-is-not-editable": "{status} task is not editable",
+        "nothing-changed": "Nothing changed",
+        "not-applicable": {
+          "some-tasks-dont-meet-ghost-requirement": "Some tasks don't meet gh-ost's requirement"
+        }
+      },
+      "show-default-parameters": "Show default parameters",
+      "hide-default-parameters": "Hide default parameters"
+    }
+  },
+  "task-run": {
+    "status": {
+      "enqueued": "Waiting for execution.",
+      "enqueued-with-rollout-time": "Waiting to execute after {time}.",
+      "dumping-schema-before-executing-sql": "Preparing to execute, dumping schema.",
+      "executing-sql": "Executing SQL.",
+      "executing-sql-detail": "Executing SQL {current} of {total}, from ({startLine}, {startColumn}) to ({endLine}, {endColumn}).",
+      "dumping-schema-after-executing-sql": "SQL execution completed, dumping schema.",
+      "failed-sql-detail": "Execution failed from ({startLine}, {startColumn}) to ({endLine}, {endColumn}): {message}."
+    }
   },
   "banner": {
     "update-license": "Update license",
@@ -366,9 +422,8 @@
     "trial-expired": "Your free trial for {plan} has expired.",
     "extend-trial": "Extend trialing time",
     "deploy": "Self Host",
-    "cloud": "Sign Up for Cloud",
-    "request-demo": "Book a 30 min product walkthrough with our product expert",
-    "debug": "Debug mode is active, you can disable Debug mode via the top-right profile dropdown.",
+    "cloud": "Cloud",
+    "request-demo": "Book a 30-minute product demo.",
     "readonly": "Bytebase is in readonly mode. You can still view the console, but any change attempt will fail.",
     "external-url": "Bytebase has not configured --external-url",
     "configure-now": "Configure now"
@@ -389,6 +444,10 @@
     },
     "attention": {
       "default": "Attention needed"
+    },
+    "confirm-button": {
+      "sure-to-delete": "Are you sure to delete?",
+      "cannot-undo": "You cannot undo this action."
     }
   },
   "settings": {
@@ -406,7 +465,7 @@
       "subscription": "Subscription",
       "labels": "Labels",
       "debug-log": "Debug Log",
-      "sensitive-data": "Data Anonymization",
+      "sensitive-data": "Data Masking",
       "access-control": "Data Access Control",
       "audit-log": "Audit Log",
       "custom-roles": "Custom Roles",
@@ -451,10 +510,10 @@
       },
       "tooltip": {
         "upgrade": "Upgrade to enable role management",
-        "not-allow-edit": "Only Owner can change the role",
-        "not-allow-remove": "Cannot remove the last Owner",
+        "not-allow-edit": "Only Admin can change the role",
+        "not-allow-remove": "Cannot remove the last Admin",
         "project-role-provider-gitlab": "Mapped from the {rawRole} role in the corresponding GitLab project.",
-        "cannot-change-role-of-systembot": "Cannot change the role of system bot"
+        "cannot-change-role-of-systembot-or-service-account": "Cannot change the role of system bot or service account"
       },
       "system-bot": "System Bot",
       "service-account": "Service Account",
@@ -463,7 +522,11 @@
       "reset-service-key-alert": "This action cannot be undone. The old key will stop working immediately. Are you sure you want to reset this service key?",
       "service-key-copied": "Service Key copied to clipboard, please keep it in secret.",
       "create-as-service-account": "Create as service account",
-      "show-inactive": "Show inactive members"
+      "show-inactive": "Show inactive members",
+      "remove-self-admin": {
+        "title": "Are you sure to revoke @.lower:common.role.admin from yourself?",
+        "description": "Please make sure the remaining @.lower:common.role.admin(s) can sign in, otherwise, no one can manage users."
+      }
     },
     "im-integration": {
       "enable": "Enable",
@@ -474,7 +537,7 @@
       "create": "Create SSO",
       "description": "Single Sign-On (SSO) is an authentication method that enables users to authenticate with multiple applications and websites via a single set of credentials.",
       "archive": "Archive this SSO",
-      "archive-info": "Archived SSO will not be shown on the normal interface. You can click \"Archive\" on the bottom left to find and restore it.",
+      "archive-info": "Archived SSO will not be displayed.",
       "restore": "Restore this SSO",
       "form": {
         "type": "Type",
@@ -499,20 +562,31 @@
         "scopes-description": "A space-separated list of scopes to be carried when accessing the Auth URL",
         "token-url-description": "The API address for obtaining accessToken",
         "user-info-url-description": "The API address for obtaining user information by accessToken",
+        "security-protocol": "Security protocol",
         "connection-security": "Connection security",
         "connection-security-skip-tls-verify": "Skip TLS verify for self-signed certificates",
         "user-information-mapping": "User information mapping",
         "user-information-mapping-description": "Maps the field names from user info API to the Bytebase user.",
-        "identifier": "Bytebase user identifier",
-        "display-name": "Bytebase user display name",
-        "email": "Bytebase user email"
+        "identifier": "Bytebase user's email",
+        "identifier-tips": "It should be a unique string. And if it is not in email format, it will be spliced with domain.",
+        "display-name": "Bytebase user's display name",
+        "phone": "Bytebase user's phone number",
+        "auth-style": {
+          "self": "Auth style",
+          "in-params": {
+            "self": "In params"
+          },
+          "in-header": {
+            "self": "In header"
+          }
+        }
       },
       "copy-redirect-url": "Redirect URL copied to clipboard."
     },
     "general": {
       "workspace": {
         "branding": "Branding",
-        "only-owner-can-edit": "Only workspace owner can update the settings.",
+        "only-admin-can-edit": "Only workspace admin can update the settings.",
         "logo": "Logo",
         "logo-aspect": "The suggested logo size should be 5:2 aspect ratio, e.g 100 x 40.",
         "select-logo": "Upload a file",
@@ -524,12 +598,12 @@
           "self": "Watermark",
           "update-success": "Watermark setting updated",
           "description": "Display watermarks on pages, including username, ID and email.",
-          "only-owner-can-edit": "Only workspace owner can update watermark setting.",
+          "only-admin-can-edit": "Only workspace admin can update watermark setting.",
           "enable": "Enable watermark"
         },
         "disallow-signup": {
           "enable": "Disable self-service signup",
-          "description": "Once disabled, users cannot self-service signup and can only be invited by the workspace owner."
+          "description": "Once disabled, users cannot self-service signup and can only be invited by the workspace admin."
         },
         "require-2fa": {
           "enable": "Require two-factor authentication for all users",
@@ -539,13 +613,21 @@
         "network": "Network",
         "external-url": {
           "self": "External URL",
-          "description": "The external URL where user visits Bytebase, must start with http:// or https://. {viewDoc}"
+          "description": "The external URL where user visits Bytebase, must start with http:// or https://."
         },
         "gitops-webhook-url": {
           "self": "GitOps Webhook URL",
-          "description": "The URL used for sending GitOps webhooks to the Bytebase instance."
+          "description": "The URL used for sending GitOps webhooks to the Bytebase instance.",
+          "default-to-external-url": "Default to External URL"
         },
-        "config-updated": "Configuration is updated",
+        "sign-in-frequency": {
+          "self": "Sign-in frequency",
+          "description": "Sign-in frequency is the period before a user must sign in again.",
+          "hours": "Hour(s)",
+          "days": "Day(s)",
+          "config-updated": "Configuration is updated. Need to restart Bytebase and re-login to take effect."
+        },
+        "config-updated": "Configuration is updated.",
         "plugin": {
           "openai": {
             "ai-augmentation": "AI Augmentation",
@@ -560,12 +642,183 @@
               "description": "Supply private deployment of OpenAI API Endpoint."
             }
           }
+        },
+        "announcement": {
+          "self": "Announcement",
+          "update-success": "Announcement setting updated.",
+          "admin-or-dba-can-edit": "Only workspace admin or DBA can update announcement setting."
+        },
+        "announcement-alert-level": {
+          "description": "Level",
+          "field": {
+            "info": "Normal",
+            "warning": "Warning",
+            "critical": "Critical"
+          }
+        },
+        "announcement-text": {
+          "self": "Title",
+          "description": "To hide the announcement, leave it empty.",
+          "placeholder": "Input announcement title"
+        },
+        "extra-link": {
+          "self": "Link",
+          "placeholder": "Input announcement link"
+        },
+        "confirm-delete-custom-logo": "Delete custom branding logo?",
+        "restrict-issue-creation-for-sql-review": {
+          "title": "Restrict issue creation for SQL review",
+          "description": "Once enabled, users can only create issues after SQL review has passed."
         }
       }
     },
     "sensitive-data": {
-      "description": "The query result of the following columns is displayed as \"******\". \nYou can mark more columns as sensitive data on the table details page.",
-      "remove-sensitive-column-tips": "Expose this column?"
+      "description": "Following columns are explicitly assigned masking levels and take predence over the global masking rule.",
+      "remove-sensitive-column-tips": "Expose this column?",
+      "sensitive-column-list": "Explicit Masked Columns",
+      "global-masking-rule": "Global Masking Rule",
+      "grant-access": "Grant Access",
+      "never-expires": "Never expires",
+      "global-rules": {
+        "self": "Global Masking Rule",
+        "description": "Use global rule to apply masking levels in batch, e.g. all columns named as \"email\" will be masked with \"Partial\" level.",
+        "condition-order": "Condition order",
+        "re-order": "Re-order",
+        "delete-rule-tip": "Delete this rule?",
+        "check-rules": "Check global rules"
+      },
+      "semantic-types": {
+        "self": "Semantic Types",
+        "label": "Columns having the same semantic type will use the same masking algorithms.",
+        "use-predefined-type": "Use Predefined Type",
+        "add-from-template": "Add from template",
+        "table": {
+          "semantic-type": "Semantic Type",
+          "description": "Description",
+          "full-masking-algorithm": "Full Masking Algorithm",
+          "partial-masking-algorithm": "Partial Masking Algorithm",
+          "delete": "Delete this semantic type?"
+        },
+        "template": {
+          "address": {
+            "title": "Address",
+            "description": ""
+          },
+          "secret_key": {
+            "title": "Encryption Key",
+            "description": ""
+          },
+          "card_number": {
+            "title": "Bank card, credit card, etc",
+            "description": ""
+          },
+          "email": {
+            "title": "Email address",
+            "description": ""
+          },
+          "id_number": {
+            "title": "Personal ID number",
+            "description": ""
+          },
+          "ipv4_address": {
+            "title": "IPv4 address",
+            "description": ""
+          },
+          "license_plate_number": {
+            "title": "Plate number",
+            "description": ""
+          },
+          "mac_address": {
+            "title": "MAC address",
+            "description": ""
+          },
+          "password": {
+            "title": "Password",
+            "description": ""
+          },
+          "phone": {
+            "title": "Phone number",
+            "description": ""
+          }
+        }
+      },
+      "column-detail": {
+        "masking-setting-for-column": "Masking Setting for \"{column}\"",
+        "access-user-list": "Access User List",
+        "access-user-list-desc": "Users granted to access de-masked data.",
+        "remove-user-permission": "Remove user permission?",
+        "remove-sensitive-warning": "The will expose the column.",
+        "column-effective-masking-tips": "This column doesn't configure its own masking level.\nWe're showing its effective masking level with global masking rules. {link}"
+      },
+      "algorithms": {
+        "self": "Masking Algorithm",
+        "default": "Default",
+        "default-desc": "Use *** as data mask",
+        "table": {
+          "title": "Title",
+          "description": "Description",
+          "masking-type": "Masking Type",
+          "delete": "Delete this algorithm?"
+        },
+        "error": {
+          "title-required": "Title is required",
+          "substitution-required": "Substitution is required",
+          "substitution-length": "Substitution should be less than 16 bytes",
+          "salt-required": "Salt is required",
+          "slice-required": "Slice is required",
+          "slice-invalid-number": "Slice start or end is not a valid number",
+          "slice-number-range": "The slice end must be smaller than the start",
+          "slice-overlap": "The slice range cannot overlap"
+        },
+        "mask": "Mask",
+        "hash": "Hash",
+        "full-mask": {
+          "self": "Full mask",
+          "substitution": "Substitution",
+          "substitution-label": "Substitution is the string used to replace the original value, the max length of the string is 16 bytes."
+        },
+        "range-mask": {
+          "self": "Range mask",
+          "label": "Range mask will replace the original value from start index to end index (end not included) with the substitution.",
+          "slice-start": "Slice start",
+          "slice-start-label": "Slice start is the start index of the original value, start from 0 and should be less than stop.",
+          "slice-end": "Slice end",
+          "slice-end-label": "Slice stop is the stop index of the original value, should be less than the length of the original value.",
+          "substitution": "Substitution",
+          "substitution-label": "Substitution is the string used to replace the original value [start:end)."
+        },
+        "md5-mask": {
+          "self": "MD5 mask",
+          "salt": "Salt",
+          "salt-label": "Salt is used to generate a hash from the original value."
+        }
+      },
+      "masking-level": {
+        "self": "Masking Level",
+        "selet-level": "Select level",
+        "masking_level_unspecified": "Follow global rules",
+        "none": "None",
+        "partial": "Partial",
+        "full": "Full"
+      },
+      "action": {
+        "self": "Action",
+        "query": "Query",
+        "export": "Export"
+      },
+      "classification": {
+        "self": "Data classification",
+        "upload": "Upload classification",
+        "upload-succeed": "Upload succeed",
+        "search": "Search classification",
+        "label": "You can upload classification file with JSON format.",
+        "view-example": "View example",
+        "json-format-example": "Classification JSON format example",
+        "copy-succeed": "Copy example succeed",
+        "override-title": "Classification data override",
+        "override-desc": "Existed classification data will be overridden and affect all projects.",
+        "override-confirm": "Still upload"
+      }
     },
     "access-control": {
       "description": "Configure approval flow to control data query and export. {link}",
@@ -603,26 +856,26 @@
     "created": "Created",
     "invoker": "Invoker",
     "type": {
-      "issue-create": "create issue",
-      "comment-create": "create comment",
-      "issue-field-update": "update issue field",
-      "issue-status-update": "update issue status",
-      "pipeline-stage-status-update": "update issue stage status",
-      "pipeline-task-status-update": "update issue task status",
-      "pipeline-task-file-commit": "commit file",
+      "issue-create": "Create issue",
+      "comment-create": "Create comment",
+      "issue-field-update": "Update issue field",
+      "issue-status-update": "Update issue status",
+      "pipeline-stage-status-update": "Update issue stage status",
+      "pipeline-task-status-update": "Update issue task status",
+      "pipeline-task-file-commit": "Commit file",
       "pipeline-task-statement-update": "SQL update",
-      "member-create": "create member",
-      "member-role-update": "update role",
-      "member-activate": "activate member",
-      "member-deactivate": "deactivate member",
-      "project-repository-push": "repository push event",
-      "project-database-transfer": "database transfer",
-      "project-member-create": "add project member",
-      "project-member-delete": "delete project member",
-      "project-member-role-update": "change project member role",
-      "pipeline-task-earliest-allowed-time-update": "update earliest allowed time",
-      "database-recovery-pitr-done": "restore database to point in time",
-      "external-approval-rejected": "external approval rejected"
+      "member-create": "Create member",
+      "member-role-update": "Update role",
+      "member-activate": "Activate member",
+      "member-deactivate": "Deactivate member",
+      "project-repository-push": "Repository push event",
+      "project-database-transfer": "Database transfer",
+      "project-member-create": "Add project member",
+      "project-member-delete": "Delete project member",
+      "project-member-role-update": "Change project member role",
+      "pipeline-task-earliest-allowed-time-update": "Update earliest allowed time",
+      "database-recovery-pitr-done": "Restore database to point in time",
+      "external-approval-rejected": "External approval rejected"
     },
     "sentence": {
       "created-issue": "created issue",
@@ -656,7 +909,8 @@
       "schema-version": "schema version {version}",
       "xxx-automatically": "{verb} automatically",
       "verb-type-target-by-people": "{verb} {type} {target}",
-      "verb-type-target-by-system-bot": "{type} {target} {verb}"
+      "verb-type-target-by-system-bot": "{type} {target} {verb}",
+      "changed-x-link": "changed {name}. {link}"
     },
     "subject-prefix": {
       "task": "Task",
@@ -666,8 +920,8 @@
   },
   "issue": {
     "my-issues": "My Issues",
-    "waiting-approval": "Waiting Approval",
-    "waiting-rollout": "Waiting Rollout",
+    "waiting-approval": "Waiting for Approval",
+    "waiting-rollout": "Waiting for Rollout",
     "opened-by-at": "opened by {creator} at {time}",
     "commit-by-at": "commit {id} {title} by {author} at {time}",
     "status-transition": {
@@ -712,7 +966,61 @@
       }
     },
     "view-commit": "View commit",
-    "search-issue-name": "Search issue name",
+    "advanced-search": {
+      "self": "Advanced search",
+      "filter": "Filter",
+      "scope": {
+        "project": {
+          "title": "Project",
+          "description": "Filter by project"
+        },
+        "instance": {
+          "title": "Instance",
+          "description": "Filter by instance"
+        },
+        "environment": {
+          "title": "Environment",
+          "description": "Filter by environment"
+        },
+        "database": {
+          "title": "Database",
+          "description": "Filter by database"
+        },
+        "type": {
+          "title": "Change Type",
+          "description": "The database change type for issues"
+        },
+        "creator": {
+          "title": "Creator",
+          "description": "Search by the issue creator"
+        },
+        "assignee": {
+          "title": "Assignee",
+          "description": "Search by the issue assignee"
+        },
+        "subscriber": {
+          "title": "Subscriber",
+          "description": "Search by the issue subscriber"
+        },
+        "principal": {
+          "title": "Related Principal",
+          "description": "Search by the issue creator, assignee or subscriber"
+        },
+        "approver": {
+          "title": "Approver",
+          "description": "Search by the issue approver"
+        },
+        "approval": {
+          "value": {
+            "pending": "Pending approval",
+            "approved": "Approved"
+          },
+          "description": "Search by the issue approval status",
+          "title": "Approval Status"
+        }
+      },
+      "hide": "Hide advanced search"
+    },
     "table": {
       "open": "Open",
       "closed": "Closed",
@@ -783,7 +1091,7 @@
       "full-schema": "Full schema",
       "left-schema-may-change": "The schema on the left side may change before the issue is applied."
     },
-    "assignee-tooltip": "Allow the assignee to rollout the issue once the approval flow has been passed.",
+    "assignee-tooltip": "The assignees are those responsible for an issue, and when an issue is assigned to them, it shows up in their list of assigned issues.",
     "approval-flow": {
       "self": "Approval flow",
       "tooltip": "The approvers will review and approve the issue in the order specified in the flow. The issue can only be applied after all steps in the flow have been approved. You can configure a custom approval flow for each risk."
@@ -792,19 +1100,64 @@
     "waiting-for-review": "Waiting for review",
     "issue-name": "Issue name",
     "grant-request": {
-      "export-rows": "Export rows",
-      "export-format": "Export format",
+      "export-rows": "Max export rows",
       "expire-days": "Expire days",
       "expired-at": "Expired at",
       "all-databases": "All",
       "all-databases-tip": "All current and future databases in this project.",
       "manually-select": "Manually select",
-      "customize": "Customize",
+      "custom": "Custom",
       "data-export-attention": "The data will be exported to a file and downloaded to your local machine. And you can only do the export action once.",
       "export-method": "Export method",
+      "request-sent": "Request sent",
       "please-select-database-first": "Please select database first"
     },
-    "review-sent-back": "Review sent back"
+    "review-sent-back": "Review sent back",
+    "update-statement": {
+      "self": "Update {type}",
+      "apply-current-change-to": "Apply current change to",
+      "target": {
+        "selected-task": "Selected task",
+        "selected-stage": "Selected stage",
+        "all-tasks": "All tasks"
+      },
+      "current-change-will-apply-to-all-tasks-in-batch-mode": "In batch mode, current change will be applied to all tasks."
+    },
+    "not-editable-legacy-issue": "This issue is not editable because it was created in an old version of Bytebase",
+    "action-anyway": "{action} anyway",
+    "disallow-edit-reasons": {
+      "issue-is-done": "The issue is done",
+      "issue-is-canceled": "The issue is canceled",
+      "task-is-x-status": "The task is {status}",
+      "task-is-running-cancel-first": "The task is running, cancel task before changing this value"
+    },
+    "you-are-not-allowed-to-change-this-value": "You are not allowed to change this value",
+    "sql-check": {
+      "sql-checks": "SQL Checks",
+      "not-executed-yet": "Not executed yet",
+      "no-configured-sql-review-policy": {
+        "admin": "{environment} environment has not configured SQL Review Policy. {link}",
+        "developer": "{environment} environment has not configured SQL Review Policy. Please ask your DBA to configure."
+      },
+      "statement-is-too-large": "The statement is too large",
+      "back-to-edit": "Back to edit",
+      "continue-anyway": "Continue anyway",
+      "sql-review-violations": "SQL Review Violations"
+    },
+    "error": {
+      "issue-is-not-open": "The issue is not open",
+      "you-don-have-privilege-to-edit-this-issue": "You don't have privilege to edit this issue",
+      "you-are-not-allowed-to-perform-this-action": "You are not allowed to perform this action"
+    },
+    "approval-requested": "Approval Requested",
+    "assignee": {
+      "current-assignee": "Current assignee",
+      "workspace-admins": "Workspace admins",
+      "workspace-dbas": "DBA",
+      "project-owners": "Project owners",
+      "releasers-of-current-stage": "Releasers of current stage",
+      "approvers-of-current-step": "Approvers of current step"
+    }
   },
   "alter-schema": {
     "vcs-enabled": "This project has enabled VCS based version control and selecting database below will navigate you to the corresponding Git repository to initiate the change process.",
@@ -832,11 +1185,12 @@
     "from-projects": "Transfer from other projects",
     "transfer-in-db-title": "Transfer in database",
     "transfer-in-db-alert": "Are you sure to transfer \"{ dbName }\" into our project?",
-    "unassigned-db-hint": "Bytebase periodically syncs the instance schema. Newly synced databases are unassigned at first, and they need to be transferred to a project before they can be used.",
+    "unassigned-db-hint": "Newly synced databases start unassigned and must be moved to a project for use.",
     "transfer-out-db": "Transfer out DB",
     "transfer-out-db-title": "Transfer out database",
-    "request-query": "Request Query",
-    "request-export": "Request Export"
+    "request-query-permission": "Request Query",
+    "request-export-permission": "Request Export",
+    "request-export-data": "Request Export"
   },
   "create-db": {
     "new-database-name": "New database name",
@@ -863,20 +1217,25 @@
     "streams": "Streams",
     "tasks": "Tasks",
     "parent": "Parent",
+    "labels-for-resource": "Labels for {resource}",
     "last-successful-sync": "Last successful sync",
     "sync-status": "Sync status",
     "failed-to-sync-schema-for-database-database-value-name": "Failed to sync schema for database '{0}'.",
-    "successfully-synced-schema-for-database-database-value-name": "Successfully synced schema for database '{0}'."
+    "successfully-synced-schema-for-database-database-value-name": "Successfully synced schema for database '{0}'.",
+    "start-to-sync-schema": "Start to sync schema",
+    "failed-to-sync-schema": "Failed to sync schema",
+    "successfully-synced-schema": "Successfully synced schema"
   },
   "instance": {
     "select": "Select instance",
     "select-database-user": "Select database user",
     "new-database": "New Database",
     "syncing": "Syncing ...",
+    "selected-n-instances": "{n} instance selected | {n} instances selected",
     "create-migration-schema": "Create migration schema",
     "missing-migration-schema": "Missing migration schema",
     "unable-to-connect-instance-to-check-migration-schema": "Unable to connect instance to check migration schema",
-    "bytebase-relies-on-migration-schema-to-manage-gitops-based-schema-migration-for-databases-belonged-to-this-instance": "Bytebase relies on migration schema to record database schema migration on this instance. Without setting up the migration schema, you cannot alter schema or change data for any databases on the instance.",
+    "bytebase-relies-on-migration-schema-to-manage-gitops-based-schema-migration-for-databases-belonged-to-this-instance": "Bytebase relies on migration schema to record database schema migration on this instance. Without setting up the migration schema, you cannot edit schema or change data for any databases on the instance.",
     "please-contact-your-dba-to-configure-it": "Please contact your DBA to configure it.",
     "please-check-the-instance-connection-info-is-correct": "Please check the instance connection info is correct.",
     "users": "Users",
@@ -888,7 +1247,7 @@
     "successfully-synced-schema-for-instance-instance-value-name": "Successfully synced schema for instance '{0}'.",
     "archive-this-instance": "Archive this instance",
     "archive-instance-instance-name": "Archive instance '{0}'?",
-    "archived-instances-will-not-be-shown-on-the-normal-interface-you-can-still-restore-later-from-the-archive-page": "Archived instances will not be shown on the normal interface. You can click \"Archive\" on the bottom left to find and restore it.",
+    "archived-instances-will-not-be-displayed": "Archived instances will not be displayed.",
     "restore-this-instance": "Restore this instance",
     "restore": "Restore",
     "restore-instance-instance-name-to-normal-state": "Restore instance '{0}' to normal state?",
@@ -910,7 +1269,8 @@
     "show-how-to-create": "Show how to create",
     "below-is-an-example-to-create-user-bytebase-with-password": "Below is an example to create user 'bytebase{'@'}%' with password",
     "your_db_pwd": "YOUR_DB_PWD",
-    "no-read-only-data-source-warn": "The instance has not configured read-only connection, please consider adding one.",
+    "no-read-only-data-source-warn-for-admin-dba": "The instance has not configured read-only connection, please consider adding one.",
+    "no-read-only-data-source-warn-for-developer": "The instance has not configured read-only connection, please ask your DBA to add one.",
     "sentence": {
       "host": {
         "snowflake": "e.g. host.docker.internal {'|'} <<ip>> {'|'} <<local socket>>"
@@ -956,6 +1316,7 @@
     "type-or-paste-credentials": "Type or paste CREDENTIALS",
     "type-or-paste-credentials-write-only": "Type or paste CREDENTIALS - write only",
     "password-write-only": "YOUR_DB_PWD - write only",
+    "secret-manager-tip": "You can also specify external secret manage endpoint",
     "test-connection": "Test Connection",
     "ignore-and-create": "Ignore and create",
     "add-a-postgresql-sample-instance": "Add a PostgreSQL sample instance instead",
@@ -969,7 +1330,7 @@
     "successfully-connected-instance": "Successfully connected instance.",
     "failed-to-connect-instance": "Failed to connect instance.",
     "failed-to-connect-instance-localhost": "Failed to connect instance.\nIf you run Bytebase with Docker, please try \"host.docker.internal\" for the host address.",
-    "search-instance-name": "Search instance name",
+    "filter-instance-name": "Filter instance name",
     "grants": "Grants",
     "find-gcp-project-id-and-instance-id": "To find GCP Project ID and instance ID, see",
     "create-gcp-credentials": "To create Credentials, see",
@@ -986,14 +1347,21 @@
         "self": "Manage based on schema",
         "description": "Each schema is treated as a managed object. (Only supports non-CDB mode)"
       }
+    },
+    "scan-interval": {
+      "self": "Scan Interval",
+      "default-never": "Default (never)",
+      "description": "Bytebase periodically syncs instance schema and detects anomalies.",
+      "min-value": "Min value {value} minutes"
     }
   },
   "environment": {
+    "all": "All environment",
     "id": "Environment ID",
     "id-description": "The Environment ID is the unique identifier for your environment. You cannot change it after created.",
     "select": "Select environment",
     "archive": "Archive this environment",
-    "archive-info": "Archived environment will not be shown on the normal interface. You can click \"Archive\" on the bottom left to find and restore it.",
+    "archive-info": "Archived environments will not be displayed.",
     "create": "Create Environment",
     "restore": "Restore this environment",
     "successfully-updated-environment": "Successfully updated environment '{name}'.",
@@ -1011,7 +1379,7 @@
     "visit-instance": "@:common.visit @:common.instances",
     "visit-database": "@:common.visit @:common.databases",
     "visit-environment": "@:common.visit @:common.environments",
-    "add-a-member": "Add a member",
+    "visit-member": "@:common.visit @:common.members",
     "use-kbar": "Use kbar ({shortcut})",
     "query-data": "Query data",
     "notice": {
@@ -1064,14 +1432,16 @@
       "name": "Rollout policy",
       "tip": "The policy is applied to issues retroactively.",
       "info": "For rolling out database change, this setting controls whether the rollout requires manual approval.",
-      "manual": "Manual rollout",
-      "manual-info": "Require clicking \"Rollout\" button manually, and then the change will be executed.",
       "auto": "Automatic rollout",
       "auto-info": "If all check pass, the change will be rolled out and executed automatically.",
-      "assignee-group": {
-        "workspace-owner-or-dba": "Require rolling out from DBA or workspace owner.",
-        "project-owner": "Require rolling out from project owner."
-      }
+      "manual-by-project-owner": "Project owner",
+      "manual-by-project-releaser": "Project releaser",
+      "manual-by-issue-creator": "Issue creator",
+      "manual-by-last-approver": "Manual rollout by the last approver from the custom approval flow",
+      "manual-by-dedicated-roles": "Manual rollout by dedicated roles",
+      "manual-by-dedicated-roles-info": "Allow any of the following selected roles to click the \"Rollout\" button, and then the change will be executed.",
+      "manual-by-dba": "DBA",
+      "manual-by-workspace-admin": "Workspace admin"
     },
     "backup": {
       "name": "Database backup schedule policy",
@@ -1093,6 +1463,7 @@
     "self": "Change History",
     "select": "Schema version is recorded each time a schema change is applied via Bytebase",
     "workflow": "Workflow",
+    "change-type": "Type",
     "commit-info": "by {author} at {time}",
     "no-schema-change": "this migration has no schema change",
     "schema-drift": "Schema drift",
@@ -1118,7 +1489,9 @@
     "instance-bad-connection": "Unable to connect instance \"{name}\" to retrieve change history.",
     "contact-dba": "Please contact your DBA to config it",
     "export": "Export Change History",
-    "need-to-select-first": "Need to select change history first"
+    "need-to-select-first": "Need to select change history first",
+    "all-tables": "All tables",
+    "affected-tables": "Affected Tables"
   },
   "database": {
     "select": "Select database",
@@ -1126,15 +1499,25 @@
     "no-anomalies-detected": "No anomalies detected",
     "sync-status": "Sync status",
     "last-successful-sync": "Last successful sync",
-    "search-database-name": "Search database name",
-    "search-database": "Search database",
+    "filter-database": "Filter database",
     "database-backup": "database backup",
     "transfer-project": "Transfer Project",
-    "alter-schema": "Alter Schema",
-    "alter-schema-in-vcs": "Alter Schema in VCS",
+    "edit-schema": "Edit Schema",
+    "edit-schema-in-vcs": "Edit Schema in VCS",
+    "edit-labels": "Edit Labels",
+    "mixed-values-for-label": "This selected label have mixed values",
+    "mixed-label-values-warning": "Some of the selected resources have mixed values for the same key",
     "change-data": "Change Data",
     "change-data-in-vcs": "Change Data in VCS",
-    "design-schema": "Design Schema",
+    "branch": "Branch",
+    "branches": "Branches",
+    "branching": "Branching",
+    "new-branch": "New branch",
+    "branch-name": "Branch name",
+    "select-branch": "Select a branch",
+    "delete-this-branch": "Delete this branch",
+    "table-detail": "Table detail",
+    "batch-action-disabled": "Can not {action} for the databases from different projects",
     "successfully-transferred-updateddatabase-name-to-project-updateddatabase-project-name": "Successfully transferred '{0}' to project '{1}'.",
     "backup-name": "Backup name",
     "create-backup": "Create backup",
@@ -1231,12 +1614,16 @@
     "unassigned-databases": "Unassigned databases",
     "restore-database": "Restore database",
     "selected-n-databases": "{n} database selected | {n} databases selected",
+    "n-databases": "{n} database | {n} databases",
+    "select-databases-from-same-project": "Please select databases from the same project",
     "sync-schema": {
       "title": "Sync Schema",
-      "description": "Bytebase supports synchronizing a specified schema version of one database to others.",
+      "description": "Bytebase supports synchronizing a schema to one or multiple target databases.",
+      "schema-history-version": "Schema History Version",
       "select-source-schema": "Select source schema",
       "select-target-databases": "Select target databases",
       "select-project": "Select project",
+      "select-database-placeholder": "Select database (MySQL, PostgreSQL, TiDB, Oracle only)",
       "source-database": "Source database",
       "source-schema": "Source schema",
       "schema-version": {
@@ -1278,7 +1665,7 @@
     "should-follow-database-name-template": "Should follow tenant database name template",
     "all": "All databases",
     "unassigned": "Unassigned",
-    "show-schemaless-databases": "Show schemaless databases. (Alter Schema is not applicable for schemaless databases.)",
+    "show-schemaless-databases": "Show schemaless databases. (Edit Schema is not applicable for schemaless databases.)",
     "secret": {
       "self": "Secret",
       "new": "New secret",
@@ -1307,9 +1694,16 @@
       },
       "select-target-project": "Select target project"
     },
-    "transfer-database-from-to": "Transfer database from source project to target project"
+    "transfer-database-from-to": "Transfer database from source project to target project",
+    "classification": {
+      "self": "Classification"
+    },
+    "recent": "Recent",
+    "partitioned": "Partitioned",
+    "partition-tables": "Partition tables"
   },
   "repository": {
+    "our-webhook-link": "The webhook created by Bytebase can be found at {webhookLink}.",
     "branch-observe-file-change": "The branch where Bytebase observes the file change.",
     "base-directory": "Base directory",
     "base-directory-description": "The root directory where Bytebase observes the file change. If empty, then it observes the entire repository.",
@@ -1328,6 +1722,7 @@
     "sql-review-ci-enable": "Enable SQL Review CI",
     "sql-review-ci-enable-gitlab": "Enable SQL Review CI via GitLab CI",
     "sql-review-ci-enable-github": "Enable SQL Review CI via GitHub Action",
+    "sql-review-ci-enable-azure": "Enable SQL Review CI via Azure DevOps Pipeline",
     "sql-review-ci-description": "Bytebase will create a {pr} to set up the SQL review CI in your repository. In every {pr}, environment-based SQL review policy will check against changed files matching the \"{pathTemplate}\".",
     "sql-review-ci-setup": "Setup SQL Review CI",
     "sql-review-ci-setup-failed": "Failed to setup SQL Review CI",
@@ -1356,10 +1751,11 @@
     "configure-deploy": "Configure deploy",
     "choose-git-provider-description": "Choose the Git provider where your database schema scripts (.sql) are hosted. When you push the changed script to the Git repository, Bytebase will automatically create a pipeline to apply the schema change to the database.",
     "choose-git-provider-visit-workspace": "Visit {workspace} setting to add more Git providers.",
-    "choose-git-provider-contact-workspace-owner": "Contact your Bytebase owner if you want other Git providers to appear here. Bytebase currently supports self-host GitLab EE/CE, and plan to add GitLab.com, and GitHub Enterprise later.",
+    "choose-git-provider-contact-workspace-admin": "Contact your Bytebase workspace admin if you want other Git providers to appear here. Bytebase currently supports self-host GitLab EE/CE, and plan to add GitLab.com, and GitHub Enterprise later.",
     "select-repository-attention-gitlab": "Bytebase only lists GitLab projects granting you at least the 'Maintainer' role, which allows to configure the project webhook to observe the code push event.",
     "select-repository-attention-github": "Bytebase only lists GitHub repositories you have admin permissions, which allows to configure the repository webhook to observe the code push event.",
     "select-repository-attention-bitbucket": "Bytebase only lists Bitbucket repositories you have admin permissions, which allows to configure the repository webhook to observe the code push event.",
+    "select-repository-attention-azure-devops": "Bytebase only lists Azure DevOps repositories under the organization which third-party application access via OAuth is granted. If you don't see the repository you want, please go to Organization -> Organization Settings -> Policies to enable third-party application access.",
     "select-repository-search": "Search repository",
     "linked": "Linked repositories"
   },
@@ -1375,7 +1771,7 @@
   },
   "anomaly": {
     "attention-title": "Anomaly detection",
-    "attention-desc": "Bytebase periodically scans the managed resources and list the detected anomalies here. The list is refreshed roughly every 10 minutes.",
+    "attention-desc": "Bytebase periodically detects anomalies based on the instance scan interval, and surfaces the findings here.",
     "table-search-placeholder": "Search {type} or environment",
     "table-placeholder": "Hooray, no {type} anomaly detected!",
     "tooltip": "{env} has {criticalCount} CRITICAL, {highCount} HIGH and {mediumCount} MEDIUM anomalies",
@@ -1402,8 +1798,7 @@
         "content": "Bytebase project is similar to the project concept in other common dev tools.\n\nA project has its own members, and every issue and database always belongs to a single project.\n\nA project can also be configured to link to a repository to enable GitOps workflow.",
         "cancel": "Dismiss",
         "confirm": "Do not show again"
-      },
-      "search-bar-placeholder": "Search project name"
+      }
     },
     "table": {
       "key": "@:common.key",
@@ -1412,7 +1807,6 @@
     "create-modal": {
       "project-name": "@:common.project @:common.name",
       "key": "@:common.key",
-      "key-hint": "(Uppercase letters identifying your project)",
       "cancel": "@:common.cancel",
       "confirm": "@:common.create",
       "success-prompt": "Successfully created project {name}."
@@ -1421,7 +1815,7 @@
       "view-all": "View all",
       "view-all-closed": "View all closed",
       "recent-activity": "Recent @.lower:{'common.activities'}",
-      "in-progress": "In progress",
+      "in-progress": "In Progress",
       "recently-closed": "Recently Closed",
       "info-slot-content": "Bytebase periodically syncs the instance schema. Newly synced databases are first placed here. User should transfer them to the proper application project.",
       "no-db-prompt": "No database belongs to this project. You can add database by clicking {newDb} or {transferInDb} from the top action bar."
@@ -1481,6 +1875,18 @@
         "issue-approval-notify": {
           "title": "Issue approval needed",
           "label": "When issue is pending approval"
+        },
+        "issue-task-run-status-change": {
+          "title": "Issue task run status change",
+          "label": "When issue task run status has changed"
+        },
+        "notify-issue-approved": {
+          "title": "Issue approved",
+          "label": "When issue is approved"
+        },
+        "notify-pipeline-rollout": {
+          "title": "Issue rollout needed",
+          "label": "When the issue is waiting for rollout"
         }
       }
     },
@@ -1491,10 +1897,10 @@
       "member-placeholder": "Select user",
       "manage-member": "Manage members",
       "owner": "@.upper:common.role.owner",
-      "developer": "@.upper:common.role.developer",
+      "developer": "@.upper:common.role.member",
       "archive": {
         "title": "Archive project",
-        "description": "Archived project will not be shown on the normal interface. You can click \"Archive\" on the bottom left to find and restore it.",
+        "description": "Archived projects will not be displayed.",
         "btn-text": "Archive this @.lower:{'common.project'}",
         "force": {
           "description": "Force to archive. All releated issues will be resolved, and all related sheets will be deleted."
@@ -1505,13 +1911,27 @@
         "btn-text": "Restore this @.lower:{'common.project'}"
       },
       "schema-change-type": "Schema change type",
-      "select-schema-change-type-ddl": "Imperative - Migration-based migration. E.g., ALTER TABLE",
-      "select-schema-change-type-sdl": "Declarative - State-based migration. E.g., CREATE TABLE",
-      "schema-path-template-sdl-description": "The schema file describes the database's full schema."
+      "select-schema-change-type-ddl": "Imperative - Specify the change with any DDL statements.",
+      "select-schema-change-type-sdl": "Declarative - Specify the desired schema. Only use CREATE TABLE/INDEX.",
+      "schema-path-template-sdl-description": "The schema file describes the database's full schema.",
+      "branch-protection-rules": {
+        "self": "Branch protection rules",
+        "add-rule": "Add Rule",
+        "branch-name-pattern": {
+          "self": "Branch name pattern",
+          "description": "Support wildcard such as feature/* or *-stable"
+        },
+        "applies-to-n-branches": "Applies to {n} branch | Applies to {n} branches",
+        "only-allow-specified-roles-to-create-branch": "Only allow specified roles to create branch",
+        "no-protection-rule-configured": "No protection rule configured."
+      }
     },
     "members": {
+      "description": "Project members determine the permission to operate database and issues inside the proejct. Project Owner, Workspace Admin and Workspace DBA all have full project permissions.",
       "add-member": "Add member",
       "revoke-member": "Revoke member",
+      "revoke-access": "Revoke Access",
+      "grant-access": "Grant Access",
       "edit": "Edit member - {member}",
       "view-by-principals": "View by principals",
       "view-by-roles": "View by roles",
@@ -1522,8 +1942,17 @@
       "select-users": "Select users",
       "assign-role": "Assign role",
       "never-expires": "Never",
+      "expired": "Expired",
+      "role-description": "Role description",
       "role-never-expires": "This role never expires.",
-      "add-more": "Add more"
+      "add-more": "Add more",
+      "role-name": "Role name",
+      "condition-name": "Condition name",
+      "users": "Users",
+      "roles": "Roles",
+      "search-member": "Search member",
+      "revoke-members": "Revoke these members",
+      "clean-up-expired-roles": "Clean up expired roles"
     },
     "mode": {
       "standard": "Standard Mode",
@@ -1538,7 +1967,8 @@
       "project-owner": "Require LGTM from project owner"
     },
     "successfully-updated-db-name-template": "Successfully updated database name template.",
-    "all": "All projects"
+    "all": "All projects",
+    "key-hint": "Short descriptive alphanumberic letters to identify this project."
   },
   "inbox": {
     "mark-all-as-read": "Mark all as read",
@@ -1546,23 +1976,23 @@
   },
   "gitops": {
     "setting": {
-      "description": "Bytebase supports GitOps workflow where database migration scripts are stored in the version control system (VCS), and newly created migration scripts will automatically trigger the corresponding database change. Bytebase owners manage all the applicable VCSs here, so that project owners can link the projects with their Git repositories from these VCSs.",
+      "description": "Bytebase supports GitOps workflow where database migration scripts are stored in the version control system (VCS), and newly created migration scripts will automatically trigger the corresponding database change. Bytebase admins manage all the applicable VCSs here, so that project owners can link the projects with their Git repositories from these VCSs.",
       "description-highlight": "If you want to enable third party login via your configured VCSs, please configure it in SSO.",
       "add-git-provider": {
         "self": "Add a Git provider",
         "description": "Before any project can enable GitOps workflow, Bytebase first needs to integrate with the corresponding version control system (VCS) by registering as an OAuth application in that VCS. Below are the steps to configure this, you can also follow our {guide}.",
-        "gitlab-self-host": "GitLab self-host",
+        "gitlab-self-host": "GitLab Self-Hosted",
         "gitlab-self-host-admin-requirement": "You need to be an Admin of your chosen GitLab instance to configure this. Otherwise, you need to ask your GitLab instance Admin to register Bytebase as a GitLab instance-wide OAuth application, then provide you that Application ID and Secret to fill at the 'OAuth application info' step.",
         "gitlab-com-admin-requirement": "Your account needs to have Admin access to any of the repositories to be linked. Usually this account corresponds to a dedicated service user instead of a human user.",
+        "github-self-host-ee": "GitHub Self-Hosted Enterprise Edition (EE)",
         "github-com-admin-requirement": "You need to be an admin of your chosen GitHub organization to configure this. Otherwise, you need to ask your GitHub organization admin to register Bytebase as a GitHub organization-wide OAuth application, then provide you that Application ID and Secret to fill at the 'OAuth application info' step.",
         "bitbucket-admin-requirement": "You need to be an admin of your chosen Bitbucket workspace to configure this. Otherwise, you need to ask your Bitbucket workspace admin to register Bytebase as a Bitbucket workspace-wide OAuth application, then provide you that Application ID and Secret to fill at the 'OAuth application info' step.",
+        "azure-devops-service": "Azure DevOps Service",
         "azure-admin-requirement": "You need to be an admin of your chosen Azure DevOps organization to configure this. Otherwise, you need to ask your Bitbucket workspace admin to register Bytebase as a Azure DevOps organization-wide OAuth application, then provide you that Application ID and Client Secret to fill at the 'OAuth application info' step.",
         "oauth-info-correct": "Verified OAuth info is correct",
         "check-oauth-info-match": "Please make sure Secret matches the one from your GitLab instance Application.",
         "add-success": "Successfully added Git provider {vcs}",
         "choose": "Choose Git provider",
-        "gitlab-self-host-ce-ee": "Self-host GitLab Enterprise Edition (EE) or Community Edition (CE)",
-        "github-self-host-ee": "Self-host GitHub Enterprise Edition (EE)",
         "basic-info": {
           "self": "Basic info",
           "gitlab-instance-url": "GitLab instance URL",
@@ -1602,7 +2032,7 @@
           "create-oauth-app": "Create your Bytebase OAuth application with the following info.",
           "gitlab-application-id-error": "Application ID must be a 64-character alphanumeric string",
           "gitlab-secret-error": "Secret must be a 64-character alphanumeric string",
-          "github-application-id-error": "Application ID must be a 20-character alphanumeric string",
+          "github-application-id-error": "Application ID must be a 20-character alphanumeric string. Please make sure it is a OAuth App instead of a GitHub App.",
           "github-secret-error": "Secret must be a 40-character alphanumeric string",
           "bitbucket-application-id-error": "Application ID must be a 18-character alphanumeric string",
           "bitbucket-secret-error": "Secret must be a 32-character alphanumeric string"
@@ -1616,22 +2046,18 @@
         "gitlab-self-host-application-id-label": "Application ID for the registered GitLab instance-wide OAuth application.",
         "gitlab-com-application-id-label": "Application ID for the registered GitLab OAuth application.",
         "view-in-gitlab": "View in GitLab",
+        "view-in-azure": "View in Azure",
         "gitlab-self-host-secret-label": "Secret for the registered GitLab instance-wide OAuth application.",
         "gitlab-com-secret-label": "Secret for the registered GitLab OAuth application.",
+        "azure-secret-label": "Client secret for the registered Azure OAuth application.",
         "github-application-id-label": "Client ID for the registered GitHub organization-wide OAuth application.",
+        "azure-application-id-label": "Client ID for the registered Azure organization-wide OAuth application.",
         "secret-label-github": "Client secret for the registered GitHub organization-wide OAuth application.",
         "delete-forbidden": "To delete this provider, unlink all repositories first.",
         "delete": "Delete this Git provider",
         "delete-confirm": "Delete Git provider \"{name}\"?"
       }
     }
-  },
-  "archive": {
-    "archived": "Archived",
-    "project-search-bar-placeholder": "Search @.lower:{'common.project'} name",
-    "instance-search-bar-placeholder": "Search @.lower:{'common.instance'} name",
-    "environment-search-bar-placeholder": "Search @.lower:{'common.environment'} name",
-    "sso-search-bar-placeholder": "Search SSO name"
   },
   "deployment-config": {
     "stage-n": "Stage {n}",
@@ -1647,7 +2073,7 @@
       "at-least-one-stage": "At least 1 stage",
       "stage-name-required": "Stage name is required",
       "at-least-one-selector": "At least 1 selector in each stage",
-      "env-in-selector-required": "\"Environment ID\" is required in each stage",
+      "env-in-selector-required": "\"Environment\" is required in each stage",
       "env-selector-must-has-one-value": "\"Environment ID\" must has exactly one value",
       "key-required": "Key is required",
       "values-required": "Values are required"
@@ -1724,7 +2150,8 @@
     "label": {
       "key": "Key",
       "values": "Values",
-      "value-placeholder": "Label value..."
+      "value-placeholder": "Label value...",
+      "key-placeholder": "Label key..."
     }
   },
   "sql-editor": {
@@ -1739,11 +2166,13 @@
     "no-rows-found": "No rows found",
     "download-as-file": "Download as {file}",
     "only-select-allowed": "Only {select} statements are allowed to execute.",
-    "want-to-action": "If you want to {want}, click the {action} button and submit an issue.",
+    "want-to-action": "If you want to {want}, click the {action} button {reaction}.",
+    "and-submit-an-issue": "and submit an issue",
+    "to-enable-admin-mode": "to enable the admin mode",
     "table-schema-placeholder": "Select a table to see its schema",
     "notify-empty-statement": "Please input your SQL statements in the editor",
     "notify-multiple-statements": "Multiple SQL statements detected. SQL Editor only executes the first statement. You can select another statement and execute it individually.",
-    "goto-alter-schema-hint": "Please select a database connection from the top of the editor",
+    "goto-edit-schema-hint": "Please select a database connection from the top of the editor",
     "notify-invalid-sql-statement": "Invalid SQL statement.",
     "can-not-execute-query": "Cannot execute query when loading data.",
     "rows": "row | rows",
@@ -1766,9 +2195,8 @@
       "sheet-is-read-only": "The shared sheet is read-only."
     },
     "view-all-tabs": "View all Tabs",
-    "sheet": "Sheet",
     "sheets": "Sheets",
-    "connection-holder": "Click nodes on the left panel to get started",
+    "connection-holder": "Associate a database first from the Database Panel on the left",
     "link-access": "Link access",
     "private": "Private",
     "private-desc": "Only you can access this sheet",
@@ -1800,8 +2228,35 @@
     "run-selected": "Run selected",
     "clear-screen": "Clear screen",
     "query-time": "Query time",
-    "request-query": "Request Query",
-    "connection-lost": "Connection lost. Will try to reconnect when executing next query."
+    "request-query-permission": "Request Query",
+    "connection-lost": "Connection lost. Will try to reconnect when executing next query.",
+    "sheet": {
+      "choose-sheet": "Choose Sheet",
+      "self": "Sheet",
+      "connection": "Connection"
+    },
+    "tab": {
+      "unsaved": "Unsaved",
+      "context-menu": {
+        "actions": {
+          "close": "Close",
+          "close-others": "Close others",
+          "close-to-the-right": "Close to the right",
+          "close-saved": "Close saved",
+          "close-all": "Close all",
+          "rename": "Rename"
+        }
+      }
+    },
+    "batch-query": {
+      "batch": "Batch",
+      "select-database": "Select database below",
+      "description": "Batch query {count} additional databases under {project}."
+    },
+    "executing-query": "Executing query",
+    "grouping": "Grouping",
+    "previous-row": "Previous row",
+    "next-row": "Next row"
   },
   "schema-editor": {
     "self": "Schema Editor",
@@ -1852,7 +2307,16 @@
       "comment": "Comment",
       "not-null": "Not Null",
       "primary": "Primary",
-      "foreign-key": "Foreign Key"
+      "foreign-key": "Foreign Key",
+      "classification": "Classification"
+    },
+    "default": {
+      "no-default": "No default",
+      "empty-string": "Empty string",
+      "expression": "Expression",
+      "zero": "0",
+      "true": "True",
+      "false": "False"
     },
     "nothing-changed": "Nothing changed",
     "message": {
@@ -1863,7 +2327,11 @@
       "invalid-column-name": "Invalid column name",
       "duplicated-column-name": "Duplicated column name",
       "invalid-column-type": "Invalid column type",
-      "failed-to-fetch-database-schema": "Failed to fetch database schema"
+      "schema-not-found": "Schema not found",
+      "failed-to-fetch-database-schema": "Failed to fetch database schema",
+      "invalid-schema": "Invalid schema",
+      "cannot-drop-the-last-column": "Cannot drop the last column",
+      "cannot-change-config": "Database config must changed with the schema"
     },
     "confirm-to-close": {
       "title": "Confirm to close",
@@ -1876,7 +2344,7 @@
     "select-reference-column": "Select a column to reference to"
   },
   "label": {
-    "empty-label-value": "<Empty Value>",
+    "empty-label-value": "Empty",
     "no-label": "No labels",
     "error": {
       "key-necessary": "Key is required",
@@ -1885,7 +2353,10 @@
       "value-duplicated": "Duplicated values",
       "max-length-exceeded": "Length cannot exceed {len} characters",
       "max-label-count-exceeded": "Cannot exceed {count} labels",
-      "cannot-edit-reserved-label": "Cannot edit reserved label \"{key}\""
+      "cannot-edit-reserved-label": "Cannot edit reserved label \"{key}\"",
+      "max-value-length-exceeded": "Value's length cannot exceed {length} characters",
+      "key-format": "Only alphanumeric characters ([a-z0-9A-Z]), hyphens (-), underscores (_) and dots (.) are allowed. And must begin and ends with alphanumeric characters.",
+      "x-is-reserved-key": "\"{key}\" is a system reserved key"
     },
     "placeholder": {
       "select-key": "Select key...",
@@ -1895,10 +2366,12 @@
     "setting": {
       "description": "A label is a key-value pair that helps you identify the tenant for a database. {link}."
     },
-    "db-name-template-tips": "If your tenant databases follow a naming template, you can specify it here. For example, the databases are named as db1__SH, db1__BJ, db1__GZ, then the template could be {placeholder}. {link}.",
+    "db-name-template-tips": "Specify a template to enforce database naming. For example, if your database db1 is geo-splitted into US, Asia, Europe and you want to enforce names as db1__US, db1__ASIA, db1__EU, then the template could be {placeholder}. {link}.",
     "confirm-change": "Are you sure to change '{label}' ?",
     "parsed-from-template": "Parsed from {name} by template {template}.",
-    "cannot-transfer-template-not-match": "Database '{name}' cannot be transferred to this project. Since its name doesn't match the template {template}."
+    "cannot-transfer-template-not-match": "Database '{name}' cannot be transferred to this project. Since its name doesn't match the template {template}.",
+    "add-label": "Add label",
+    "filter-by-label": "Filter by label"
   },
   "oauth": {
     "unknown-event": "Unexpected event type, OAuth failed."
@@ -1923,16 +2396,17 @@
     "description": "You can upload your Bytebase license to unlock pro/enterprise features.",
     "upload-license": "Upload license",
     "upgrade-trial-button": "Upgrade trial",
-    "start-n-days-trial": "Start {days} days trial (no credit card required)",
+    "request-n-days-trial": "Request {days} days trial (no credit card required)",
+    "request-with-qr": "Scan QR code",
     "successfully-start-trial": "Successfully start free trial for {days} days",
     "successfully-upgrade-trial": "Successfully upgrade free trial to {plan}",
-    "require-subscription": "This feature requires {requiredPlan}, please purchase Bytebase license to unlock this feature.",
-    "feature-require-subscription": "{feature} requires {requiredPlan}.",
-    "required-plan-with-trial": "This feature requires {requiredPlan}. {startTrial}.",
-    "trial-for-plan": "You can start a free trial for {plan} with {days} days - no credit card required",
-    "trial-for-days": "You can start a free trial for {days} days - no credit card required",
-    "upgrade-trial": "You can upgrade your free trial to this plan",
-    "contact-to-upgrade": "Contact your Workspace Owner or DBA to upgrade the plan",
+    "require-subscription": "This feature requires {requiredPlan} subscription, please purchase Bytebase license to unlock this feature.",
+    "feature-require-subscription": "{feature} requires {requiredPlan} subscription.",
+    "required-plan-with-trial": "This feature requires {requiredPlan}. {startTrial}",
+    "trial-for-plan": "You can start a free trial for {plan} with {days} days - no credit card required.",
+    "trial-for-days": "You can start a free trial for {days} days - no credit card required.",
+    "upgrade-trial": "You can upgrade your free trial to this plan.",
+    "contact-to-upgrade": "Contact your Workspace admin to upgrade the plan.",
     "upgrade-now": "Upgrade Now",
     "instance-assignment": {
       "license": "License",
@@ -2019,7 +2493,7 @@
       },
       "bb-feature-custom-approval": {
         "title": "Custom approval",
-        "desc": "Configure security risk level and approval flow for different tasks."
+        "desc": "Configure risk level and approval flow for different tasks."
       },
       "bb-feature-vcs-schema-write-back": {
         "title": "Schema write-back",
@@ -2039,7 +2513,7 @@
       },
       "bb-feature-custom-role": {
         "title": "Custom role",
-        "desc": "Defining custom roles, and you may apply them to project members."
+        "desc": "Defining custom roles. You may apply them to project members and used in custom approval flow."
       },
       "bb-feature-watermark": {
         "title": "Watermark",
@@ -2051,7 +2525,7 @@
       },
       "bb-feature-schema-drift": {
         "title": "Schema drift",
-        "desc": "@:{'subscription.upgrade'} to unlock schema drift auto-detection."
+        "desc": "Detect out-of-band schema changes and report schema drift."
       },
       "bb-feature-branding": {
         "title": "Branding",
@@ -2077,6 +2551,10 @@
         "title": "Instance SSH connection",
         "desc": "Connect to a instance over SSH."
       },
+      "bb-feature-custom-instance-scan-interval": {
+        "title": "Custom instance scan interval",
+        "desc": "Customize schema and anomaly scan interval for instance"
+      },
       "bb-feature-index-advisor": {
         "title": "Index advisor",
         "desc": "Index advisor can help you to find the missing indexes in slow queries."
@@ -2093,9 +2571,17 @@
         "title": "AI Augmentation",
         "desc": "AI augmented SQL Editor and index advisor features powered by OpenAI."
       },
+      "bb-feature-batch-query": {
+        "title": "Batch query",
+        "desc": "Batch query additional databases under same project in SQL Editor."
+      },
       "bb-feature-shared-sql-script": {
         "title": "Shared SQL script",
         "desc": "Share your SQL scripts with project teammates or make them public to all."
+      },
+      "bb-feature-announcement": {
+        "title": "Announcement",
+        "desc": "Configure an Announcement Banner."
       },
       "bb-feature-encrypted-secrets": {
         "title": "Encrypted Secrets",
@@ -2107,19 +2593,30 @@
       },
       "bb-feature-disallow-signup": {
         "title": "Disable self-service signup",
-        "desc": "Once disabled, users cannot self-service signup and can only be invited by the workspace owner."
+        "desc": "Once disabled, users cannot self-service signup and can only be invited by the workspace admin."
       },
       "bb-feature-schema-template": {
         "title": "Schema Template",
         "desc": "Pre-define the field template, then apply the template during the schema change."
+      },
+      "bb-feature-secure-token": {
+        "title": "Sign-in frequency",
+        "desc": "Sign-in frequency is the period before a user must sign in again."
+      },
+      "bb-feature-issue-advanced-search": {
+        "title": "Advanced issue search",
+        "desc": "Access unlimited issue history with advanced issue search."
       }
     }
   },
   "sheet": {
     "self": "Sheets",
     "my-sheets": "My Sheets",
-    "shared-with-me": "Shared with me",
+    "mine": "Mine",
+    "star": "Star",
+    "unstar": "Unstar",
     "starred": "Starred",
+    "shared-with-me": "Shared with me",
     "actions": {
       "sync-from-vcs": "Sync SQL scripts from VCS"
     },
@@ -2133,7 +2630,10 @@
     },
     "linked-issue": "Linked issue",
     "from-issue-warning": "The sheet comes from issue {issue} in read-only mode. {oversize}",
-    "content-oversize-warning": "SQL is oversized and inline-editing is disallowed. "
+    "content-oversize-warning": "SQL is oversized and inline-editing is disallowed. ",
+    "sheets": "Sheets",
+    "search-sheets": "Search Sheets",
+    "sheet": "Sheet"
   },
   "engine": {
     "mysql": "MySQL",
@@ -2147,14 +2647,13 @@
     "create-policy": "Create policy",
     "duplicate-policy": "Duplicate SQL Review Policy",
     "configure-policy": "Configure policy",
-    "search-rule-name": "Search rule name",
     "policy-removed": "Successfully removed the review policy.",
     "policy-created": "Successfully created the review policy.",
     "policy-updated": "Successfully updated the review policy.",
     "policy-duplicated": "Successfully duplicated the review policy.",
     "rules": "Rules",
     "filter": "Filter",
-    "no-permission": "Only DBA or Owner has permission to create or update review policy.",
+    "no-permission": "Only DBA or Admin has permission to create or update review policy.",
     "disable": "Disable",
     "enable": "Enable",
     "delete": "Delete SQL review policy",
@@ -2188,20 +2687,24 @@
       }
     },
     "edit-rule": {
-      "self": "Edit SQL Review Rule"
+      "self": "Edit SQL Review Rule",
+      "readonly": "SQL Review Rule"
     },
     "rule": {
       "active": "Active"
     },
     "enabled-rules": "Enabled rules",
     "rule-detail": "Rule detail",
-    "view-definition": "View definition"
+    "view-definition": "View definition",
+    "other-engines": "Other engines"
   },
   "debug-log": {
     "title": "Debug Log",
     "no-logs": "No debug logs",
     "count-of-logs": "Fetched latest {count} log(s) from server.",
     "debug-log-detail": "Debug Log Details",
+    "enabled": "Debug mode is enabled.",
+    "open-debug-mode": "Enable debug",
     "table": {
       "record-ts": "Time",
       "method": "Method",
@@ -2247,7 +2750,8 @@
         "member-role-update": "Update Project Member Role",
         "database-transfer": "Transfer Database"
       },
-      "sql-editor-query": "SQL Editor Query"
+      "sql-editor-query": "SQL Editor Query",
+      "sql-export": "SQL Export"
     }
   },
   "onboarding-guide": {
@@ -2290,7 +2794,8 @@
     "idp": "Identity Provider",
     "role": "Role",
     "database-group": "Database Group",
-    "schema-group": "Table Group"
+    "schema-group": "Table Group",
+    "changelist": "Changelist"
   },
   "resource-id": {
     "self": "{resource} ID",
@@ -2394,23 +2899,25 @@
         "3": "What's the gender ratio in each department?"
       },
       "statement-copied": "Statement copied to clipboard",
-      "dont-show-again": "Don't show again"
+      "dont-show-again": "Don't show again",
+      "chat-sql": "ChatSQL",
+      "disable-chat-sql": "Disable ChatSQL",
+      "enable-chat-sql": "Enable ChatSQL"
     }
   },
   "custom-approval": {
     "self": "Custom Approval",
-    "security-rule": {
-      "self": "Security rule",
-      "security-rules": "Security rules",
+    "risk-rule": {
+      "self": "Risk rule",
+      "risk-rules": "Risk rules",
       "x-risk-rules": {
         "low": "Low Risk Rules",
         "moderate": "Moderate Risk Rules",
         "high": "High Risk Rules"
       },
       "active": "Active",
-      "add-rule": "Add rule",
       "edit-rule": "Edit rule",
-      "delete": "Delete security rule",
+      "delete": "Delete Risk rule",
       "default-rules": {
         "self": "Default rules",
         "description": "The default rules will be executed when an issue fails to comply with the custom rules."
@@ -2430,17 +2937,6 @@
           "create_database": "Create Database",
           "query": "Request Query",
           "export": "Request Export"
-        },
-        "factor": {
-          "affected_rows": "Affected rows",
-          "environment_id": "Environment ID",
-          "project_id": "Project ID",
-          "database_name": "Database name",
-          "db_engine": "DB engine",
-          "sql_type": "SQL type",
-          "expiration_days": "Expiration days",
-          "export_rows": "Export rows",
-          "table_name": "Table name"
         }
       },
       "condition": {
@@ -2485,14 +2981,10 @@
       "search": "Search rule"
     },
     "approval-flow": {
-      "self": "Approval flow",
+      "self": "Approval Flow",
       "description": "For each operation type, configure custom condition, risk and approval flow. ",
       "approval-flows": "Approval Flows",
       "approval-nodes": "Approval nodes",
-      "type": {
-        "system": "System",
-        "custom": "Custom"
-      },
       "delete": "Delete approval flow",
       "search": "Search approval flow",
       "select": "Select approval flow",
@@ -2504,7 +2996,7 @@
         "order": "Order",
         "approver": "Approver",
         "group": {
-          "WORKSPACE_OWNER": "Workspace Owner",
+          "WORKSPACE_OWNER": "Workspace Admin",
           "WORKSPACE_DBA": "DBA",
           "PROJECT_OWNER": "Project Owner",
           "PROJECT_MEMBER": "Project Member"
@@ -2558,7 +3050,9 @@
       "generating-approval-flow": "Generating approval flow",
       "approved-issue": "approved issue",
       "disallow-approve-reason": {
-        "some-task-checks-didnt-pass": "Some task checks didn't pass"
+        "some-task-checks-didnt-pass": "Some task checks didn't pass",
+        "some-task-checks-are-still-running": "Some task checks are still running",
+        "x-field-is-required": "{field} is required"
       },
       "send-back": "Send back",
       "send-back-issue": "Send back issue?",
@@ -2566,14 +3060,14 @@
       "re-request-review-issue": "Re-request review issue?",
       "sent-back-issue": "Sent back issue",
       "re-requested-review": "re-requested issue review",
-      "no-one-matches-role": "No one matches the role, contact project owner to assign one."
+      "no-one-matches-role": "No one matches the role, contact project owner to assign one.",
+      "any-n-role-can-approve": "Any {role} can approve"
     },
     "send-back": "Send back"
   },
   "slow-query": {
-    "self": "Slow query",
+    "self": "Slow Query",
     "slow-queries": "Slow queries",
-    "report-slow-query": "Report slow query",
     "report": "Report",
     "last-query-time": "Last query time",
     "database-name": "Database name",
@@ -2593,7 +3087,7 @@
     "rows-sent": "Rows sent",
     "lock-time": "Lock time",
     "query-time": "Query time",
-    "attention-description": "Bytebase periodically syncs slow query logs from instances.\nFor MySQL instance, {slow_query} must be enabled first.\nFor PostgreSQL instance, {pg_stat_statements} must be enabled first in each database.",
+    "attention-description": "Bytebase periodically syncs slow query logs from instances. For MySQL instance, slow_query must be enabled first. For PostgreSQL instance, only databases with pg_stat_statements enabled will collect slow queries.",
     "sync-job-started": "Sync jobs started. Please wait for the jobs to complete.",
     "detail": "Slow Query Detail",
     "filter": {
@@ -2608,24 +3102,48 @@
     },
     "no-log-placeholder": {
       "admin": "Click the \"Configure\" button to fetch slow queries from the database instances or click the \"Sync Now\" button to sync slow query logs immediately",
-      "developer": "Click the \"Sync Now\" button to sync slow query logs immediately or contact Bytebase owners/DBAs to configure slow queries"
+      "developer": "Click the \"Sync Now\" button to sync slow query logs immediately or contact Bytebase admins/DBAs to configure slow queries"
     }
   },
   "schema-template": {
-    "self": "Schema template",
-    "field-template": "Field Template",
-    "add-field": "Add field template",
-    "description": "You can pre-define the field template, then apply the template during the schema change.",
+    "self": "Schema Template",
+    "field-template": {
+      "self": "Field Template",
+      "description": "You can pre-define the field template, then apply the template during the schema change."
+    },
+    "column-type-restriction": {
+      "self": "Column Type Restriction",
+      "description": "You can restrict the allowed column types for each database engine.",
+      "allow-all": "Allow all",
+      "allow-limited-types": "Allow limited types",
+      "back-to-edit": "Back to edit",
+      "add-and-save": "Add and save",
+      "messages": {
+        "unable-to-update": "Unable to update restriction",
+        "following-column-types-are-used": "Following column types are still used by field template",
+        "one-allowed-type-per-line": "One allowed data type per line"
+      }
+    },
+    "table-template": {
+      "self": "Table Template",
+      "description": "You can pre-define the table template, then apply the template during the schema change."
+    },
     "search-by-name-or-comment": "Search by name or comment",
     "form": {
       "category": "Category",
-      "category-desc": "Select an existed category or create a new one",
+      "category-desc": "Select an existing category or create a new one",
       "unclassified": "Unclassified",
       "column-name": "Column name",
-      "column-type": "Column Type",
-      "default-value": "Default value",
+      "column-type": "Column type",
+      "default-value": "Default",
       "comment": "Comment",
-      "nullable": "Nullable"
+      "nullable": "Nullable",
+      "table-name": "Table name"
+    },
+    "classification": {
+      "self": "Data classification",
+      "select": "Select classification",
+      "search": "Search classification"
     }
   },
   "principal": {
@@ -2634,7 +3152,7 @@
   "role": {
     "self": "Role",
     "setting": {
-      "description": "Defining custom roles, and you may apply them to project members.",
+      "description": "Defining custom roles. You may apply them to project members and used in custom approval flow.",
       "add": "Add role",
       "edit": "Edit role",
       "title-placeholder": "Input role title",
@@ -2651,20 +3169,26 @@
     "select": "Select role",
     "select-roles": "Select roles",
     "title": "Title",
+    "select-role": "Select role",
+    "expired-tip": "The role might has been expired.",
     "owner": {
-      "description": "System defined project owner role"
+      "description": "All permissions within the project"
     },
     "developer": {
-      "description": "System defined project developer role"
+      "description": "All viewer permissions, plus permissions for requesting database changes."
     },
-    "exporter": {
-      "description": "System defined project exporter role"
+    "releaser": {
+      "description": "All viewer permissions, plus permission for reviewing database change requests for release purposes."
     },
     "querier": {
-      "description": "System defined project querier role"
+      "description": "Permissions for querying database data."
     },
-    "select-role": "Select role",
-    "expired-tip": "The role might has been expired."
+    "exporter": {
+      "description": "Permissions for exporting database data."
+    },
+    "viewer": {
+      "description": "Read-only permissions for viewing basic project information, accessing databases, and initiating privilege requests."
+    }
   },
   "database-group": {
     "self": "Database Group",
@@ -2696,19 +3220,111 @@
   },
   "schema-designer": {
     "self": "Schema Designer",
-    "quick-action": "Design Schema",
     "schema-design": "Schema Design",
     "schema-design-list": "Schema Design List",
     "new-schema-design": "New Schema Design",
     "baseline-database": "Baseline database",
     "schema-version": "Schema version",
+    "personal-draft": "Personal draft",
+    "baseline-version": "Baseline",
+    "baseline-version-from-parent": "Baseline from parent branch",
+    "new-branch": "New branch",
+    "parent-branch": "Parent",
+    "save-draft": "Save draft",
+    "merge-branch": "Merge branch",
+    "delete-branch-after-merged": "Delete branch after merged",
+    "raw-sql-preview": "Raw SQL Preview",
+    "diff-editor": {
+      "self": "Diff editor",
+      "resolve": "Resolve",
+      "auto-merge-failed": "Auto merge failed",
+      "need-to-resolve-conflicts": "Branch has been updated by others. You need to resolve the conflicts before you can merge.",
+      "resolve-and-merge-again": "Resolve and merge again",
+      "discard-changes": "Discard changes",
+      "action-confirm": "Action confirm",
+      "duplicated-branch-name-found": "Duplicated branch name found.",
+      "discard-changes-confirm": "Are you sure you want to discard all modifications?"
+    },
     "tables": "Tables",
     "search-tables": "Search tables",
     "use-tips": "Click a table to start.",
-    "apply-to-database": "Apply to database",
+    "apply-to-database": "Apply change to database",
+    "select-database-placeholder": "Select a database (MySQL, PostgreSQL and TiDB only)",
     "message": {
-      "created-succeed": "Schema design created successfully",
-      "updated-succeed": "Schema design updated successfully"
+      "created-succeed": "Branch created successfully",
+      "updated-succeed": "Branch updated successfully",
+      "merge-to-main-successfully": "Merge to main successfully",
+      "updated-time-by-user": "Updated {time} by {user}"
+    },
+    "action": {
+      "use-the-existing-branch": "Use the existing branch",
+      "create-new-branch": "Create new branch"
     }
+  },
+  "cel": {
+    "factor": {
+      "affected_rows": "Affected rows",
+      "environment_id": "Environment ID",
+      "project_id": "Project ID",
+      "instance_id": "Instance ID",
+      "database_name": "Database name",
+      "db_engine": "DB engine",
+      "sql_type": "SQL type",
+      "expiration_days": "Expiration days",
+      "export_rows": "Export rows",
+      "table_name": "Table name",
+      "column_name": "Column name",
+      "classification_level": "Classification level"
+    }
+  },
+  "changelist": {
+    "self": "Changelist",
+    "changelists": "Changelists",
+    "change-center": "Change Center",
+    "new": "New Changelist",
+    "name": "Changelist name",
+    "name-placeholder": "My changelist",
+    "error": {
+      "project-is-required": "Project is required",
+      "name-is-required": "Changelist name is required",
+      "invalid-resource-id": "Invalid resource Id",
+      "nothing-changed": "Nothing changed",
+      "sql-cannot-be-empty": "SQL is required",
+      "select-at-least-one-change": "Select at least one change",
+      "select-at-least-one-change-to-export": "Select at least one change to export",
+      "add-at-least-one-change": "Add at least one change",
+      "select-at-least-one-database": "Select at least one database",
+      "you-are-not-allowed-to-perform-this-action": "You are not allowed to perform this action"
+    },
+    "apply-to-database": "Apply to database",
+    "add-change": {
+      "self": "Add Change",
+      "change-history": {
+        "select-at-least-one-history-below": "Select at least one history below"
+      },
+      "branch": {
+        "select-at-least-one-branch-below": "Select at least one branch below"
+      }
+    },
+    "change-source": {
+      "self": "Change source",
+      "raw-sql": "Raw SQL",
+      "change-history": {
+        "tables": "Tables"
+      },
+      "source": "Source"
+    },
+    "confirm-remove-change": "Remove this change?",
+    "delete-this-changelist": "Delete this changelist",
+    "confirm-delete-changelist": "Delete this changelist?"
+  },
+  "export-data": {
+    "self": "Export Data",
+    "export-rows": "Export rows",
+    "error": {
+      "export-rows-required": "Export rows required",
+      "export-rows-must-gt-zero": "Export rows must greater than 0"
+    },
+    "export-format": "Export format"
   }
 }

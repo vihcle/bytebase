@@ -4,7 +4,8 @@
     :value="value"
     :clearable="!!value"
     :placeholder="placeholder"
-    style="width: 12rem"
+    style="max-width: 18rem; flex: 1 1 0%"
+    v-bind="$attrs"
     @update:value="$emit('update:value', $event)"
   >
     <template #prefix>
@@ -14,9 +15,9 @@
 </template>
 
 <script lang="ts" setup>
+import { NInput } from "naive-ui";
 import { computed, onMounted, ref, useAttrs } from "vue";
 import { useI18n } from "vue-i18n";
-import { NInput } from "naive-ui";
 
 const props = withDefaults(
   defineProps<{

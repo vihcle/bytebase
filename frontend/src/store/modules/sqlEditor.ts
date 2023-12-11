@@ -4,14 +4,9 @@ import {
   QueryInfo,
   QueryHistory,
   ActivitySQLEditorQueryPayload,
-  SingleSQLResult,
 } from "@/types";
 import { UNKNOWN_ID } from "@/types";
-import { useLegacySQLStore } from "./sql";
-import { useTabStore } from "./tab";
-import { useDatabaseV1Store } from "./v1/database";
 import { useInstanceV1Store, useSQLStore, useActivityV1Store } from "./v1";
-import { QueryResult } from "@/types/proto/v1/sql_service";
 
 // set the limit to 1000 temporarily to avoid the query timeout and page crash
 export const RESULT_ROWS_LIMIT = 1000;
@@ -39,34 +34,33 @@ export const useSQLEditorStore = defineStore("sqlEditor", {
     setIsFetchingQueryHistory(payload: boolean) {
       this.isFetchingQueryHistory = payload;
     },
-    async executeQuery({ statement }: Pick<QueryInfo, "statement">) {
-      const { instanceId, databaseId } = useTabStore().currentTab.connection;
-      const database = useDatabaseV1Store().getDatabaseByUID(databaseId);
-      const databaseName =
-        database.uid === String(UNKNOWN_ID) ? "" : database.databaseName;
-      const instance = useInstanceV1Store().getInstanceByUID(instanceId);
-      const response = await useSQLStore().queryReadonly({
-        name: instance.name,
-        connectionDatabase: databaseName,
+    async executeQuery(
+      {
+        instanceId,
+        databaseName,
+        dataSourceId,
         statement,
-        limit: RESULT_ROWS_LIMIT,
-      });
+      }: Pick<
+        QueryInfo,
+        "instanceId" | "databaseName" | "dataSourceId" | "statement"
+      >,
+      signal: AbortSignal
+    ) {
+      const instance = useInstanceV1Store().getInstanceByUID(
+        String(instanceId)
+      );
+      const response = await useSQLStore().queryReadonly(
+        {
+          name: instance.name,
+          connectionDatabase: databaseName || "",
+          dataSourceId: dataSourceId || "",
+          statement,
+          limit: RESULT_ROWS_LIMIT,
+        },
+        signal
+      );
 
       return response;
-    },
-    async executeAdminQuery({ statement }: Pick<QueryInfo, "statement">) {
-      const { instanceId, databaseId } = useTabStore().currentTab.connection;
-      const database = useDatabaseV1Store().getDatabaseByUID(databaseId);
-      const databaseName =
-        database.uid === String(UNKNOWN_ID) ? "" : database.databaseName;
-      const queryResult = await useLegacySQLStore().adminQuery({
-        instanceId: Number(instanceId),
-        databaseName,
-        statement: statement,
-        limit: RESULT_ROWS_LIMIT,
-      });
-
-      return queryResult;
     },
     async fetchQueryHistoryList() {
       this.setIsFetchingQueryHistory(true);
@@ -99,29 +93,3 @@ export const useSQLEditorStore = defineStore("sqlEditor", {
     },
   },
 });
-
-export const mockAffectedRows0 = (): SingleSQLResult => {
-  return {
-    data: [["Affected Rows"], ["BIGINT"], [[0]], [false]],
-    error: "",
-  };
-};
-
-export const mockAffectedV1Rows0 = (): QueryResult => {
-  return {
-    columnNames: ["Affected Rows"],
-    columnTypeNames: ["BIGINT"],
-    masked: [false],
-    error: "",
-    statement: "",
-    rows: [
-      {
-        values: [
-          {
-            int64Value: 0,
-          },
-        ],
-      },
-    ],
-  };
-};

@@ -74,29 +74,6 @@ const (
 	ProjectSchemaChangeTypeSDL ProjectSchemaChangeType = "SDL"
 )
 
-// Project is the API message for a project.
-type Project struct {
-	ID         int       `jsonapi:"primary,project"`
-	ResourceID string    `jsonapi:"attr,resourceId"`
-	RowStatus  RowStatus `jsonapi:"attr,rowStatus"`
-
-	// Domain specific fields
-	Name         string              `jsonapi:"attr,name"`
-	Key          string              `jsonapi:"attr,key"`
-	WorkflowType ProjectWorkflowType `jsonapi:"attr,workflowType"`
-	Visibility   ProjectVisibility   `jsonapi:"attr,visibility"`
-	TenantMode   ProjectTenantMode   `jsonapi:"attr,tenantMode"`
-	// DBNameTemplate is only used when a project is in tenant mode and the name of tenant databases follows a format.
-	// {{DB_NAME}} is used for each tenant belonging to an individual database instance and all tenant databases have the same database name.
-	// The template can include label keys such as {{DB_NAME}}_{{TENANT}}. It allows all tenant databases to belong to one or a few database instances.
-	// All database with the same {{DB_NAME}} (base database name) belong to one group.
-	//
-	// Empty value means all tenant databases in the project belonging to the same group.
-	DBNameTemplate string `jsonapi:"attr,dbNameTemplate"`
-	// SchemaChangeType is the type of the schema migration script.
-	SchemaChangeType ProjectSchemaChangeType `jsonapi:"attr,schemaChangeType"`
-}
-
 var (
 	// DBNameToken is the token for database name.
 	DBNameToken = "{{DB_NAME}}"
@@ -124,12 +101,7 @@ var (
 		DBNameToken:      true,
 		EnvironmentToken: false,
 	}
-	tenantSchemaPathTemplateTokens     = map[string]bool{}
-	allowedProjectDBNameTemplateTokens = map[string]bool{
-		DBNameToken:   true,
-		LocationToken: true,
-		TenantToken:   true,
-	}
+	tenantSchemaPathTemplateTokens = map[string]bool{}
 )
 
 // ValidateRepositoryFilePathTemplate validates the repository file path template.
@@ -190,28 +162,6 @@ func ValidateRepositorySchemaPathTemplate(schemaPathTemplate string, tenantMode 
 		if _, ok := allowedTokens[token]; !ok {
 			return errors.Errorf("unknown token %s in schema path template", token)
 		}
-	}
-	return nil
-}
-
-// ValidateProjectDBNameTemplate validates the project database name template.
-func ValidateProjectDBNameTemplate(template string) error {
-	if template == "" {
-		return nil
-	}
-	tokens, _ := common.ParseTemplateTokens(template)
-	// Must contain {{DB_NAME}}
-	hasDBName := false
-	for _, token := range tokens {
-		if token == DBNameToken {
-			hasDBName = true
-		}
-		if _, ok := allowedProjectDBNameTemplateTokens[token]; !ok {
-			return errors.Errorf("invalid token %v in database name template", token)
-		}
-	}
-	if !hasDBName {
-		return errors.Errorf("project database name template must include token %v", DBNameToken)
 	}
 	return nil
 }

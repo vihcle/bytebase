@@ -16,6 +16,8 @@
   
 - [v1/common.proto](#v1_common-proto)
     - [Engine](#bytebase-v1-Engine)
+    - [ExportFormat](#bytebase-v1-ExportFormat)
+    - [MaskingLevel](#bytebase-v1-MaskingLevel)
     - [State](#bytebase-v1-State)
   
 - [v1/deployment.proto](#v1_deployment-proto)
@@ -35,21 +37,27 @@
     - [GetPolicyRequest](#bytebase-v1-GetPolicyRequest)
     - [ListPoliciesRequest](#bytebase-v1-ListPoliciesRequest)
     - [ListPoliciesResponse](#bytebase-v1-ListPoliciesResponse)
+    - [MaskData](#bytebase-v1-MaskData)
+    - [MaskingExceptionPolicy](#bytebase-v1-MaskingExceptionPolicy)
+    - [MaskingExceptionPolicy.MaskingException](#bytebase-v1-MaskingExceptionPolicy-MaskingException)
+    - [MaskingPolicy](#bytebase-v1-MaskingPolicy)
+    - [MaskingRulePolicy](#bytebase-v1-MaskingRulePolicy)
+    - [MaskingRulePolicy.MaskingRule](#bytebase-v1-MaskingRulePolicy-MaskingRule)
     - [Policy](#bytebase-v1-Policy)
+    - [RestrictIssueCreationForSQLReviewPolicy](#bytebase-v1-RestrictIssueCreationForSQLReviewPolicy)
+    - [RolloutPolicy](#bytebase-v1-RolloutPolicy)
     - [SQLReviewPolicy](#bytebase-v1-SQLReviewPolicy)
     - [SQLReviewRule](#bytebase-v1-SQLReviewRule)
-    - [SensitiveData](#bytebase-v1-SensitiveData)
-    - [SensitiveDataPolicy](#bytebase-v1-SensitiveDataPolicy)
     - [SlowQueryPolicy](#bytebase-v1-SlowQueryPolicy)
     - [UpdatePolicyRequest](#bytebase-v1-UpdatePolicyRequest)
   
     - [ApprovalGroup](#bytebase-v1-ApprovalGroup)
     - [ApprovalStrategy](#bytebase-v1-ApprovalStrategy)
     - [BackupPlanSchedule](#bytebase-v1-BackupPlanSchedule)
+    - [MaskingExceptionPolicy.MaskingException.Action](#bytebase-v1-MaskingExceptionPolicy-MaskingException-Action)
     - [PolicyResourceType](#bytebase-v1-PolicyResourceType)
     - [PolicyType](#bytebase-v1-PolicyType)
     - [SQLReviewRuleLevel](#bytebase-v1-SQLReviewRuleLevel)
-    - [SensitiveDataMaskType](#bytebase-v1-SensitiveDataMaskType)
   
     - [OrgPolicyService](#bytebase-v1-OrgPolicyService)
   
@@ -89,37 +97,6 @@
   
     - [AuthService](#bytebase-v1-AuthService)
   
-- [v1/bookmark_service.proto](#v1_bookmark_service-proto)
-    - [Bookmark](#bytebase-v1-Bookmark)
-    - [CreateBookmarkRequest](#bytebase-v1-CreateBookmarkRequest)
-    - [DeleteBookmarkRequest](#bytebase-v1-DeleteBookmarkRequest)
-    - [ListBookmarksRequest](#bytebase-v1-ListBookmarksRequest)
-    - [ListBookmarksResponse](#bytebase-v1-ListBookmarksResponse)
-  
-    - [BookmarkService](#bytebase-v1-BookmarkService)
-  
-- [v1/cel_service.proto](#v1_cel_service-proto)
-    - [DeparseRequest](#bytebase-v1-DeparseRequest)
-    - [DeparseResponse](#bytebase-v1-DeparseResponse)
-    - [ParseRequest](#bytebase-v1-ParseRequest)
-    - [ParseResponse](#bytebase-v1-ParseResponse)
-  
-    - [CelService](#bytebase-v1-CelService)
-  
-- [v1/database_edit.proto](#v1_database_edit-proto)
-    - [AddColumnContext](#bytebase-v1-AddColumnContext)
-    - [AddForeignKeyContext](#bytebase-v1-AddForeignKeyContext)
-    - [AlterColumnContext](#bytebase-v1-AlterColumnContext)
-    - [AlterTableContext](#bytebase-v1-AlterTableContext)
-    - [CreateSchemaContext](#bytebase-v1-CreateSchemaContext)
-    - [CreateTableContext](#bytebase-v1-CreateTableContext)
-    - [DatabaseEdit](#bytebase-v1-DatabaseEdit)
-    - [DropColumnContext](#bytebase-v1-DropColumnContext)
-    - [DropSchemaContext](#bytebase-v1-DropSchemaContext)
-    - [DropTableContext](#bytebase-v1-DropTableContext)
-    - [RenameSchemaContext](#bytebase-v1-RenameSchemaContext)
-    - [RenameTableContext](#bytebase-v1-RenameTableContext)
-  
 - [v1/vcs.proto](#v1_vcs-proto)
     - [Commit](#bytebase-v1-Commit)
     - [FileCommit](#bytebase-v1-FileCommit)
@@ -135,14 +112,23 @@
     - [BatchUpdateDatabasesRequest](#bytebase-v1-BatchUpdateDatabasesRequest)
     - [BatchUpdateDatabasesResponse](#bytebase-v1-BatchUpdateDatabasesResponse)
     - [ChangeHistory](#bytebase-v1-ChangeHistory)
+    - [ChangedResourceDatabase](#bytebase-v1-ChangedResourceDatabase)
+    - [ChangedResourceSchema](#bytebase-v1-ChangedResourceSchema)
+    - [ChangedResourceTable](#bytebase-v1-ChangedResourceTable)
+    - [ChangedResources](#bytebase-v1-ChangedResources)
+    - [ColumnConfig](#bytebase-v1-ColumnConfig)
+    - [ColumnConfig.LabelsEntry](#bytebase-v1-ColumnConfig-LabelsEntry)
     - [ColumnMetadata](#bytebase-v1-ColumnMetadata)
     - [CreateBackupRequest](#bytebase-v1-CreateBackupRequest)
     - [Database](#bytebase-v1-Database)
     - [Database.LabelsEntry](#bytebase-v1-Database-LabelsEntry)
+    - [DatabaseConfig](#bytebase-v1-DatabaseConfig)
     - [DatabaseMetadata](#bytebase-v1-DatabaseMetadata)
     - [DatabaseSchema](#bytebase-v1-DatabaseSchema)
     - [DeleteSecretRequest](#bytebase-v1-DeleteSecretRequest)
     - [DependentColumn](#bytebase-v1-DependentColumn)
+    - [DiffSchemaRequest](#bytebase-v1-DiffSchemaRequest)
+    - [DiffSchemaResponse](#bytebase-v1-DiffSchemaResponse)
     - [ExtensionMetadata](#bytebase-v1-ExtensionMetadata)
     - [ForeignKeyMetadata](#bytebase-v1-ForeignKeyMetadata)
     - [FunctionMetadata](#bytebase-v1-FunctionMetadata)
@@ -162,6 +148,7 @@
     - [ListSecretsResponse](#bytebase-v1-ListSecretsResponse)
     - [ListSlowQueriesRequest](#bytebase-v1-ListSlowQueriesRequest)
     - [ListSlowQueriesResponse](#bytebase-v1-ListSlowQueriesResponse)
+    - [SchemaConfig](#bytebase-v1-SchemaConfig)
     - [SchemaMetadata](#bytebase-v1-SchemaMetadata)
     - [SearchDatabasesRequest](#bytebase-v1-SearchDatabasesRequest)
     - [SearchDatabasesResponse](#bytebase-v1-SearchDatabasesResponse)
@@ -172,9 +159,12 @@
     - [StreamMetadata](#bytebase-v1-StreamMetadata)
     - [SyncDatabaseRequest](#bytebase-v1-SyncDatabaseRequest)
     - [SyncDatabaseResponse](#bytebase-v1-SyncDatabaseResponse)
+    - [TableConfig](#bytebase-v1-TableConfig)
     - [TableMetadata](#bytebase-v1-TableMetadata)
+    - [TablePartitionMetadata](#bytebase-v1-TablePartitionMetadata)
     - [TaskMetadata](#bytebase-v1-TaskMetadata)
     - [UpdateBackupSettingRequest](#bytebase-v1-UpdateBackupSettingRequest)
+    - [UpdateDatabaseMetadataRequest](#bytebase-v1-UpdateDatabaseMetadataRequest)
     - [UpdateDatabaseRequest](#bytebase-v1-UpdateDatabaseRequest)
     - [UpdateSecretRequest](#bytebase-v1-UpdateSecretRequest)
     - [ViewMetadata](#bytebase-v1-ViewMetadata)
@@ -185,11 +175,54 @@
     - [ChangeHistory.Status](#bytebase-v1-ChangeHistory-Status)
     - [ChangeHistory.Type](#bytebase-v1-ChangeHistory-Type)
     - [ChangeHistoryView](#bytebase-v1-ChangeHistoryView)
+    - [DatabaseMetadataView](#bytebase-v1-DatabaseMetadataView)
     - [StreamMetadata.Mode](#bytebase-v1-StreamMetadata-Mode)
     - [StreamMetadata.Type](#bytebase-v1-StreamMetadata-Type)
+    - [TablePartitionMetadata.Type](#bytebase-v1-TablePartitionMetadata-Type)
     - [TaskMetadata.State](#bytebase-v1-TaskMetadata-State)
   
     - [DatabaseService](#bytebase-v1-DatabaseService)
+  
+- [v1/branch_service.proto](#v1_branch_service-proto)
+    - [Branch](#bytebase-v1-Branch)
+    - [CreateBranchRequest](#bytebase-v1-CreateBranchRequest)
+    - [DeleteBranchRequest](#bytebase-v1-DeleteBranchRequest)
+    - [DiffDatabaseRequest](#bytebase-v1-DiffDatabaseRequest)
+    - [DiffDatabaseResponse](#bytebase-v1-DiffDatabaseResponse)
+    - [DiffMetadataRequest](#bytebase-v1-DiffMetadataRequest)
+    - [DiffMetadataResponse](#bytebase-v1-DiffMetadataResponse)
+    - [GetBranchRequest](#bytebase-v1-GetBranchRequest)
+    - [ListBranchesRequest](#bytebase-v1-ListBranchesRequest)
+    - [ListBranchesResponse](#bytebase-v1-ListBranchesResponse)
+    - [MergeBranchRequest](#bytebase-v1-MergeBranchRequest)
+    - [MergeBranchResponse](#bytebase-v1-MergeBranchResponse)
+    - [RebaseBranchRequest](#bytebase-v1-RebaseBranchRequest)
+    - [RebaseBranchResponse](#bytebase-v1-RebaseBranchResponse)
+    - [UpdateBranchRequest](#bytebase-v1-UpdateBranchRequest)
+  
+    - [BranchView](#bytebase-v1-BranchView)
+  
+    - [BranchService](#bytebase-v1-BranchService)
+  
+- [v1/cel_service.proto](#v1_cel_service-proto)
+    - [BatchDeparseRequest](#bytebase-v1-BatchDeparseRequest)
+    - [BatchDeparseResponse](#bytebase-v1-BatchDeparseResponse)
+    - [BatchParseRequest](#bytebase-v1-BatchParseRequest)
+    - [BatchParseResponse](#bytebase-v1-BatchParseResponse)
+  
+    - [CelService](#bytebase-v1-CelService)
+  
+- [v1/changelist_service.proto](#v1_changelist_service-proto)
+    - [Changelist](#bytebase-v1-Changelist)
+    - [Changelist.Change](#bytebase-v1-Changelist-Change)
+    - [CreateChangelistRequest](#bytebase-v1-CreateChangelistRequest)
+    - [DeleteChangelistRequest](#bytebase-v1-DeleteChangelistRequest)
+    - [GetChangelistRequest](#bytebase-v1-GetChangelistRequest)
+    - [ListChangelistsRequest](#bytebase-v1-ListChangelistsRequest)
+    - [ListChangelistsResponse](#bytebase-v1-ListChangelistsResponse)
+    - [UpdateChangelistRequest](#bytebase-v1-UpdateChangelistRequest)
+  
+    - [ChangelistService](#bytebase-v1-ChangelistService)
   
 - [v1/environment_service.proto](#v1_environment_service-proto)
     - [CreateEnvironmentRequest](#bytebase-v1-CreateEnvironmentRequest)
@@ -236,6 +269,7 @@
     - [GetIdentityProviderRequest](#bytebase-v1-GetIdentityProviderRequest)
     - [IdentityProvider](#bytebase-v1-IdentityProvider)
     - [IdentityProviderConfig](#bytebase-v1-IdentityProviderConfig)
+    - [LDAPIdentityProviderConfig](#bytebase-v1-LDAPIdentityProviderConfig)
     - [ListIdentityProvidersRequest](#bytebase-v1-ListIdentityProvidersRequest)
     - [ListIdentityProvidersResponse](#bytebase-v1-ListIdentityProvidersResponse)
     - [OAuth2IdentityProviderConfig](#bytebase-v1-OAuth2IdentityProviderConfig)
@@ -247,10 +281,13 @@
     - [UpdateIdentityProviderRequest](#bytebase-v1-UpdateIdentityProviderRequest)
   
     - [IdentityProviderType](#bytebase-v1-IdentityProviderType)
+    - [OAuth2AuthStyle](#bytebase-v1-OAuth2AuthStyle)
   
     - [IdentityProviderService](#bytebase-v1-IdentityProviderService)
   
 - [v1/logging_service.proto](#v1_logging_service-proto)
+    - [ExportLogsRequest](#bytebase-v1-ExportLogsRequest)
+    - [ExportLogsResponse](#bytebase-v1-ExportLogsResponse)
     - [GetLogRequest](#bytebase-v1-GetLogRequest)
     - [ListLogsRequest](#bytebase-v1-ListLogsRequest)
     - [ListLogsResponse](#bytebase-v1-ListLogsResponse)
@@ -287,6 +324,8 @@
   
 - [v1/instance_service.proto](#v1_instance_service-proto)
     - [AddDataSourceRequest](#bytebase-v1-AddDataSourceRequest)
+    - [BatchSyncInstanceRequest](#bytebase-v1-BatchSyncInstanceRequest)
+    - [BatchSyncInstanceResponse](#bytebase-v1-BatchSyncInstanceResponse)
     - [CreateInstanceRequest](#bytebase-v1-CreateInstanceRequest)
     - [DataSource](#bytebase-v1-DataSource)
     - [DeleteInstanceRequest](#bytebase-v1-DeleteInstanceRequest)
@@ -313,11 +352,12 @@
     - [ApprovalStep](#bytebase-v1-ApprovalStep)
     - [ApprovalTemplate](#bytebase-v1-ApprovalTemplate)
     - [ApproveIssueRequest](#bytebase-v1-ApproveIssueRequest)
-    - [BatchUpdateIssuesRequest](#bytebase-v1-BatchUpdateIssuesRequest)
-    - [BatchUpdateIssuesResponse](#bytebase-v1-BatchUpdateIssuesResponse)
+    - [BatchUpdateIssuesStatusRequest](#bytebase-v1-BatchUpdateIssuesStatusRequest)
+    - [BatchUpdateIssuesStatusResponse](#bytebase-v1-BatchUpdateIssuesStatusResponse)
     - [CreateIssueCommentRequest](#bytebase-v1-CreateIssueCommentRequest)
     - [CreateIssueRequest](#bytebase-v1-CreateIssueRequest)
     - [GetIssueRequest](#bytebase-v1-GetIssueRequest)
+    - [GrantRequest](#bytebase-v1-GrantRequest)
     - [Issue](#bytebase-v1-Issue)
     - [Issue.Approver](#bytebase-v1-Issue-Approver)
     - [IssueComment](#bytebase-v1-IssueComment)
@@ -357,6 +397,7 @@
     - [GetDeploymentConfigRequest](#bytebase-v1-GetDeploymentConfigRequest)
     - [GetIamPolicyRequest](#bytebase-v1-GetIamPolicyRequest)
     - [GetProjectGitOpsInfoRequest](#bytebase-v1-GetProjectGitOpsInfoRequest)
+    - [GetProjectProtectionRulesRequest](#bytebase-v1-GetProjectProtectionRulesRequest)
     - [GetProjectRequest](#bytebase-v1-GetProjectRequest)
     - [GetSchemaGroupRequest](#bytebase-v1-GetSchemaGroupRequest)
     - [LabelSelector](#bytebase-v1-LabelSelector)
@@ -368,13 +409,13 @@
     - [ListSchemaGroupsRequest](#bytebase-v1-ListSchemaGroupsRequest)
     - [ListSchemaGroupsResponse](#bytebase-v1-ListSchemaGroupsResponse)
     - [Project](#bytebase-v1-Project)
+    - [ProtectionRule](#bytebase-v1-ProtectionRule)
+    - [ProtectionRules](#bytebase-v1-ProtectionRules)
     - [RemoveWebhookRequest](#bytebase-v1-RemoveWebhookRequest)
     - [Schedule](#bytebase-v1-Schedule)
     - [ScheduleDeployment](#bytebase-v1-ScheduleDeployment)
     - [SchemaGroup](#bytebase-v1-SchemaGroup)
     - [SchemaGroup.Table](#bytebase-v1-SchemaGroup-Table)
-    - [SearchProjectsRequest](#bytebase-v1-SearchProjectsRequest)
-    - [SearchProjectsResponse](#bytebase-v1-SearchProjectsResponse)
     - [SetIamPolicyRequest](#bytebase-v1-SetIamPolicyRequest)
     - [SetupSQLReviewCIRequest](#bytebase-v1-SetupSQLReviewCIRequest)
     - [SetupSQLReviewCIResponse](#bytebase-v1-SetupSQLReviewCIResponse)
@@ -385,6 +426,7 @@
     - [UpdateDatabaseGroupRequest](#bytebase-v1-UpdateDatabaseGroupRequest)
     - [UpdateDeploymentConfigRequest](#bytebase-v1-UpdateDeploymentConfigRequest)
     - [UpdateProjectGitOpsInfoRequest](#bytebase-v1-UpdateProjectGitOpsInfoRequest)
+    - [UpdateProjectProtectionRulesRequest](#bytebase-v1-UpdateProjectProtectionRulesRequest)
     - [UpdateProjectRequest](#bytebase-v1-UpdateProjectRequest)
     - [UpdateSchemaGroupRequest](#bytebase-v1-UpdateSchemaGroupRequest)
     - [UpdateWebhookRequest](#bytebase-v1-UpdateWebhookRequest)
@@ -393,6 +435,7 @@
     - [Activity.Type](#bytebase-v1-Activity-Type)
     - [DatabaseGroupView](#bytebase-v1-DatabaseGroupView)
     - [OperatorType](#bytebase-v1-OperatorType)
+    - [ProtectionRule.Target](#bytebase-v1-ProtectionRule-Target)
     - [SchemaChange](#bytebase-v1-SchemaChange)
     - [SchemaGroupView](#bytebase-v1-SchemaGroupView)
     - [SchemaVersion](#bytebase-v1-SchemaVersion)
@@ -444,6 +487,7 @@
     - [ListTaskRunsResponse](#bytebase-v1-ListTaskRunsResponse)
     - [Plan](#bytebase-v1-Plan)
     - [Plan.ChangeDatabaseConfig](#bytebase-v1-Plan-ChangeDatabaseConfig)
+    - [Plan.ChangeDatabaseConfig.GhostFlagsEntry](#bytebase-v1-Plan-ChangeDatabaseConfig-GhostFlagsEntry)
     - [Plan.ChangeDatabaseConfig.RollbackDetail](#bytebase-v1-Plan-ChangeDatabaseConfig-RollbackDetail)
     - [Plan.CreateDatabaseConfig](#bytebase-v1-Plan-CreateDatabaseConfig)
     - [Plan.CreateDatabaseConfig.LabelsEntry](#bytebase-v1-Plan-CreateDatabaseConfig-LabelsEntry)
@@ -468,6 +512,8 @@
     - [Task.DatabaseSchemaBaseline](#bytebase-v1-Task-DatabaseSchemaBaseline)
     - [Task.DatabaseSchemaUpdate](#bytebase-v1-Task-DatabaseSchemaUpdate)
     - [TaskRun](#bytebase-v1-TaskRun)
+    - [TaskRun.ExecutionDetail](#bytebase-v1-TaskRun-ExecutionDetail)
+    - [TaskRun.ExecutionDetail.Position](#bytebase-v1-TaskRun-ExecutionDetail-Position)
     - [UpdatePlanRequest](#bytebase-v1-UpdatePlanRequest)
   
     - [Plan.ChangeDatabaseConfig.Type](#bytebase-v1-Plan-ChangeDatabaseConfig-Type)
@@ -477,22 +523,10 @@
     - [Task.DatabaseDataUpdate.RollbackSqlStatus](#bytebase-v1-Task-DatabaseDataUpdate-RollbackSqlStatus)
     - [Task.Status](#bytebase-v1-Task-Status)
     - [Task.Type](#bytebase-v1-Task-Type)
+    - [TaskRun.ExecutionStatus](#bytebase-v1-TaskRun-ExecutionStatus)
     - [TaskRun.Status](#bytebase-v1-TaskRun-Status)
   
     - [RolloutService](#bytebase-v1-RolloutService)
-  
-- [v1/schema_design_service.proto](#v1_schema_design_service-proto)
-    - [CreateSchemaDesignRequest](#bytebase-v1-CreateSchemaDesignRequest)
-    - [DeleteSchemaDesignRequest](#bytebase-v1-DeleteSchemaDesignRequest)
-    - [GetSchemaDesignRequest](#bytebase-v1-GetSchemaDesignRequest)
-    - [ListSchemaDesignsRequest](#bytebase-v1-ListSchemaDesignsRequest)
-    - [ListSchemaDesignsResponse](#bytebase-v1-ListSchemaDesignsResponse)
-    - [ParseSchemaStringRequest](#bytebase-v1-ParseSchemaStringRequest)
-    - [ParseSchemaStringResponse](#bytebase-v1-ParseSchemaStringResponse)
-    - [SchemaDesign](#bytebase-v1-SchemaDesign)
-    - [UpdateSchemaDesignRequest](#bytebase-v1-UpdateSchemaDesignRequest)
-  
-    - [SchemaDesignService](#bytebase-v1-SchemaDesignService)
   
 - [v1/subscription_service.proto](#v1_subscription_service-proto)
     - [Feature](#bytebase-v1-Feature)
@@ -502,8 +536,6 @@
     - [GetSubscriptionRequest](#bytebase-v1-GetSubscriptionRequest)
     - [PatchSubscription](#bytebase-v1-PatchSubscription)
     - [Subscription](#bytebase-v1-Subscription)
-    - [TrialSubscription](#bytebase-v1-TrialSubscription)
-    - [TrialSubscriptionRequest](#bytebase-v1-TrialSubscriptionRequest)
     - [UpdateSubscriptionRequest](#bytebase-v1-UpdateSubscriptionRequest)
   
     - [PlanType](#bytebase-v1-PlanType)
@@ -512,20 +544,33 @@
   
 - [v1/setting_service.proto](#v1_setting_service-proto)
     - [AgentPluginSetting](#bytebase-v1-AgentPluginSetting)
+    - [Announcement](#bytebase-v1-Announcement)
     - [AppIMSetting](#bytebase-v1-AppIMSetting)
     - [AppIMSetting.ExternalApproval](#bytebase-v1-AppIMSetting-ExternalApproval)
-    - [DataCategorySetting](#bytebase-v1-DataCategorySetting)
-    - [DataCategorySetting.DataCategoryConfig](#bytebase-v1-DataCategorySetting-DataCategoryConfig)
-    - [DataCategorySetting.DataCategoryConfig.CategoryLevelEntry](#bytebase-v1-DataCategorySetting-DataCategoryConfig-CategoryLevelEntry)
+    - [DataClassificationSetting](#bytebase-v1-DataClassificationSetting)
+    - [DataClassificationSetting.DataClassificationConfig](#bytebase-v1-DataClassificationSetting-DataClassificationConfig)
+    - [DataClassificationSetting.DataClassificationConfig.ClassificationEntry](#bytebase-v1-DataClassificationSetting-DataClassificationConfig-ClassificationEntry)
+    - [DataClassificationSetting.DataClassificationConfig.DataClassification](#bytebase-v1-DataClassificationSetting-DataClassificationConfig-DataClassification)
+    - [DataClassificationSetting.DataClassificationConfig.Level](#bytebase-v1-DataClassificationSetting-DataClassificationConfig-Level)
     - [ExternalApprovalSetting](#bytebase-v1-ExternalApprovalSetting)
     - [ExternalApprovalSetting.Node](#bytebase-v1-ExternalApprovalSetting-Node)
     - [GetSettingRequest](#bytebase-v1-GetSettingRequest)
     - [GetSettingResponse](#bytebase-v1-GetSettingResponse)
     - [ListSettingsRequest](#bytebase-v1-ListSettingsRequest)
     - [ListSettingsResponse](#bytebase-v1-ListSettingsResponse)
+    - [MaskingAlgorithmSetting](#bytebase-v1-MaskingAlgorithmSetting)
+    - [MaskingAlgorithmSetting.Algorithm](#bytebase-v1-MaskingAlgorithmSetting-Algorithm)
+    - [MaskingAlgorithmSetting.Algorithm.FullMask](#bytebase-v1-MaskingAlgorithmSetting-Algorithm-FullMask)
+    - [MaskingAlgorithmSetting.Algorithm.MD5Mask](#bytebase-v1-MaskingAlgorithmSetting-Algorithm-MD5Mask)
+    - [MaskingAlgorithmSetting.Algorithm.RangeMask](#bytebase-v1-MaskingAlgorithmSetting-Algorithm-RangeMask)
+    - [MaskingAlgorithmSetting.Algorithm.RangeMask.Slice](#bytebase-v1-MaskingAlgorithmSetting-Algorithm-RangeMask-Slice)
     - [SMTPMailDeliverySettingValue](#bytebase-v1-SMTPMailDeliverySettingValue)
     - [SchemaTemplateSetting](#bytebase-v1-SchemaTemplateSetting)
+    - [SchemaTemplateSetting.ColumnType](#bytebase-v1-SchemaTemplateSetting-ColumnType)
     - [SchemaTemplateSetting.FieldTemplate](#bytebase-v1-SchemaTemplateSetting-FieldTemplate)
+    - [SchemaTemplateSetting.TableTemplate](#bytebase-v1-SchemaTemplateSetting-TableTemplate)
+    - [SemanticTypeSetting](#bytebase-v1-SemanticTypeSetting)
+    - [SemanticTypeSetting.SemanticType](#bytebase-v1-SemanticTypeSetting-SemanticType)
     - [SetSettingRequest](#bytebase-v1-SetSettingRequest)
     - [Setting](#bytebase-v1-Setting)
     - [Value](#bytebase-v1-Value)
@@ -534,6 +579,7 @@
     - [WorkspaceProfileSetting](#bytebase-v1-WorkspaceProfileSetting)
     - [WorkspaceTrialSetting](#bytebase-v1-WorkspaceTrialSetting)
   
+    - [Announcement.AlertLevel](#bytebase-v1-Announcement-AlertLevel)
     - [AppIMSetting.IMType](#bytebase-v1-AppIMSetting-IMType)
     - [SMTPMailDeliverySettingValue.Authentication](#bytebase-v1-SMTPMailDeliverySettingValue-Authentication)
     - [SMTPMailDeliverySettingValue.Encryption](#bytebase-v1-SMTPMailDeliverySettingValue-Encryption)
@@ -548,13 +594,14 @@
     - [SearchSheetsResponse](#bytebase-v1-SearchSheetsResponse)
     - [Sheet](#bytebase-v1-Sheet)
     - [SheetOrganizer](#bytebase-v1-SheetOrganizer)
-    - [SyncSheetsRequest](#bytebase-v1-SyncSheetsRequest)
+    - [SheetPayload](#bytebase-v1-SheetPayload)
     - [UpdateSheetOrganizerRequest](#bytebase-v1-UpdateSheetOrganizerRequest)
     - [UpdateSheetRequest](#bytebase-v1-UpdateSheetRequest)
   
     - [Sheet.Source](#bytebase-v1-Sheet-Source)
     - [Sheet.Type](#bytebase-v1-Sheet-Type)
     - [Sheet.Visibility](#bytebase-v1-Sheet-Visibility)
+    - [SheetPayload.Type](#bytebase-v1-SheetPayload-Type)
   
     - [SheetService](#bytebase-v1-SheetService)
   
@@ -562,6 +609,10 @@
     - [AdminExecuteRequest](#bytebase-v1-AdminExecuteRequest)
     - [AdminExecuteResponse](#bytebase-v1-AdminExecuteResponse)
     - [Advice](#bytebase-v1-Advice)
+    - [CheckRequest](#bytebase-v1-CheckRequest)
+    - [CheckResponse](#bytebase-v1-CheckResponse)
+    - [DifferPreviewRequest](#bytebase-v1-DifferPreviewRequest)
+    - [DifferPreviewResponse](#bytebase-v1-DifferPreviewResponse)
     - [ExportRequest](#bytebase-v1-ExportRequest)
     - [ExportResponse](#bytebase-v1-ExportResponse)
     - [PrettyRequest](#bytebase-v1-PrettyRequest)
@@ -571,9 +622,10 @@
     - [QueryResult](#bytebase-v1-QueryResult)
     - [QueryRow](#bytebase-v1-QueryRow)
     - [RowValue](#bytebase-v1-RowValue)
+    - [StringifyMetadataRequest](#bytebase-v1-StringifyMetadataRequest)
+    - [StringifyMetadataResponse](#bytebase-v1-StringifyMetadataResponse)
   
     - [Advice.Status](#bytebase-v1-Advice-Status)
-    - [ExportRequest.Format](#bytebase-v1-ExportRequest-Format)
   
     - [SQLService](#bytebase-v1-SQLService)
   
@@ -612,6 +664,7 @@ Actuator concept is similar to the Spring Boot Actuator.
 | workspace_id | [string](#string) |  | workspace_id is the identifier for the workspace. |
 | gitops_webhook_url | [string](#string) |  | gitops_webhook_url is the webhook URL for GitOps. |
 | debug | [bool](#bool) |  | debug flag means if the debug mode is enabled. |
+| lsp | [bool](#bool) |  | lsp is the enablement of lsp in SQL Editor. |
 
 
 
@@ -760,6 +813,38 @@ When paginating, all other parameters provided to `ListDebugLog` must match the 
 | REDSHIFT | 12 |  |
 | MARIADB | 13 |  |
 | OCEANBASE | 14 |  |
+| DM | 15 |  |
+| RISINGWAVE | 16 |  |
+| OCEANBASE_ORACLE | 17 |  |
+
+
+
+<a name="bytebase-v1-ExportFormat"></a>
+
+### ExportFormat
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| FORMAT_UNSPECIFIED | 0 |  |
+| CSV | 1 |  |
+| JSON | 2 |  |
+| SQL | 3 |  |
+| XLSX | 4 |  |
+
+
+
+<a name="bytebase-v1-MaskingLevel"></a>
+
+### MaskingLevel
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| MASKING_LEVEL_UNSPECIFIED | 0 |  |
+| NONE | 1 |  |
+| PARTIAL | 2 |  |
+| FULL | 3 |  |
 
 
 
@@ -1019,6 +1104,108 @@ When paginating, all other parameters provided to `GetPolicies` must match the c
 
 
 
+<a name="bytebase-v1-MaskData"></a>
+
+### MaskData
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| schema | [string](#string) |  |  |
+| table | [string](#string) |  |  |
+| column | [string](#string) |  |  |
+| masking_level | [MaskingLevel](#bytebase-v1-MaskingLevel) |  |  |
+| full_masking_algorithm_id | [string](#string) |  |  |
+| partial_masking_algorithm_id | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-MaskingExceptionPolicy"></a>
+
+### MaskingExceptionPolicy
+MaskingExceptionPolicy is the allowlist of users who can access sensitive data.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| masking_exceptions | [MaskingExceptionPolicy.MaskingException](#bytebase-v1-MaskingExceptionPolicy-MaskingException) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-MaskingExceptionPolicy-MaskingException"></a>
+
+### MaskingExceptionPolicy.MaskingException
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| action | [MaskingExceptionPolicy.MaskingException.Action](#bytebase-v1-MaskingExceptionPolicy-MaskingException-Action) |  | action is the action that the user can access sensitive data. |
+| masking_level | [MaskingLevel](#bytebase-v1-MaskingLevel) |  | Level is the masking level that the user can access sensitive data. |
+| member | [string](#string) |  | Member is the principal who bind to this exception policy instance.
+
+* `user:{emailid}`: An email address that represents a specific Bytebase account. For example, `alice@example.com`. |
+| condition | [google.type.Expr](#google-type-Expr) |  | The condition that is associated with this exception policy instance. |
+
+
+
+
+
+
+<a name="bytebase-v1-MaskingPolicy"></a>
+
+### MaskingPolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| mask_data | [MaskData](#bytebase-v1-MaskData) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-MaskingRulePolicy"></a>
+
+### MaskingRulePolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| rules | [MaskingRulePolicy.MaskingRule](#bytebase-v1-MaskingRulePolicy-MaskingRule) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-MaskingRulePolicy-MaskingRule"></a>
+
+### MaskingRulePolicy.MaskingRule
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | A unique identifier for a node in UUID format. |
+| condition | [google.type.Expr](#google-type-Expr) |  |  |
+| masking_level | [MaskingLevel](#bytebase-v1-MaskingLevel) |  |  |
+
+
+
+
+
+
 <a name="bytebase-v1-Policy"></a>
 
 ### Policy
@@ -1033,14 +1220,51 @@ When paginating, all other parameters provided to `GetPolicies` must match the c
 | type | [PolicyType](#bytebase-v1-PolicyType) |  |  |
 | workspace_iam_policy | [IamPolicy](#bytebase-v1-IamPolicy) |  |  |
 | deployment_approval_policy | [DeploymentApprovalPolicy](#bytebase-v1-DeploymentApprovalPolicy) |  |  |
+| rollout_policy | [RolloutPolicy](#bytebase-v1-RolloutPolicy) |  |  |
 | backup_plan_policy | [BackupPlanPolicy](#bytebase-v1-BackupPlanPolicy) |  |  |
-| sensitive_data_policy | [SensitiveDataPolicy](#bytebase-v1-SensitiveDataPolicy) |  |  |
+| masking_policy | [MaskingPolicy](#bytebase-v1-MaskingPolicy) |  |  |
 | sql_review_policy | [SQLReviewPolicy](#bytebase-v1-SQLReviewPolicy) |  |  |
 | slow_query_policy | [SlowQueryPolicy](#bytebase-v1-SlowQueryPolicy) |  |  |
 | disable_copy_data_policy | [DisableCopyDataPolicy](#bytebase-v1-DisableCopyDataPolicy) |  |  |
+| masking_rule_policy | [MaskingRulePolicy](#bytebase-v1-MaskingRulePolicy) |  |  |
+| masking_exception_policy | [MaskingExceptionPolicy](#bytebase-v1-MaskingExceptionPolicy) |  |  |
+| restrict_issue_creation_for_sql_review_policy | [RestrictIssueCreationForSQLReviewPolicy](#bytebase-v1-RestrictIssueCreationForSQLReviewPolicy) |  |  |
 | enforce | [bool](#bool) |  |  |
 | resource_type | [PolicyResourceType](#bytebase-v1-PolicyResourceType) |  | The resource type for the policy. |
 | resource_uid | [string](#string) |  | The system-assigned, unique identifier for the resource. |
+
+
+
+
+
+
+<a name="bytebase-v1-RestrictIssueCreationForSQLReviewPolicy"></a>
+
+### RestrictIssueCreationForSQLReviewPolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| disallow | [bool](#bool) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-RolloutPolicy"></a>
+
+### RolloutPolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| automatic | [bool](#bool) |  |  |
+| workspace_roles | [string](#string) | repeated |  |
+| project_roles | [string](#string) | repeated |  |
+| issue_roles | [string](#string) | repeated | roles/LAST_APPROVER roles/CREATOR |
 
 
 
@@ -1076,39 +1300,6 @@ When paginating, all other parameters provided to `GetPolicies` must match the c
 | payload | [string](#string) |  |  |
 | engine | [Engine](#bytebase-v1-Engine) |  |  |
 | comment | [string](#string) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-SensitiveData"></a>
-
-### SensitiveData
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| schema | [string](#string) |  |  |
-| table | [string](#string) |  |  |
-| column | [string](#string) |  |  |
-| mask_type | [SensitiveDataMaskType](#bytebase-v1-SensitiveDataMaskType) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-SensitiveDataPolicy"></a>
-
-### SensitiveDataPolicy
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| sensitive_data | [SensitiveData](#bytebase-v1-SensitiveData) | repeated |  |
 
 
 
@@ -1191,6 +1382,19 @@ The policy&#39;s `name` field is used to identify the instance to update. Format
 
 
 
+<a name="bytebase-v1-MaskingExceptionPolicy-MaskingException-Action"></a>
+
+### MaskingExceptionPolicy.MaskingException.Action
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| ACTION_UNSPECIFIED | 0 |  |
+| QUERY | 1 |  |
+| EXPORT | 2 |  |
+
+
+
 <a name="bytebase-v1-PolicyResourceType"></a>
 
 ### PolicyResourceType
@@ -1217,11 +1421,15 @@ The policy&#39;s `name` field is used to identify the instance to update. Format
 | POLICY_TYPE_UNSPECIFIED | 0 |  |
 | WORKSPACE_IAM | 1 |  |
 | DEPLOYMENT_APPROVAL | 2 |  |
+| ROLLOUT_POLICY | 11 |  |
 | BACKUP_PLAN | 3 |  |
 | SQL_REVIEW | 4 |  |
-| SENSITIVE_DATA | 5 |  |
+| MASKING | 5 |  |
 | SLOW_QUERY | 7 |  |
 | DISABLE_COPY_DATA | 8 |  |
+| MASKING_RULE | 9 |  |
+| MASKING_EXCEPTION | 10 |  |
+| RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW | 12 |  |
 
 
 
@@ -1236,18 +1444,6 @@ The policy&#39;s `name` field is used to identify the instance to update. Format
 | ERROR | 1 |  |
 | WARNING | 2 |  |
 | DISABLED | 3 |  |
-
-
-
-<a name="bytebase-v1-SensitiveDataMaskType"></a>
-
-### SensitiveDataMaskType
-
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| MASK_TYPE_UNSPECIFIED | 0 |  |
-| DEFAULT | 1 |  |
 
 
  
@@ -1521,7 +1717,7 @@ DATABASE_BACKUP_POLICY_VIOLATION is the anomaly type for database backup policy 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the user to retrieve. Format: users/{user} |
+| name | [string](#string) |  | The name of the user to retrieve. Format: users/{user uid or user email} |
 
 
 
@@ -1768,443 +1964,6 @@ The user&#39;s `name` field is used to identify the user to update. Format: user
 
 
 
-<a name="v1_bookmark_service-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## v1/bookmark_service.proto
-
-
-
-<a name="bytebase-v1-Bookmark"></a>
-
-### Bookmark
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the bookmark. Format: bookmarks/{bookmark}, user and bookmark are server-generated unique IDs. |
-| title | [string](#string) |  | The title of the bookmark. |
-| link | [string](#string) |  | The resource link of the bookmark. Only support issue link for now. Format: Issue: /issue/slug(issue_name)-{issue_uid} Example: /issue/start-here-add-email-column-to-employee-table-101 |
-
-
-
-
-
-
-<a name="bytebase-v1-CreateBookmarkRequest"></a>
-
-### CreateBookmarkRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| bookmark | [Bookmark](#bytebase-v1-Bookmark) |  | The bookmark to create. |
-
-
-
-
-
-
-<a name="bytebase-v1-DeleteBookmarkRequest"></a>
-
-### DeleteBookmarkRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the bookmark to delete. Format: bookmarks/{bookmark} |
-
-
-
-
-
-
-<a name="bytebase-v1-ListBookmarksRequest"></a>
-
-### ListBookmarksRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| page_size | [int32](#int32) |  | Not used. The maximum number of bookmarks to return. The service may return fewer than this value. If unspecified, at most 50 bookmarks will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
-| page_token | [string](#string) |  | Not used. A page token, received from a previous `ListBookmarks` call. Provide this to retrieve the subsequent page.
-
-When paginating, all other parameters provided to `ListBookmarks` must match the call that provided the page token. |
-
-
-
-
-
-
-<a name="bytebase-v1-ListBookmarksResponse"></a>
-
-### ListBookmarksResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| bookmarks | [Bookmark](#bytebase-v1-Bookmark) | repeated | The list of bookmarks. |
-| next_page_token | [string](#string) |  | Not used. A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages. |
-
-
-
-
-
- 
-
- 
-
- 
-
-
-<a name="bytebase-v1-BookmarkService"></a>
-
-### BookmarkService
-
-
-| Method Name | Request Type | Response Type | Description |
-| ----------- | ------------ | ------------- | ------------|
-| CreateBookmark | [CreateBookmarkRequest](#bytebase-v1-CreateBookmarkRequest) | [Bookmark](#bytebase-v1-Bookmark) | CreateBookmark creates a new bookmark. |
-| DeleteBookmark | [DeleteBookmarkRequest](#bytebase-v1-DeleteBookmarkRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) | DeleteBookmark deletes a bookmark. |
-| ListBookmarks | [ListBookmarksRequest](#bytebase-v1-ListBookmarksRequest) | [ListBookmarksResponse](#bytebase-v1-ListBookmarksResponse) | ListBookmarks lists bookmarks. |
-
- 
-
-
-
-<a name="v1_cel_service-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## v1/cel_service.proto
-
-
-
-<a name="bytebase-v1-DeparseRequest"></a>
-
-### DeparseRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| expression | [google.api.expr.v1alpha1.ParsedExpr](#google-api-expr-v1alpha1-ParsedExpr) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-DeparseResponse"></a>
-
-### DeparseResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| expression | [string](#string) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-ParseRequest"></a>
-
-### ParseRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| expression | [string](#string) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-ParseResponse"></a>
-
-### ParseResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| expression | [google.api.expr.v1alpha1.ParsedExpr](#google-api-expr-v1alpha1-ParsedExpr) |  |  |
-
-
-
-
-
- 
-
- 
-
- 
-
-
-<a name="bytebase-v1-CelService"></a>
-
-### CelService
-
-
-| Method Name | Request Type | Response Type | Description |
-| ----------- | ------------ | ------------- | ------------|
-| Parse | [ParseRequest](#bytebase-v1-ParseRequest) | [ParseResponse](#bytebase-v1-ParseResponse) |  |
-| Deparse | [DeparseRequest](#bytebase-v1-DeparseRequest) | [DeparseResponse](#bytebase-v1-DeparseResponse) |  |
-
- 
-
-
-
-<a name="v1_database_edit-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## v1/database_edit.proto
-
-
-
-<a name="bytebase-v1-AddColumnContext"></a>
-
-### AddColumnContext
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the column to add. |
-| type | [string](#string) |  | The type of the column. |
-| character_set | [string](#string) |  | The character set of the column. |
-| collation | [string](#string) |  | The collation of the column. |
-| comment | [string](#string) |  | The comment of the column. |
-| nullable | [bool](#bool) |  | Whether the column is nullable. |
-| default_value | [string](#string) |  | The default value of the column. |
-| has_default_value | [bool](#bool) |  | Whether the column has a default value. |
-
-
-
-
-
-
-<a name="bytebase-v1-AddForeignKeyContext"></a>
-
-### AddForeignKeyContext
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| column | [string](#string) |  | The column of the foreign key. |
-| referenced_schema | [string](#string) |  | The referenced schema of the foreign key. |
-| referenced_table | [string](#string) |  | The referenced table of the foreign key. |
-| referenced_column | [string](#string) |  | The referenced column of the foreign key. |
-
-
-
-
-
-
-<a name="bytebase-v1-AlterColumnContext"></a>
-
-### AlterColumnContext
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| old_name | [string](#string) |  | The old name of the column. |
-| new_name | [string](#string) |  | The new name of the column. |
-| type | [string](#string) |  | The type of the column. |
-| character_set | [string](#string) |  | The character set of the column. |
-| collation | [string](#string) |  | The collation of the column. |
-| comment | [string](#string) |  | The comment of the column. |
-| nullable | [bool](#bool) |  | Whether the column is nullable. |
-| default_value | [string](#string) |  | The default value of the column. |
-| is_default_value_changed | [bool](#bool) |  | Whether the default value of the column has changed. |
-
-
-
-
-
-
-<a name="bytebase-v1-AlterTableContext"></a>
-
-### AlterTableContext
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the table to alter. |
-| schema | [string](#string) |  | The schema of the table. |
-| add_column_contexts | [AddColumnContext](#bytebase-v1-AddColumnContext) | repeated | List of column addition contexts. |
-| alter_column_contexts | [AlterColumnContext](#bytebase-v1-AlterColumnContext) | repeated | List of column alteration contexts. |
-| drop_column_contexts | [DropColumnContext](#bytebase-v1-DropColumnContext) | repeated | List of column dropping contexts. |
-| drop_primary_keys | [string](#string) | repeated | List of primary key columns to be dropped. |
-| primary_keys | [string](#string) | repeated | List of primary key columns. |
-| drop_foreign_keys | [string](#string) | repeated | List of foreign key columns to be dropped. |
-| add_foreign_key_contexts | [AddForeignKeyContext](#bytebase-v1-AddForeignKeyContext) | repeated | List of foreign key addition contexts. |
-
-
-
-
-
-
-<a name="bytebase-v1-CreateSchemaContext"></a>
-
-### CreateSchemaContext
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the schema to create. |
-
-
-
-
-
-
-<a name="bytebase-v1-CreateTableContext"></a>
-
-### CreateTableContext
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the table to create. |
-| schema | [string](#string) |  | The schema of the table. |
-| type | [string](#string) |  | The type of the table. |
-| engine | [string](#string) |  | The engine of the table. |
-| character_set | [string](#string) |  | The character set of the table. |
-| collation | [string](#string) |  | The collation of the table. |
-| comment | [string](#string) |  | The comment of the table. |
-| add_column_contexts | [AddColumnContext](#bytebase-v1-AddColumnContext) | repeated | List of column addition contexts. |
-| primary_keys | [string](#string) | repeated | List of primary key columns. |
-| add_foreign_key_contexts | [AddForeignKeyContext](#bytebase-v1-AddForeignKeyContext) | repeated | List of foreign key addition contexts. |
-
-
-
-
-
-
-<a name="bytebase-v1-DatabaseEdit"></a>
-
-### DatabaseEdit
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| create_schema_contexts | [CreateSchemaContext](#bytebase-v1-CreateSchemaContext) | repeated | List of schema creation contexts. |
-| rename_schema_contexts | [RenameSchemaContext](#bytebase-v1-RenameSchemaContext) | repeated | List of schema renaming contexts. |
-| drop_schema_contexts | [DropSchemaContext](#bytebase-v1-DropSchemaContext) | repeated | List of schema dropping contexts. |
-| create_table_contexts | [CreateTableContext](#bytebase-v1-CreateTableContext) | repeated | List of table creation contexts. |
-| alter_table_contexts | [AlterTableContext](#bytebase-v1-AlterTableContext) | repeated | List of table alteration contexts. |
-| rename_table_contexts | [RenameTableContext](#bytebase-v1-RenameTableContext) | repeated | List of table renaming contexts. |
-| drop_table_contexts | [DropTableContext](#bytebase-v1-DropTableContext) | repeated | List of table dropping contexts. |
-
-
-
-
-
-
-<a name="bytebase-v1-DropColumnContext"></a>
-
-### DropColumnContext
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the column to drop. |
-
-
-
-
-
-
-<a name="bytebase-v1-DropSchemaContext"></a>
-
-### DropSchemaContext
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the schema to drop. |
-
-
-
-
-
-
-<a name="bytebase-v1-DropTableContext"></a>
-
-### DropTableContext
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the table to drop. |
-| schema | [string](#string) |  | The schema of the table. |
-
-
-
-
-
-
-<a name="bytebase-v1-RenameSchemaContext"></a>
-
-### RenameSchemaContext
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| old_name | [string](#string) |  | The old name of the schema. |
-| new_name | [string](#string) |  | The new name of the schema. |
-
-
-
-
-
-
-<a name="bytebase-v1-RenameTableContext"></a>
-
-### RenameTableContext
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| schema | [string](#string) |  | The schema of the table. |
-| old_name | [string](#string) |  | The old name of the table. |
-| new_name | [string](#string) |  | The new name of the table. |
-
-
-
-
-
- 
-
- 
-
- 
-
- 
-
-
-
 <a name="v1_vcs-proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
@@ -2437,12 +2196,109 @@ Default (empty): Disable automatic backup. |
 | status | [ChangeHistory.Status](#bytebase-v1-ChangeHistory-Status) |  |  |
 | version | [string](#string) |  |  |
 | description | [string](#string) |  |  |
-| statement | [string](#string) |  |  |
+| statement | [string](#string) |  | The statement is used for preview purpose. |
+| statement_sheet | [string](#string) |  | The name of the sheet resource. Format: projects/{project}/sheets/{sheet} |
 | schema | [string](#string) |  |  |
 | prev_schema | [string](#string) |  |  |
 | execution_duration | [google.protobuf.Duration](#google-protobuf-Duration) |  |  |
 | issue | [string](#string) |  | Format: projects/{project}/issues/{issue} |
 | push_event | [PushEvent](#bytebase-v1-PushEvent) |  |  |
+| changed_resources | [ChangedResources](#bytebase-v1-ChangedResources) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-ChangedResourceDatabase"></a>
+
+### ChangedResourceDatabase
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  |  |
+| schemas | [ChangedResourceSchema](#bytebase-v1-ChangedResourceSchema) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-ChangedResourceSchema"></a>
+
+### ChangedResourceSchema
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  |  |
+| tables | [ChangedResourceTable](#bytebase-v1-ChangedResourceTable) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-ChangedResourceTable"></a>
+
+### ChangedResourceTable
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-ChangedResources"></a>
+
+### ChangedResources
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| databases | [ChangedResourceDatabase](#bytebase-v1-ChangedResourceDatabase) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-ColumnConfig"></a>
+
+### ColumnConfig
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name is the name of a column. |
+| semantic_type_id | [string](#string) |  |  |
+| labels | [ColumnConfig.LabelsEntry](#bytebase-v1-ColumnConfig-LabelsEntry) | repeated | The user labels for a column. |
+
+
+
+
+
+
+<a name="bytebase-v1-ColumnConfig-LabelsEntry"></a>
+
+### ColumnConfig.LabelsEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [string](#string) |  |  |
 
 
 
@@ -2459,12 +2315,18 @@ ColumnMetadata is the metadata for columns.
 | ----- | ---- | ----- | ----------- |
 | name | [string](#string) |  | The name is the name of a column. |
 | position | [int32](#int32) |  | The position is the position in columns. |
-| default | [google.protobuf.StringValue](#google-protobuf-StringValue) |  | The default is the default of a column. Use google.protobuf.StringValue to distinguish between an empty string default value or no default. |
+| has_default | [bool](#bool) |  |  |
+| default_null | [bool](#bool) |  |  |
+| default_string | [string](#string) |  |  |
+| default_expression | [string](#string) |  |  |
 | nullable | [bool](#bool) |  | The nullable is the nullable of a column. |
 | type | [string](#string) |  | The type is the type of a column. |
 | character_set | [string](#string) |  | The character_set is the character_set of a column. |
 | collation | [string](#string) |  | The collation is the collation of a column. |
-| comment | [string](#string) |  | The comment is the comment of a column. |
+| comment | [string](#string) |  | The comment is the comment of a column. classification and user_comment is parsed from the comment. |
+| classification | [string](#string) |  | The classification is the classification of a column parsed from the comment. |
+| user_comment | [string](#string) |  | The user_comment is the user comment of a column parsed from the comment. |
+| effective_masking_level | [MaskingLevel](#bytebase-v1-MaskingLevel) |  | The effective_masking_level is the effective masking level of the column, evaluate from the column masking data and global masking rules. |
 
 
 
@@ -2526,6 +2388,22 @@ CreateBackupRequest is the request message for CreateBackup.
 
 
 
+<a name="bytebase-v1-DatabaseConfig"></a>
+
+### DatabaseConfig
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  |  |
+| schema_configs | [SchemaConfig](#bytebase-v1-SchemaConfig) | repeated | The schema_configs is the list of configs for schemas in a database. |
+
+
+
+
+
+
 <a name="bytebase-v1-DatabaseMetadata"></a>
 
 ### DatabaseMetadata
@@ -2534,11 +2412,14 @@ DatabaseMetadata is the metadata for databases.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  |  |
+| name | [string](#string) |  | The database metadata name.
+
+Format: instances/{instance}/databases/{database}/metadata |
 | schemas | [SchemaMetadata](#bytebase-v1-SchemaMetadata) | repeated | The schemas is the list of schemas in a database. |
 | character_set | [string](#string) |  | The character_set is the character set of a database. |
 | collation | [string](#string) |  | The collation is the collation of a database. |
 | extensions | [ExtensionMetadata](#bytebase-v1-ExtensionMetadata) | repeated | The extensions is the list of extensions in a database. |
+| schema_configs | [SchemaConfig](#bytebase-v1-SchemaConfig) | repeated | The schema_configs is the list of configs for schemas in a database. |
 
 
 
@@ -2548,7 +2429,7 @@ DatabaseMetadata is the metadata for databases.
 <a name="bytebase-v1-DatabaseSchema"></a>
 
 ### DatabaseSchema
-DatabaseMetadata is the metadata for databases.
+DatabaseSchema is the metadata for databases.
 
 
 | Field | Type | Label | Description |
@@ -2586,6 +2467,39 @@ DependentColumn is the metadata for dependent columns.
 | schema | [string](#string) |  | The schema is the schema of a reference column. |
 | table | [string](#string) |  | The table is the table of a reference column. |
 | column | [string](#string) |  | The column is the name of a reference column. |
+
+
+
+
+
+
+<a name="bytebase-v1-DiffSchemaRequest"></a>
+
+### DiffSchemaRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the database or change history. Format: database: instances/{instance}/databases/{database} change history: instances/{instance}/databases/{database}/changeHistories/{changeHistory} |
+| schema | [string](#string) |  | The target schema. |
+| change_history | [string](#string) |  | The resource name of the change history Format: instances/{instance}/databases/{database}/changeHistories/{changeHistory} |
+| sdl_format | [bool](#bool) |  | Format the schema dump into SDL format. |
+
+
+
+
+
+
+<a name="bytebase-v1-DiffSchemaResponse"></a>
+
+### DiffSchemaResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| diff | [string](#string) |  |  |
 
 
 
@@ -2689,6 +2603,8 @@ FunctionMetadata is the metadata for functions.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | name | [string](#string) |  | The name of the database to retrieve metadata. Format: instances/{instance}/databases/{database}/metadata |
+| view | [DatabaseMetadataView](#bytebase-v1-DatabaseMetadataView) |  | The view to return. Defaults to DATABASE_METADATA_VIEW_BASIC. |
+| filter | [string](#string) |  | The filter used for a specific schema object such as &#34;schemas/schema-a/tables/table-a&#34;. The column masking level will only be returned when a table filter is used. |
 
 
 
@@ -2796,6 +2712,11 @@ When paginating, all other parameters provided to `ListBackup` must match the ca
 
 When paginating, all other parameters provided to `ListChangeHistories` must match the call that provided the page token. |
 | view | [ChangeHistoryView](#bytebase-v1-ChangeHistoryView) |  |  |
+| filter | [string](#string) |  | The filter of the change histories. Follow the CEL syntax. currently, we have one function for CEL: - tableExists(database, schema, table): return true if the table exists in changed resources.
+
+examples: Use tableExists(&#34;db&#34;, &#34;public&#34;, &#34;table1&#34;) to filter the change histories which have the table &#34;table1&#34; in the schema &#34;public&#34; of the database &#34;db&#34;. For MySQL, the schema is always &#34;&#34;, such as tableExists(&#34;db&#34;, &#34;&#34;, &#34;table1&#34;).
+
+Combine multiple functions with &#34;&amp;&amp;&#34; and &#34;||&#34;, we MUST use the Disjunctive Normal Form(DNF). In other words, the CEL expression consists of several parts connected by OR operators. For example, the following expression is valid: ( tableExists(&#34;db&#34;, &#34;public&#34;, &#34;table1&#34;) &amp;&amp; tableExists(&#34;db&#34;, &#34;public&#34;, &#34;table2&#34;) ) || ( tableExists(&#34;db&#34;, &#34;public&#34;, &#34;table3&#34;) ) |
 
 
 
@@ -2826,12 +2747,12 @@ When paginating, all other parameters provided to `ListChangeHistories` must mat
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| parent | [string](#string) |  | The parent, which owns this collection of databases. Format: instances/{instance} Use &#34;instances/-&#34; to list all databases. |
+| parent | [string](#string) |  | The parent, which owns this collection of databases. - instances/{instance}: list all databases for an instance. Use &#34;instances/-&#34; to list all databases. - projects/{project}: list all databases in a project. |
 | page_size | [int32](#int32) |  | The maximum number of databases to return. The service may return fewer than this value. If unspecified, at most 50 databases will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
 | page_token | [string](#string) |  | A page token, received from a previous `ListDatabases` call. Provide this to retrieve the subsequent page.
 
 When paginating, all other parameters provided to `ListDatabases` must match the call that provided the page token. |
-| filter | [string](#string) |  | Filter is used to filter databases returned in the list. For example, &#34;project = projects/{project}&#34; can be used to list databases in a project. |
+| filter | [string](#string) |  | Filter is used to filter databases returned in the list. For example, &#34;project = projects/{project}&#34; can be used to list databases in a project. Note: the project filter will be moved to parent. |
 
 
 
@@ -2915,6 +2836,22 @@ ListSlowQueriesResponse is the response of listing slow query.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | slow_query_logs | [SlowQueryLog](#bytebase-v1-SlowQueryLog) | repeated | The slow query logs. |
+
+
+
+
+
+
+<a name="bytebase-v1-SchemaConfig"></a>
+
+### SchemaConfig
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name is the schema name. It is an empty string for databases without such concept such as MySQL. |
+| table_configs | [TableConfig](#bytebase-v1-TableConfig) | repeated | The table_configs is the list of configs for tables in a schema. |
 
 
 
@@ -3008,8 +2945,8 @@ SlowQueryDetails is the details of the slow query log.
 | start_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  | The start time of the slow query log. |
 | query_time | [google.protobuf.Duration](#google-protobuf-Duration) |  | The query time of the slow query log. |
 | lock_time | [google.protobuf.Duration](#google-protobuf-Duration) |  | The lock time of the slow query log. |
-| rows_sent | [int64](#int64) |  | The rows sent of the slow query log. |
-| rows_examined | [int64](#int64) |  | The rows examined of the slow query log. |
+| rows_sent | [int32](#int32) |  | The rows sent of the slow query log. |
+| rows_examined | [int32](#int32) |  | The rows examined of the slow query log. |
 | sql_text | [string](#string) |  | The sql text of the slow query log. |
 
 
@@ -3043,14 +2980,14 @@ SlowQueryStatistics is the statistics of the slow query log.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | sql_fingerprint | [string](#string) |  | The fingerprint of the slow query log. |
-| count | [int64](#int64) |  | The count of the slow query log. |
+| count | [int32](#int32) |  | The count of the slow query log. |
 | latest_log_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  | The latest log time of the slow query log. |
 | average_query_time | [google.protobuf.Duration](#google-protobuf-Duration) |  | The average query time of the slow query log. |
 | maximum_query_time | [google.protobuf.Duration](#google-protobuf-Duration) |  | The maximum query time of the slow query log. |
-| average_rows_sent | [int64](#int64) |  | The average rows sent of the slow query log. |
-| maximum_rows_sent | [int64](#int64) |  | The maximum rows sent of the slow query log. |
-| average_rows_examined | [int64](#int64) |  | The average rows examined of the slow query log. |
-| maximum_rows_examined | [int64](#int64) |  | The maximum rows examined of the slow query log. |
+| average_rows_sent | [int32](#int32) |  | The average rows sent of the slow query log. |
+| maximum_rows_sent | [int32](#int32) |  | The maximum rows sent of the slow query log. |
+| average_rows_examined | [int32](#int32) |  | The average rows examined of the slow query log. |
+| maximum_rows_examined | [int32](#int32) |  | The maximum rows examined of the slow query log. |
 | query_time_percent | [double](#double) |  | The percentage of the query time. |
 | count_percent | [double](#double) |  | The percentage of the count. |
 | samples | [SlowQueryDetails](#bytebase-v1-SlowQueryDetails) | repeated | Samples are details of the sample slow query logs with the same fingerprint. |
@@ -3107,6 +3044,22 @@ SlowQueryStatistics is the statistics of the slow query log.
 
 
 
+<a name="bytebase-v1-TableConfig"></a>
+
+### TableConfig
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name is the name of a table. |
+| column_configs | [ColumnConfig](#bytebase-v1-ColumnConfig) | repeated | The column_configs is the ordered list of configs for columns in a table. |
+
+
+
+
+
+
 <a name="bytebase-v1-TableMetadata"></a>
 
 ### TableMetadata
@@ -3125,8 +3078,29 @@ TableMetadata is the metadata for tables.
 | index_size | [int64](#int64) |  | The index_size is the estimated index size of a table. |
 | data_free | [int64](#int64) |  | The data_free is the estimated free data size of a table. |
 | create_options | [string](#string) |  | The create_options is the create option of a table. |
-| comment | [string](#string) |  | The comment is the comment of a table. |
+| comment | [string](#string) |  | The comment is the comment of a table. classification and user_comment is parsed from the comment. |
+| classification | [string](#string) |  | The classification is the classification of a table parsed from the comment. |
+| user_comment | [string](#string) |  | The user_comment is the user comment of a table parsed from the comment. |
 | foreign_keys | [ForeignKeyMetadata](#bytebase-v1-ForeignKeyMetadata) | repeated | The foreign_keys is the list of foreign keys in a table. |
+| partitions | [TablePartitionMetadata](#bytebase-v1-TablePartitionMetadata) | repeated | The partitions is the list of partitions in a table. |
+
+
+
+
+
+
+<a name="bytebase-v1-TablePartitionMetadata"></a>
+
+### TablePartitionMetadata
+TablePartitionMetadata is the metadata for table partitions.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name is the name of a table partition. |
+| type | [TablePartitionMetadata.Type](#bytebase-v1-TablePartitionMetadata-Type) |  | The type of a table partition. |
+| expression | [string](#string) |  | The expression is the expression of a table partition. |
+| subpartitions | [TablePartitionMetadata](#bytebase-v1-TablePartitionMetadata) | repeated | The subpartitions is the list of subpartitions in a table partition. |
 
 
 
@@ -3166,6 +3140,24 @@ TableMetadata is the metadata for tables.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | setting | [BackupSetting](#bytebase-v1-BackupSetting) |  | The database backup setting to update. |
+
+
+
+
+
+
+<a name="bytebase-v1-UpdateDatabaseMetadataRequest"></a>
+
+### UpdateDatabaseMetadataRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| database_metadata | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  | The database metadata to update.
+
+The database_metadata&#39;s `name` field is used to identify the database metadata to update. Format: instances/{instance}/databases/{database}/metadata |
+| update_mask | [google.protobuf.FieldMask](#google-protobuf-FieldMask) |  | The list of fields to update. |
 
 
 
@@ -3313,6 +3305,19 @@ The type of the backup.
 
 
 
+<a name="bytebase-v1-DatabaseMetadataView"></a>
+
+### DatabaseMetadataView
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| DATABASE_METADATA_VIEW_UNSPECIFIED | 0 | The default and unset value. The API will default to the BASIC view. |
+| DATABASE_METADATA_VIEW_BASIC | 1 | Include basic information of schema object names such as schema, table, view, function names. |
+| DATABASE_METADATA_VIEW_FULL | 2 | Include everything such as columns and column masking level. |
+
+
+
 <a name="bytebase-v1-StreamMetadata-Mode"></a>
 
 ### StreamMetadata.Mode
@@ -3336,6 +3341,20 @@ The type of the backup.
 | ---- | ------ | ----------- |
 | TYPE_UNSPECIFIED | 0 |  |
 | TYPE_DELTA | 1 |  |
+
+
+
+<a name="bytebase-v1-TablePartitionMetadata-Type"></a>
+
+### TablePartitionMetadata.Type
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| TYPE_UNSPECIFIED | 0 |  |
+| RANGE | 1 |  |
+| LIST | 2 |  |
+| HASH | 3 |  |
 
 
 
@@ -3365,12 +3384,13 @@ The type of the backup.
 | ----------- | ------------ | ------------- | ------------|
 | GetDatabase | [GetDatabaseRequest](#bytebase-v1-GetDatabaseRequest) | [Database](#bytebase-v1-Database) |  |
 | ListDatabases | [ListDatabasesRequest](#bytebase-v1-ListDatabasesRequest) | [ListDatabasesResponse](#bytebase-v1-ListDatabasesResponse) |  |
-| SearchDatabases | [SearchDatabasesRequest](#bytebase-v1-SearchDatabasesRequest) | [SearchDatabasesResponse](#bytebase-v1-SearchDatabasesResponse) | Search for databases that the caller has both projects.get permission on, and also satisfy the specified query. |
 | UpdateDatabase | [UpdateDatabaseRequest](#bytebase-v1-UpdateDatabaseRequest) | [Database](#bytebase-v1-Database) |  |
 | BatchUpdateDatabases | [BatchUpdateDatabasesRequest](#bytebase-v1-BatchUpdateDatabasesRequest) | [BatchUpdateDatabasesResponse](#bytebase-v1-BatchUpdateDatabasesResponse) |  |
 | SyncDatabase | [SyncDatabaseRequest](#bytebase-v1-SyncDatabaseRequest) | [SyncDatabaseResponse](#bytebase-v1-SyncDatabaseResponse) |  |
 | GetDatabaseMetadata | [GetDatabaseMetadataRequest](#bytebase-v1-GetDatabaseMetadataRequest) | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  |
+| UpdateDatabaseMetadata | [UpdateDatabaseMetadataRequest](#bytebase-v1-UpdateDatabaseMetadataRequest) | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  |
 | GetDatabaseSchema | [GetDatabaseSchemaRequest](#bytebase-v1-GetDatabaseSchemaRequest) | [DatabaseSchema](#bytebase-v1-DatabaseSchema) |  |
+| DiffSchema | [DiffSchemaRequest](#bytebase-v1-DiffSchemaRequest) | [DiffSchemaResponse](#bytebase-v1-DiffSchemaResponse) |  |
 | GetBackupSetting | [GetBackupSettingRequest](#bytebase-v1-GetBackupSettingRequest) | [BackupSetting](#bytebase-v1-BackupSetting) |  |
 | UpdateBackupSetting | [UpdateBackupSettingRequest](#bytebase-v1-UpdateBackupSettingRequest) | [BackupSetting](#bytebase-v1-BackupSetting) |  |
 | CreateBackup | [CreateBackupRequest](#bytebase-v1-CreateBackupRequest) | [Backup](#bytebase-v1-Backup) |  |
@@ -3382,6 +3402,576 @@ The type of the backup.
 | AdviseIndex | [AdviseIndexRequest](#bytebase-v1-AdviseIndexRequest) | [AdviseIndexResponse](#bytebase-v1-AdviseIndexResponse) |  |
 | ListChangeHistories | [ListChangeHistoriesRequest](#bytebase-v1-ListChangeHistoriesRequest) | [ListChangeHistoriesResponse](#bytebase-v1-ListChangeHistoriesResponse) |  |
 | GetChangeHistory | [GetChangeHistoryRequest](#bytebase-v1-GetChangeHistoryRequest) | [ChangeHistory](#bytebase-v1-ChangeHistory) |  |
+
+ 
+
+
+
+<a name="v1_branch_service-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## v1/branch_service.proto
+
+
+
+<a name="bytebase-v1-Branch"></a>
+
+### Branch
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the branch. Format: projects/{project}/branches/{branch} {branch} should be the id of a sheet. |
+| branch_id | [string](#string) |  | The branch ID. |
+| schema | [string](#string) |  | The schema of branch. AKA sheet&#39;s statement. |
+| schema_metadata | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  | The metadata of the current editing schema. |
+| baseline_schema | [string](#string) |  | The baseline schema. |
+| baseline_schema_metadata | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  | The metadata of the baseline schema. |
+| engine | [Engine](#bytebase-v1-Engine) |  | The database engine of the branch. |
+| baseline_database | [string](#string) |  | The name of the baseline database. Format: instances/{instance}/databases/{database} |
+| parent_branch | [string](#string) |  | The name of the parent branch. For main branch, it&#39;s empty. For child branch, its format will be: projects/{project}/branches/{branch} |
+| etag | [string](#string) |  | The etag of the branch. |
+| creator | [string](#string) |  | The creator of the branch. Format: users/{email} |
+| updater | [string](#string) |  | The updater of the branch. Format: users/{email} |
+| create_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  | The timestamp when the branch was created. |
+| update_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  | The timestamp when the branch was last updated. |
+
+
+
+
+
+
+<a name="bytebase-v1-CreateBranchRequest"></a>
+
+### CreateBranchRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| parent | [string](#string) |  | The parent, which owns this collection of branches. Format: project/{project} |
+| branch | [Branch](#bytebase-v1-Branch) |  |  |
+| branch_id | [string](#string) |  | The ID to use for the branch, which will become the final component of the branch&#39;s resource name. Format: [a-zA-Z][a-zA-Z0-9-_/]&#43;. |
+
+
+
+
+
+
+<a name="bytebase-v1-DeleteBranchRequest"></a>
+
+### DeleteBranchRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the branch to delete. Format: projects/{project}/branches/{branch} |
+
+
+
+
+
+
+<a name="bytebase-v1-DiffDatabaseRequest"></a>
+
+### DiffDatabaseRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of branch. |
+| database | [string](#string) |  | The name of the databsae to merge the branch to. |
+
+
+
+
+
+
+<a name="bytebase-v1-DiffDatabaseResponse"></a>
+
+### DiffDatabaseResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| diff | [string](#string) |  | The schema diff when merge occurs seamlessly. |
+| schema | [string](#string) |  | The merged schema if there is no conflict. |
+| conflict_schema | [string](#string) |  | The conflict schema when rebase has conflicts. The conflict section is enclosed by the following. &lt;&lt;&lt;&lt;&lt; HEAD ==== &gt;&gt;&gt;&gt;&gt; main |
+
+
+
+
+
+
+<a name="bytebase-v1-DiffMetadataRequest"></a>
+
+### DiffMetadataRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| source_metadata | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  | The metadata of the source schema. |
+| target_metadata | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  | The metadata of the target schema. |
+| engine | [Engine](#bytebase-v1-Engine) |  | The database engine of the schema. |
+
+
+
+
+
+
+<a name="bytebase-v1-DiffMetadataResponse"></a>
+
+### DiffMetadataResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| diff | [string](#string) |  | The diff of the metadata. |
+
+
+
+
+
+
+<a name="bytebase-v1-GetBranchRequest"></a>
+
+### GetBranchRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the branch to retrieve. Format: projects/{project}/branches/{branch} |
+
+
+
+
+
+
+<a name="bytebase-v1-ListBranchesRequest"></a>
+
+### ListBranchesRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| parent | [string](#string) |  | The parent resource of the branch. Foramt: projects/{project} |
+| filter | [string](#string) |  | To filter the search result. |
+| page_size | [int32](#int32) |  | The maximum number of branches to return. The service may return fewer than this value. If unspecified, at most 50 branches will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
+| page_token | [string](#string) |  | A page token, received from a previous `ListBranches` call. Provide this to retrieve the subsequent page.
+
+When paginating, all other parameters provided to `ListBranches` must match the call that provided the page token. |
+| view | [BranchView](#bytebase-v1-BranchView) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-ListBranchesResponse"></a>
+
+### ListBranchesResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| branches | [Branch](#bytebase-v1-Branch) | repeated | The branches from the specified request. |
+| next_page_token | [string](#string) |  | A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages. |
+
+
+
+
+
+
+<a name="bytebase-v1-MergeBranchRequest"></a>
+
+### MergeBranchRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the base branch to merge to. Format: projects/{project}/branches/{branch} |
+| head_branch | [string](#string) |  | The head branch to merge from. Format: projects/{project}/branches/{branch} |
+| merged_schema | [string](#string) |  | For failed merge, we will pass in this addition merged schema and use it for head. |
+| etag | [string](#string) |  | The current etag of the branch. If an etag is provided and does not match the current etag of the branch, the call will be blocked and an ABORTED error will be returned. The etag should be specified for using merged_schema. The etag should be the etag from named branch. |
+| validate_only | [bool](#bool) |  | validate_only determines if the merge can occur seamlessly without any conflicts. |
+
+
+
+
+
+
+<a name="bytebase-v1-MergeBranchResponse"></a>
+
+### MergeBranchResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| branch | [Branch](#bytebase-v1-Branch) |  | The merged branch when merge occurs seamlessly. |
+| conflict_schema | [string](#string) |  | The conflict schema when merge has conflicts. The conflict section is enclosed by the following. &lt;&lt;&lt;&lt;&lt; HEAD ==== &gt;&gt;&gt;&gt;&gt; main |
+
+
+
+
+
+
+<a name="bytebase-v1-RebaseBranchRequest"></a>
+
+### RebaseBranchRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the base branch to merge to. Format: projects/{project}/branches/{branch} |
+| source_database | [string](#string) |  | The database (remote upstream) used to rebase. We use its schema as baseline and reapply the difference between base and head of the named branch. Format: instances/{instance}/databases/{database} |
+| source_branch | [string](#string) |  | The branch (remote upstream) used to rebase. We use its head as baseline. We use its head schema as baseline and reapply the difference between base and head of the named branch. Format: projects/{project}/branches/{branch} |
+| merged_schema | [string](#string) |  | For failed merge, we will pass in this addition merged schema and use it for head. This has to be set together with source_database or source_branch. |
+| etag | [string](#string) |  | The current etag of the branch. If an etag is provided and does not match the current etag of the branch, the call will be blocked and an ABORTED error will be returned. The etag should be specified for using merged_schema. The etag should be the etag from named branch. |
+| validate_only | [bool](#bool) |  | validate_only determines if the rebase can occur seamlessly without any conflicts. |
+
+
+
+
+
+
+<a name="bytebase-v1-RebaseBranchResponse"></a>
+
+### RebaseBranchResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| branch | [Branch](#bytebase-v1-Branch) |  | The rebased branch when rebase occurs seamlessly. |
+| conflict_schema | [string](#string) |  | The conflict schema when rebase has conflicts. The conflict section is enclosed by the following. &lt;&lt;&lt;&lt;&lt; HEAD ==== &gt;&gt;&gt;&gt;&gt; main |
+
+
+
+
+
+
+<a name="bytebase-v1-UpdateBranchRequest"></a>
+
+### UpdateBranchRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| branch | [Branch](#bytebase-v1-Branch) |  | The branch to update.
+
+The branch&#39;s `name` field is used to identify the branch to update. Format: projects/{project}/branches/{branch} |
+| update_mask | [google.protobuf.FieldMask](#google-protobuf-FieldMask) |  | The list of fields to update. |
+| etag | [string](#string) |  | The current etag of the branch. If an etag is provided and does not match the current etag of the branch, the call will be blocked and an ABORTED error will be returned. The etag should be specified for using merged_schema. The etag should be the etag from named branch. |
+
+
+
+
+
+ 
+
+
+<a name="bytebase-v1-BranchView"></a>
+
+### BranchView
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| BRANCH_VIEW_UNSPECIFIED | 0 | The default / unset value. The API will default to the BASIC view. |
+| BRANCH_VIEW_BASIC | 1 | Exclude schema, baseline_schema. |
+| BRANCH_VIEW_FULL | 2 | Include everything. |
+
+
+ 
+
+ 
+
+
+<a name="bytebase-v1-BranchService"></a>
+
+### BranchService
+
+
+| Method Name | Request Type | Response Type | Description |
+| ----------- | ------------ | ------------- | ------------|
+| GetBranch | [GetBranchRequest](#bytebase-v1-GetBranchRequest) | [Branch](#bytebase-v1-Branch) |  |
+| ListBranches | [ListBranchesRequest](#bytebase-v1-ListBranchesRequest) | [ListBranchesResponse](#bytebase-v1-ListBranchesResponse) |  |
+| CreateBranch | [CreateBranchRequest](#bytebase-v1-CreateBranchRequest) | [Branch](#bytebase-v1-Branch) |  |
+| UpdateBranch | [UpdateBranchRequest](#bytebase-v1-UpdateBranchRequest) | [Branch](#bytebase-v1-Branch) |  |
+| MergeBranch | [MergeBranchRequest](#bytebase-v1-MergeBranchRequest) | [MergeBranchResponse](#bytebase-v1-MergeBranchResponse) |  |
+| RebaseBranch | [RebaseBranchRequest](#bytebase-v1-RebaseBranchRequest) | [RebaseBranchResponse](#bytebase-v1-RebaseBranchResponse) |  |
+| DeleteBranch | [DeleteBranchRequest](#bytebase-v1-DeleteBranchRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
+| DiffDatabase | [DiffDatabaseRequest](#bytebase-v1-DiffDatabaseRequest) | [DiffDatabaseResponse](#bytebase-v1-DiffDatabaseResponse) | DiffDatabase works similar to branch rebase. 1) set the base as the schema of a database; 2) apply the changes between base and head of branch to the new base (schema of database); 3) return the diff DDLs similar to DiffSchema in database service. 4) return the conflict schema if conflict needs to be resolved by user. Once resolved, user will call DiffSchema() in database service to get diff DDLs. |
+| DiffMetadata | [DiffMetadataRequest](#bytebase-v1-DiffMetadataRequest) | [DiffMetadataResponse](#bytebase-v1-DiffMetadataResponse) |  |
+
+ 
+
+
+
+<a name="v1_cel_service-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## v1/cel_service.proto
+
+
+
+<a name="bytebase-v1-BatchDeparseRequest"></a>
+
+### BatchDeparseRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| expressions | [google.api.expr.v1alpha1.ParsedExpr](#google-api-expr-v1alpha1-ParsedExpr) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-BatchDeparseResponse"></a>
+
+### BatchDeparseResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| expressions | [string](#string) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-BatchParseRequest"></a>
+
+### BatchParseRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| expressions | [string](#string) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-BatchParseResponse"></a>
+
+### BatchParseResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| expressions | [google.api.expr.v1alpha1.ParsedExpr](#google-api-expr-v1alpha1-ParsedExpr) | repeated |  |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+
+<a name="bytebase-v1-CelService"></a>
+
+### CelService
+
+
+| Method Name | Request Type | Response Type | Description |
+| ----------- | ------------ | ------------- | ------------|
+| BatchParse | [BatchParseRequest](#bytebase-v1-BatchParseRequest) | [BatchParseResponse](#bytebase-v1-BatchParseResponse) |  |
+| BatchDeparse | [BatchDeparseRequest](#bytebase-v1-BatchDeparseRequest) | [BatchDeparseResponse](#bytebase-v1-BatchDeparseResponse) |  |
+
+ 
+
+
+
+<a name="v1_changelist_service-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## v1/changelist_service.proto
+
+
+
+<a name="bytebase-v1-Changelist"></a>
+
+### Changelist
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the changelist resource. Canonical parent is project. Format: projects/{project}/changelists/{changelist} |
+| description | [string](#string) |  |  |
+| creator | [string](#string) |  | The creator of the changelist. Format: users/{email} |
+| updater | [string](#string) |  | The updater of the changelist. Format: users/{email} |
+| create_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  | The create time of the changelist. |
+| update_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  | The last update time of the changelist. |
+| changes | [Changelist.Change](#bytebase-v1-Changelist-Change) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-Changelist-Change"></a>
+
+### Changelist.Change
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| sheet | [string](#string) |  | The name of a sheet. |
+| source | [string](#string) |  | The source of origin. 1) change history: instances/{instance}/databases/{database}/changeHistories/{changeHistory}. 2) branch: projects/{project}/branches/{branch}. 3) raw SQL if empty. |
+
+
+
+
+
+
+<a name="bytebase-v1-CreateChangelistRequest"></a>
+
+### CreateChangelistRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| parent | [string](#string) |  | The parent resource where this changelist will be created. Foramt: projects/{project} |
+| changelist | [Changelist](#bytebase-v1-Changelist) |  | The changelist to create. |
+| changelist_id | [string](#string) |  | The ID to use for the changelist, which will become the final component of the changelist&#39;s resource name.
+
+This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
+
+
+
+
+
+
+<a name="bytebase-v1-DeleteChangelistRequest"></a>
+
+### DeleteChangelistRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the changelist to delete. Format: projects/{project}/changelists/{changelist} |
+
+
+
+
+
+
+<a name="bytebase-v1-GetChangelistRequest"></a>
+
+### GetChangelistRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the changelist to retrieve. Format: projects/{project}/changelists/{changelist} |
+
+
+
+
+
+
+<a name="bytebase-v1-ListChangelistsRequest"></a>
+
+### ListChangelistsRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| parent | [string](#string) |  | The parent, which owns this collection of changelists. Format: projects/{project} Use &#34;projects/-&#34; to list all changelists. |
+| page_size | [int32](#int32) |  | The maximum number of databases to return. The service may return fewer than this value. If unspecified, at most 50 databases will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
+| page_token | [string](#string) |  | A page token, received from a previous `ListDatabases` call. Provide this to retrieve the subsequent page.
+
+When paginating, all other parameters provided to `ListDatabases` must match the call that provided the page token. |
+
+
+
+
+
+
+<a name="bytebase-v1-ListChangelistsResponse"></a>
+
+### ListChangelistsResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| changelists | [Changelist](#bytebase-v1-Changelist) | repeated | The changelists from the specified request. |
+| next_page_token | [string](#string) |  | A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages. |
+
+
+
+
+
+
+<a name="bytebase-v1-UpdateChangelistRequest"></a>
+
+### UpdateChangelistRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| changelist | [Changelist](#bytebase-v1-Changelist) |  | The changelist to update.
+
+The changelist&#39;s `name` field is used to identify the changelist to update. Format: projects/{project}/changelists/{changelist} |
+| update_mask | [google.protobuf.FieldMask](#google-protobuf-FieldMask) |  | The list of fields to be updated. |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+
+<a name="bytebase-v1-ChangelistService"></a>
+
+### ChangelistService
+
+
+| Method Name | Request Type | Response Type | Description |
+| ----------- | ------------ | ------------- | ------------|
+| CreateChangelist | [CreateChangelistRequest](#bytebase-v1-CreateChangelistRequest) | [Changelist](#bytebase-v1-Changelist) |  |
+| GetChangelist | [GetChangelistRequest](#bytebase-v1-GetChangelistRequest) | [Changelist](#bytebase-v1-Changelist) |  |
+| ListChangelists | [ListChangelistsRequest](#bytebase-v1-ListChangelistsRequest) | [ListChangelistsResponse](#bytebase-v1-ListChangelistsResponse) |  |
+| UpdateChangelist | [UpdateChangelistRequest](#bytebase-v1-UpdateChangelistRequest) | [Changelist](#bytebase-v1-Changelist) |  |
+| DeleteChangelist | [DeleteChangelistRequest](#bytebase-v1-DeleteChangelistRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
 
  
 
@@ -3981,6 +4571,7 @@ reference: https://docs.github.com/en/rest/users/users?apiVersion=2022-11-28#get
 | identifier | [string](#string) |  | Identifier is the field name of the unique identifier in 3rd-party idp user info. Required. |
 | display_name | [string](#string) |  | DisplayName is the field name of display name in 3rd-party idp user info. |
 | email | [string](#string) |  | Email is the field name of primary email in 3rd-party idp user info. |
+| phone | [string](#string) |  | Phone is the field name of primary phone in 3rd-party idp user info. |
 
 
 
@@ -4033,6 +4624,30 @@ reference: https://docs.github.com/en/rest/users/users?apiVersion=2022-11-28#get
 | ----- | ---- | ----- | ----------- |
 | oauth2_config | [OAuth2IdentityProviderConfig](#bytebase-v1-OAuth2IdentityProviderConfig) |  |  |
 | oidc_config | [OIDCIdentityProviderConfig](#bytebase-v1-OIDCIdentityProviderConfig) |  |  |
+| ldap_config | [LDAPIdentityProviderConfig](#bytebase-v1-LDAPIdentityProviderConfig) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-LDAPIdentityProviderConfig"></a>
+
+### LDAPIdentityProviderConfig
+LDAPIdentityProviderConfig is the structure for LDAP identity provider config.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| host | [string](#string) |  | Host is the hostname or IP address of the LDAP server, e.g. &#34;ldap.example.com&#34;. |
+| port | [int32](#int32) |  | Port is the port number of the LDAP server, e.g. 389. When not set, the default port of the corresponding security protocol will be used, i.e. 389 for StartTLS and 636 for LDAPS. |
+| skip_tls_verify | [bool](#bool) |  | SkipTLSVerify controls whether to skip TLS certificate verification. |
+| bind_dn | [string](#string) |  | BindDN is the DN of the user to bind as a service account to perform search requests. |
+| bind_password | [string](#string) |  | BindPassword is the password of the user to bind as a service account. |
+| base_dn | [string](#string) |  | BaseDN is the base DN to search for users, e.g. &#34;ou=users,dc=example,dc=com&#34;. |
+| user_filter | [string](#string) |  | UserFilter is the filter to search for users, e.g. &#34;(uid=%s)&#34;. |
+| security_protocol | [string](#string) |  | SecurityProtocol is the security protocol to be used for establishing connections with the LDAP server. It should be either StartTLS or LDAPS, and cannot be empty. |
+| field_mapping | [FieldMapping](#bytebase-v1-FieldMapping) |  | FieldMapping is the mapping of the user attributes returned by the LDAP server. |
 
 
 
@@ -4090,6 +4705,7 @@ OAuth2IdentityProviderConfig is the structure for OAuth2 identity provider confi
 | scopes | [string](#string) | repeated |  |
 | field_mapping | [FieldMapping](#bytebase-v1-FieldMapping) |  |  |
 | skip_tls_verify | [bool](#bool) |  |  |
+| auth_style | [OAuth2AuthStyle](#bytebase-v1-OAuth2AuthStyle) |  |  |
 
 
 
@@ -4125,6 +4741,7 @@ OIDCIdentityProviderConfig is the structure for OIDC identity provider config.
 | scopes | [string](#string) | repeated |  |
 | field_mapping | [FieldMapping](#bytebase-v1-FieldMapping) |  |  |
 | skip_tls_verify | [bool](#bool) |  |  |
+| auth_style | [OAuth2AuthStyle](#bytebase-v1-OAuth2AuthStyle) |  |  |
 
 
 
@@ -4202,6 +4819,20 @@ The identity provider&#39;s `name` field is used to identify the identity provid
 | IDENTITY_PROVIDER_TYPE_UNSPECIFIED | 0 |  |
 | OAUTH2 | 1 |  |
 | OIDC | 2 |  |
+| LDAP | 3 |  |
+
+
+
+<a name="bytebase-v1-OAuth2AuthStyle"></a>
+
+### OAuth2AuthStyle
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| OAUTH2_AUTH_STYLE_UNSPECIFIED | 0 |  |
+| IN_PARAMS | 1 | IN_PARAMS sends the &#34;client_id&#34; and &#34;client_secret&#34; in the POST body as application/x-www-form-urlencoded parameters. |
+| IN_HEADER | 2 | IN_HEADER sends the client_id and client_password using HTTP Basic Authorization. This is an optional style described in the OAuth2 RFC 6749 section 2.3.1. |
 
 
  
@@ -4232,6 +4863,38 @@ The identity provider&#39;s `name` field is used to identify the identity provid
 <p align="right"><a href="#top">Top</a></p>
 
 ## v1/logging_service.proto
+
+
+
+<a name="bytebase-v1-ExportLogsRequest"></a>
+
+### ExportLogsRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| filter | [string](#string) |  | Consistent with filter and order by in ListLogs. filter is the filter to apply on the list logs request, follow the [ebnf](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form) syntax. The field only support in filter: - creator, example: - creator = &#34;users/{email}&#34; - resource, example: - resource = &#34;projects/{project resource id}&#34; - level, example: - level = &#34;INFO&#34; - level = &#34;ERROR | WARN&#34; - action, example: - action = &#34;ACTION_MEMBER_CREATE&#34; | &#34;ACTION_ISSUE_CREATE&#34; - create_time, example: - create_time &lt;= &#34;2022-01-01T12:00:00.000Z&#34; - create_time &gt;= &#34;2022-01-01T12:00:00.000Z&#34; For example: List the logs of type &#39;ACTION_ISSUE_COMMENT_CREATE&#39; in issue/123: &#39;action=&#34;ACTION_ISSUE_COMMENT_CREATE&#34;, resource=&#34;issue/123&#34;&#39; |
+| order_by | [string](#string) |  | The order by of the log. Only support order by create_time. For example: - order_by = &#34;create_time asc&#34; - order_by = &#34;create_time desc&#34; |
+| format | [ExportFormat](#bytebase-v1-ExportFormat) |  | The export format. |
+
+
+
+
+
+
+<a name="bytebase-v1-ExportLogsResponse"></a>
+
+### ExportLogsResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| content | [bytes](#bytes) |  |  |
+
+
+
 
 
 
@@ -4335,14 +4998,14 @@ ACTION_ISSUE_CREATE is the type for creating a new issue. |
 | ACTION_PIPELINE_TASK_FILE_COMMIT | 33 | ACTION_PIPELINE_TASK_FILE_COMMIT represents the VCS trigger to commit a file to update the task statement. |
 | ACTION_PIPELINE_TASK_STATEMENT_UPDATE | 34 | ACTION_PIPELINE_TASK_STATEMENT_UPDATE represents the manual update of the task statement. |
 | ACTION_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE | 35 | ACTION_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE represents the manual update of the task earliest allowed time. |
+| ACTION_PIPELINE_TASK_RUN_STATUS_UPDATE | 36 | ACTION_PIPELINE_TASK_RUN_STATUS_UPDATE represents the pipeline task run status change, including PENDING, RUNNING, SUCCESS, FAILURE, CANCELED for now. |
 | ACTION_PROJECT_REPOSITORY_PUSH | 41 | Project related activity types. Enum value 41 - 60
 
 ACTION_PROJECT_REPOSITORY_PUSH represents Bytebase receiving a push event from the project repository. |
 | ACTION_PROJECT_MEMBER_CREATE | 42 | ACTION_PROJECT_MEMBER_CREATE represents adding a member to the project. |
 | ACTION_PROJECT_MEMBER_DELETE | 43 | ACTION_PROJECT_MEMBER_DELETE represents removing a member from the project. |
-| ACTION_PROJECT_MEMBER_ROLE_UPDATE | 44 | ACTION_PROJECT_MEMBER_ROLE_UPDATE represents updating the member role, for example, from ADMIN to MEMBER. |
-| ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE | 45 | ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE is the type for database PITR recovery done. |
-| ACTION_PROJECT_DATABASE_TRANSFER | 46 | ACTION_PROJECT_DATABASE_TRANSFER represents transfering the database from one project to another. |
+| ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE | 44 | ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE is the type for database PITR recovery done. |
+| ACTION_PROJECT_DATABASE_TRANSFER | 45 | ACTION_PROJECT_DATABASE_TRANSFER represents transfering the database from one project to another. |
 | ACTION_DATABASE_SQL_EDITOR_QUERY | 61 | Database related activity types. Enum value 61 - 80
 
 ACTION_DATABASE_SQL_EDITOR_QUERY is the type for SQL editor query. |
@@ -4377,6 +5040,7 @@ ACTION_DATABASE_SQL_EDITOR_QUERY is the type for SQL editor query. |
 | ----------- | ------------ | ------------- | ------------|
 | ListLogs | [ListLogsRequest](#bytebase-v1-ListLogsRequest) | [ListLogsResponse](#bytebase-v1-ListLogsResponse) |  |
 | GetLog | [GetLogRequest](#bytebase-v1-GetLogRequest) | [LogEntity](#bytebase-v1-LogEntity) |  |
+| ExportLogs | [ExportLogsRequest](#bytebase-v1-ExportLogsRequest) | [ExportLogsResponse](#bytebase-v1-ExportLogsResponse) |  |
 
  
 
@@ -4706,6 +5370,31 @@ The role&#39;s `name` and `instance` field is used to identify the role to updat
 
 
 
+<a name="bytebase-v1-BatchSyncInstanceRequest"></a>
+
+### BatchSyncInstanceRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| requests | [SyncInstanceRequest](#bytebase-v1-SyncInstanceRequest) | repeated | The request message specifying the instances to sync. A maximum of 1000 instances can be synced in a batch. |
+
+
+
+
+
+
+<a name="bytebase-v1-BatchSyncInstanceResponse"></a>
+
+### BatchSyncInstanceResponse
+
+
+
+
+
+
+
 <a name="bytebase-v1-CreateInstanceRequest"></a>
 
 ### CreateInstanceRequest
@@ -4733,7 +5422,7 @@ This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| title | [string](#string) |  |  |
+| id | [string](#string) |  |  |
 | type | [DataSourceType](#bytebase-v1-DataSourceType) |  |  |
 | username | [string](#string) |  |  |
 | password | [string](#string) |  |  |
@@ -4823,6 +5512,7 @@ InstanceOptions is the option for instances.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | schema_tenant_mode | [bool](#bool) |  | The schema tenant mode is used to determine whether the instance is in schema tenant mode. For Oracle schema tenant mode, the instance a Oracle database and the database is the Oracle schema. |
+| sync_interval | [google.protobuf.Duration](#google-protobuf-Duration) |  | How often the instance is synced. |
 
 
 
@@ -4837,6 +5527,7 @@ InstanceOptions is the option for instances.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
+| parent | [string](#string) |  | The parent parameter&#39;s value depends on the target resource for the request. - instances.list(): An empty string. This method doesn&#39;t require a resource; it simply returns all instances the user has access to. - projects.instances.list(): projects/{PROJECT_ID}. This method lists all instances that have databases in the project. |
 | page_size | [int32](#int32) |  | The maximum number of instances to return. The service may return fewer than this value. If unspecified, at most 50 instances will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
 | page_token | [string](#string) |  | A page token, received from a previous `ListInstances` call. Provide this to retrieve the subsequent page.
 
@@ -4913,7 +5604,7 @@ When paginating, all other parameters provided to `ListInstances` must match the
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| instance | [string](#string) |  | The name of the instance to sync slow queries. Format: instances/{instance} |
+| parent | [string](#string) |  | The name of the instance to sync slow queries. Format: instances/{instance} for one instance or projects/{project} for one project. |
 
 
 
@@ -5004,6 +5695,7 @@ The instance&#39;s `name` field is used to identify the instance to update. Form
 | DeleteInstance | [DeleteInstanceRequest](#bytebase-v1-DeleteInstanceRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
 | UndeleteInstance | [UndeleteInstanceRequest](#bytebase-v1-UndeleteInstanceRequest) | [Instance](#bytebase-v1-Instance) |  |
 | SyncInstance | [SyncInstanceRequest](#bytebase-v1-SyncInstanceRequest) | [SyncInstanceResponse](#bytebase-v1-SyncInstanceResponse) |  |
+| BatchSyncInstance | [BatchSyncInstanceRequest](#bytebase-v1-BatchSyncInstanceRequest) | [BatchSyncInstanceResponse](#bytebase-v1-BatchSyncInstanceResponse) |  |
 | AddDataSource | [AddDataSourceRequest](#bytebase-v1-AddDataSourceRequest) | [Instance](#bytebase-v1-Instance) |  |
 | RemoveDataSource | [RemoveDataSourceRequest](#bytebase-v1-RemoveDataSourceRequest) | [Instance](#bytebase-v1-Instance) |  |
 | UpdateDataSource | [UpdateDataSourceRequest](#bytebase-v1-UpdateDataSourceRequest) | [Instance](#bytebase-v1-Instance) |  |
@@ -5103,31 +5795,28 @@ The instance&#39;s `name` field is used to identify the instance to update. Form
 
 
 
-<a name="bytebase-v1-BatchUpdateIssuesRequest"></a>
+<a name="bytebase-v1-BatchUpdateIssuesStatusRequest"></a>
 
-### BatchUpdateIssuesRequest
+### BatchUpdateIssuesStatusRequest
 
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | parent | [string](#string) |  | The parent resource shared by all issues being updated. Format: projects/{project} If the operation spans parents, a dash (-) may be accepted as a wildcard. We only support updating the status of databases for now. |
-| requests | [UpdateIssueRequest](#bytebase-v1-UpdateIssueRequest) | repeated | The request message specifying the resources to update. A maximum of 1000 databases can be modified in a batch. |
+| issues | [string](#string) | repeated | The list of issues to update. Format: projects/{project}/issues/{issue} |
+| status | [IssueStatus](#bytebase-v1-IssueStatus) |  | The new status. |
+| reason | [string](#string) |  |  |
 
 
 
 
 
 
-<a name="bytebase-v1-BatchUpdateIssuesResponse"></a>
+<a name="bytebase-v1-BatchUpdateIssuesStatusResponse"></a>
 
-### BatchUpdateIssuesResponse
+### BatchUpdateIssuesStatusResponse
 
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| issues | [Issue](#bytebase-v1-Issue) | repeated | Issues updated. |
 
 
 
@@ -5182,6 +5871,24 @@ The instance&#39;s `name` field is used to identify the instance to update. Form
 
 
 
+<a name="bytebase-v1-GrantRequest"></a>
+
+### GrantRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| role | [string](#string) |  | The requested role. Format: roles/EXPORTER. |
+| user | [string](#string) |  | The user to be granted. Format: users/{email}. |
+| condition | [google.type.Expr](#google-type-Expr) |  |  |
+| expiration | [google.protobuf.Duration](#google-protobuf-Duration) |  |  |
+
+
+
+
+
+
 <a name="bytebase-v1-Issue"></a>
 
 ### Issue
@@ -5208,6 +5915,8 @@ The instance&#39;s `name` field is used to identify the instance to update. Form
 | update_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
 | plan | [string](#string) |  | The plan associated with the issue. Can be empty. Format: projects/{project}/plans/{plan} |
 | rollout | [string](#string) |  | The rollout associated with the issue. Can be empty. Format: projects/{project}/rollouts/{rollout} |
+| grant_request | [GrantRequest](#bytebase-v1-GrantRequest) |  | Used if the issue type is GRANT_REQUEST. |
+| releasers | [string](#string) | repeated | The releasers of the pending stage of the issue rollout, judging from the rollout policy. If the policy is auto rollout, the releasers are the project owners and the issue creator. Format: - roles/workspaceOwner - roles/workspaceDBA - roles/projectOwner - roles/projectReleaser - users/{email} |
 
 
 
@@ -5262,6 +5971,8 @@ The instance&#39;s `name` field is used to identify the instance to update. Form
 | page_token | [string](#string) |  | A page token, received from a previous `ListIssues` call. Provide this to retrieve the subsequent page.
 
 When paginating, all other parameters provided to `ListIssues` must match the call that provided the page token. |
+| filter | [string](#string) |  | Filter is used to filter issues returned in the list. |
+| query | [string](#string) |  | Query is the query statement. |
 
 
 
@@ -5460,7 +6171,7 @@ ANY means approving any node will proceed.
 | UpdateIssue | [UpdateIssueRequest](#bytebase-v1-UpdateIssueRequest) | [Issue](#bytebase-v1-Issue) |  |
 | CreateIssueComment | [CreateIssueCommentRequest](#bytebase-v1-CreateIssueCommentRequest) | [IssueComment](#bytebase-v1-IssueComment) |  |
 | UpdateIssueComment | [UpdateIssueCommentRequest](#bytebase-v1-UpdateIssueCommentRequest) | [IssueComment](#bytebase-v1-IssueComment) |  |
-| BatchUpdateIssues | [BatchUpdateIssuesRequest](#bytebase-v1-BatchUpdateIssuesRequest) | [BatchUpdateIssuesResponse](#bytebase-v1-BatchUpdateIssuesResponse) |  |
+| BatchUpdateIssuesStatus | [BatchUpdateIssuesStatusRequest](#bytebase-v1-BatchUpdateIssuesStatusRequest) | [BatchUpdateIssuesStatusResponse](#bytebase-v1-BatchUpdateIssuesStatusResponse) |  |
 | ApproveIssue | [ApproveIssueRequest](#bytebase-v1-ApproveIssueRequest) | [Issue](#bytebase-v1-Issue) |  |
 | RejectIssue | [RejectIssueRequest](#bytebase-v1-RejectIssueRequest) | [Issue](#bytebase-v1-Issue) |  |
 | RequestIssue | [RequestIssueRequest](#bytebase-v1-RequestIssueRequest) | [Issue](#bytebase-v1-Issue) |  |
@@ -5695,7 +6406,7 @@ This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the resource. Format: projects/{project}/deploymentConfig |
+| name | [string](#string) |  | The name of the resource. Format: projects/{project}/deploymentConfigs/default. |
 | title | [string](#string) |  | The title of the deployment config. |
 | schedule | [Schedule](#bytebase-v1-Schedule) |  |  |
 
@@ -5743,7 +6454,7 @@ This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the resource. Format: projects/{project}/deploymentConfig |
+| name | [string](#string) |  | The name of the resource. Format: projects/{project}/deploymentConfigs/default. |
 
 
 
@@ -5774,6 +6485,21 @@ This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | name | [string](#string) |  | The name of the GitOps info. Format: projects/{project}/gitOpsInfo |
+
+
+
+
+
+
+<a name="bytebase-v1-GetProjectProtectionRulesRequest"></a>
+
+### GetProjectProtectionRulesRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the protection rules. Format: projects/{project}/protectionRules |
 
 
 
@@ -5964,10 +6690,43 @@ When paginating, all other parameters provided to `ListSchemaGroups` must match 
 | workflow | [Workflow](#bytebase-v1-Workflow) |  |  |
 | visibility | [Visibility](#bytebase-v1-Visibility) |  |  |
 | tenant_mode | [TenantMode](#bytebase-v1-TenantMode) |  |  |
-| db_name_template | [string](#string) |  |  |
 | schema_change | [SchemaChange](#bytebase-v1-SchemaChange) |  |  |
 | webhooks | [Webhook](#bytebase-v1-Webhook) | repeated |  |
-| data_category_config_id | [string](#string) |  |  |
+| data_classification_config_id | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-ProtectionRule"></a>
+
+### ProtectionRule
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | A unique identifier for a node in UUID format. |
+| target | [ProtectionRule.Target](#bytebase-v1-ProtectionRule-Target) |  |  |
+| name_filter | [string](#string) |  | The name of the branch/changelist or wildcard. |
+| create_allowed_roles | [string](#string) | repeated | The roles allowed to create branches or changelists. Format: roles/OWNER. |
+
+
+
+
+
+
+<a name="bytebase-v1-ProtectionRules"></a>
+
+### ProtectionRules
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the protection rules. Format: projects/{project}/protectionRules |
+| rules | [ProtectionRule](#bytebase-v1-ProtectionRule) | repeated |  |
 
 
 
@@ -6052,41 +6811,6 @@ All the expressions will be used to filter the schema objects in DatabaseSchema.
 | database | [string](#string) |  | The resource name of the database. Format: instances/{instance}/databases/{database} |
 | schema | [string](#string) |  |  |
 | table | [string](#string) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-SearchProjectsRequest"></a>
-
-### SearchProjectsRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| page_size | [int32](#int32) |  | The maximum number of projects to return. The service may return fewer than this value. If unspecified, at most 50 projects will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
-| page_token | [string](#string) |  | A page token, received from a previous `ListProjects` call. Provide this to retrieve the subsequent page.
-
-When paginating, all other parameters provided to `ListProjects` must match the call that provided the page token. |
-| filter | [string](#string) |  | Filter is used to filter projects returned in the list. |
-
-
-
-
-
-
-<a name="bytebase-v1-SearchProjectsResponse"></a>
-
-### SearchProjectsResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| projects | [Project](#bytebase-v1-Project) | repeated | The projects from the specified request. |
-| next_page_token | [string](#string) |  | A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages. |
 
 
 
@@ -6250,6 +6974,21 @@ The database group&#39;s `name` field is used to identify the database group to 
 
 
 
+<a name="bytebase-v1-UpdateProjectProtectionRulesRequest"></a>
+
+### UpdateProjectProtectionRulesRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| protection_rules | [ProtectionRules](#bytebase-v1-ProtectionRules) |  |  |
+
+
+
+
+
+
 <a name="bytebase-v1-UpdateProjectRequest"></a>
 
 ### UpdateProjectRequest
@@ -6331,6 +7070,10 @@ The schema group&#39;s `name` field is used to identify the schema group to upda
 | Name | Number | Description |
 | ---- | ------ | ----------- |
 | TYPE_UNSPECIFIED | 0 |  |
+| TYPE_NOTIFY_ISSUE_APPROVED | 23 | Notifications via webhooks.
+
+TYPE_NOTIFY_ISSUE_APPROVED represents the issue approved notification. |
+| TYPE_NOTIFY_PIPELINE_ROLLOUT | 24 | TYPE_NOTIFY_PIPELINE_ROLLOUT represents the pipeline rollout notification. |
 | TYPE_ISSUE_CREATE | 1 | Issue related activity types.
 
 TYPE_ISSUE_CREATE represents creating an issue. |
@@ -6340,6 +7083,7 @@ TYPE_ISSUE_CREATE represents creating an issue. |
 | TYPE_ISSUE_APPROVAL_NOTIFY | 21 | TYPE_ISSUE_APPROVAL_NOTIFY is the type for notifying issue approval. |
 | TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE | 5 | TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE represents the pipeline stage status change, including BEGIN, END for now. |
 | TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE | 6 | TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE represents the pipeline task status change, including PENDING, PENDING_APPROVAL, RUNNING, SUCCESS, FAILURE, CANCELED for now. |
+| TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE | 22 | TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE represents the pipeline task run status change, including PENDING, RUNNING, DONE, FAILED, CANCELED. |
 | TYPE_ISSUE_PIPELINE_TASK_FILE_COMMIT | 7 | TYPE_ISSUE_PIPELINE_TASK_FILE_COMMIT represents the VCS trigger to commit a file to update the task statement. |
 | TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE | 8 | TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE represents the manual update of the task statement. |
 | TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE | 9 | TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE represents the manual update of the task earliest allowed time. |
@@ -6355,7 +7099,6 @@ TYPE_PROJECT_REPOSITORY_PUSH represents Bytebase receiving a push event from the
 | TYPE_PROJECT_DATABASE_TRANSFER | 15 | TYPE_PROJECT_DATABASE_TRANFER represents transfering the database from one project to another. |
 | TYPE_PROJECT_MEMBER_CREATE | 16 | TYPE_PROJECT_MEMBER_CREATE represents adding a member to the project. |
 | TYPE_PROJECT_MEMBER_DELETE | 17 | TYPE_PROJECT_MEMBER_DELETE represents removing a member from the project. |
-| TYPE_PROJECT_MEMBER_ROLE_UPDATE | 18 | TYPE_PROJECT_MEMBER_ROLE_UPDATE represents updating the member role, for example, from ADMIN to MEMBER. |
 | TYPE_SQL_EDITOR_QUERY | 19 | SQL Editor related activity types. TYPE_SQL_EDITOR_QUERY represents executing query in SQL Editor. |
 | TYPE_DATABASE_RECOVERY_PITR_DONE | 20 | Database related activity types. TYPE_DATABASE_RECOVERY_PITR_DONE represents the database recovery to a point in time is done. |
 
@@ -6384,6 +7127,19 @@ TYPE_PROJECT_REPOSITORY_PUSH represents Bytebase receiving a push event from the
 | OPERATOR_TYPE_UNSPECIFIED | 0 | The operator is not specified. |
 | OPERATOR_TYPE_IN | 1 | The operator is &#34;In&#34;. |
 | OPERATOR_TYPE_EXISTS | 2 | The operator is &#34;Exists&#34;. |
+
+
+
+<a name="bytebase-v1-ProtectionRule-Target"></a>
+
+### ProtectionRule.Target
+The type of target.
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| PROTECTION_TARGET_UNSPECIFIED | 0 |  |
+| BRANCH | 1 |  |
+| CHANGELIST | 2 |  |
 
 
 
@@ -6496,7 +7252,6 @@ TYPE_PROJECT_REPOSITORY_PUSH represents Bytebase receiving a push event from the
 | ----------- | ------------ | ------------- | ------------|
 | GetProject | [GetProjectRequest](#bytebase-v1-GetProjectRequest) | [Project](#bytebase-v1-Project) |  |
 | ListProjects | [ListProjectsRequest](#bytebase-v1-ListProjectsRequest) | [ListProjectsResponse](#bytebase-v1-ListProjectsResponse) |  |
-| SearchProjects | [SearchProjectsRequest](#bytebase-v1-SearchProjectsRequest) | [SearchProjectsResponse](#bytebase-v1-SearchProjectsResponse) | Search for projects that the caller has both projects.get permission on, and also satisfy the specified query. |
 | CreateProject | [CreateProjectRequest](#bytebase-v1-CreateProjectRequest) | [Project](#bytebase-v1-Project) |  |
 | UpdateProject | [UpdateProjectRequest](#bytebase-v1-UpdateProjectRequest) | [Project](#bytebase-v1-Project) |  |
 | DeleteProject | [DeleteProjectRequest](#bytebase-v1-DeleteProjectRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
@@ -6524,6 +7279,8 @@ TYPE_PROJECT_REPOSITORY_PUSH represents Bytebase receiving a push event from the
 | CreateSchemaGroup | [CreateSchemaGroupRequest](#bytebase-v1-CreateSchemaGroupRequest) | [SchemaGroup](#bytebase-v1-SchemaGroup) |  |
 | UpdateSchemaGroup | [UpdateSchemaGroupRequest](#bytebase-v1-UpdateSchemaGroupRequest) | [SchemaGroup](#bytebase-v1-SchemaGroup) |  |
 | DeleteSchemaGroup | [DeleteSchemaGroupRequest](#bytebase-v1-DeleteSchemaGroupRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
+| GetProjectProtectionRules | [GetProjectProtectionRulesRequest](#bytebase-v1-GetProjectProtectionRulesRequest) | [ProtectionRules](#bytebase-v1-ProtectionRules) |  |
+| UpdateProjectProtectionRules | [UpdateProjectProtectionRulesRequest](#bytebase-v1-UpdateProjectProtectionRulesRequest) | [ProtectionRules](#bytebase-v1-ProtectionRules) |  |
 
  
 
@@ -6612,7 +7369,7 @@ When paginating, all other parameters provided to `LiskRisks` must match the cal
 | uid | [string](#string) |  | system-generated unique identifier. |
 | source | [Risk.Source](#bytebase-v1-Risk-Source) |  |  |
 | title | [string](#string) |  |  |
-| level | [int64](#int64) |  |  |
+| level | [int32](#int32) |  |  |
 | active | [bool](#bool) |  |  |
 | condition | [google.type.Expr](#google-type-Expr) |  |  |
 
@@ -6821,8 +7578,9 @@ When paginating, all other parameters provided to `ListRoles` must match the cal
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| parent | [string](#string) |  | The name of the parent of the taskRuns. Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task} |
+| parent | [string](#string) |  | The name of the parent of the taskRuns. Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task} Use `projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/-` to cancel task runs under the same stage. |
 | task_runs | [string](#string) | repeated | The taskRuns to cancel. Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}/taskRuns/{taskRun} |
+| reason | [string](#string) |  |  |
 
 
 
@@ -6849,6 +7607,7 @@ When paginating, all other parameters provided to `ListRoles` must match the cal
 | ----- | ---- | ----- | ----------- |
 | parent | [string](#string) |  | The name of the parent of the tasks. Format: projects/{project}/rollouts/{rollout}/stages/{stage} |
 | tasks | [string](#string) | repeated | The tasks to run. Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task} |
+| reason | [string](#string) |  |  |
 
 
 
@@ -6875,6 +7634,7 @@ When paginating, all other parameters provided to `ListRoles` must match the cal
 | ----- | ---- | ----- | ----------- |
 | parent | [string](#string) |  | The name of the parent of the tasks. Format: projects/{project}/rollouts/{rollout}/stages/{stage} |
 | tasks | [string](#string) | repeated | The tasks to skip. Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task} |
+| reason | [string](#string) |  |  |
 
 
 
@@ -7086,12 +7846,29 @@ When paginating, all other parameters provided to `ListRolloutTaskRuns` must mat
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| target | [string](#string) |  | The resource name of the target. Format: instances/{instance-id}/databases/{database-name}. |
+| target | [string](#string) |  | The resource name of the target. Format: instances/{instance-id}/databases/{database-name}. Format: projects/{project}/databaseGroups/{databaseGroup}. Format: projects/{project}/deploymentConfigs/default. The plan should have a single step and single spec for the deployment configuration type. |
 | sheet | [string](#string) |  | The resource name of the sheet. Format: projects/{project}/sheets/{sheet} |
 | type | [Plan.ChangeDatabaseConfig.Type](#bytebase-v1-Plan-ChangeDatabaseConfig-Type) |  |  |
 | schema_version | [string](#string) |  | schema_version is parsed from VCS file name. It is automatically generated in the UI workflow. |
 | rollback_enabled | [bool](#bool) |  | If RollbackEnabled, build the RollbackSheetID of the task. |
 | rollback_detail | [Plan.ChangeDatabaseConfig.RollbackDetail](#bytebase-v1-Plan-ChangeDatabaseConfig-RollbackDetail) | optional |  |
+| ghost_flags | [Plan.ChangeDatabaseConfig.GhostFlagsEntry](#bytebase-v1-Plan-ChangeDatabaseConfig-GhostFlagsEntry) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-Plan-ChangeDatabaseConfig-GhostFlagsEntry"></a>
+
+### Plan.ChangeDatabaseConfig.GhostFlagsEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [string](#string) |  |  |
 
 
 
@@ -7130,6 +7907,7 @@ When paginating, all other parameters provided to `ListRolloutTaskRuns` must mat
 | cluster | [string](#string) |  | cluster is the cluster of the database. This is only applicable to ClickHouse for &#34;ON CLUSTER &lt;&lt;cluster&gt;&gt;&#34;. |
 | owner | [string](#string) |  | owner is the owner of the database. This is only applicable to Postgres for &#34;WITH OWNER &lt;&lt;owner&gt;&gt;&#34;. |
 | backup | [string](#string) |  | backup is the resource name of the backup. Format: instances/{instance}/databases/{database}/backups/{backup-name} |
+| environment | [string](#string) |  | The environment resource. Format: environments/prod where prod is the environment resource ID. |
 | labels | [Plan.CreateDatabaseConfig.LabelsEntry](#bytebase-v1-Plan-CreateDatabaseConfig-LabelsEntry) | repeated | labels of the database. |
 
 
@@ -7218,9 +7996,10 @@ When paginating, all other parameters provided to `ListRolloutTaskRuns` must mat
 | type | [PlanCheckRun.Type](#bytebase-v1-PlanCheckRun-Type) |  |  |
 | status | [PlanCheckRun.Status](#bytebase-v1-PlanCheckRun-Status) |  |  |
 | target | [string](#string) |  | Format: instances/{instance}/databases/{database} |
-| sheet | [string](#string) |  | Format: projects/{project}/sheets/{sheet} |
+| sheet | [string](#string) |  | Format: project/{project}/sheets/{sheet} |
 | results | [PlanCheckRun.Result](#bytebase-v1-PlanCheckRun-Result) | repeated |  |
 | error | [string](#string) |  | error is set if the Status is FAILED. |
+| create_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
 
 
 
@@ -7238,7 +8017,7 @@ When paginating, all other parameters provided to `ListRolloutTaskRuns` must mat
 | status | [PlanCheckRun.Result.Status](#bytebase-v1-PlanCheckRun-Result-Status) |  |  |
 | title | [string](#string) |  |  |
 | content | [string](#string) |  |  |
-| code | [int64](#int64) |  |  |
+| code | [int32](#int32) |  |  |
 | sql_summary_report | [PlanCheckRun.Result.SqlSummaryReport](#bytebase-v1-PlanCheckRun-Result-SqlSummaryReport) |  |  |
 | sql_review_report | [PlanCheckRun.Result.SqlReviewReport](#bytebase-v1-PlanCheckRun-Result-SqlReviewReport) |  |  |
 
@@ -7255,9 +8034,10 @@ When paginating, all other parameters provided to `ListRolloutTaskRuns` must mat
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| line | [int64](#int64) |  |  |
+| line | [int32](#int32) |  |  |
+| column | [int32](#int32) |  |  |
 | detail | [string](#string) |  |  |
-| code | [int64](#int64) |  | Code from sql review. |
+| code | [int32](#int32) |  | Code from sql review. |
 
 
 
@@ -7272,8 +8052,10 @@ When paginating, all other parameters provided to `ListRolloutTaskRuns` must mat
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| statement_type | [string](#string) |  |  |
-| affected_rows | [int64](#int64) |  |  |
+| code | [int32](#int32) |  |  |
+| statement_types | [string](#string) | repeated | statement_types are the types of statements that are found in the sql. |
+| affected_rows | [int32](#int32) |  |  |
+| changed_resources | [ChangedResources](#bytebase-v1-ChangedResources) |  |  |
 
 
 
@@ -7371,7 +8153,8 @@ When paginating, all other parameters provided to `ListRolloutTaskRuns` must mat
 | uid | [string](#string) |  | The system-assigned, unique identifier for a resource. |
 | title | [string](#string) |  |  |
 | spec_id | [string](#string) |  | A UUID4 string that uniquely identifies the Spec. Could be empty if the rollout of the task does not have an associating plan. |
-| status | [Task.Status](#bytebase-v1-Task-Status) |  | Status is the status of the task. TODO(p0ny): migrate old task status and use this field as a summary of the task runs. |
+| status | [Task.Status](#bytebase-v1-Task-Status) |  | Status is the status of the task. |
+| skipped_reason | [string](#string) |  |  |
 | type | [Task.Type](#bytebase-v1-Task-Type) |  |  |
 | blocked_by_tasks | [string](#string) | repeated | Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task} |
 | target | [string](#string) |  | Format: instances/{instance} if the task is DatabaseCreate. Format: instances/{instance}/databases/{database} |
@@ -7416,6 +8199,7 @@ When paginating, all other parameters provided to `ListRolloutTaskRuns` must mat
 | sheet | [string](#string) |  | Format: projects/{project}/sheets/{sheet} |
 | character_set | [string](#string) |  |  |
 | collation | [string](#string) |  |  |
+| environment | [string](#string) |  |  |
 | labels | [Task.DatabaseCreate.LabelsEntry](#bytebase-v1-Task-DatabaseCreate-LabelsEntry) | repeated |  |
 
 
@@ -7517,10 +8301,10 @@ When paginating, all other parameters provided to `ListRolloutTaskRuns` must mat
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}/taskRuns/{taskrun} |
+| name | [string](#string) |  | Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}/taskRuns/{taskRun} |
 | uid | [string](#string) |  | The system-assigned, unique identifier for a resource. |
-| creator | [string](#string) |  | Format: user:hello@world.com |
-| updater | [string](#string) |  | Format: user:hello@world.com |
+| creator | [string](#string) |  | Format: user/hello@world.com |
+| updater | [string](#string) |  | Format: user/hello@world.com |
 | create_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
 | update_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
 | title | [string](#string) |  |  |
@@ -7528,6 +8312,44 @@ When paginating, all other parameters provided to `ListRolloutTaskRuns` must mat
 | detail | [string](#string) |  | Below are the results of a task run. |
 | change_history | [string](#string) |  | The resource name of the change history Format: instances/{instance}/databases/{database}/changeHistories/{changeHistory} |
 | schema_version | [string](#string) |  |  |
+| execution_status | [TaskRun.ExecutionStatus](#bytebase-v1-TaskRun-ExecutionStatus) |  |  |
+| execution_status_update_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  | Last execution status update timestamp. |
+| execution_detail | [TaskRun.ExecutionDetail](#bytebase-v1-TaskRun-ExecutionDetail) |  |  |
+| start_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-TaskRun-ExecutionDetail"></a>
+
+### TaskRun.ExecutionDetail
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| commands_total | [int32](#int32) |  | Currently, the following fields are only used for EXECUTING status. |
+| commands_completed | [int32](#int32) |  |  |
+| command_start_position | [TaskRun.ExecutionDetail.Position](#bytebase-v1-TaskRun-ExecutionDetail-Position) |  |  |
+| command_end_position | [TaskRun.ExecutionDetail.Position](#bytebase-v1-TaskRun-ExecutionDetail-Position) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-TaskRun-ExecutionDetail-Position"></a>
+
+### TaskRun.ExecutionDetail.Position
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| line | [int32](#int32) |  | The line number, starting from 0. |
+| column | [int32](#int32) |  | The column number, starting from 0. |
 
 
 
@@ -7609,14 +8431,13 @@ Type is the database change type.
 | ---- | ------ | ----------- |
 | TYPE_UNSPECIFIED | 0 |  |
 | DATABASE_STATEMENT_FAKE_ADVISE | 1 |  |
-| DATABASE_STATEMENT_SYNTAX | 2 |  |
-| DATABASE_STATEMENT_COMPATIBILITY | 3 |  |
-| DATABASE_STATEMENT_ADVISE | 4 |  |
-| DATABASE_STATEMENT_TYPE | 5 |  |
-| DATABASE_STATEMENT_SUMMARY_REPORT | 6 |  |
-| DATABASE_CONNECT | 7 |  |
-| DATABASE_GHOST_SYNC | 8 |  |
-| DATABASE_PITR_MYSQL | 9 |  |
+| DATABASE_STATEMENT_COMPATIBILITY | 2 |  |
+| DATABASE_STATEMENT_ADVISE | 3 |  |
+| DATABASE_STATEMENT_TYPE | 4 |  |
+| DATABASE_STATEMENT_SUMMARY_REPORT | 5 |  |
+| DATABASE_CONNECT | 6 |  |
+| DATABASE_GHOST_SYNC | 7 |  |
+| DATABASE_PITR_MYSQL | 8 |  |
 
 
 
@@ -7642,7 +8463,7 @@ Type is the database change type.
 | Name | Number | Description |
 | ---- | ------ | ----------- |
 | STATUS_UNSPECIFIED | 0 |  |
-| PENDING_APPROVAL | 1 |  |
+| NOT_STARTED | 1 |  |
 | PENDING | 2 |  |
 | RUNNING | 3 |  |
 | DONE | 4 |  |
@@ -7674,6 +8495,20 @@ Type is the database change type.
 
 
 
+<a name="bytebase-v1-TaskRun-ExecutionStatus"></a>
+
+### TaskRun.ExecutionStatus
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| EXECUTION_STATUS_UNSPECIFIED | 0 |  |
+| PRE_EXECUTING | 1 |  |
+| EXECUTING | 2 |  |
+| POST_EXECUTING | 3 |  |
+
+
+
 <a name="bytebase-v1-TaskRun-Status"></a>
 
 ### TaskRun.Status
@@ -7687,7 +8522,6 @@ Type is the database change type.
 | DONE | 3 |  |
 | FAILED | 4 |  |
 | CANCELED | 5 |  |
-| SKIPPED | 6 |  |
 
 
  
@@ -7715,195 +8549,6 @@ Type is the database change type.
 | BatchRunTasks | [BatchRunTasksRequest](#bytebase-v1-BatchRunTasksRequest) | [BatchRunTasksResponse](#bytebase-v1-BatchRunTasksResponse) |  |
 | BatchSkipTasks | [BatchSkipTasksRequest](#bytebase-v1-BatchSkipTasksRequest) | [BatchSkipTasksResponse](#bytebase-v1-BatchSkipTasksResponse) |  |
 | BatchCancelTaskRuns | [BatchCancelTaskRunsRequest](#bytebase-v1-BatchCancelTaskRunsRequest) | [BatchCancelTaskRunsResponse](#bytebase-v1-BatchCancelTaskRunsResponse) |  |
-
- 
-
-
-
-<a name="v1_schema_design_service-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## v1/schema_design_service.proto
-
-
-
-<a name="bytebase-v1-CreateSchemaDesignRequest"></a>
-
-### CreateSchemaDesignRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| parent | [string](#string) |  | The parent, which owns this collection of schema designs. Format: project/{project} |
-| schema_design | [SchemaDesign](#bytebase-v1-SchemaDesign) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-DeleteSchemaDesignRequest"></a>
-
-### DeleteSchemaDesignRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the schema design to delete. Format: projects/{project}/schemaDesigns/{schemaDesign} |
-
-
-
-
-
-
-<a name="bytebase-v1-GetSchemaDesignRequest"></a>
-
-### GetSchemaDesignRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the schema design to retrieve. Format: projects/{project}/schemaDesigns/{schemaDesign} |
-
-
-
-
-
-
-<a name="bytebase-v1-ListSchemaDesignsRequest"></a>
-
-### ListSchemaDesignsRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| parent | [string](#string) |  | The parent resource of the schema design. Foramt: projects/{project} |
-| filter | [string](#string) |  | To filter the search result. Format: only support the following spec for now: - `creator = users/{email}`, `creator != users/{email}` - `starred = true`, `starred = false`. Not support empty filter for now. |
-| page_size | [int32](#int32) |  | The maximum number of schema designs to return. The service may return fewer than this value. If unspecified, at most 50 schema designs will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
-| page_token | [string](#string) |  | A page token, received from a previous `ListSchemaDesigns` call. Provide this to retrieve the subsequent page.
-
-When paginating, all other parameters provided to `ListSchemaDesigns` must match the call that provided the page token. |
-
-
-
-
-
-
-<a name="bytebase-v1-ListSchemaDesignsResponse"></a>
-
-### ListSchemaDesignsResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| schema_designs | [SchemaDesign](#bytebase-v1-SchemaDesign) | repeated | The schema designs from the specified request. |
-| next_page_token | [string](#string) |  | A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages. |
-
-
-
-
-
-
-<a name="bytebase-v1-ParseSchemaStringRequest"></a>
-
-### ParseSchemaStringRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| schema_string | [string](#string) |  |  |
-| engine | [Engine](#bytebase-v1-Engine) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-ParseSchemaStringResponse"></a>
-
-### ParseSchemaStringResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| schema_metadata | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  | The metadata of the parsed schema. |
-
-
-
-
-
-
-<a name="bytebase-v1-SchemaDesign"></a>
-
-### SchemaDesign
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the schema design. Format: projects/{project}/schemaDesigns/{schemaDesign} {schemaDesign} should be the id of a sheet. |
-| title | [string](#string) |  | The title of schema design. AKA sheet&#39;s name. |
-| schema | [string](#string) |  | The schema of schema design. AKA sheet&#39;s statement. |
-| schema_metadata | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  | The metadata of the current editing schema. |
-| baseline_schema | [string](#string) |  | The baseline schema. |
-| baseline_schema_metadata | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  | The metadata of the baseline schema. |
-| engine | [Engine](#bytebase-v1-Engine) |  | The database engine of the schema design. |
-| baseline_database | [string](#string) |  | The name of the baseline database. Format: instances/{instance}/databases/{database} |
-| schema_version | [string](#string) |  | The selected schema version of the baseline database. If not specified, the latest schema of database will be used as baseline schema. |
-| creator | [string](#string) |  | The creator of the schema design. Format: users/{email} |
-| updater | [string](#string) |  | The updater of the schema design. Format: users/{email} |
-| create_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  | The timestamp when the schema design was created. |
-| update_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  | The timestamp when the schema design was last updated. |
-
-
-
-
-
-
-<a name="bytebase-v1-UpdateSchemaDesignRequest"></a>
-
-### UpdateSchemaDesignRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| schema_design | [SchemaDesign](#bytebase-v1-SchemaDesign) |  | The schema design to update.
-
-The schema design&#39;s `name` field is used to identify the schema design to update. Format: projects/{project}/schemaDesigns/{schemaDesign} |
-| update_mask | [google.protobuf.FieldMask](#google-protobuf-FieldMask) |  | The list of fields to update. |
-
-
-
-
-
- 
-
- 
-
- 
-
-
-<a name="bytebase-v1-SchemaDesignService"></a>
-
-### SchemaDesignService
-
-
-| Method Name | Request Type | Response Type | Description |
-| ----------- | ------------ | ------------- | ------------|
-| GetSchemaDesign | [GetSchemaDesignRequest](#bytebase-v1-GetSchemaDesignRequest) | [SchemaDesign](#bytebase-v1-SchemaDesign) |  |
-| ListSchemaDesigns | [ListSchemaDesignsRequest](#bytebase-v1-ListSchemaDesignsRequest) | [ListSchemaDesignsResponse](#bytebase-v1-ListSchemaDesignsResponse) |  |
-| CreateSchemaDesign | [CreateSchemaDesignRequest](#bytebase-v1-CreateSchemaDesignRequest) | [SchemaDesign](#bytebase-v1-SchemaDesign) |  |
-| UpdateSchemaDesign | [UpdateSchemaDesignRequest](#bytebase-v1-UpdateSchemaDesignRequest) | [SchemaDesign](#bytebase-v1-SchemaDesign) |  |
-| ParseSchemaString | [ParseSchemaStringRequest](#bytebase-v1-ParseSchemaStringRequest) | [ParseSchemaStringResponse](#bytebase-v1-ParseSchemaStringResponse) |  |
-| DeleteSchemaDesign | [DeleteSchemaDesignRequest](#bytebase-v1-DeleteSchemaDesignRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
 
  
 
@@ -8019,38 +8664,6 @@ The schema design&#39;s `name` field is used to identify the schema design to up
 
 
 
-<a name="bytebase-v1-TrialSubscription"></a>
-
-### TrialSubscription
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| plan | [PlanType](#bytebase-v1-PlanType) |  |  |
-| days | [int32](#int32) |  |  |
-| instance_count | [int32](#int32) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-TrialSubscriptionRequest"></a>
-
-### TrialSubscriptionRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| trial | [TrialSubscription](#bytebase-v1-TrialSubscription) |  |  |
-
-
-
-
-
-
 <a name="bytebase-v1-UpdateSubscriptionRequest"></a>
 
 ### UpdateSubscriptionRequest
@@ -8096,7 +8709,6 @@ The schema design&#39;s `name` field is used to identify the schema design to up
 | GetSubscription | [GetSubscriptionRequest](#bytebase-v1-GetSubscriptionRequest) | [Subscription](#bytebase-v1-Subscription) |  |
 | GetFeatureMatrix | [GetFeatureMatrixRequest](#bytebase-v1-GetFeatureMatrixRequest) | [FeatureMatrix](#bytebase-v1-FeatureMatrix) |  |
 | UpdateSubscription | [UpdateSubscriptionRequest](#bytebase-v1-UpdateSubscriptionRequest) | [Subscription](#bytebase-v1-Subscription) |  |
-| TrialSubscription | [TrialSubscriptionRequest](#bytebase-v1-TrialSubscriptionRequest) | [Subscription](#bytebase-v1-Subscription) |  |
 
  
 
@@ -8119,6 +8731,23 @@ The schema design&#39;s `name` field is used to identify the schema design to up
 | ----- | ---- | ----- | ----------- |
 | url | [string](#string) |  | The URL for the agent API. |
 | token | [string](#string) |  | The token for the agent. |
+
+
+
+
+
+
+<a name="bytebase-v1-Announcement"></a>
+
+### Announcement
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| level | [Announcement.AlertLevel](#bytebase-v1-Announcement-AlertLevel) |  | The alert level of announcemnt |
+| text | [string](#string) |  | The text of announcemnt |
+| link | [string](#string) |  | The optional link, user can follow the link to check extra details |
 
 
 
@@ -8159,50 +8788,84 @@ The schema design&#39;s `name` field is used to identify the schema design to up
 
 
 
-<a name="bytebase-v1-DataCategorySetting"></a>
+<a name="bytebase-v1-DataClassificationSetting"></a>
 
-### DataCategorySetting
+### DataClassificationSetting
 
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| configs | [DataCategorySetting.DataCategoryConfig](#bytebase-v1-DataCategorySetting-DataCategoryConfig) | repeated |  |
+| configs | [DataClassificationSetting.DataClassificationConfig](#bytebase-v1-DataClassificationSetting-DataClassificationConfig) | repeated |  |
 
 
 
 
 
 
-<a name="bytebase-v1-DataCategorySetting-DataCategoryConfig"></a>
+<a name="bytebase-v1-DataClassificationSetting-DataClassificationConfig"></a>
 
-### DataCategorySetting.DataCategoryConfig
-Hard-coded schema comment format: [0-9]&#43;-[0-9]&#43;-[0-9]&#43;
+### DataClassificationSetting.DataClassificationConfig
+
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| id | [string](#string) |  |  |
+| id | [string](#string) |  | id is the uuid for classification. Each project can chose one classification config. |
 | title | [string](#string) |  |  |
-| category_level | [DataCategorySetting.DataCategoryConfig.CategoryLevelEntry](#bytebase-v1-DataCategorySetting-DataCategoryConfig-CategoryLevelEntry) | repeated | Maps category to level.
-
-TODO(ed): store the actual config. |
-
+| levels | [DataClassificationSetting.DataClassificationConfig.Level](#bytebase-v1-DataClassificationSetting-DataClassificationConfig-Level) | repeated | levels is user defined level list for classification. The order for the level decides its priority. |
+| classification | [DataClassificationSetting.DataClassificationConfig.ClassificationEntry](#bytebase-v1-DataClassificationSetting-DataClassificationConfig-ClassificationEntry) | repeated | classification is the id - DataClassification map. The id should in [0-9]&#43;-[0-9]&#43;-[0-9]&#43; format. |
 
 
 
 
 
-<a name="bytebase-v1-DataCategorySetting-DataCategoryConfig-CategoryLevelEntry"></a>
 
-### DataCategorySetting.DataCategoryConfig.CategoryLevelEntry
+<a name="bytebase-v1-DataClassificationSetting-DataClassificationConfig-ClassificationEntry"></a>
+
+### DataClassificationSetting.DataClassificationConfig.ClassificationEntry
 
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | key | [string](#string) |  |  |
-| value | [string](#string) |  |  |
+| value | [DataClassificationSetting.DataClassificationConfig.DataClassification](#bytebase-v1-DataClassificationSetting-DataClassificationConfig-DataClassification) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-DataClassificationSetting-DataClassificationConfig-DataClassification"></a>
+
+### DataClassificationSetting.DataClassificationConfig.DataClassification
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | id is the classification id in [0-9]&#43;-[0-9]&#43;-[0-9]&#43; format. |
+| title | [string](#string) |  |  |
+| description | [string](#string) |  |  |
+| level_id | [string](#string) | optional |  |
+
+
+
+
+
+
+<a name="bytebase-v1-DataClassificationSetting-DataClassificationConfig-Level"></a>
+
+### DataClassificationSetting.DataClassificationConfig.Level
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  |  |
+| title | [string](#string) |  |  |
+| description | [string](#string) |  |  |
 
 
 
@@ -8305,6 +8968,104 @@ When paginating, all other parameters provided to `ListSettings` must match the 
 
 
 
+<a name="bytebase-v1-MaskingAlgorithmSetting"></a>
+
+### MaskingAlgorithmSetting
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| algorithms | [MaskingAlgorithmSetting.Algorithm](#bytebase-v1-MaskingAlgorithmSetting-Algorithm) | repeated | algorithms is the list of masking algorithms. |
+
+
+
+
+
+
+<a name="bytebase-v1-MaskingAlgorithmSetting-Algorithm"></a>
+
+### MaskingAlgorithmSetting.Algorithm
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | id is the uuid for masking algorithm. |
+| title | [string](#string) |  | title is the title for masking algorithm. |
+| description | [string](#string) |  | description is the description for masking algorithm. |
+| category | [string](#string) |  | Category is the category for masking algorithm. Currently, it accepts 2 categories only: MASK and HASH. The range of accepted Payload is decided by the category. MASK: FullMask, RangeMask HASH: MD5Mask |
+| full_mask | [MaskingAlgorithmSetting.Algorithm.FullMask](#bytebase-v1-MaskingAlgorithmSetting-Algorithm-FullMask) |  |  |
+| range_mask | [MaskingAlgorithmSetting.Algorithm.RangeMask](#bytebase-v1-MaskingAlgorithmSetting-Algorithm-RangeMask) |  |  |
+| md5_mask | [MaskingAlgorithmSetting.Algorithm.MD5Mask](#bytebase-v1-MaskingAlgorithmSetting-Algorithm-MD5Mask) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-MaskingAlgorithmSetting-Algorithm-FullMask"></a>
+
+### MaskingAlgorithmSetting.Algorithm.FullMask
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| substitution | [string](#string) |  | substitution is the string used to replace the original value, the max length of the string is 16 bytes. |
+
+
+
+
+
+
+<a name="bytebase-v1-MaskingAlgorithmSetting-Algorithm-MD5Mask"></a>
+
+### MaskingAlgorithmSetting.Algorithm.MD5Mask
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| salt | [string](#string) |  | salt is the salt value to generate a different hash that with the word alone. |
+
+
+
+
+
+
+<a name="bytebase-v1-MaskingAlgorithmSetting-Algorithm-RangeMask"></a>
+
+### MaskingAlgorithmSetting.Algorithm.RangeMask
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| slices | [MaskingAlgorithmSetting.Algorithm.RangeMask.Slice](#bytebase-v1-MaskingAlgorithmSetting-Algorithm-RangeMask-Slice) | repeated | We store it as a repeated field to face the fact that the original value may have multiple parts should be masked. But frontend can be started with a single rule easily. |
+
+
+
+
+
+
+<a name="bytebase-v1-MaskingAlgorithmSetting-Algorithm-RangeMask-Slice"></a>
+
+### MaskingAlgorithmSetting.Algorithm.RangeMask.Slice
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| start | [int32](#int32) |  | start is the start index of the original value, start from 0 and should be less than stop. |
+| end | [int32](#int32) |  | stop is the stop index of the original value, should be less than the length of the original value. |
+| substitution | [string](#string) |  | substitution is the string used to replace the OriginalValue[start:end). |
+
+
+
+
+
+
 <a name="bytebase-v1-SMTPMailDeliverySettingValue"></a>
 
 ### SMTPMailDeliverySettingValue
@@ -8339,6 +9100,25 @@ When paginating, all other parameters provided to `ListSettings` must match the 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | field_templates | [SchemaTemplateSetting.FieldTemplate](#bytebase-v1-SchemaTemplateSetting-FieldTemplate) | repeated |  |
+| column_types | [SchemaTemplateSetting.ColumnType](#bytebase-v1-SchemaTemplateSetting-ColumnType) | repeated |  |
+| table_templates | [SchemaTemplateSetting.TableTemplate](#bytebase-v1-SchemaTemplateSetting-TableTemplate) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-SchemaTemplateSetting-ColumnType"></a>
+
+### SchemaTemplateSetting.ColumnType
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| engine | [Engine](#bytebase-v1-Engine) |  |  |
+| enabled | [bool](#bool) |  |  |
+| types | [string](#string) | repeated |  |
 
 
 
@@ -8357,6 +9137,60 @@ When paginating, all other parameters provided to `ListSettings` must match the 
 | engine | [Engine](#bytebase-v1-Engine) |  |  |
 | category | [string](#string) |  |  |
 | column | [ColumnMetadata](#bytebase-v1-ColumnMetadata) |  |  |
+| config | [ColumnConfig](#bytebase-v1-ColumnConfig) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-SchemaTemplateSetting-TableTemplate"></a>
+
+### SchemaTemplateSetting.TableTemplate
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  |  |
+| engine | [Engine](#bytebase-v1-Engine) |  |  |
+| category | [string](#string) |  |  |
+| table | [TableMetadata](#bytebase-v1-TableMetadata) |  |  |
+| config | [TableConfig](#bytebase-v1-TableConfig) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-SemanticTypeSetting"></a>
+
+### SemanticTypeSetting
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| types | [SemanticTypeSetting.SemanticType](#bytebase-v1-SemanticTypeSetting-SemanticType) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-SemanticTypeSetting-SemanticType"></a>
+
+### SemanticTypeSetting.SemanticType
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | id is the uuid for semantic type. |
+| title | [string](#string) |  | the title of the semantic type, it should not be empty. |
+| description | [string](#string) |  | the description of the semantic type, it can be empty. |
+| partial_mask_algorithm_id | [string](#string) |  | the partial mask algorithm id for the semantic type, if it is empty, should use the default partial mask algorithm. |
+| full_mask_algorithm_id | [string](#string) |  | the full mask algorithm id for the semantic type, if it is empty, should use the default full mask algorithm. |
 
 
 
@@ -8414,6 +9248,9 @@ The data in setting value.
 | workspace_trial_setting_value | [WorkspaceTrialSetting](#bytebase-v1-WorkspaceTrialSetting) |  |  |
 | external_approval_setting_value | [ExternalApprovalSetting](#bytebase-v1-ExternalApprovalSetting) |  |  |
 | schema_template_setting_value | [SchemaTemplateSetting](#bytebase-v1-SchemaTemplateSetting) |  |  |
+| data_classification_setting_value | [DataClassificationSetting](#bytebase-v1-DataClassificationSetting) |  |  |
+| semantic_type_setting_value | [SemanticTypeSetting](#bytebase-v1-SemanticTypeSetting) |  |  |
+| masking_algorithm_setting_value | [MaskingAlgorithmSetting](#bytebase-v1-MaskingAlgorithmSetting) |  |  |
 
 
 
@@ -8466,6 +9303,8 @@ The external URL is used for: 1. Constructing the correct callback URL when conf
 | require_2fa | [bool](#bool) |  | Require 2FA for all users. |
 | outbound_ip_list | [string](#string) | repeated | outbound_ip_list is the outbound IP for Bytebase instance in SaaS mode. |
 | gitops_webhook_url | [string](#string) |  | The webhook URL for the GitOps workflow. |
+| token_duration | [google.protobuf.Duration](#google-protobuf-Duration) |  | The duration for token. |
+| announcement | [Announcement](#bytebase-v1-Announcement) |  | The setting of custom announcement |
 
 
 
@@ -8492,6 +9331,20 @@ The external URL is used for: 1. Constructing the correct callback URL when conf
 
 
  
+
+
+<a name="bytebase-v1-Announcement-AlertLevel"></a>
+
+### Announcement.AlertLevel
+We support three levels of AlertLevel: INFO, WARNING, and ERROR.
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| ALERT_LEVEL_UNSPECIFIED | 0 |  |
+| ALERT_LEVEL_INFO | 1 |  |
+| ALERT_LEVEL_WARNING | 2 |  |
+| ALERT_LEVEL_CRITICAL | 3 |  |
+
 
 
 <a name="bytebase-v1-AppIMSetting-IMType"></a>
@@ -8664,7 +9517,8 @@ When paginating, all other parameters provided to `SearchSheets` must match the 
 | source | [Sheet.Source](#bytebase-v1-Sheet-Source) |  | The source of the sheet. |
 | type | [Sheet.Type](#bytebase-v1-Sheet-Type) |  | The type of the sheet. |
 | starred | [bool](#bool) |  | starred indicates whether the sheet is starred by the current authenticated user. |
-| payload | [string](#string) |  | TODO: deprecate this field. |
+| payload | [SheetPayload](#bytebase-v1-SheetPayload) |  |  |
+| push_event | [PushEvent](#bytebase-v1-PushEvent) |  |  |
 
 
 
@@ -8688,17 +9542,17 @@ When paginating, all other parameters provided to `SearchSheets` must match the 
 
 
 
-<a name="bytebase-v1-SyncSheetsRequest"></a>
+<a name="bytebase-v1-SheetPayload"></a>
 
-### SyncSheetsRequest
+### SheetPayload
 
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| parent | [string](#string) |  | The name of the project to sync sheets.
-
-Format: projects/{project} |
+| type | [SheetPayload.Type](#bytebase-v1-SheetPayload-Type) |  |  |
+| database_config | [DatabaseConfig](#bytebase-v1-DatabaseConfig) |  | The snapshot of the database config when creating the sheet, be used to compare with the baseline_database_config and apply the diff to the database. |
+| baseline_database_config | [DatabaseConfig](#bytebase-v1-DatabaseConfig) |  | The snapshot of the baseline database config when creating the sheet. |
 
 
 
@@ -8751,11 +9605,8 @@ The sheet&#39;s `name` field is used to identify the sheet to update. Format: pr
 | Name | Number | Description |
 | ---- | ------ | ----------- |
 | SOURCE_UNSPECIFIED | 0 |  |
-| SOURCE_BYTEBASE | 1 | BYTEBASE is the sheet created by Bytebase. e.g. SQL Editor. |
-| SOURCE_BYTEBASE_ARTIFACT | 2 | BYTEBASE_ARTIFACT is the artifact sheet. |
-| SOURCE_GITLAB | 3 | GITLAB is the sheet synced from GitLab (for both GitLab.com and self-hosted GitLab). |
-| SOURCE_GITHUB | 4 | GITHUB is the sheet synced from GitHub (for both GitHub.com and GitHub Enterprise). |
-| SOURCE_BITBUCKET | 5 | BITBUCKET is the sheet synced from Bitbucket (for both Bitbucket.org and Bitbucket Server). |
+| SOURCE_BYTEBASE | 1 | BYTEBASE is the sheet created in SQL Editor. |
+| SOURCE_BYTEBASE_ARTIFACT | 2 | BYTEBASE_ARTIFACT is the artifact sheet such as DDL/DML. |
 
 
 
@@ -8784,6 +9635,18 @@ The sheet&#39;s `name` field is used to identify the sheet to update. Format: pr
 | VISIBILITY_PRIVATE | 3 | Private, only sheet OWNER can read/write. |
 
 
+
+<a name="bytebase-v1-SheetPayload-Type"></a>
+
+### SheetPayload.Type
+Type of the SheetPayload.
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| TYPE_UNSPECIFIED | 0 |  |
+| SCHEMA_DESIGN | 1 |  |
+
+
  
 
  
@@ -8802,7 +9665,6 @@ The sheet&#39;s `name` field is used to identify the sheet to update. Format: pr
 | UpdateSheet | [UpdateSheetRequest](#bytebase-v1-UpdateSheetRequest) | [Sheet](#bytebase-v1-Sheet) |  |
 | UpdateSheetOrganizer | [UpdateSheetOrganizerRequest](#bytebase-v1-UpdateSheetOrganizerRequest) | [SheetOrganizer](#bytebase-v1-SheetOrganizer) |  |
 | DeleteSheet | [DeleteSheetRequest](#bytebase-v1-DeleteSheetRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
-| SyncSheets | [SyncSheetsRequest](#bytebase-v1-SyncSheetsRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
 
  
 
@@ -8862,7 +9724,71 @@ The sheet&#39;s `name` field is used to identify the sheet to update. Format: pr
 | title | [string](#string) |  | The advice title. |
 | content | [string](#string) |  | The advice content. |
 | line | [int32](#int32) |  | The advice line number in the SQL statement. |
+| column | [int32](#int32) |  | The advice column number in the SQL statement. |
 | detail | [string](#string) |  | The advice detail. |
+
+
+
+
+
+
+<a name="bytebase-v1-CheckRequest"></a>
+
+### CheckRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| statement | [string](#string) |  |  |
+| database | [string](#string) |  | Format: instances/{instance}/databases/{databaseName} |
+
+
+
+
+
+
+<a name="bytebase-v1-CheckResponse"></a>
+
+### CheckResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| advices | [Advice](#bytebase-v1-Advice) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-DifferPreviewRequest"></a>
+
+### DifferPreviewRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| engine | [Engine](#bytebase-v1-Engine) |  |  |
+| old_schema | [string](#string) |  |  |
+| new_metadata | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-DifferPreviewResponse"></a>
+
+### DifferPreviewResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| schema | [string](#string) |  |  |
 
 
 
@@ -8881,8 +9807,8 @@ The sheet&#39;s `name` field is used to identify the sheet to update. Format: pr
 | connection_database | [string](#string) |  | The connection database name to execute the query against. For PostgreSQL, it&#39;s required. For other database engines, it&#39;s optional. Use empty string to execute against without specifying a database. |
 | statement | [string](#string) |  | The SQL statement to execute. |
 | limit | [int32](#int32) |  | The maximum number of rows to return. |
-| format | [ExportRequest.Format](#bytebase-v1-ExportRequest-Format) |  | The export format. |
-| admin | [bool](#bool) |  | The admin is used for workspace owner and DBA for exporting data from SQL Editor Admin mode. The exported data is not anonymized. |
+| format | [ExportFormat](#bytebase-v1-ExportFormat) |  | The export format. |
+| admin | [bool](#bool) |  | The admin is used for workspace owner and DBA for exporting data from SQL Editor Admin mode. The exported data is not masked. |
 
 
 
@@ -8949,7 +9875,8 @@ The sheet&#39;s `name` field is used to identify the sheet to update. Format: pr
 | connection_database | [string](#string) |  | The connection database name to execute the query against. For PostgreSQL, it&#39;s required. For other database engines, it&#39;s optional. Use empty string to execute against without specifying a database. |
 | statement | [string](#string) |  | The SQL statement to execute. |
 | limit | [int32](#int32) |  | The maximum number of rows to return. |
-| timeout | [google.protobuf.Duration](#google-protobuf-Duration) |  | The timeout for the request. |
+| timeout | [google.protobuf.Duration](#google-protobuf-Duration) | optional | The timeout for the request. |
+| data_source_id | [string](#string) |  | The id of data source. It is used for querying admin data source even if the instance has read-only data sources. Or it can be used to query a specific read-only data source. |
 
 
 
@@ -8966,6 +9893,7 @@ The sheet&#39;s `name` field is used to identify the sheet to update. Format: pr
 | ----- | ---- | ----- | ----------- |
 | results | [QueryResult](#bytebase-v1-QueryResult) | repeated | The query results. |
 | advices | [Advice](#bytebase-v1-Advice) | repeated | The query advices. |
+| allow_export | [bool](#bool) |  | The query is allowed to be exported or not. |
 
 
 
@@ -9033,6 +9961,37 @@ The sheet&#39;s `name` field is used to identify the sheet to update. Format: pr
 
 
 
+
+<a name="bytebase-v1-StringifyMetadataRequest"></a>
+
+### StringifyMetadataRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| metadata | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  |  |
+| engine | [Engine](#bytebase-v1-Engine) |  | The database engine of the schema string. |
+
+
+
+
+
+
+<a name="bytebase-v1-StringifyMetadataResponse"></a>
+
+### StringifyMetadataResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| schema | [string](#string) |  |  |
+
+
+
+
+
  
 
 
@@ -9049,21 +10008,6 @@ The sheet&#39;s `name` field is used to identify the sheet to update. Format: pr
 | ERROR | 3 |  |
 
 
-
-<a name="bytebase-v1-ExportRequest-Format"></a>
-
-### ExportRequest.Format
-
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| FORMAT_UNSPECIFIED | 0 |  |
-| CSV | 1 |  |
-| JSON | 2 |  |
-| SQL | 3 |  |
-| XLSX | 4 |  |
-
-
  
 
  
@@ -9076,10 +10020,13 @@ The sheet&#39;s `name` field is used to identify the sheet to update. Format: pr
 
 | Method Name | Request Type | Response Type | Description |
 | ----------- | ------------ | ------------- | ------------|
-| Pretty | [PrettyRequest](#bytebase-v1-PrettyRequest) | [PrettyResponse](#bytebase-v1-PrettyResponse) |  |
 | Query | [QueryRequest](#bytebase-v1-QueryRequest) | [QueryResponse](#bytebase-v1-QueryResponse) |  |
 | Export | [ExportRequest](#bytebase-v1-ExportRequest) | [ExportResponse](#bytebase-v1-ExportResponse) |  |
 | AdminExecute | [AdminExecuteRequest](#bytebase-v1-AdminExecuteRequest) stream | [AdminExecuteResponse](#bytebase-v1-AdminExecuteResponse) stream |  |
+| DifferPreview | [DifferPreviewRequest](#bytebase-v1-DifferPreviewRequest) | [DifferPreviewResponse](#bytebase-v1-DifferPreviewResponse) |  |
+| Check | [CheckRequest](#bytebase-v1-CheckRequest) | [CheckResponse](#bytebase-v1-CheckResponse) |  |
+| Pretty | [PrettyRequest](#bytebase-v1-PrettyRequest) | [PrettyResponse](#bytebase-v1-PrettyResponse) |  |
+| StringifyMetadata | [StringifyMetadataRequest](#bytebase-v1-StringifyMetadataRequest) | [StringifyMetadataResponse](#bytebase-v1-StringifyMetadataResponse) |  |
 
  
 

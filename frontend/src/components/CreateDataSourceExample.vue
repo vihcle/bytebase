@@ -32,7 +32,8 @@
         v-if="
           props.engine === Engine.MYSQL ||
           props.engine === Engine.TIDB ||
-          props.engine === Engine.OCEANBASE
+          props.engine === Engine.OCEANBASE ||
+          props.engine === Engine.RISINGWAVE
         "
       >
         <i18n-t
@@ -49,7 +50,7 @@
           </template>
         </i18n-t>
         <a
-          href="https://www.bytebase.com/docs/get-started/install/local-mysql-instance?source=console"
+          href="https://www.bytebase.com/docs/tutorials/local-mysql-instance?source=console"
           target="_blank"
           class="normal-link"
         >
@@ -125,13 +126,13 @@
       </template>
       <div class="mt-2 flex flex-row">
         <span
-          class="flex-1 min-w-0 w-full inline-flex items-center px-3 py-2 border border-r border-control-border bg-gray-50 sm:text-sm whitespace-pre-line"
+          class="flex-1 min-w-0 w-full inline-flex items-center px-3 py-2 border border-r border-control-border bg-gray-50 sm:text-sm whitespace-pre-line rounded-l-[3px]"
         >
           {{ grantStatement(props.engine, props.dataSourceType) }}
         </span>
         <button
           tabindex="-1"
-          class="-ml-px px-2 py-2 border border-gray-300 text-sm font-medium text-control-light disabled:text-gray-300 bg-gray-50 hover:bg-gray-100 disabled:bg-gray-50 focus:ring-control focus:outline-none focus-visible:ring-2 focus:ring-offset-1 disabled:cursor-not-allowed"
+          class="-ml-px px-2 py-2 border border-gray-300 text-sm font-medium text-control-light disabled:text-gray-300 bg-gray-50 hover:bg-gray-100 disabled:bg-gray-50 focus:ring-control focus:outline-none focus-visible:ring-2 focus:ring-offset-1 disabled:cursor-not-allowed rounded-r-[3px]"
           @click.prevent="copyGrantStatement"
         >
           <heroicons-outline:clipboard class="w-6 h-6" />
@@ -143,13 +144,12 @@
 
 <script lang="ts" setup>
 import { reactive, PropType, computed } from "vue";
-import { toClipboard } from "@soerenmartius/vue3-clipboard";
 import { useI18n } from "vue-i18n";
 import { pushNotification } from "@/store";
+import { languageOfEngineV1 } from "@/types";
 import { Engine } from "@/types/proto/v1/common";
 import { DataSourceType } from "@/types/proto/v1/instance_service";
-import { languageOfEngineV1 } from "@/types";
-import { engineNameV1 } from "@/utils";
+import { engineNameV1, toClipboard } from "@/utils";
 
 interface LocalState {
   showCreateUserExample: boolean;
@@ -211,7 +211,7 @@ const grantStatement = (
 CREATE OR REPLACE USER bytebase PASSWORD = 'YOUR_DB_PWD'
 DEFAULT_ROLE = "ACCOUNTADMIN"
 DEFAULT_WAREHOUSE = 'YOUR_COMPUTE_WAREHOUSE';
-        
+
 GRANT ROLE "ACCOUNTADMIN" TO USER bytebase;
 
 -- Option 2: grant more granular privileges
@@ -299,6 +299,7 @@ GRANT ALL PRIVILEGES ON FUTURE SESSION POLICYS IN DATABASE {{YOUR_DB_NAME}} TO R
 -- PIPE are not allowed to be bulk granted, you need to grant them one by one.
 GRANT ALL PRIVILEGES ON PIPE {{PIPE_NAME}} IN DATABASE {{YOUR_DB_NAME}} TO ROLE BYTEBASE;
 `;
+      case Engine.RISINGWAVE:
       case Engine.POSTGRES:
         return "CREATE USER bytebase WITH ENCRYPTED PASSWORD 'YOUR_DB_PWD';\n\nALTER USER bytebase WITH SUPERUSER;";
       case Engine.REDSHIFT:
@@ -313,6 +314,10 @@ GRANT ALL PRIVILEGES ON PIPE {{PIPE_NAME}} IN DATABASE {{YOUR_DB_NAME}} TO ROLE 
         return "-- If you use Cloud RDS, you need to checkout their documentation for setting up a semi-super privileged user.\n\nCREATE LOGIN bytebase WITH PASSWORD = 'YOUR_DB_PWD';\nALTER SERVER ROLE sysadmin ADD MEMBER bytebase;";
       case Engine.ORACLE:
         return "-- If you use Cloud RDS, you need to checkout their documentation for setting up a semi-super privileged user.\n\nCREATE USER bytebase IDENTIFIED BY 'YOUR_DB_PWD';\nGRANT ALL PRIVILEGES TO bytebase;";
+      case Engine.DM:
+        return 'CREATE USER BYTEBASE IDENTIFIED BY "YOUR_DB_PWD";\nGRANT "DBA" TO BYTEBASE;';
+      case Engine.OCEANBASE_ORACLE:
+        return "CREATE USER bytebase IDENTIFIED BY 'YOUR_DB_PWD';\nGRANT ALL PRIVILEGES TO bytebase;";
     }
   } else {
     switch (engine) {
@@ -328,7 +333,7 @@ GRANT ALL PRIVILEGES ON PIPE {{PIPE_NAME}} IN DATABASE {{YOUR_DB_NAME}} TO ROLE 
 CREATE OR REPLACE USER bytebase PASSWORD = 'YOUR_DB_PWD'
 DEFAULT_ROLE = "ACCOUNTADMIN"
 DEFAULT_WAREHOUSE = 'YOUR_COMPUTE_WAREHOUSE';
-        
+
 GRANT ROLE "ACCOUNTADMIN" TO USER bytebase;
 
 -- Option 2: grant more granular privileges
@@ -416,6 +421,7 @@ GRANT ALL PRIVILEGES ON FUTURE SESSION POLICYS IN DATABASE {{YOUR_DB_NAME}} TO R
 -- PIPE are not allowed to be bulk granted, you need to grant them one by one.
 GRANT ALL PRIVILEGES ON PIPE {{PIPE_NAME}} IN DATABASE {{YOUR_DB_NAME}} TO ROLE BYTEBASE_READER;
 `;
+      case Engine.RISINGWAVE:
       case Engine.POSTGRES:
         return "CREATE USER bytebase WITH ENCRYPTED PASSWORD 'YOUR_DB_PWD';\n\nALTER USER bytebase WITH SUPERUSER;";
       case Engine.MONGODB:

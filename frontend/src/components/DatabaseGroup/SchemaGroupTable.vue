@@ -23,11 +23,12 @@
 <script lang="ts" setup>
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { BBGridColumn } from "@/bbkit";
-import { SchemaGroup } from "@/types/proto/v1/project_service";
 import { useRouter } from "vue-router";
+import { BBGridColumn } from "@/bbkit";
 import { getProjectNameAndDatabaseGroupNameAndSchemaGroupName } from "@/store/modules/v1/common";
 import { ComposedSchemaGroup } from "@/types";
+import { SchemaGroup } from "@/types/proto/v1/project_service";
+import { projectV1Slug } from "@/utils";
 
 defineProps<{
   schemaGroupList: SchemaGroup[];
@@ -53,10 +54,12 @@ const COLUMN_LIST = computed(() => {
 });
 
 const clickSchemaGroup = (schemaGroup: ComposedSchemaGroup) => {
-  const [projectName, databaseGroupName, schemaGroupName] =
+  const [_, databaseGroupName, schemaGroupName] =
     getProjectNameAndDatabaseGroupNameAndSchemaGroupName(schemaGroup.name);
   router.push(
-    `/projects/${projectName}/database-groups/${databaseGroupName}/table-groups/${schemaGroupName}`
+    `/project/${projectV1Slug(
+      schemaGroup.databaseGroup.project
+    )}/database-groups/${databaseGroupName}/table-groups/${schemaGroupName}`
   );
 };
 </script>

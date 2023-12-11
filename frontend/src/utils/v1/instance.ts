@@ -1,12 +1,11 @@
-import slug from "slug";
 import { keyBy, orderBy } from "lodash-es";
-
+import slug from "slug";
 import { useI18n } from "vue-i18n";
-import { DataSourceType, Instance } from "@/types/proto/v1/instance_service";
+import { useSubscriptionV1Store } from "@/store";
+import { ComposedInstance, UNKNOWN_ID } from "@/types";
 import { Engine, State } from "@/types/proto/v1/common";
 import { Environment } from "@/types/proto/v1/environment_service";
-import { ComposedInstance } from "@/types";
-import { useSubscriptionV1Store } from "@/store";
+import { DataSourceType, Instance } from "@/types/proto/v1/instance_service";
 import { PlanType } from "@/types/proto/v1/subscription_service";
 
 export const instanceV1Slug = (instance: Instance): string => {
@@ -20,7 +19,11 @@ export function instanceV1Name(instance: Instance) {
   // instance cannot be deleted and activated at the same time.
   if (instance.state === State.DELETED) {
     name += ` (${t("common.archived")})`;
-  } else if (!instance.activation && store.currentPlan !== PlanType.FREE) {
+  } else if (
+    instance.uid !== `${UNKNOWN_ID}` &&
+    !instance.activation &&
+    store.currentPlan !== PlanType.FREE
+  ) {
     name += ` (${t("common.no-license")})`;
   }
   return name;
@@ -74,21 +77,27 @@ export const sortInstanceV1ListByEnvironmentV1 = <T extends Instance>(
 };
 
 export const supportedEngineV1List = () => {
+  const { locale } = useI18n();
   const engines: Engine[] = [
     Engine.MYSQL,
     Engine.POSTGRES,
-    Engine.TIDB,
+    Engine.ORACLE,
+    Engine.MSSQL,
     Engine.SNOWFLAKE,
     Engine.CLICKHOUSE,
     Engine.MONGODB,
     Engine.REDIS,
-    Engine.SPANNER,
-    Engine.ORACLE,
+    Engine.TIDB,
     Engine.OCEANBASE,
-    Engine.MARIADB,
-    Engine.MSSQL,
+    Engine.OCEANBASE_ORACLE,
+    Engine.SPANNER,
     Engine.REDSHIFT,
+    Engine.MARIADB,
+    Engine.RISINGWAVE,
   ];
+  if (locale.value === "zh-CN") {
+    engines.push(Engine.DM);
+  }
   return engines;
 };
 
@@ -138,6 +147,7 @@ export const instanceV1HasCreateDatabase = (
   const engine = engineOfInstanceV1(instanceOrEngine);
   if (engine === Engine.REDIS) return false;
   if (engine === Engine.ORACLE) return false;
+  if (engine === Engine.DM) return false;
   return true;
 };
 
@@ -145,7 +155,6 @@ export const instanceV1HasStructuredQueryResult = (
   instanceOrEngine: Instance | Engine
 ): boolean => {
   const engine = engineOfInstanceV1(instanceOrEngine);
-  if (engine === Engine.MONGODB) return false;
   if (engine === Engine.REDIS) return false;
   return true;
 };
@@ -163,6 +172,7 @@ export const instanceV1HasSSL = (
     Engine.ORACLE,
     Engine.MARIADB,
     Engine.OCEANBASE,
+    Engine.DM,
   ].includes(engine);
 };
 
@@ -190,8 +200,29 @@ export const instanceV1HasCollationAndCharacterSet = (
     Engine.CLICKHOUSE,
     Engine.SNOWFLAKE,
     Engine.REDSHIFT,
+    Engine.RISINGWAVE,
   ];
   return !excludedList.includes(engine);
+};
+
+export const instanceV1AllowsCrossDatabaseQuery = (
+  instanceOrEngine: Instance | Engine
+) => {
+  const engine = engineOfInstanceV1(instanceOrEngine);
+  return [
+    Engine.MYSQL,
+    Engine.TIDB,
+    Engine.CLICKHOUSE,
+    Engine.MARIADB,
+    Engine.OCEANBASE,
+  ].includes(engine);
+};
+
+export const instanceV1AllowsReorderColumns = (
+  instanceOrEngine: Instance | Engine
+) => {
+  const engine = engineOfInstanceV1(instanceOrEngine);
+  return [Engine.MYSQL, Engine.TIDB].includes(engine);
 };
 
 export const engineOfInstanceV1 = (instanceOrEngine: Instance | Engine) => {
@@ -228,7 +259,13 @@ export const engineNameV1 = (type: Engine): string => {
     case Engine.MARIADB:
       return "MariaDB";
     case Engine.OCEANBASE:
-      return "OceanBase";
+      return "OceanBase (MySQL)";
+    case Engine.OCEANBASE_ORACLE:
+      return "OceanBase (Oracle)";
+    case Engine.DM:
+      return "DM";
+    case Engine.RISINGWAVE:
+      return "RisingWave";
   }
   return "";
 };

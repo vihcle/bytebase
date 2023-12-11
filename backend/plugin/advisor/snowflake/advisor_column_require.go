@@ -3,15 +3,15 @@ package snowflake
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/antlr4-go/antlr/v4"
 	parser "github.com/bytebase/snowsql-parser"
 	"github.com/pkg/errors"
-	"golang.org/x/exp/slices"
 
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
-	snowsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	snowsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/snowflake"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -19,7 +19,7 @@ var (
 )
 
 func init() {
-	advisor.Register(db.Snowflake, advisor.SnowflakeColumnRequirement, &ColumnRequireAdvisor{})
+	advisor.Register(storepb.Engine_SNOWFLAKE, advisor.SnowflakeColumnRequirement, &ColumnRequireAdvisor{})
 }
 
 // ColumnRequireAdvisor is the advisor checking for column requirement.
@@ -123,8 +123,8 @@ func (l *columnRequireChecker) ExitCreate_table(ctx *parser.Create_tableContext)
 		return
 	}
 
-	slices.SortFunc[string](columnNames, func(i, j string) bool {
-		return i < j
+	sort.Slice(columnNames, func(i, j int) bool {
+		return columnNames[i] < columnNames[j]
 	})
 	for _, column := range columnNames {
 		l.adviceList = append(l.adviceList, advisor.Advice{
@@ -169,8 +169,8 @@ func (l *columnRequireChecker) ExitAlter_table(ctx *parser.Alter_tableContext) {
 		return
 	}
 
-	slices.SortFunc[string](columnNames, func(i, j string) bool {
-		return i < j
+	sort.Slice(columnNames, func(i, j int) bool {
+		return columnNames[i] < columnNames[j]
 	})
 	for _, column := range columnNames {
 		l.adviceList = append(l.adviceList, advisor.Advice{

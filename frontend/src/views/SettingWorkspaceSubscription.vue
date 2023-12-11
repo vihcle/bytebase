@@ -1,10 +1,10 @@
 <template>
   <div class="mx-auto">
-    <div class="textinfolabel">
+    <div v-if="subscriptionStore.isSelfHostLicense" class="textinfolabel mb-4">
       {{ $t("subscription.description") }}
       <a
         class="text-accent"
-        href="https://hub.bytebase.com/subscription?source=console.subscription"
+        :href="subscriptionStore.purchaseLicenseUrl"
         target="__blank"
       >
         {{ $t("subscription.purchase-license") }}
@@ -16,7 +16,7 @@
         </span>
       </span>
     </div>
-    <dl class="text-left grid grid-cols-2 gap-x-6 my-5 xl:grid-cols-4">
+    <dl class="text-left grid grid-cols-2 gap-x-6 my-4 xl:grid-cols-4">
       <div class="my-3">
         <dt class="flex text-gray-400">
           {{ $t("subscription.current") }}
@@ -41,7 +41,7 @@
       </div>
       <div v-if="subscriptionStore.currentPlan === PlanType.FREE" class="my-3">
         <dt class="text-gray-400">
-          {{ $t("subscription.instance-count") }}
+          {{ $t("subscription.max-instance-count") }}
         </dt>
         <dd
           class="mt-1 text-4xl flex items-center gap-x-2 cursor-pointer group"
@@ -56,6 +56,7 @@
           {{ $t("subscription.instance-assignment.used-and-total-license") }}
         </dt>
         <dd
+          v-if="canManageSubscription"
           class="mt-1 text-4xl flex items-center gap-x-2 cursor-pointer group"
           @click="state.showInstanceAssignmentDrawer = true"
         >
@@ -105,18 +106,20 @@
         </dt>
 
         <dd class="mt-1">
-          <a
+          <button
             type="button"
             class="btn-primary inline-flex justify-center ml-auto"
-            target="_blank"
-            href="https://www.bytebase.com/contact-us"
+            @click="inquireEnterprise"
           >
             {{ $t("subscription.contact-us") }}
-          </a>
+          </button>
         </dd>
       </div>
     </dl>
-    <div v-if="canManageSubscription" class="w-full mt-5 flex flex-col">
+    <div
+      v-if="canManageSubscription && subscriptionStore.isSelfHostLicense"
+      class="w-full mt-4 flex flex-col"
+    >
       <textarea
         id="license"
         v-model="state.license"
@@ -135,7 +138,7 @@
         {{ $t("subscription.upload-license") }}
       </button>
     </div>
-    <div class="sm:flex sm:flex-col sm:align-center pt-5 mt-5 border-t">
+    <div class="sm:flex sm:flex-col sm:align-center pt-5 mt-4 border-t">
       <div class="textinfolabel">
         {{ $t("subscription.plan-compare") }}
       </div>
@@ -147,6 +150,12 @@
     />
   </div>
 
+  <WeChatQRModal
+    v-if="state.showQRCodeModal"
+    :title="$t('subscription.inquire-enterprise-plan')"
+    @close="state.showQRCodeModal = false"
+  />
+
   <InstanceAssignment
     :show="state.showInstanceAssignmentDrawer"
     @dismiss="state.showInstanceAssignmentDrawer = false"
@@ -154,22 +163,25 @@
 </template>
 
 <script lang="ts" setup>
+import { storeToRefs } from "pinia";
 import { computed, reactive, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
-import PricingTable from "../components/PricingTable/";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+import { useLanguage } from "@/composables/useLanguage";
 import {
   pushNotification,
   useCurrentUserV1,
   useInstanceV1Store,
   useSubscriptionV1Store,
 } from "@/store";
-import { storeToRefs } from "pinia";
+import { ENTERPRISE_INQUIRE_LINK } from "@/types";
+import { PlanType } from "@/types/proto/v1/subscription_service";
 import { hasWorkspacePermissionV1 } from "@/utils";
+import PricingTable from "../components/PricingTable/";
 
 interface LocalState {
   loading: boolean;
   license: string;
+  showQRCodeModal: boolean;
   showTrialModal: boolean;
   showInstanceAssignmentDrawer: boolean;
 }
@@ -177,12 +189,14 @@ interface LocalState {
 const subscriptionStore = useSubscriptionV1Store();
 const instanceV1Store = useInstanceV1Store();
 const { t } = useI18n();
+const { locale } = useLanguage();
 const currentUserV1 = useCurrentUserV1();
 
 const state = reactive<LocalState>({
   loading: false,
   license: "",
   showTrialModal: false,
+  showQRCodeModal: false,
   showInstanceAssignmentDrawer: false,
 });
 
@@ -250,6 +264,14 @@ const currentPlan = computed((): string => {
 
 const openTrialModal = () => {
   state.showTrialModal = true;
+};
+
+const inquireEnterprise = () => {
+  if (locale.value === "zh-CN") {
+    state.showQRCodeModal = true;
+  } else {
+    window.open(ENTERPRISE_INQUIRE_LINK, "_blank");
+  }
 };
 
 const canManageSubscription = computed((): boolean => {

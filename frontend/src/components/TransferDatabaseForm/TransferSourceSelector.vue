@@ -35,6 +35,7 @@
       <NInputGroup style="width: auto">
         <InstanceSelect
           v-if="state.transferSource == 'DEFAULT'"
+          class="!w-48"
           :instance="instanceFilter?.uid ?? String(UNKNOWN_ID)"
           :include-all="true"
           :filter="filterInstance"
@@ -44,15 +45,13 @@
           v-else-if="state.transferSource == 'OTHER'"
           :include-all="true"
           :project="projectFilter?.uid ?? String(UNKNOWN_ID)"
-          :allowed-project-role-list="
-            hasWorkspaceManageProjectPermission ? [] : [PresetRoleType.OWNER]
-          "
+          :allowed-project-role-list="[PresetRoleType.OWNER]"
           :filter="filterSourceProject"
           @update:project="changeProjectFilter"
         />
         <SearchBox
           :value="searchText"
-          :placeholder="$t('database.search-database')"
+          :placeholder="$t('database.filter-database')"
           @update:value="$emit('search-text-change', $event)"
         />
       </NInputGroup>
@@ -61,10 +60,10 @@
 </template>
 
 <script lang="ts" setup>
-import { type PropType, computed, reactive, watch } from "vue";
 import { NInputGroup } from "naive-ui";
-
-import { TransferSource } from "./utils";
+import { type PropType, computed, reactive, watch } from "vue";
+import { InstanceSelect, ProjectSelect, SearchBox } from "@/components/v2";
+import { useInstanceV1Store, useProjectV1Store } from "@/store";
 import {
   UNKNOWN_ID,
   ComposedDatabase,
@@ -72,14 +71,8 @@ import {
   DEFAULT_PROJECT_V1_NAME,
   PresetRoleType,
 } from "@/types";
-import { InstanceSelect, ProjectSelect, SearchBox } from "@/components/v2";
-import {
-  useCurrentUserV1,
-  useInstanceV1Store,
-  useProjectV1Store,
-} from "@/store";
 import { Project } from "@/types/proto/v1/project_service";
-import { hasWorkspacePermissionV1 } from "@/utils";
+import { TransferSource } from "./utils";
 
 interface LocalState {
   transferSource: TransferSource;
@@ -119,18 +112,9 @@ const emit = defineEmits<{
   (event: "search-text-change", searchText: string): void;
 }>();
 
-const currentUser = useCurrentUserV1();
-
 const state = reactive<LocalState>({
   transferSource: props.transferSource,
 });
-
-const hasWorkspaceManageProjectPermission = computed(() =>
-  hasWorkspacePermissionV1(
-    "bb.permission.workspace.manage-project",
-    currentUser.value.userRole
-  )
-);
 
 const filterSourceProject = (project: Project) => {
   return project.uid !== props.project.uid;

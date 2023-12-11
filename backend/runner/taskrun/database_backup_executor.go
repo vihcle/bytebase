@@ -4,21 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
 	"golang.org/x/sys/unix"
 
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/component/config"
 	"github.com/bytebase/bytebase/backend/component/dbfactory"
+	"github.com/bytebase/bytebase/backend/component/state"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	bbs3 "github.com/bytebase/bytebase/backend/plugin/storage/s3"
 	"github.com/bytebase/bytebase/backend/runner/backuprun"
 	"github.com/bytebase/bytebase/backend/store"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 const (
@@ -27,11 +30,12 @@ const (
 )
 
 // NewDatabaseBackupExecutor creates a new database backup task executor.
-func NewDatabaseBackupExecutor(store *store.Store, dbFactory *dbfactory.DBFactory, s3Client *bbs3.Client, profile config.Profile) Executor {
+func NewDatabaseBackupExecutor(store *store.Store, dbFactory *dbfactory.DBFactory, s3Client *bbs3.Client, stateCfg *state.State, profile config.Profile) Executor {
 	return &DatabaseBackupExecutor{
 		store:     store,
 		dbFactory: dbFactory,
 		s3Client:  s3Client,
+		stateCfg:  stateCfg,
 		profile:   profile,
 	}
 }
@@ -41,11 +45,19 @@ type DatabaseBackupExecutor struct {
 	store     *store.Store
 	dbFactory *dbfactory.DBFactory
 	s3Client  *bbs3.Client
+	stateCfg  *state.State
 	profile   config.Profile
 }
 
 // RunOnce will run database backup once.
-func (exec *DatabaseBackupExecutor) RunOnce(ctx context.Context, task *store.TaskMessage) (terminated bool, result *api.TaskRunResultPayload, err error) {
+// TODO: support cancellation.
+func (exec *DatabaseBackupExecutor) RunOnce(ctx context.Context, _ context.Context, task *store.TaskMessage, taskRunUID int) (terminated bool, result *api.TaskRunResultPayload, err error) {
+	exec.stateCfg.TaskRunExecutionStatuses.Store(taskRunUID,
+		state.TaskRunExecutionStatus{
+			ExecutionStatus: v1pb.TaskRun_PRE_EXECUTING,
+			UpdateTime:      time.Now(),
+		})
+
 	payload := &api.TaskDatabaseBackupPayload{}
 	if err := json.Unmarshal([]byte(task.Payload), payload); err != nil {
 		return true, nil, errors.Wrap(err, "invalid database backup payload")
@@ -79,15 +91,29 @@ func (exec *DatabaseBackupExecutor) RunOnce(ctx context.Context, task *store.Tas
 			return true, nil, errors.Errorf("the available file system space %dMB is less than the minimal threshold %dMB", availableBytes/1024/1024, minAvailableFSBytes/1024/1024)
 		}
 	}
-	log.Debug("Start database backup.", zap.String("instance", instance.Title), zap.String("database", database.DatabaseName), zap.String("backup", backup.Name))
+
+	exec.stateCfg.TaskRunExecutionStatuses.Store(taskRunUID,
+		state.TaskRunExecutionStatus{
+			ExecutionStatus: v1pb.TaskRun_EXECUTING,
+			UpdateTime:      time.Now(),
+		})
+
+	slog.Debug("Start database backup.", slog.String("instance", instance.Title), slog.String("database", database.DatabaseName), slog.String("backup", backup.Name))
 	backupPayload, backupErr := exec.backupDatabase(ctx, exec.dbFactory, exec.s3Client, exec.profile, instance, database, backup)
+
+	exec.stateCfg.TaskRunExecutionStatuses.Store(taskRunUID,
+		state.TaskRunExecutionStatus{
+			ExecutionStatus: v1pb.TaskRun_POST_EXECUTING,
+			UpdateTime:      time.Now(),
+		})
+
 	backupStatus := string(api.BackupStatusDone)
 	comment := ""
 	if backupErr != nil {
 		backupStatus = string(api.BackupStatusFailed)
 		comment = backupErr.Error()
 		if err := removeLocalBackupFile(exec.profile.DataDir, backup); err != nil {
-			log.Warn(err.Error())
+			slog.Warn(err.Error())
 		}
 	}
 	backupPatch := store.UpdateBackupMessage{
@@ -168,7 +194,7 @@ func (*DatabaseBackupExecutor) backupDatabase(ctx context.Context, dbFactory *db
 	case api.BackupStorageBackendLocal:
 		return payload, nil
 	case api.BackupStorageBackendS3:
-		log.Debug("Uploading backup to s3 bucket.", zap.String("bucket", s3Client.GetBucket()), zap.String("path", backupFilePathLocal))
+		slog.Debug("Uploading backup to s3 bucket.", slog.String("bucket", s3Client.GetBucket()), slog.String("path", backupFilePathLocal))
 		bucketFileToUpload, err := os.Open(backupFilePathLocal)
 		if err != nil {
 			return "", errors.Wrapf(err, "failed to open backup file %q for uploading to s3 bucket", backupFilePathLocal)
@@ -178,12 +204,12 @@ func (*DatabaseBackupExecutor) backupDatabase(ctx context.Context, dbFactory *db
 		if _, err := s3Client.UploadObject(ctx, backup.Path, bucketFileToUpload); err != nil {
 			return "", errors.Wrapf(err, "failed to upload backup to AWS S3")
 		}
-		log.Debug("Successfully uploaded backup to s3 bucket.")
+		slog.Debug("Successfully uploaded backup to s3 bucket.")
 
 		if err := os.Remove(backupFilePathLocal); err != nil {
-			log.Warn("Failed to remove the local backup file after uploading to s3 bucket.", zap.String("path", backupFilePathLocal), zap.Error(err))
+			slog.Warn("Failed to remove the local backup file after uploading to s3 bucket.", slog.String("path", backupFilePathLocal), log.BBError(err))
 		} else {
-			log.Debug("Successfully removed the local backup file after uploading to s3 bucket.", zap.String("path", backupFilePathLocal))
+			slog.Debug("Successfully removed the local backup file after uploading to s3 bucket.", slog.String("path", backupFilePathLocal))
 		}
 		return payload, nil
 	default:

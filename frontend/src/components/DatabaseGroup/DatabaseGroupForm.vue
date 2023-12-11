@@ -2,19 +2,14 @@
   <div class="w-full">
     <FeatureAttentionForInstanceLicense
       v-if="existMatchedUnactivateInstance"
-      custom-class="mb-5"
+      custom-class="mb-4"
       :style="`WARN`"
       feature="bb.feature.database-grouping"
     />
     <div class="w-full grid grid-cols-3 gap-x-6 pb-6 mb-4 border-b">
       <div>
         <p class="text-lg mb-2">{{ $t("common.name") }}</p>
-        <input
-          v-model="state.placeholder"
-          required
-          type="text"
-          class="textfield w-full"
-        />
+        <NInput v-model:value="state.placeholder" />
         <div class="mt-2">
           <ResourceIdField
             ref="resourceIdField"
@@ -29,38 +24,25 @@
       <div>
         <p class="text-lg mb-2">{{ $t("common.environment") }}</p>
         <EnvironmentSelect
+          v-model:environment="state.environmentId"
           :disabled="!isCreating || disableEditDatabaseGroupFields"
-          :selected-id="state.environmentId"
-          @select-environment-id="
-            (environmentId: any) => {
-              state.environmentId = environmentId;
-            }
-          "
         />
       </div>
       <div v-if="resourceType === 'DATABASE_GROUP'">
         <p class="text-lg mb-2">{{ $t("common.project") }}</p>
-        <input
-          required
-          type="text"
-          readonly
-          disabled
-          :value="project.title"
-          class="textfield w-full"
+        <ProjectSelect
+          :project="project.uid"
+          :disabled="true"
+          style="width: auto"
         />
       </div>
       <div v-if="resourceType === 'SCHEMA_GROUP'">
         <p class="text-lg mb-2">{{ $t("database-group.self") }}</p>
         <DatabaseGroupSelect
+          v-model:selected="state.selectedDatabaseGroupId"
           :disabled="!isCreating || disableEditDatabaseGroupFields"
-          :project-id="project.name"
-          :environment-id="state.environmentId || ''"
-          :selected-id="state.selectedDatabaseGroupId"
-          @select-database-group-id="
-            (id: any) => {
-              state.selectedDatabaseGroupId = id;
-            }
-          "
+          :project="project.name"
+          :environment="state.environmentId || ''"
         />
       </div>
     </div>
@@ -94,18 +76,25 @@
 </template>
 
 <script lang="ts" setup>
+import { useDebounceFn } from "@vueuse/core";
+import { head } from "lodash-es";
+import { NInput } from "naive-ui";
 import { Status } from "nice-grpc-web";
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { useDebounceFn } from "@vueuse/core";
 import { useI18n } from "vue-i18n";
 import {
   ConditionGroupExpr,
   emptySimpleExpr,
   wrapAsGroup,
 } from "@/plugins/cel";
-import ExprEditor from "./common/ExprEditor";
-import { ResourceType } from "./common/ExprEditor/context";
-import { DatabaseGroup, SchemaGroup } from "@/types/proto/v1/project_service";
+import { useDBGroupStore, useSubscriptionV1Store } from "@/store";
+import {
+  databaseGroupNamePrefix,
+  getProjectNameAndDatabaseGroupName,
+  getProjectNameAndDatabaseGroupNameAndSchemaGroupName,
+  schemaGroupNamePrefix,
+} from "@/store/modules/v1/common";
+import { projectNamePrefix } from "@/store/modules/v1/common";
 import {
   ComposedSchemaGroupTable,
   ComposedDatabase,
@@ -114,22 +103,15 @@ import {
   ResourceId,
   ValidatedMessage,
 } from "@/types";
+import { DatabaseGroup, SchemaGroup } from "@/types/proto/v1/project_service";
 import { convertCELStringToExpr } from "@/utils/databaseGroup/cel";
-import { useDBGroupStore, useSubscriptionV1Store } from "@/store";
 import { getErrorCode } from "@/utils/grpcweb";
-import EnvironmentSelect from "../EnvironmentSelect.vue";
+import { EnvironmentSelect, ProjectSelect, ResourceIdField } from "../v2";
+import DatabaseGroupSelect from "./DatabaseGroupSelect.vue";
 import MatchedDatabaseView from "./MatchedDatabaseView.vue";
 import MatchedTableView from "./MatchedTableView.vue";
-import DatabaseGroupSelect from "./DatabaseGroupSelect.vue";
-import {
-  databaseGroupNamePrefix,
-  getProjectNameAndDatabaseGroupName,
-  getProjectNameAndDatabaseGroupNameAndSchemaGroupName,
-  schemaGroupNamePrefix,
-} from "@/store/modules/v1/common";
-import { projectNamePrefix } from "@/store/modules/v1/common";
-import { ResourceIdField } from "../v2";
-import { head } from "lodash-es";
+import ExprEditor from "./common/ExprEditor";
+import { ResourceType } from "./common/ExprEditor/context";
 
 const props = defineProps<{
   project: ComposedProject;

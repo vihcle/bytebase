@@ -98,17 +98,25 @@
       </div>
 
       <template v-if="databaseEngine !== Engine.REDIS">
-        <div class="text-lg leading-6 font-medium text-main mb-4">
-          <span v-if="databaseEngine === Engine.MONGODB">{{
-            $t("db.collections")
-          }}</span>
-          <span v-else>{{ $t("db.tables") }}</span>
+        <div class="mb-4 w-full flex flex-row justify-between items-center">
+          <div class="text-lg leading-6 font-medium text-main">
+            <span v-if="databaseEngine === Engine.MONGODB">{{
+              $t("db.collections")
+            }}</span>
+            <span v-else>{{ $t("db.tables") }}</span>
+          </div>
+          <SearchBox
+            :value="state.tableNameSearchKeyword"
+            :placeholder="$t('common.filter-by-name')"
+            @update:value="state.tableNameSearchKeyword = $event"
+          />
         </div>
 
-        <TableTable
+        <TableDataTable
           :database="database"
           :schema-name="state.selectedSchemaName"
           :table-list="tableList"
+          :search="state.tableNameSearchKeyword"
         />
 
         <div class="mt-6 text-lg leading-6 font-medium text-main mb-4">
@@ -164,21 +172,24 @@
 
 <script lang="ts" setup>
 import { head } from "lodash-es";
-import { computed, reactive, watchEffect, PropType } from "vue";
-import { ComposedDatabase, DataSource } from "../types";
-import { useAnomalyV1List, useDBSchemaV1Store } from "@/store";
-import { BBTableSectionDataSource } from "../bbkit/types";
-import AnomalyTable from "../components/AnomalyTable.vue";
-import TableTable from "../components/TableTable.vue";
-import ViewTable from "../components/ViewTable.vue";
-import FunctionTable from "../components/FunctionTable.vue";
-import { Engine, State } from "@/types/proto/v1/common";
+import { computed, reactive, watch, PropType } from "vue";
+import { useRoute } from "vue-router";
+import { useDBSchemaV1Store } from "@/store";
 import { Anomaly } from "@/types/proto/v1/anomaly_service";
+import { Engine, State } from "@/types/proto/v1/common";
+import { DatabaseMetadataView } from "@/types/proto/v1/database_service";
+import { BBTableSectionDataSource } from "../bbkit/types";
+import AnomalyTable from "../components/AnomalyCenter/AnomalyTable.vue";
+import FunctionTable from "../components/FunctionTable.vue";
+import TableDataTable from "../components/TableDataTable.vue";
+import ViewTable from "../components/ViewTable.vue";
+import { ComposedDatabase, DataSource } from "../types";
 import StreamTable from "./StreamTable.vue";
 import TaskTable from "./TaskTable.vue";
 
 interface LocalState {
   selectedSchemaName: string;
+  tableNameSearchKeyword: string;
   editingDataSource?: DataSource;
 }
 
@@ -187,10 +198,15 @@ const props = defineProps({
     required: true,
     type: Object as PropType<ComposedDatabase>,
   },
+  anomalyList: {
+    required: true,
+    type: Object as PropType<Anomaly[]>,
+  },
 });
-
+const route = useRoute();
 const state = reactive<LocalState>({
   selectedSchemaName: "",
+  tableNameSearchKeyword: "",
 });
 
 const dbSchemaStore = useDBSchemaV1Store();
@@ -204,30 +220,49 @@ const hasSchemaProperty = computed(() => {
     databaseEngine.value === Engine.POSTGRES ||
     databaseEngine.value === Engine.SNOWFLAKE ||
     databaseEngine.value === Engine.ORACLE ||
+    databaseEngine.value === Engine.DM ||
     databaseEngine.value === Engine.MSSQL ||
-    databaseEngine.value === Engine.REDSHIFT
+    databaseEngine.value === Engine.REDSHIFT ||
+    databaseEngine.value === Engine.RISINGWAVE
   );
 });
 
-const prepareDatabaseMetadata = async () => {
-  await dbSchemaStore.getOrFetchDatabaseMetadata(props.database.name);
-  if (hasSchemaProperty.value && schemaList.value.length > 0) {
-    state.selectedSchemaName = head(schemaList.value)?.name || "";
-  }
-};
-
-watchEffect(prepareDatabaseMetadata);
-
-const anomalyList = useAnomalyV1List(
-  computed(() => ({ database: props.database.name }))
+watch(
+  () => props.database.name,
+  async (database) => {
+    await dbSchemaStore.getOrFetchDatabaseMetadata({
+      database: database,
+      skipCache: false,
+      view: DatabaseMetadataView.DATABASE_METADATA_VIEW_BASIC,
+    });
+    if (schemaList.value.length > 0) {
+      const schemaInQuery = route.query.schema as string;
+      if (
+        schemaInQuery &&
+        schemaList.value.find((schema) => schema.name === schemaInQuery)
+      ) {
+        state.selectedSchemaName = schemaInQuery;
+      } else {
+        const publicSchema = schemaList.value.find(
+          (schema) => schema.name.toLowerCase() === "public"
+        );
+        if (publicSchema) {
+          state.selectedSchemaName = publicSchema.name;
+        } else {
+          state.selectedSchemaName = head(schemaList.value)?.name || "";
+        }
+      }
+    }
+  },
+  { immediate: true }
 );
 
 const anomalySectionList = computed((): BBTableSectionDataSource<Anomaly>[] => {
   const list: BBTableSectionDataSource<Anomaly>[] = [];
-  if (anomalyList.value.length > 0) {
+  if (props.anomalyList.length > 0) {
     list.push({
       title: props.database.name,
-      list: anomalyList.value,
+      list: props.anomalyList,
     });
   }
   return list;

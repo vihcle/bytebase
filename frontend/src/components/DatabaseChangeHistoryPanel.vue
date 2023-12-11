@@ -3,37 +3,58 @@
     <div
       class="w-full flex flex-row justify-between items-center text-lg leading-6 font-medium text-main space-x-2"
     >
-      <div class="flex flex-row justify-start items-center space-x-2">
-        <span>{{ $t("change-history.self") }}</span>
+      <div class="flex flex-row justify-start items-center space-x-4">
+        <div class="w-44">
+          <AffectedTableSelect
+            v-model:affected-table="state.selectedAffectedTable"
+            :change-history-list="changeHistoryList"
+          />
+        </div>
+        <div class="flex items-center">
+          <label
+            v-for="item in CHANGE_TYPES"
+            :key="item"
+            class="text-sm text-gray-600"
+          >
+            <NCheckbox
+              :checked="state.selectedChangeType.has(item)"
+              @update:checked="toggleChangeType(item, $event)"
+            >
+              {{ item }}
+            </NCheckbox>
+          </label>
+        </div>
+      </div>
+      <div class="flex flex-row justify-end items-center grow space-x-2">
         <BBSpin
           v-if="state.loading"
           :title="$t('change-history.refreshing-history')"
         />
-      </div>
-      <div class="flex flex-row justify-end items-center space-x-2">
-        <BBTooltipButton
-          v-if="showEstablishBaselineButton"
-          type="normal"
-          :disabled="!allowExportChangeHistory || state.isExporting"
+        <TooltipButton
           tooltip-mode="DISABLED-ONLY"
+          :disabled="!allowExportChangeHistory"
+          :loading="state.isExporting"
           @click="handleExportChangeHistory"
         >
-          {{ $t("change-history.export") }}
+          <template #default>
+            {{ $t("change-history.export") }}
+          </template>
           <template #tooltip>
             <div class="whitespace-pre-line">
               {{ $t("change-history.need-to-select-first") }}
             </div>
           </template>
-        </BBTooltipButton>
-        <BBTooltipButton
+        </TooltipButton>
+        <TooltipButton
           v-if="showEstablishBaselineButton"
+          tooltip-mode="DISABLED-ONLY"
           type="primary"
           :disabled="!allowMigrate"
-          tooltip-mode="DISABLED-ONLY"
-          data-label="bb-establish-baseline-button"
           @click="state.showBaselineModal = true"
         >
-          {{ $t("change-history.establish-baseline") }}
+          <template #default>
+            {{ $t("change-history.establish-baseline") }}
+          </template>
           <template
             v-if="database.project === DEFAULT_PROJECT_V1_NAME"
             #tooltip
@@ -48,7 +69,7 @@
               }}
             </div>
           </template>
-        </BBTooltipButton>
+        </TooltipButton>
       </div>
     </div>
     <ChangeHistoryTable
@@ -79,30 +100,43 @@
 </template>
 
 <script lang="ts" setup>
+import dayjs from "dayjs";
 import saveAs from "file-saver";
 import JSZip from "jszip";
-import { computed, onBeforeMount, PropType, reactive } from "vue";
+import { isEqual } from "lodash-es";
+import { NCheckbox } from "naive-ui";
+import { computed, onBeforeMount, PropType, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
-import { BBTooltipButton } from "@/bbkit";
-import { ComposedDatabase, DEFAULT_PROJECT_V1_NAME } from "@/types";
 import { BBTableSectionDataSource } from "@/bbkit/types";
-import { instanceV1HasAlterSchema } from "@/utils";
-import { useChangeHistoryStore } from "@/store";
-import { TenantMode } from "@/types/proto/v1/project_service";
+import {
+  AffectedTableSelect,
+  ChangeHistoryTable,
+} from "@/components/ChangeHistory";
+import { useChangeHistoryStore, useDBSchemaV1Store } from "@/store";
+import { ComposedDatabase, DEFAULT_PROJECT_V1_NAME } from "@/types";
+import { AffectedTable, EmptyAffectedTable } from "@/types/changeHistory";
 import {
   ChangeHistory,
+  ChangeHistory_Status,
   ChangeHistory_Type,
   ChangeHistoryView,
 } from "@/types/proto/v1/database_service";
-import { ChangeHistoryTable } from "@/components/ChangeHistory";
-import dayjs from "dayjs";
+import { TenantMode } from "@/types/proto/v1/project_service";
+import {
+  getAffectedTablesOfChangeHistory,
+  instanceV1HasAlterSchema,
+  getHistoryChangeType,
+} from "@/utils";
+import { TooltipButton } from "./v2";
 
 interface LocalState {
   showBaselineModal: boolean;
   loading: boolean;
   selectedChangeHistoryNameList: string[];
   isExporting: boolean;
+  selectedAffectedTable: AffectedTable;
+  selectedChangeType: Set<string>;
 }
 
 const props = defineProps({
@@ -120,23 +154,28 @@ const { t } = useI18n();
 
 const changeHistoryStore = useChangeHistoryStore();
 const router = useRouter();
+const CHANGE_TYPES = ["DDL", "DML"];
 
 const state = reactive<LocalState>({
   showBaselineModal: false,
   loading: false,
   selectedChangeHistoryNameList: [],
   isExporting: false,
+  selectedAffectedTable: EmptyAffectedTable,
+  selectedChangeType: new Set(CHANGE_TYPES),
 });
 
-const prepareChangeHistoryList = () => {
+const prepareChangeHistoryList = async () => {
   state.loading = true;
-  changeHistoryStore
-    .fetchChangeHistoryList({
-      parent: props.database.name,
-    })
-    .finally(() => {
-      state.loading = false;
-    });
+  await changeHistoryStore.fetchChangeHistoryList({
+    parent: props.database.name,
+    pageSize: 1000,
+  });
+  // prepare database metadata for getting affected tables.
+  await useDBSchemaV1Store().getOrFetchDatabaseMetadata({
+    database: props.database.name,
+  });
+  state.loading = false;
 };
 
 onBeforeMount(prepareChangeHistoryList);
@@ -176,12 +215,31 @@ const changeHistoryList = computed(() => {
   return changeHistoryStore.changeHistoryListByDatabase(props.database.name);
 });
 
+const shownChangeHistoryList = computed(() => {
+  return changeHistoryList.value.filter((changeHistory) => {
+    const type = getHistoryChangeType(changeHistory.type);
+    if (!state.selectedChangeType.has(type)) {
+      return false;
+    }
+    if (
+      state.selectedAffectedTable &&
+      !isEqual(state.selectedAffectedTable, EmptyAffectedTable)
+    ) {
+      const affectedTables = getAffectedTablesOfChangeHistory(changeHistory);
+      return affectedTables.find((item) =>
+        isEqual(item, state.selectedAffectedTable)
+      );
+    }
+    return true;
+  });
+});
+
 const changeHistorySectionList = computed(
   (): BBTableSectionDataSource<ChangeHistory>[] => {
     return [
       {
         title: "",
-        list: changeHistoryList.value,
+        list: shownChangeHistoryList.value,
       },
     ];
   }
@@ -201,9 +259,14 @@ const handleExportChangeHistory = async () => {
     });
 
     if (changeHistory) {
+      if (changeHistory.status !== ChangeHistory_Status.DONE) {
+        continue;
+      }
+
       if (
         changeHistory.type === ChangeHistory_Type.MIGRATE ||
-        changeHistory.type === ChangeHistory_Type.MIGRATE_SDL
+        changeHistory.type === ChangeHistory_Type.MIGRATE_SDL ||
+        changeHistory.type === ChangeHistory_Type.DATA
       ) {
         zip.file(`${changeHistory.version}.sql`, changeHistory.statement);
       } else if (changeHistory.type === ChangeHistory_Type.BASELINE) {
@@ -246,4 +309,17 @@ const doCreateBaseline = () => {
     },
   });
 };
+
+const toggleChangeType = (type: string, checked: boolean) => {
+  if (checked) state.selectedChangeType.add(type);
+  else state.selectedChangeType.delete(type);
+};
+
+watch(
+  changeHistoryList,
+  () => {
+    state.selectedAffectedTable = EmptyAffectedTable;
+  },
+  { immediate: true }
+);
 </script>

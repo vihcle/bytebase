@@ -8,11 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
-func newDatabaseState(d *storepb.DatabaseMetadata, context *FinderContext) *DatabaseState {
+func newDatabaseState(d *storepb.DatabaseSchemaMetadata, context *FinderContext) *DatabaseState {
 	database := &DatabaseState{
 		ctx:          context.Copy(),
 		name:         d.Name,
@@ -31,7 +30,7 @@ func newDatabaseState(d *storepb.DatabaseMetadata, context *FinderContext) *Data
 		for _, view := range schema.Views {
 			for _, dependentColumn := range view.DependentColumns {
 				if schemaState, exist := database.schemaSet[dependentColumn.Schema]; exist {
-					if tableState, exist := schemaState.tableSet[dependentColumn.Table]; exist {
+					if tableState, exist := schemaState.getTable(dependentColumn.Table); exist {
 						tableState.dependentView[fmt.Sprintf("%q.%q", schema.Name, view.Name)] = true
 						if columnState, exist := tableState.columnSet[dependentColumn.Column]; exist {
 							columnState.dependentView[fmt.Sprintf("%q.%q", schema.Name, view.Name)] = true
@@ -55,7 +54,7 @@ func newSchemaState(s *storepb.SchemaMetadata, context *FinderContext) *SchemaSt
 	}
 
 	for _, table := range s.Tables {
-		tableState := newTableState(table)
+		tableState := newTableState(table, context)
 		schema.tableSet[table.Name] = tableState
 
 		schema.identifierMap[table.Name] = true
@@ -81,23 +80,33 @@ func newViewState(v *storepb.ViewMetadata) *ViewState {
 	}
 }
 
-func newTableState(t *storepb.TableMetadata) *TableState {
+func newTableState(t *storepb.TableMetadata, context *FinderContext) *TableState {
 	table := &TableState{
 		name:          t.Name,
 		engine:        newStringPointer(t.Engine),
 		collation:     newStringPointer(t.Collation),
 		comment:       newStringPointer(t.Comment),
 		columnSet:     make(columnStateMap),
-		indexSet:      make(indexStateMap),
+		indexSet:      make(IndexStateMap),
 		dependentView: make(map[string]bool),
 	}
 
 	for i, column := range t.Columns {
-		table.columnSet[column.Name] = newColumnState(column, i+1)
+		columnName := column.Name
+		switch context.EngineType {
+		case storepb.Engine_MYSQL, storepb.Engine_TIDB, storepb.Engine_MARIADB:
+			columnName = strings.ToLower(columnName)
+		}
+		table.columnSet[columnName] = newColumnState(column, i+1)
 	}
 
 	for _, index := range t.Indexes {
-		table.indexSet[index.Name] = newIndexState(index)
+		indexName := index.Name
+		switch context.EngineType {
+		case storepb.Engine_MYSQL, storepb.Engine_TIDB, storepb.Engine_MARIADB:
+			indexName = strings.ToLower(indexName)
+		}
+		table.indexSet[indexName] = newIndexState(index)
 	}
 
 	return table
@@ -105,8 +114,18 @@ func newTableState(t *storepb.TableMetadata) *TableState {
 
 func newColumnState(c *storepb.ColumnMetadata, position int) *ColumnState {
 	defaultValue := (*string)(nil)
-	if c.Default != nil {
-		defaultValue = copyStringPointer(&c.Default.Value)
+	if c.DefaultValue != nil {
+		switch value := c.DefaultValue.(type) {
+		case *storepb.ColumnMetadata_Default:
+			if value != nil {
+				defaultValue = copyStringPointer(&value.Default.Value)
+			}
+		case *storepb.ColumnMetadata_DefaultNull:
+			nullValue := "NULL"
+			defaultValue = &nullValue
+		case *storepb.ColumnMetadata_DefaultExpression:
+			defaultValue = copyStringPointer(&value.DefaultExpression)
+		}
 	}
 	return &ColumnState{
 		name:          c.Name,
@@ -143,10 +162,24 @@ type DatabaseState struct {
 	name         string
 	characterSet string
 	collation    string
-	dbType       db.Type
+	dbType       storepb.Engine
 	schemaSet    schemaStateMap
 	deleted      bool
 	usable       bool
+}
+
+type TableIndexFind struct {
+	SchemaName string
+	TableName  string
+}
+
+// Index returns the index map of the table.
+func (d *DatabaseState) Index(tableIndexFind *TableIndexFind) *IndexStateMap {
+	schema, exists := d.schemaSet[tableIndexFind.SchemaName]
+	if !exists {
+		return nil
+	}
+	return schema.Index(tableIndexFind)
 }
 
 // Usable returns the usable of the database state.
@@ -179,19 +212,23 @@ type IndexFind struct {
 
 // FindIndex finds the index.
 func (d *DatabaseState) FindIndex(find *IndexFind) (string, *IndexState) {
+	switch d.dbType {
+	case storepb.Engine_MYSQL, storepb.Engine_TIDB, storepb.Engine_MARIADB:
+		find.IndexName = strings.ToLower(find.IndexName)
+	}
 	// There are two cases to find a index:
 	// 1. find an index in specific table. e.g. MySQL and TiDB.
 	// 2. find an index in the schema. e.g. PostgreSQL.
 	// In PostgreSQL, the index name is unique in a schema, not a table.
 	// In MySQL and TiDB, the index name is unique in a table.
 	// So for case one, we need match table name, but for case two, we don't need.
-	needMatchTable := (d.dbType != db.Postgres || find.SchemaName == "" || find.TableName != "")
+	needMatchTable := (d.dbType != storepb.Engine_POSTGRES || find.SchemaName == "" || find.TableName != "")
 	if needMatchTable {
 		schema, exists := d.schemaSet[find.SchemaName]
 		if !exists {
 			return "", nil
 		}
-		table, exists := schema.tableSet[find.TableName]
+		table, exists := schema.getTable(find.TableName)
 		if !exists {
 			return "", nil
 		}
@@ -230,7 +267,7 @@ func (d *DatabaseState) FindPrimaryKey(find *PrimaryKeyFind) *IndexState {
 			continue
 		}
 		for _, table := range schema.tableSet {
-			if table.name != find.TableName {
+			if !compareIdentifier(table.name, find.TableName, schema.ctx.IgnoreCaseSensitive) {
 				continue
 			}
 			for _, index := range table.indexSet {
@@ -256,7 +293,7 @@ func (d *DatabaseState) CountColumn(count *ColumnCount) int {
 	if !exists {
 		return 0
 	}
-	table, exists := schema.tableSet[count.TableName]
+	table, exists := schema.getTable(count.TableName)
 	if !exists {
 		return 0
 	}
@@ -278,11 +315,15 @@ type ColumnFind struct {
 
 // FindColumn finds the column.
 func (d *DatabaseState) FindColumn(find *ColumnFind) *ColumnState {
+	switch d.dbType {
+	case storepb.Engine_MYSQL, storepb.Engine_TIDB, storepb.Engine_MARIADB:
+		find.ColumnName = strings.ToLower(find.ColumnName)
+	}
 	schema, exists := d.schemaSet[find.SchemaName]
 	if !exists {
 		return nil
 	}
-	table, exists := schema.tableSet[find.TableName]
+	table, exists := schema.getTable(find.TableName)
 	if !exists {
 		return nil
 	}
@@ -305,7 +346,7 @@ func (d *DatabaseState) FindTable(find *TableFind) *TableState {
 	if !exists {
 		return nil
 	}
-	table, exists := schema.tableSet[find.TableName]
+	table, exists := schema.getTable(find.TableName)
 	if !exists {
 		return nil
 	}
@@ -325,6 +366,15 @@ type SchemaState struct {
 	// All relation names in PostgreSQL must be distinct in schema level.
 	identifierMap identifierMap
 }
+
+func (d *SchemaState) Index(tableIndexFind *TableIndexFind) *IndexStateMap {
+	table, exists := d.getTable(tableIndexFind.TableName)
+	if !exists {
+		return nil
+	}
+	return table.Index(tableIndexFind)
+}
+
 type schemaStateMap map[string]*SchemaState
 
 // TableState is the state for walk-through.
@@ -338,7 +388,7 @@ type TableState struct {
 	comment   *string
 	columnSet columnStateMap
 	// indexSet isn't supported for ClickHouse, Snowflake.
-	indexSet indexStateMap
+	indexSet IndexStateMap
 
 	// dependentView is used to record the dependent view for the table.
 	// Used to check if the table is used by any view.
@@ -348,6 +398,11 @@ type TableState struct {
 // CountIndex return the index total number.
 func (table *TableState) CountIndex() int {
 	return len(table.indexSet)
+}
+
+// Index return the index map of table.
+func (table *TableState) Index(_ *TableIndexFind) *IndexStateMap {
+	return &table.indexSet
 }
 
 func (table *TableState) copy() *TableState {
@@ -417,10 +472,10 @@ func (idx *IndexState) ExpressionList() []string {
 	return idx.expressionList
 }
 
-type indexStateMap map[string]*IndexState
+type IndexStateMap map[string]*IndexState
 
-func (m indexStateMap) copy() indexStateMap {
-	res := make(indexStateMap)
+func (m IndexStateMap) copy() IndexStateMap {
+	res := make(IndexStateMap)
 	for k, v := range m {
 		res[k] = v.copy()
 	}

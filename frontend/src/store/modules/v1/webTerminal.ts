@@ -1,7 +1,10 @@
-import { markRaw, ref } from "vue";
-import { defineStore } from "pinia";
+import Emittery from "emittery";
 import { uniqueId } from "lodash-es";
-
+import { ClientError, Status } from "nice-grpc-common";
+import { defineStore } from "pinia";
+import { fromEventPattern, map, Observable, Subscription } from "rxjs";
+import { markRaw, ref } from "vue";
+import { useCancelableTimeout } from "@/composables/useCancelableTimeout";
 import {
   SQLResultSetV1,
   StreamingQueryController,
@@ -11,22 +14,18 @@ import {
   WebTerminalQueryParamsV1,
   WebTerminalQueryState,
 } from "@/types";
-import Emittery from "emittery";
-import { useCancelableTimeout } from "@/composables/useCancelableTimeout";
-import { fromEventPattern, map, Observable, Subscription } from "rxjs";
+import { Duration } from "@/types/proto/google/protobuf/duration";
 import {
   AdminExecuteRequest,
   AdminExecuteResponse,
   QueryResult,
 } from "@/types/proto/v1/sql_service";
-import { useDatabaseV1Store } from "./database";
-import { useInstanceV1Store } from "./instance";
 import {
   extractGrpcErrorMessage,
   getErrorCode as extractGrpcStatusCode,
 } from "@/utils/grpcweb";
-import { ClientError, Status } from "nice-grpc-common";
-import { Duration } from "@/types/proto/google/protobuf/duration";
+import { useDatabaseV1Store } from "./database";
+import { useInstanceV1Store } from "./instance";
 
 const ENDPOINT = "/v1:adminExecute";
 const SIG_ABORT = 3000 + Status.ABORTED;
@@ -117,12 +116,6 @@ const createStreamingQueryController = (tab: TabInfo) => {
       const payload: any = {
         ...request,
       };
-      const timeout: Duration = {
-        seconds: 60,
-        nanos: 0,
-      };
-      const seconds = timeout.seconds + timeout.nanos / 1e9;
-      payload.timeout = `${seconds}s`;
       console.debug("will send", JSON.stringify(payload));
       ws.send(JSON.stringify(payload));
     };
@@ -210,6 +203,7 @@ const createStreamingQueryController = (tab: TabInfo) => {
         events.emit("result", {
           error: "",
           advices: [],
+          allowExport: false,
           ...response,
         });
       },
@@ -221,6 +215,7 @@ const createStreamingQueryController = (tab: TabInfo) => {
           status: extractGrpcStatusCode(error),
           advices: [],
           results: [],
+          allowExport: false,
         };
         if (result.status === Status.ABORTED && !result.error) {
           result.error = "Aborted";
@@ -275,7 +270,7 @@ const useQueryStateLogic = (qs: WebTerminalQueryState) => {
 };
 
 export const mockAffectedV1Rows0 = (): QueryResult => {
-  return {
+  return QueryResult.fromPartial({
     columnNames: ["Affected Rows"],
     columnTypeNames: ["BIGINT"],
     masked: [false],
@@ -290,7 +285,7 @@ export const mockAffectedV1Rows0 = (): QueryResult => {
         ],
       },
     ],
-  };
+  });
 };
 
 const mapRequest = (
@@ -320,8 +315,8 @@ export const parseDuration = (str: string): Duration | undefined => {
   if (Number.isNaN(totalSeconds) || totalSeconds < 0) return undefined;
   const seconds = Math.floor(totalSeconds);
   const nanos = (totalSeconds - seconds) * 1e9;
-  return {
+  return Duration.fromPartial({
     seconds,
     nanos,
-  };
+  });
 };

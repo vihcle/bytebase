@@ -14,87 +14,14 @@ import (
 
 	"github.com/bytebase/bytebase/backend/common"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
-	"github.com/bytebase/bytebase/backend/plugin/db"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
-
-// GetInstanceByID gets an instance of Instance.
-func (s *Store) GetInstanceByID(ctx context.Context, id int) (*api.Instance, error) {
-	instance, err := s.GetInstanceV2(ctx, &FindInstanceMessage{UID: &id})
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get Instance with ID %d", id)
-	}
-	if instance == nil {
-		return nil, nil
-	}
-	composedInstance, err := s.composeInstance(ctx, instance)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to compose Instance with instance[%+v]", instance)
-	}
-	return composedInstance, nil
-}
-
-// private function.
-func (s *Store) composeInstance(ctx context.Context, instance *InstanceMessage) (*api.Instance, error) {
-	composedInstance := &api.Instance{
-		ID:            instance.UID,
-		ResourceID:    instance.ResourceID,
-		RowStatus:     api.Normal,
-		Name:          instance.Title,
-		Engine:        instance.Engine,
-		EngineVersion: instance.EngineVersion,
-		ExternalLink:  instance.ExternalLink,
-	}
-	if instance.Deleted {
-		composedInstance.RowStatus = api.Archived
-	}
-
-	environment, err := s.GetEnvironmentV2(ctx, &FindEnvironmentMessage{ResourceID: &instance.EnvironmentID})
-	if err != nil {
-		return nil, err
-	}
-	composedInstance.EnvironmentID = environment.UID
-	composedEnvironment, err := s.GetEnvironmentByID(ctx, environment.UID)
-	if err != nil {
-		return nil, err
-	}
-	composedInstance.Environment = composedEnvironment
-
-	for _, ds := range instance.DataSources {
-		composedInstance.DataSourceList = append(composedInstance.DataSourceList, &api.DataSource{
-			ID:         ds.UID,
-			InstanceID: instance.UID,
-			DatabaseID: ds.DatabaseID,
-			Name:       ds.Title,
-			Type:       ds.Type,
-			Username:   ds.Username,
-			Host:       ds.Host,
-			Port:       ds.Port,
-			Options: api.DataSourceOptions{
-				SRV:                    ds.SRV,
-				AuthenticationDatabase: ds.AuthenticationDatabase,
-				SID:                    ds.SID,
-				ServiceName:            ds.ServiceName,
-				SSHHost:                ds.SSHHost,
-				SSHPort:                ds.SSHPort,
-				SSHUser:                ds.SSHUser,
-			},
-			Database: ds.Database,
-		})
-		if ds.Type == api.Admin {
-			composedInstance.Host = ds.Host
-			composedInstance.Port = ds.Port
-		}
-	}
-
-	return composedInstance, nil
-}
 
 // InstanceMessage is the message for instance.
 type InstanceMessage struct {
 	ResourceID   string
 	Title        string
-	Engine       db.Type
+	Engine       storepb.Engine
 	ExternalLink string
 	DataSources  []*DataSourceMessage
 	Activation   bool
@@ -104,6 +31,7 @@ type InstanceMessage struct {
 	UID           int
 	Deleted       bool
 	EngineVersion string
+	Metadata      *storepb.InstanceMetadata
 }
 
 // UpdateInstanceMessage is the message for updating an instance.
@@ -114,7 +42,9 @@ type UpdateInstanceMessage struct {
 	DataSources   *[]*DataSourceMessage
 	EngineVersion *string
 	Activation    *bool
-	Options       *storepb.InstanceOptions
+	// OptionsUpsert upserts the top-level messages of the instance options.
+	OptionsUpsert *storepb.InstanceOptions
+	Metadata      *storepb.InstanceMetadata
 
 	// Output only.
 	UpdaterID     int
@@ -128,18 +58,19 @@ type FindInstanceMessage struct {
 	EnvironmentID *string
 	ResourceID    *string
 	ShowDeleted   bool
+	ProjectUID    *int
 }
 
 // GetInstanceV2 gets an instance by the resource_id.
 func (s *Store) GetInstanceV2(ctx context.Context, find *FindInstanceMessage) (*InstanceMessage, error) {
 	if find.ResourceID != nil {
-		if instance, ok := s.instanceCache.Load(getInstanceCacheKey(*find.ResourceID)); ok {
-			return instance.(*InstanceMessage), nil
+		if v, ok := s.instanceCache.Get(getInstanceCacheKey(*find.ResourceID)); ok {
+			return v, nil
 		}
 	}
 	if find.UID != nil {
-		if instance, ok := s.instanceIDCache.Load(*find.UID); ok {
-			return instance.(*InstanceMessage), nil
+		if v, ok := s.instanceIDCache.Get(*find.UID); ok {
+			return v, nil
 		}
 	}
 
@@ -166,8 +97,8 @@ func (s *Store) GetInstanceV2(ctx context.Context, find *FindInstanceMessage) (*
 	}
 
 	instance := instances[0]
-	s.instanceCache.Store(getInstanceCacheKey(instance.ResourceID), instance)
-	s.instanceIDCache.Store(instance.UID, instance)
+	s.instanceCache.Add(getInstanceCacheKey(instance.ResourceID), instance)
+	s.instanceIDCache.Add(instance.UID, instance)
 	return instance, nil
 }
 
@@ -189,8 +120,8 @@ func (s *Store) ListInstancesV2(ctx context.Context, find *FindInstanceMessage) 
 	}
 
 	for _, instance := range instances {
-		s.instanceCache.Store(getInstanceCacheKey(instance.ResourceID), instance)
-		s.instanceIDCache.Store(instance.UID, instance)
+		s.instanceCache.Add(getInstanceCacheKey(instance.ResourceID), instance)
+		s.instanceIDCache.Add(instance.UID, instance)
 	}
 	return instances, nil
 }
@@ -228,6 +159,11 @@ func (s *Store) CreateInstanceV2(ctx context.Context, instanceCreate *InstanceMe
 		return nil, err
 	}
 
+	metadataBytes, err := protojson.Marshal(instanceCreate.Metadata)
+	if err != nil {
+		return nil, err
+	}
+
 	var instanceID int
 	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
 			INSERT INTO instance (
@@ -239,9 +175,10 @@ func (s *Store) CreateInstanceV2(ctx context.Context, instanceCreate *InstanceMe
 				engine,
 				external_link,
 				activation,
-				options
+				options,
+				metadata
 			)
-			SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+			SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 			%s
 			RETURNING id
 		`, where),
@@ -250,21 +187,17 @@ func (s *Store) CreateInstanceV2(ctx context.Context, instanceCreate *InstanceMe
 		creatorID,
 		environment.UID,
 		instanceCreate.Title,
-		instanceCreate.Engine,
+		instanceCreate.Engine.String(),
 		instanceCreate.ExternalLink,
 		instanceCreate.Activation,
 		optionBytes,
+		metadataBytes,
 	).Scan(&instanceID); err != nil {
 		return nil, err
 	}
 
-	allDatabaseUID, err := s.createDatabaseDefaultImpl(ctx, tx, instanceID, &DatabaseMessage{DatabaseName: api.AllDatabaseName})
-	if err != nil {
-		return nil, err
-	}
-
 	for _, ds := range instanceCreate.DataSources {
-		if err := s.addDataSourceToInstanceImplV2(ctx, tx, instanceID, allDatabaseUID, creatorID, ds); err != nil {
+		if err := s.addDataSourceToInstanceImplV2(ctx, tx, instanceID, creatorID, ds); err != nil {
 			return nil, err
 		}
 	}
@@ -288,9 +221,10 @@ func (s *Store) CreateInstanceV2(ctx context.Context, instanceCreate *InstanceMe
 		DataSources:   dataSources,
 		Activation:    instanceCreate.Activation,
 		Options:       instanceCreate.Options,
+		Metadata:      instanceCreate.Metadata,
 	}
-	s.instanceCache.Store(getInstanceCacheKey(instance.ResourceID), instance)
-	s.instanceIDCache.Store(instance.UID, instance)
+	s.instanceCache.Add(getInstanceCacheKey(instance.ResourceID), instance)
+	s.instanceIDCache.Add(instance.UID, instance)
 	return instance, nil
 }
 
@@ -329,8 +263,21 @@ func (s *Store) UpdateInstanceV2(ctx context.Context, patch *UpdateInstanceMessa
 		}
 		set, args = append(set, fmt.Sprintf(`"row_status" = $%d`, len(args)+1)), append(args, rowStatus)
 	}
-	if v := patch.Options; v != nil {
-		set, args = append(set, fmt.Sprintf("options = $%d", len(args)+1)), append(args, v)
+	if v := patch.OptionsUpsert; v != nil {
+		options, err := protojson.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+
+		set, args = append(set, fmt.Sprintf("options = options || $%d", len(args)+1)), append(args, options)
+	}
+	if v := patch.Metadata; v != nil {
+		metadata, err := protojson.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+
+		set, args = append(set, fmt.Sprintf("metadata = $%d", len(args)+1)), append(args, metadata)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -356,6 +303,7 @@ func (s *Store) UpdateInstanceV2(ctx context.Context, patch *UpdateInstanceMessa
 	instance := &InstanceMessage{
 		EnvironmentID: patch.EnvironmentID,
 	}
+	var engine string
 	query := fmt.Sprintf(`
 			UPDATE instance
 			SET `+strings.Join(set, ", ")+`
@@ -369,44 +317,41 @@ func (s *Store) UpdateInstanceV2(ctx context.Context, patch *UpdateInstanceMessa
 				external_link,
 				activation,
 				row_status,
-				options
+				options,
+				metadata
 		`, strings.Join(where, " AND "))
 	var rowStatus string
-	var options []byte
+	var options, metadata []byte
 	if err := tx.QueryRowContext(ctx, query, args...).Scan(
 		&instance.UID,
 		&instance.ResourceID,
 		&instance.Title,
-		&instance.Engine,
+		&engine,
 		&instance.EngineVersion,
 		&instance.ExternalLink,
 		&instance.Activation,
 		&rowStatus,
 		&options,
+		&metadata,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, common.FormatDBErrorEmptyRowWithQuery(query)
 		}
 		return nil, err
 	}
+	engineTypeValue, ok := storepb.Engine_value[engine]
+	if !ok {
+		return nil, errors.Errorf("invalid engine %s", engine)
+	}
+	instance.Engine = storepb.Engine(engineTypeValue)
 
 	if patch.DataSources != nil {
-		allDatabaseName := api.AllDatabaseName
-		allDatabase, err := s.getDatabaseImplV2(ctx, tx, &FindDatabaseMessage{
-			InstanceID:         &instance.ResourceID,
-			DatabaseName:       &allDatabaseName,
-			IncludeAllDatabase: true,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		if err := s.clearDataSourceImpl(ctx, tx, instance.UID, allDatabase.UID); err != nil {
+		if err := s.clearDataSourceImpl(ctx, tx, instance.UID); err != nil {
 			return nil, err
 		}
 
 		for _, ds := range *patch.DataSources {
-			if err := s.addDataSourceToInstanceImplV2(ctx, tx, instance.UID, allDatabase.UID, patch.UpdaterID, ds); err != nil {
+			if err := s.addDataSourceToInstanceImplV2(ctx, tx, instance.UID, patch.UpdaterID, ds); err != nil {
 				return nil, err
 			}
 		}
@@ -423,12 +368,18 @@ func (s *Store) UpdateInstanceV2(ctx context.Context, patch *UpdateInstanceMessa
 	}
 	instance.Options = &instanceOptions
 
+	var instanceMetadata storepb.InstanceMetadata
+	if err := protojson.Unmarshal(metadata, &instanceMetadata); err != nil {
+		return nil, err
+	}
+	instance.Metadata = &instanceMetadata
+
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
-	s.instanceCache.Store(getInstanceCacheKey(instance.ResourceID), instance)
-	s.instanceIDCache.Store(instance.UID, instance)
+	s.instanceCache.Add(getInstanceCacheKey(instance.ResourceID), instance)
+	s.instanceIDCache.Add(instance.UID, instance)
 	return instance, nil
 }
 
@@ -442,6 +393,9 @@ func (s *Store) listInstanceImplV2(ctx context.Context, tx *Tx, find *FindInstan
 	}
 	if v := find.UID; v != nil {
 		where, args = append(where, fmt.Sprintf("instance.id = $%d", len(args)+1)), append(args, *v)
+	}
+	if v := find.ProjectUID; v != nil {
+		where, args = append(where, fmt.Sprintf("instance.id IN (SELECT DISTINCT instance_id FROM db WHERE project_id = $%d)", len(args)+1)), append(args, *v)
 	}
 	if !find.ShowDeleted {
 		where, args = append(where, fmt.Sprintf("instance.row_status = $%d", len(args)+1)), append(args, api.Normal)
@@ -459,7 +413,8 @@ func (s *Store) listInstanceImplV2(ctx context.Context, tx *Tx, find *FindInstan
 			external_link,
 			activation,
 			instance.row_status AS row_status,
-			instance.options AS options
+			instance.options AS options,
+			instance.metadata AS metadata
 		FROM instance
 		LEFT JOIN environment ON environment.id = instance.environment_id
 		WHERE `+strings.Join(where, " AND "),
@@ -471,28 +426,40 @@ func (s *Store) listInstanceImplV2(ctx context.Context, tx *Tx, find *FindInstan
 	defer rows.Close()
 	for rows.Next() {
 		var instanceMessage InstanceMessage
-		var rowStatus string
-		var options []byte
+		var engine, rowStatus string
+		var options, metadata []byte
 		if err := rows.Scan(
 			&instanceMessage.EnvironmentID,
 			&instanceMessage.UID,
 			&instanceMessage.ResourceID,
 			&instanceMessage.Title,
-			&instanceMessage.Engine,
+			&engine,
 			&instanceMessage.EngineVersion,
 			&instanceMessage.ExternalLink,
 			&instanceMessage.Activation,
 			&rowStatus,
 			&options,
+			&metadata,
 		); err != nil {
 			return nil, err
 		}
+		engineTypeValue, ok := storepb.Engine_value[engine]
+		if !ok {
+			return nil, errors.Errorf("invalid engine %s", engine)
+		}
+		instanceMessage.Engine = storepb.Engine(engineTypeValue)
+
 		instanceMessage.Deleted = convertRowStatusToDeleted(rowStatus)
 		var instanceOptions storepb.InstanceOptions
 		if err := protojson.Unmarshal(options, &instanceOptions); err != nil {
 			return nil, err
 		}
 		instanceMessage.Options = &instanceOptions
+		var instanceMetadata storepb.InstanceMetadata
+		if err := protojson.Unmarshal(metadata, &instanceMetadata); err != nil {
+			return nil, err
+		}
+		instanceMessage.Metadata = &instanceMetadata
 		instanceMessages = append(instanceMessages, &instanceMessage)
 	}
 	if err := rows.Err(); err != nil {
@@ -568,15 +535,36 @@ func (s *Store) CheckActivationLimit(ctx context.Context, maximumActivation int)
 }
 
 func validateDataSourceList(dataSources []*DataSourceMessage) error {
-	dataSourceMap := map[api.DataSourceType]bool{}
+	dataSourceMap := map[string]bool{}
+	adminCount := 0
 	for _, dataSource := range dataSources {
-		if dataSourceMap[dataSource.Type] {
-			return status.Errorf(codes.InvalidArgument, "duplicate data source type %s", dataSource.Type)
+		if dataSourceMap[dataSource.ID] {
+			return status.Errorf(codes.InvalidArgument, "duplicate data source ID %s", dataSource.ID)
 		}
-		dataSourceMap[dataSource.Type] = true
+		dataSourceMap[dataSource.ID] = true
+		if dataSource.Type == api.Admin {
+			adminCount++
+		}
 	}
-	if !dataSourceMap[api.Admin] {
-		return status.Errorf(codes.InvalidArgument, "missing required data source type %s", api.Admin)
+	if adminCount != 1 {
+		return status.Errorf(codes.InvalidArgument, "require exactly one admin data source")
 	}
 	return nil
+}
+
+// IgnoreDatabaseAndTableCaseSensitive returns true if the engine ignores database and table case sensitive.
+func IgnoreDatabaseAndTableCaseSensitive(instance *InstanceMessage) bool {
+	switch instance.Engine {
+	case storepb.Engine_TIDB:
+		return true
+	case storepb.Engine_MYSQL, storepb.Engine_MARIADB:
+		return instance.Metadata != nil && instance.Metadata.MysqlLowerCaseTableNames != 0
+	case storepb.Engine_MSSQL:
+		// In fact, SQL Server is possible to create a case-sensitive database and case-insensitive database on one instance.
+		// https://www.webucator.com/article/how-to-check-case-sensitivity-in-sql-server/
+		// But by default, SQL Server is case-insensitive.
+		return true
+	default:
+		return false
+	}
 }

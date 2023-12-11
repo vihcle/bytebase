@@ -14,18 +14,27 @@
             <template #want>
               {{
                 isDDL
-                  ? $t("database.alter-schema").toLowerCase()
+                  ? $t("database.edit-schema").toLowerCase()
                   : $t("database.change-data").toLowerCase()
               }}
             </template>
             <template #action>
               <strong>
                 {{
-                  isDDL
-                    ? $t("database.alter-schema")
-                    : $t("database.change-data")
+                  showActionButtons
+                    ? isDDL
+                      ? $t("database.edit-schema")
+                      : $t("database.change-data")
+                    : $t("sql-editor.admin-mode.self")
                 }}
               </strong>
+            </template>
+            <template #reaction>
+              {{
+                showActionButtons
+                  ? $t("sql-editor.and-submit-an-issue")
+                  : $t("sql-editor.to-enable-admin-mode")
+              }}
             </template>
           </i18n-t>
         </p>
@@ -33,25 +42,40 @@
     </NAlert>
 
     <div class="execute-hint-content mt-4 flex justify-between">
-      <div class="flex justify-start items-center space-x-2">
+      <div
+        v-if="showActionButtons"
+        class="flex justify-start items-center space-x-2"
+      >
         <AdminModeButton @enter="$emit('close')" />
       </div>
-      <div class="flex justify-end items-center space-x-2">
+      <div class="flex flex-1 justify-end items-center space-x-2">
         <NButton @click="handleClose">{{ $t("common.close") }}</NButton>
-        <NButton type="primary" @click="gotoAlterSchema">
-          {{ isDDL ? $t("database.alter-schema") : $t("database.change-data") }}
+        <NButton
+          v-if="showActionButtons"
+          type="primary"
+          @click="gotoCreateIssue"
+        >
+          {{ isDDL ? $t("database.edit-schema") : $t("database.change-data") }}
         </NButton>
+        <AdminModeButton v-else @enter="$emit('close')" />
       </div>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
+import { computedAsync } from "@vueuse/core";
+import { storeToRefs } from "pinia";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
-import { pushNotification, useDatabaseV1Store, useTabStore } from "@/store";
 import { parseSQL, isDDLStatement } from "@/components/MonacoEditor/sqlParser";
+import {
+  pushNotification,
+  useActuatorV1Store,
+  useDatabaseV1Store,
+  useTabStore,
+} from "@/store";
 import { UNKNOWN_ID } from "@/types";
 import AdminModeButton from "./AdminModeButton.vue";
 
@@ -65,27 +89,30 @@ const DMLIssueTemplate = "bb.issue.database.data.update";
 const router = useRouter();
 const { t } = useI18n();
 const tabStore = useTabStore();
+const { pageMode } = storeToRefs(useActuatorV1Store());
 
 const sqlStatement = computed(
   () => tabStore.currentTab.selectedStatement || tabStore.currentTab.statement
 );
 
-const isDDL = computed(() => {
-  const { data } = parseSQL(sqlStatement.value);
+const isDDL = computedAsync(async () => {
+  const { data } = await parseSQL(sqlStatement.value);
   return data !== null ? isDDLStatement(data, "some") : false;
-});
+}, false);
+
+const showActionButtons = computed(() => pageMode.value === "BUNDLED");
 
 const handleClose = () => {
   emit("close");
 };
 
-const gotoAlterSchema = () => {
+const gotoCreateIssue = () => {
   const { databaseId } = tabStore.currentTab.connection;
   if (databaseId === String(UNKNOWN_ID)) {
     pushNotification({
       module: "bytebase",
       style: "CRITICAL",
-      title: t("sql-editor.goto-alter-schema-hint"),
+      title: t("sql-editor.goto-edit-schema-hint"),
     });
     return;
   }
@@ -101,7 +128,7 @@ const gotoAlterSchema = () => {
     },
     query: {
       template: isDDL.value ? DDLIssueTemplate : DMLIssueTemplate,
-      name: `[${database.name}] ${
+      name: `[${database.databaseName}] ${
         isDDL.value ? "Alter schema" : "Change Data"
       }`,
       project: database.projectEntity.uid,

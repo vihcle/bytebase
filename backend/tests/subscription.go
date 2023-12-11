@@ -1,70 +1,39 @@
 package tests
 
 import (
-	"bytes"
-	"io"
+	"context"
 
 	"github.com/pkg/errors"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
-func (ctl *controller) setLicense() error {
-	return ctl.trialPlan(&v1pb.TrialSubscription{
-		InstanceCount: 100,
-		Plan:          v1pb.PlanType_ENTERPRISE,
-		Days:          1,
-	})
-}
-
-func (ctl *controller) removeLicense() error {
-	err := ctl.switchPlan(&v1pb.PatchSubscription{
-		License: "",
-	})
-	if err != nil {
-		return errors.Wrap(err, "failed to switch plan")
+func (ctl *controller) setLicense(ctx context.Context) error {
+	if _, err := ctl.subscriptionServiceClient.UpdateSubscription(ctx, &v1pb.UpdateSubscriptionRequest{
+		Patch: &v1pb.PatchSubscription{License: "eyJhbGciOiJSUzI1NiIsImtpZCI6InYxIiwidHlwIjoiSldUIn0.eyJpbnN0YW5jZUNvdW50Ijo5OTksInRyaWFsaW5nIjpmYWxzZSwicGxhbiI6IkVOVEVSUFJJU0UiLCJvcmdOYW1lIjoiYmIiLCJhdWQiOiJiYi5saWNlbnNlIiwiZXhwIjo3OTc0OTc5MjAwLCJpYXQiOjE2NjM2Njc1NjEsImlzcyI6ImJ5dGViYXNlIiwic3ViIjoiMDAwMDEwMDAuIn0.JjYCMeAAMB9FlVeDFLdN3jvFcqtPsbEzaIm1YEDhUrfekthCbIOeX_DB2Bg2OUji3HSX5uDvG9AkK4Gtrc4gLMPI3D5mk3L-6wUKZ0L4REztS47LT4oxVhpqPQayYa9lKJB1YoHaqeMV4Z5FXeOXwuACoELznlwpT6pXo9xXm_I6QwQiO7-zD83XOTO4PRjByc-q3GKQu_64zJMIKiCW0I8a3GvrdSnO7jUuYU1KPmCuk0ZRq3I91m29LTo478BMST59HqCLj1GGuCKtR3SL_376XsZfUUM0iSAur5scg99zNGWRj-sUo05wbAadYx6V6TKaWrBUi_8_0RnJyP5gbA"},
+	}); err != nil {
+		return errors.Wrap(err, "failed to remove license")
 	}
 	return nil
 }
 
-func (ctl *controller) getSubscription() (*v1pb.Subscription, error) {
-	body, err := ctl.getOpenAPI("/subscription", nil)
-	if err != nil {
-		return nil, err
-	}
-	bs, err := io.ReadAll(body)
-	if err != nil {
-		return nil, err
-	}
-
-	subscription := new(v1pb.Subscription)
-	if err = protojson.Unmarshal(bs, subscription); err != nil {
-		return nil, errors.Wrap(err, "fail to unmarshal get subscription response")
-	}
-	return subscription, nil
-}
-
-func (ctl *controller) trialPlan(trial *v1pb.TrialSubscription) error {
-	bs, err := protojson.Marshal(trial)
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal subscription patch")
-	}
-	if _, err := ctl.postOpenAPI("/subscription/trial", bytes.NewReader(bs)); err != nil {
-		return err
+func (ctl *controller) removeLicense(ctx context.Context) error {
+	if _, err := ctl.subscriptionServiceClient.UpdateSubscription(ctx, &v1pb.UpdateSubscriptionRequest{
+		Patch: &v1pb.PatchSubscription{License: ""},
+	}); err != nil {
+		return errors.Wrap(err, "failed to remove license")
 	}
 	return nil
 }
 
-func (ctl *controller) switchPlan(patch *v1pb.PatchSubscription) error {
-	bs, err := protojson.Marshal(patch)
+func (ctl *controller) getSubscription(ctx context.Context) (*v1pb.Subscription, error) {
+	return ctl.subscriptionServiceClient.GetSubscription(ctx, &v1pb.GetSubscriptionRequest{})
+}
+
+func (ctl *controller) getWorkspaceID(ctx context.Context) (string, error) {
+	resp, err := ctl.actuatorServiceClient.GetActuatorInfo(ctx, &v1pb.GetActuatorInfoRequest{})
 	if err != nil {
-		return errors.Wrap(err, "failed to marshal subscription patch")
+		return "", err
 	}
-
-	if _, err := ctl.patchOpenAPI("/subscription", bytes.NewReader(bs)); err != nil {
-		return err
-	}
-
-	return nil
+	return resp.WorkspaceId, nil
 }

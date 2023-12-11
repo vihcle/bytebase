@@ -2,12 +2,10 @@
 package vcs
 
 import (
+	"log/slog"
 	"strings"
 
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
-
-	"github.com/bytebase/bytebase/backend/common/log"
 )
 
 // Branch is the helper function returns the branch name from reference name.
@@ -60,13 +58,14 @@ type DistinctFileItem struct {
 }
 
 // GetDistinctFileList gets the distinct files from push event commits.
+// The caller should ensure the commit list is logically organized.
 func (p PushEvent) GetDistinctFileList() []DistinctFileItem {
 	// Use list instead of map because we need to maintain the relative commit order in the source branch.
 	var distinctFileList []DistinctFileItem
 	for _, commit := range p.CommitList {
-		log.Debug("Pre-processing commit to dedup migration files...",
-			zap.String("id", commit.ID),
-			zap.String("title", commit.Title),
+		slog.Debug("Pre-processing commit to dedup migration files...",
+			slog.String("id", commit.ID),
+			slog.String("title", commit.Title),
 		)
 
 		addDistinctFile := func(fileName string, itemType FileItemType) {
@@ -82,7 +81,14 @@ func (p PushEvent) GetDistinctFileList() []DistinctFileItem {
 				if item.FileName != file.FileName {
 					continue
 				}
-				if file.CreatedTs < commit.CreatedTs {
+				isPreviousCommit := file.CreatedTs >= commit.CreatedTs
+				if isPreviousCommit {
+					// The VCS may reverse the commit order in the commit list, so the index of modified file commit is less than the added file commit.
+					// In this case, we should modified the existing distinctFileList item's ItemType to modified.
+					if item.ItemType == FileItemTypeAdded {
+						distinctFileList[i].ItemType = FileItemTypeAdded
+					}
+				} else {
 					// A file can be added and then modified in a later commit. We should consider the item as added.
 					if file.ItemType == FileItemTypeAdded {
 						item.ItemType = FileItemTypeAdded

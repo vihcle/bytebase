@@ -12,7 +12,9 @@ import (
 
 	"github.com/bytebase/bytebase/backend/api/auth"
 	"github.com/bytebase/bytebase/backend/common"
-	enterpriseAPI "github.com/bytebase/bytebase/backend/enterprise/api"
+	"github.com/bytebase/bytebase/backend/component/config"
+	"github.com/bytebase/bytebase/backend/component/iam"
+	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
@@ -22,17 +24,19 @@ import (
 type ACLInterceptor struct {
 	store          *store.Store
 	secret         string
-	licenseService enterpriseAPI.LicenseService
-	mode           common.ReleaseMode
+	licenseService enterprise.LicenseService
+	iamManager     *iam.Manager
+	profile        *config.Profile
 }
 
 // NewACLInterceptor returns a new v1 API ACL interceptor.
-func NewACLInterceptor(store *store.Store, secret string, licenseService enterpriseAPI.LicenseService, mode common.ReleaseMode) *ACLInterceptor {
+func NewACLInterceptor(store *store.Store, secret string, licenseService enterprise.LicenseService, iamManager *iam.Manager, profile *config.Profile) *ACLInterceptor {
 	return &ACLInterceptor{
 		store:          store,
 		secret:         secret,
 		licenseService: licenseService,
-		mode:           mode,
+		iamManager:     iamManager,
+		profile:        profile,
 	}
 }
 
@@ -45,6 +49,7 @@ func (in *ACLInterceptor) ACLInterceptor(ctx context.Context, request any, serve
 	if user != nil {
 		// Store workspace role into context.
 		ctx = context.WithValue(ctx, common.RoleContextKey, user.Role)
+		ctx = context.WithValue(ctx, common.UserContextKey, user)
 	}
 
 	if auth.IsAuthenticationAllowed(serverInfo.FullMethod) {
@@ -75,6 +80,7 @@ func (in *ACLInterceptor) ACLStreamInterceptor(request any, ss grpc.ServerStream
 	if user != nil {
 		// Store workspace role into context.
 		ctx = context.WithValue(ctx, common.RoleContextKey, user.Role)
+		ctx = context.WithValue(ctx, common.UserContextKey, user)
 		ss = overrideStream{ServerStream: ss, childCtx: ctx}
 	}
 
@@ -105,12 +111,11 @@ func (s overrideStream) Context() context.Context {
 }
 
 func (in *ACLInterceptor) aclInterceptorDo(ctx context.Context, fullMethod string, request any, user *store.UserMessage) error {
-	methodName := getShortMethodName(fullMethod)
-	if isOwnerAndDBAMethod(methodName) {
-		return status.Errorf(codes.PermissionDenied, "only workspace owner and DBA can access method %q", methodName)
+	if isOwnerAndDBAMethod(fullMethod) {
+		return status.Errorf(codes.PermissionDenied, "only workspace owner and DBA can access method %q", fullMethod)
 	}
 
-	if isProjectOwnerMethod(methodName) {
+	if isProjectOwnerMethod(fullMethod) {
 		projectIDs, err := getProjectIDs(request)
 		if err != nil {
 			return status.Errorf(codes.PermissionDenied, err.Error())
@@ -121,12 +126,12 @@ func (in *ACLInterceptor) aclInterceptorDo(ctx context.Context, fullMethod strin
 				return status.Errorf(codes.PermissionDenied, err.Error())
 			}
 			if !projectRoles[api.Owner] {
-				return status.Errorf(codes.PermissionDenied, "only the owner of project %q can access method %q", projectID, methodName)
+				return status.Errorf(codes.PermissionDenied, "only the owner of project %q can access method %q", projectID, fullMethod)
 			}
 		}
 	}
 
-	if isTransferDatabaseMethods(methodName) {
+	if isTransferDatabaseMethods(fullMethod) {
 		projectIDs, err := in.getTransferDatabaseToProjects(ctx, request)
 		if err != nil {
 			return status.Errorf(codes.PermissionDenied, err.Error())
@@ -141,6 +146,11 @@ func (in *ACLInterceptor) aclInterceptorDo(ctx context.Context, fullMethod strin
 			}
 		}
 	}
+
+	if in.profile.DevelopmentIAM {
+		return in.checkIAMPermission(ctx, fullMethod, request, user)
+	}
+
 	return nil
 }
 
@@ -149,7 +159,10 @@ func (in *ACLInterceptor) getUser(ctx context.Context) (*store.UserMessage, erro
 	if principalPtr == nil {
 		return nil, nil
 	}
-	principalID := principalPtr.(int)
+	principalID, ok := principalPtr.(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
 	user, err := in.store.GetUserByID(ctx, principalID)
 	if err != nil {
 		return nil, status.Errorf(codes.PermissionDenied, "failed to get member for user %v in processing authorize request.", principalID)
@@ -191,25 +204,25 @@ func getProjectIDs(req any) ([]string, error) {
 		if request.Project == nil {
 			return nil, errors.Errorf("project not found")
 		}
-		projectID, err := getProjectID(request.Project.Name)
+		projectID, err := common.GetProjectID(request.Project.Name)
 		if err != nil {
 			return nil, err
 		}
 		return []string{projectID}, nil
 	case *v1pb.DeleteProjectRequest:
-		projectID, err := getProjectID(request.Name)
+		projectID, err := common.GetProjectID(request.Name)
 		if err != nil {
 			return nil, err
 		}
 		return []string{projectID}, nil
 	case *v1pb.UndeleteProjectRequest:
-		projectID, err := getProjectID(request.Name)
+		projectID, err := common.GetProjectID(request.Name)
 		if err != nil {
 			return nil, err
 		}
 		return []string{projectID}, nil
 	case *v1pb.SetIamPolicyRequest:
-		projectID, err := getProjectID(request.Project)
+		projectID, err := common.GetProjectID(request.Project)
 		if err != nil {
 			return nil, err
 		}
@@ -233,11 +246,19 @@ func (in *ACLInterceptor) getTransferDatabaseToProjects(ctx context.Context, req
 		if !hasPath(request.UpdateMask, "project") || request.Database == nil {
 			continue
 		}
-		instanceID, databaseName, err := getInstanceDatabaseID(request.Database.Name)
+		instanceID, databaseName, err := common.GetInstanceDatabaseID(request.Database.Name)
 		if err != nil {
 			return nil, err
 		}
-		database, err := in.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{InstanceID: &instanceID, DatabaseName: &databaseName})
+		instance, err := in.store.GetInstanceV2(ctx, &store.FindInstanceMessage{ResourceID: &instanceID})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get instance %s", instanceID)
+		}
+		database, err := in.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
+			InstanceID:          &instanceID,
+			DatabaseName:        &databaseName,
+			IgnoreCaseSensitive: store.IgnoreDatabaseAndTableCaseSensitive(instance),
+		})
 		if err != nil {
 			return nil, err
 		}

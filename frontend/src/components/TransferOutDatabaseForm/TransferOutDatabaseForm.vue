@@ -17,9 +17,7 @@
           </span>
           <ProjectSelect
             v-model:project="targetProjectId"
-            :allowed-project-role-list="
-              hasWorkspaceManageProjectPermission ? [] : [PresetRoleType.OWNER]
-            "
+            :allowed-project-role-list="[PresetRoleType.OWNER]"
             :include-default-project="true"
             :filter="filterTargetProject"
           />
@@ -32,7 +30,7 @@
         :render-source-list="renderSourceList"
         :render-target-list="renderTargetList"
         :source-filterable="true"
-        :source-filter-placeholder="$t('database.search-database-name')"
+        :source-filter-placeholder="$t('common.filter-by-name')"
         class="bb-transfer-out-database-transfer"
         style="height: 100%"
       />
@@ -75,7 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref, toRef } from "vue";
+import { cloneDeep } from "lodash-es";
 import {
   NTransfer,
   NTree,
@@ -84,30 +82,30 @@ import {
   NButton,
   NTooltip,
 } from "naive-ui";
+import { computed, h, ref, toRef } from "vue";
 import { useI18n } from "vue-i18n";
-import { cloneDeep } from "lodash-es";
-
-import { ComposedDatabase, PresetRoleType, UNKNOWN_ID } from "@/types";
+import { ProjectV1Name, ProjectSelect, DrawerContent } from "@/components/v2";
 import {
   pushNotification,
-  useCurrentUserV1,
   useDatabaseV1Store,
   useGracefulRequest,
   useProjectV1ByUID,
   useProjectV1Store,
 } from "@/store";
-import { ProjectV1Name, ProjectSelect, DrawerContent } from "@/components/v2";
+import { ComposedDatabase, PresetRoleType, UNKNOWN_ID } from "@/types";
+import { Project } from "@/types/proto/v1/project_service";
 import Label from "./Label.vue";
 import {
   DatabaseTreeOption,
   flattenTreeOptions,
   mapTreeOptions,
+  getDatabaseTreeValue,
+  isDatabaseTreeValue,
 } from "./common";
-import { Project } from "@/types/proto/v1/project_service";
-import { hasWorkspacePermissionV1 } from "@/utils";
 
 const props = defineProps<{
   projectId: string;
+  selectedDatabaseUidList?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -115,32 +113,24 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const currentUser = useCurrentUserV1();
 const projectStore = useProjectV1Store();
 const databaseStore = useDatabaseV1Store();
 const loading = ref(false);
 const transfer = ref<InstanceType<typeof NTransfer>>();
-
-const hasWorkspaceManageProjectPermission = computed(() =>
-  hasWorkspacePermissionV1(
-    "bb.permission.workspace.manage-project",
-    currentUser.value.userRole
-  )
-);
 
 const databaseList = computed(() => {
   const project = projectStore.getProjectByUID(props.projectId);
   return databaseStore.databaseListByProject(project.name);
 });
 
-const selectedValueList = ref<string[]>([]);
+const selectedValueList = ref<string[]>(
+  (props.selectedDatabaseUidList ?? []).map(getDatabaseTreeValue)
+);
 const selectedDatabaseList = computed(() => {
-  return selectedValueList.value
-    .filter((value) => value.startsWith("database-"))
-    .map((value) => {
-      const uid = value.split("-").pop()!;
-      return databaseStore.getDatabaseByUID(uid);
-    });
+  return selectedValueList.value.filter(isDatabaseTreeValue).map((value) => {
+    const uid = value.split("-").pop()!;
+    return databaseStore.getDatabaseByUID(uid);
+  });
 });
 const targetProjectId = ref<string>();
 const targetProject = computed(() => {
@@ -195,7 +185,7 @@ const renderSourceList: TransferRenderSourceList = ({ onCheck, pattern }) => {
     checkedKeys: selectedValueList.value,
     showIrrelevantNodes: false,
     onUpdateCheckedKeys: (checkedKeys: string[]) => {
-      onCheck(checkedKeys.filter((value) => value.startsWith("database-")));
+      onCheck(checkedKeys.filter(isDatabaseTreeValue));
     },
   });
 };
@@ -229,7 +219,7 @@ const renderTargetList: TransferRenderSourceList = ({ onCheck }) => {
     },
     checkedKeys: targetCheckedKeys.value,
     onUpdateCheckedKeys: (checkedKeys: string[]) => {
-      onCheck(checkedKeys.filter((value) => value.startsWith("database-")));
+      onCheck(checkedKeys.filter(isDatabaseTreeValue));
     },
   });
 };

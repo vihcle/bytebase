@@ -16,7 +16,7 @@
           {{ $t(`subscription.features.${featureKey}.title`) }}
         </h3>
       </div>
-      <div class="mt-5">
+      <div class="mt-4">
         <p class="whitespace-pre-wrap">
           {{ $t(`subscription.features.${featureKey}.desc`) }}
         </p>
@@ -46,12 +46,6 @@
               <template v-if="!hasPermission" #startTrial>
                 {{ $t("subscription.contact-to-upgrade") }}
               </template>
-              <template
-                v-else-if="subscriptionStore.canUpgradeTrial"
-                #startTrial
-              >
-                {{ $t("subscription.upgrade-trial") }}
-              </template>
               <template v-else #startTrial>
                 {{
                   $t("subscription.trial-for-days", {
@@ -66,7 +60,10 @@
               </template>
             </i18n-t>
           </template>
-          <i18n-t v-else keypath="subscription.require-subscription">
+          <i18n-t
+            v-else-if="requiredPlan !== PlanType.FREE"
+            keypath="subscription.require-subscription"
+          >
             <template #requiredPlan>
               <span class="font-bold text-accent">
                 {{
@@ -90,21 +87,12 @@
         </button>
         <template v-else-if="subscriptionStore.canTrial">
           <button
-            v-if="subscriptionStore.canUpgradeTrial"
-            type="button"
-            class="btn-primary"
-            @click.prevent="trialSubscription"
-          >
-            {{ $t("subscription.upgrade-trial-button") }}
-          </button>
-          <button
-            v-else
             type="button"
             class="btn-primary"
             @click.prevent="trialSubscription"
           >
             {{
-              $t("subscription.start-n-days-trial", {
+              $t("subscription.request-n-days-trial", {
                 days: subscriptionStore.trialingDays,
               })
             }}
@@ -120,6 +108,11 @@
       </div>
     </div>
   </BBModal>
+  <WeChatQRModal
+    v-if="state.showQRCodeModal"
+    :title="$t('subscription.request-with-qr')"
+    @close="state.showQRCodeModal = false"
+  />
   <InstanceAssignment
     :show="state.showInstanceAssignmentDrawer"
     @dismiss="state.showInstanceAssignmentDrawer = false"
@@ -128,20 +121,22 @@
 
 <script lang="ts" setup>
 import { PropType, computed, reactive } from "vue";
-import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
+import { useLanguage } from "@/composables/useLanguage";
+import { useSubscriptionV1Store, useCurrentUserV1 } from "@/store";
 import {
-  useSubscriptionV1Store,
-  useCurrentUserV1,
-  pushNotification,
-} from "@/store";
-import { FeatureType, planTypeToString } from "@/types";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+  FeatureType,
+  planTypeToString,
+  ENTERPRISE_INQUIRE_LINK,
+} from "@/types";
 import { Instance } from "@/types/proto/v1/instance_service";
+import { PlanType } from "@/types/proto/v1/subscription_service";
 import { hasWorkspacePermissionV1 } from "@/utils";
 
 interface LocalState {
   showInstanceAssignmentDrawer: boolean;
+  showQRCodeModal: boolean;
 }
 
 const props = defineProps({
@@ -162,11 +157,13 @@ const props = defineProps({
 
 const state = reactive<LocalState>({
   showInstanceAssignmentDrawer: false,
+  showQRCodeModal: false,
 });
 
 const emit = defineEmits(["cancel"]);
 const { t } = useI18n();
 const router = useRouter();
+const { locale } = useLanguage();
 
 const subscriptionStore = useSubscriptionV1Store();
 const hasPermission = hasWorkspacePermissionV1(
@@ -209,26 +206,11 @@ const featureKey = computed(() => {
 });
 
 const trialSubscription = () => {
-  const isUpgrade = subscriptionStore.canUpgradeTrial;
-  subscriptionStore.trialSubscription(PlanType.ENTERPRISE).then(() => {
-    pushNotification({
-      module: "bytebase",
-      style: "SUCCESS",
-      title: t("common.success"),
-      description: isUpgrade
-        ? t("subscription.successfully-upgrade-trial", {
-            plan: t(
-              `subscription.plan.${planTypeToString(
-                subscriptionStore.currentPlan
-              )}.title`
-            ),
-          })
-        : t("subscription.successfully-start-trial", {
-            days: subscriptionStore.trialingDays,
-          }),
-    });
-    emit("cancel");
-  });
+  if (locale.value === "zh-CN") {
+    state.showQRCodeModal = true;
+  } else {
+    window.open(ENTERPRISE_INQUIRE_LINK, "_blank");
+  }
 };
 </script>
 

@@ -4,6 +4,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
@@ -80,11 +80,14 @@ var (
 		disableMetric bool
 		// disableSample is the flag to disable the sample instance.
 		disableSample bool
+		lsp           bool
 
 		// Cloud backup configs.
 		backupRegion     string
 		backupBucket     string
 		backupCredential string
+
+		developmentIAM bool
 	}
 
 	rootCmd = &cobra.Command{
@@ -93,7 +96,7 @@ var (
 		Run: func(_ *cobra.Command, _ []string) {
 			start()
 
-			fmt.Print(byeBanner)
+			fmt.Printf("%s", byeBanner)
 		},
 	}
 )
@@ -106,7 +109,7 @@ func Execute() error {
 func init() {
 	// In the release build, Bytebase bundles frontend and backend together and runs on a single port as a mono server.
 	// During development, Bytebase frontend runs on a separate port.
-	rootCmd.PersistentFlags().IntVar(&flags.port, "port", 80, "port where Bytebase server runs. Default to 80")
+	rootCmd.PersistentFlags().IntVar(&flags.port, "port", 8080, "port where Bytebase server runs. Default to 80")
 	// When running the release build in production, most of the time, users would not expose Bytebase directly to the public.
 	// Instead they would configure a gateway to forward the traffic to Bytebase. Users need to set --external-url to the address
 	// exposed on that gateway accordingly.
@@ -122,6 +125,7 @@ func init() {
 	// Must be one of the subpath name in the ../migrator/demo directory
 	rootCmd.PersistentFlags().StringVar(&flags.demoName, "demo", "", "name of the demo to use. Empty means not running in demo mode.")
 	rootCmd.PersistentFlags().BoolVar(&flags.debug, "debug", false, "whether to enable debug level logging")
+	rootCmd.PersistentFlags().BoolVar(&flags.lsp, "lsp", false, "whether to enable lsp in SQL Editor")
 	// Support environment variable for deploying to render.com using its blueprint file.
 	// Render blueprint allows to specify a postgres database along with a service.
 	// It allows to pass the postgres connection string as an ENV to the service.
@@ -134,6 +138,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flags.backupBucket, "backup-bucket", "", "bucket where Bytebase stores backup data, e.g., s3://example-bucket. When provided, Bytebase will store data to the S3 bucket.")
 	rootCmd.PersistentFlags().StringVar(&flags.backupRegion, "backup-region", "", "region of the backup bucket, e.g., us-west-2 for AWS S3.")
 	rootCmd.PersistentFlags().StringVar(&flags.backupCredential, "backup-credential", "", "credentials file to use for the backup bucket. It should be the same format as the AWS/GCP credential files.")
+
+	rootCmd.PersistentFlags().BoolVar(&flags.developmentIAM, "development-iam", false, "(development only) whether to use the IAM manager")
 }
 
 // -----------------------------------Command Line Config END--------------------------------------
@@ -186,26 +192,34 @@ func checkPort(port int) error {
 
 func start() {
 	if flags.debug {
-		log.SetLevel(zap.DebugLevel)
+		log.GLogLevel.Set(slog.LevelDebug)
 	}
-	defer log.Sync()
 
 	var err error
 
 	if flags.externalURL != "" {
 		flags.externalURL, err = common.NormalizeExternalURL(flags.externalURL)
 		if err != nil {
-			log.Error("invalid --external-url", zap.Error(err))
+			slog.Error("invalid --external-url", log.BBError(err))
 			return
 		}
 	}
+
 	if err := checkDataDir(); err != nil {
-		log.Error(err.Error())
+		slog.Error(err.Error())
 		return
 	}
 
 	if err := checkCloudBackupFlags(); err != nil {
-		log.Error("invalid flags for cloud backup", zap.Error(err))
+		slog.Error("invalid flags for cloud backup", log.BBError(err))
+		return
+	}
+
+	// A safety measure to prevent accidentally resetting user's actual data with demo data.
+	// For emebeded mode, we control where data is stored and we put demo data in a separate directory
+	// from the non-demo data.
+	if flags.demoName != "" && flags.pgURL != "" {
+		slog.Error("demo mode is disallowed when storing metadata in external PostgreSQL instance")
 		return
 	}
 
@@ -220,17 +234,17 @@ func start() {
 	// and then complain unable to bind port. Thus we cannot rely on checking /healthz. As a
 	// workaround, we check whether the port is available here.
 	if err := checkPort(flags.port); err != nil {
-		log.Error(fmt.Sprintf("server port %d is not available", flags.port), zap.Error(err))
+		slog.Error(fmt.Sprintf("server port %d is not available", flags.port), log.BBError(err))
 		return
 	}
 	if profile.UseEmbedDB() {
 		if err := checkPort(profile.DatastorePort); err != nil {
-			log.Error(fmt.Sprintf("database port %d is not available", profile.DatastorePort), zap.Error(err))
+			slog.Error(fmt.Sprintf("database port %d is not available", profile.DatastorePort), log.BBError(err))
 			return
 		}
 	}
 	if err := checkPort(profile.GrpcPort); err != nil {
-		log.Error(fmt.Sprintf("gRPC server port %d is not available", profile.GrpcPort), zap.Error(err))
+		slog.Error(fmt.Sprintf("gRPC server port %d is not available", profile.GrpcPort), log.BBError(err))
 		return
 	}
 
@@ -244,7 +258,7 @@ func start() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		sig := <-c
-		log.Info(fmt.Sprintf("%s received.", sig.String()))
+		slog.Info(fmt.Sprintf("%s received.", sig.String()))
 		if s != nil {
 			_ = s.Shutdown(ctx)
 		}
@@ -253,20 +267,16 @@ func start() {
 
 	s, err = server.NewServer(ctx, profile)
 	if err != nil {
-		log.Error("Cannot new server", zap.Error(err))
+		slog.Error("Cannot new server", log.BBError(err))
 		return
 	}
 
-	schemaVersion := ""
-	if s.SchemaVersion != nil {
-		schemaVersion = fmt.Sprintf("(schema version %v) ", s.SchemaVersion)
-	}
-	fmt.Printf(greetingBanner, fmt.Sprintf("Version %s %shas started on port %d 🚀", profile.Version, schemaVersion, flags.port))
+	fmt.Printf(greetingBanner, fmt.Sprintf("Version %s has started on port %d 🚀", profile.Version, flags.port))
 
 	// Execute program.
 	if err := s.Run(ctx, flags.port); err != nil {
 		if err != http.ErrServerClosed {
-			log.Error(err.Error())
+			slog.Error(err.Error())
 			_ = s.Shutdown(ctx)
 			cancel()
 		}

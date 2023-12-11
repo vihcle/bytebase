@@ -2,31 +2,30 @@
   <InputWithTemplate
     :template-list="templateList"
     :value="value"
-    :disabled="disabled || !editable"
+    :disabled="disabled"
     @change="$emit('update:value', $event)"
   />
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+import {
+  InputWithTemplate,
+  type Template,
+} from "@/components/InputWithTemplate";
 import {
   getRuleLocalizationKey,
   RuleConfigComponent,
   RuleTemplate,
   TemplatePayload,
 } from "@/types";
-import {
-  InputWithTemplate,
-  type Template,
-} from "@/components/InputWithTemplate";
-import { computed } from "vue";
-import { useI18n } from "vue-i18n";
 
 const props = defineProps<{
   rule: RuleTemplate;
   config: RuleConfigComponent;
   value: string;
   disabled: boolean;
-  editable: boolean;
 }>();
 
 defineEmits<{

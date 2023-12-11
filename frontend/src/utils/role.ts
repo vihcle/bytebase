@@ -1,8 +1,8 @@
 import { computed, unref } from "vue";
-import { MaybeRef, PresetRoleType, ProjectRoleType, RoleType } from "../types";
-import { hasFeature, useCurrentUserV1, useRoleStore } from "@/store";
 import { t } from "@/plugins/i18n";
+import { hasFeature, useCurrentUserV1, useRoleStore } from "@/store";
 import { UserRole } from "@/types/proto/v1/auth_service";
+import { MaybeRef, PresetRoleType, ProjectRoleType, RoleType } from "../types";
 
 export type WorkspacePermissionType =
   | "bb.permission.workspace.debug"
@@ -32,7 +32,8 @@ export type WorkspacePermissionType =
   | "bb.permission.workspace.audit-log"
   | "bb.permission.workspace.debug-log"
   | "bb.permission.workspace.manage-mail-delivery"
-  | "bb.permission.workspace.manage-database-secrets";
+  | "bb.permission.workspace.manage-database-secrets"
+  | "bb.permission.workspace.manage-announcement";
 
 // A map from a particular workspace permission to the respective enablement of a particular workspace role.
 // The key is the workspace permission type and the value is the workspace [DEVELOPER, DBA, OWNER] triplet.
@@ -63,6 +64,7 @@ export const WORKSPACE_PERMISSION_MATRIX: Map<
   ["bb.permission.workspace.debug-log", [false, true, true]],
   ["bb.permission.workspace.manage-mail-delivery", [false, false, true]],
   ["bb.permission.workspace.manage-database-secrets", [false, true, true]],
+  ["bb.permission.workspace.manage-announcement", [false, true, true]],
 ]);
 
 // Returns true if RBAC is not enabled or the particular role has the particular permission.
@@ -176,6 +178,12 @@ export function projectRoleName(role: ProjectRoleType): string {
       return "Owner";
     case "DEVELOPER":
       return "Developer";
+    case "QUERIER":
+      return "Querier";
+    case "EXPORTER":
+      return "Exporter";
+    case "VIEWER":
+      return "Viewer";
   }
   return role;
 }
@@ -190,10 +198,84 @@ export const displayRoleTitle = (role: string): string => {
   // Use i18n-defined readable titles for system roles
   if (role === PresetRoleType.OWNER) return t("common.role.owner");
   if (role === PresetRoleType.DEVELOPER) return t("common.role.developer");
-  if (role === PresetRoleType.EXPORTER) return t("common.role.exporter");
+  if (role === PresetRoleType.RELEASER) return t("common.role.releaser");
   if (role === PresetRoleType.QUERIER) return t("common.role.querier");
+  if (role === PresetRoleType.EXPORTER) return t("common.role.exporter");
+  if (role === PresetRoleType.VIEWER) return t("common.role.viewer");
   // Use role.title if possible
   const item = useRoleStore().roleList.find((r) => r.name === role);
   // Fallback to extracted resource name otherwise
   return item?.title || extractRoleResourceName(role);
+};
+
+export const displayRoleDescription = (role: string): string => {
+  // Use i18n-defined readable titles for system roles
+  if (role === PresetRoleType.OWNER) return t("role.owner.description");
+  if (role === PresetRoleType.DEVELOPER) return t("role.developer.description");
+  if (role === PresetRoleType.RELEASER) return t("role.releaser.description");
+  if (role === PresetRoleType.QUERIER) return t("role.querier.description");
+  if (role === PresetRoleType.EXPORTER) return t("role.exporter.description");
+  if (role === PresetRoleType.VIEWER) return t("role.viewer.description");
+  // Use role.description if possible
+  const item = useRoleStore().roleList.find((r) => r.name === role);
+  // Fallback to extracted resource name otherwise
+  return item?.description || extractRoleResourceName(role);
+};
+
+export const hasSettingPagePermission = (
+  routeName: string,
+  role: UserRole
+): boolean => {
+  switch (routeName) {
+    case "setting.workspace.member":
+      return hasWorkspacePermissionV1(
+        "bb.permission.workspace.manage-member",
+        role
+      );
+    case "setting.workspace.project":
+      return hasWorkspacePermissionV1(
+        "bb.permission.workspace.manage-project",
+        role
+      );
+    case "setting.workspace.sensitive-data":
+      return hasWorkspacePermissionV1(
+        "bb.permission.workspace.manage-sensitive-data",
+        role
+      );
+    case "setting.workspace.access-control":
+      return hasWorkspacePermissionV1(
+        "bb.permission.workspace.manage-access-control",
+        role
+      );
+    case "setting.workspace.sso":
+    case "setting.workspace.sso.create":
+    case "setting.workspace.sso.detail":
+      return hasWorkspacePermissionV1(
+        "bb.permission.workspace.manage-sso",
+        role
+      );
+    case "setting.workspace.gitops":
+    case "setting.workspace.gitops.create":
+    case "setting.workspace.gitops.detail":
+      return hasWorkspacePermissionV1(
+        "bb.permission.workspace.manage-vcs-provider",
+        role
+      );
+    case "setting.workspace.debug-log":
+      return hasWorkspacePermissionV1(
+        "bb.permission.workspace.debug-log",
+        role
+      );
+    case "setting.workspace.audit-log":
+      return hasWorkspacePermissionV1(
+        "bb.permission.workspace.audit-log",
+        role
+      );
+    case "setting.workspace.mail-delivery":
+      return hasWorkspacePermissionV1(
+        "bb.permission.workspace.manage-mail-delivery",
+        role
+      );
+  }
+  return true;
 };

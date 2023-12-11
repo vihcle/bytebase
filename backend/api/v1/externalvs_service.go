@@ -6,12 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
-	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/plugin/vcs"
@@ -55,7 +54,11 @@ func (s *ExternalVersionControlService) CreateExternalVersionControl(ctx context
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
-	storeExternalVersionControl, err := s.store.CreateExternalVersionControlV2(ctx, ctx.Value(common.PrincipalIDContextKey).(int), externalVersionControl)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
+	storeExternalVersionControl, err := s.store.CreateExternalVersionControlV2(ctx, principalID, externalVersionControl)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Failed to create external version control: %v", err)
 	}
@@ -67,7 +70,7 @@ func (s *ExternalVersionControlService) UpdateExternalVersionControl(ctx context
 	if request.UpdateMask == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "update_mask must be set")
 	}
-	externalVersionControlUID, err := getExternalVersionControlID(request.ExternalVersionControl.Name)
+	externalVersionControlUID, err := common.GetExternalVersionControlID(request.ExternalVersionControl.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -101,7 +104,11 @@ func (s *ExternalVersionControlService) UpdateExternalVersionControl(ctx context
 		}
 	}
 
-	externalVersionControl, err = s.store.UpdateExternalVersionControlV2(ctx, ctx.Value(common.PrincipalIDContextKey).(int), externalVersionControlUID, update)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
+	externalVersionControl, err = s.store.UpdateExternalVersionControlV2(ctx, principalID, externalVersionControlUID, update)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
@@ -110,7 +117,7 @@ func (s *ExternalVersionControlService) UpdateExternalVersionControl(ctx context
 
 // DeleteExternalVersionControl deletes an existing external version control.
 func (s *ExternalVersionControlService) DeleteExternalVersionControl(ctx context.Context, request *v1pb.DeleteExternalVersionControlRequest) (*emptypb.Empty, error) {
-	externalVersionControlUID, err := getExternalVersionControlID(request.Name)
+	externalVersionControlUID, err := common.GetExternalVersionControlID(request.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -131,7 +138,7 @@ func (s *ExternalVersionControlService) DeleteExternalVersionControl(ctx context
 
 // SearchExternalVersionControlProjects searches external version control projects, for example, GitHub repository.
 func (s *ExternalVersionControlService) SearchExternalVersionControlProjects(ctx context.Context, request *v1pb.SearchExternalVersionControlProjectsRequest) (*v1pb.SearchExternalVersionControlProjectsResponse, error) {
-	externalVersionControlUID, err := getExternalVersionControlID(request.Name)
+	externalVersionControlUID, err := common.GetExternalVersionControlID(request.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -144,13 +151,22 @@ func (s *ExternalVersionControlService) SearchExternalVersionControlProjects(ctx
 		return nil, status.Errorf(codes.NotFound, "External version control not found: %v", err)
 	}
 
+	setting, err := s.store.GetWorkspaceGeneralSetting(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to find workspace setting with error: %v", err.Error())
+	}
+	if setting.ExternalUrl == "" {
+		return nil, status.Errorf(codes.FailedPrecondition, "external url is required")
+	}
+
 	apiExternalProjectList, err := vcs.Get(externalVersionControl.Type, vcs.ProviderConfig{}).FetchAllRepositoryList(
 		ctx,
-		common.OauthContext{
+		&common.OauthContext{
 			ClientID:     externalVersionControl.ApplicationID,
 			ClientSecret: externalVersionControl.Secret,
 			AccessToken:  request.AccessToken,
 			RefreshToken: request.RefreshToken,
+			RedirectURL:  fmt.Sprintf("%s/oauth/callback", setting.ExternalUrl),
 			Refresher:    nil,
 		},
 		externalVersionControl.InstanceURL,
@@ -176,7 +192,7 @@ func (s *ExternalVersionControlService) SearchExternalVersionControlProjects(ctx
 
 // ListProjectGitOpsInfo lists GitOps info of a project.
 func (s *ExternalVersionControlService) ListProjectGitOpsInfo(ctx context.Context, request *v1pb.ListProjectGitOpsInfoRequest) (*v1pb.ListProjectGitOpsInfoResponse, error) {
-	externalVersionControlUID, err := getExternalVersionControlID(request.Name)
+	externalVersionControlUID, err := common.GetExternalVersionControlID(request.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -202,7 +218,7 @@ func (s *ExternalVersionControlService) ExchangeToken(ctx context.Context, reque
 	var instanceURL string
 	var oauthExchange *common.OAuthExchange
 
-	if request.ExchangeToken.Name == fmt.Sprintf("%s-", externalVersionControlPrefix) {
+	if request.ExchangeToken.Name == fmt.Sprintf("%s-", common.ExternalVersionControlPrefix) {
 		tp, err := convertExternalVersionControlTypeToVCSType(request.ExchangeToken.Type)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, err.Error())
@@ -252,7 +268,7 @@ func (s *ExternalVersionControlService) ExchangeToken(ctx context.Context, reque
 		return nil, status.Errorf(codes.Internal, "failed to find workspace setting with error: %v", err.Error())
 	}
 	if setting.ExternalUrl == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "external url is required")
+		return nil, status.Errorf(codes.FailedPrecondition, "external url is required")
 	}
 
 	oauthExchange.RedirectURL = fmt.Sprintf("%s/oauth/callback", setting.ExternalUrl)
@@ -274,7 +290,7 @@ func (s *ExternalVersionControlService) ExchangeToken(ctx context.Context, reque
 }
 
 func (s *ExternalVersionControlService) getVCS(ctx context.Context, name string) (*store.ExternalVersionControlMessage, error) {
-	externalVersionControlUID, err := getExternalVersionControlID(name)
+	externalVersionControlUID, err := common.GetExternalVersionControlID(name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -312,7 +328,7 @@ func convertToExternalVersionControl(externalVersionControl *store.ExternalVersi
 	}
 
 	return &v1pb.ExternalVersionControl{
-		Name:          fmt.Sprintf("%s%d", externalVersionControlPrefix, externalVersionControl.ID),
+		Name:          fmt.Sprintf("%s%d", common.ExternalVersionControlPrefix, externalVersionControl.ID),
 		Title:         externalVersionControl.Name,
 		Type:          tp,
 		Url:           externalVersionControl.InstanceURL,

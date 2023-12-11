@@ -7,21 +7,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"regexp"
 	"strings"
 	"time"
-
-	"go.uber.org/zap"
 
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
-	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	"github.com/bytebase/bytebase/backend/resources/mysqlutil"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // Dump and restore.
@@ -59,6 +58,11 @@ const (
 		"DELIMITER ;;\n" +
 		"%s ;;\n" +
 		"DELIMITER ;\n"
+	nullRoutineStmtFmt = "" +
+		"--\n" +
+		"-- %s structure for `%s`\n" +
+		"-- NULL statement because user has insufficient permissions.\n" +
+		"--\n"
 	eventStmtFmt = "" +
 		"--\n" +
 		"-- Event structure for `%s`\n" +
@@ -82,7 +86,8 @@ const (
 )
 
 var (
-	excludeAutoIncrement = regexp.MustCompile(` AUTO_INCREMENT=\d+`)
+	excludeAutoIncrement  = regexp.MustCompile(` AUTO_INCREMENT=\d+`)
+	excludeAutoRandomBase = regexp.MustCompile(` AUTO_RANDOM_BASE=\d+`)
 )
 
 // Dump dumps the database.
@@ -100,10 +105,10 @@ func (driver *Driver) Dump(ctx context.Context, out io.Writer, schemaOnly bool) 
 	// Before we dump the real data, we should record the binlog position for PITR.
 	// Please refer to https://github.com/bytebase/bytebase/blob/main/docs/design/pitr-mysql.md#full-backup for details.
 	if !schemaOnly {
-		log.Debug("flush tables in database with read locks",
-			zap.String("database", driver.databaseName))
+		slog.Debug("flush tables in database with read locks",
+			slog.String("database", driver.databaseName))
 		if err := FlushTablesWithReadLock(ctx, driver.dbType, conn, driver.databaseName); err != nil {
-			log.Error("flush tables failed", zap.Error(err))
+			slog.Error("flush tables failed", log.BBError(err))
 			return "", err
 		}
 
@@ -111,9 +116,9 @@ func (driver *Driver) Dump(ctx context.Context, out io.Writer, schemaOnly bool) 
 		if err != nil {
 			return "", err
 		}
-		log.Debug("binlog coordinate at dump time",
-			zap.String("fileName", binlog.FileName),
-			zap.Int64("position", binlog.Position))
+		slog.Debug("binlog coordinate at dump time",
+			slog.String("fileName", binlog.FileName),
+			slog.Int64("position", binlog.Position))
 
 		payload := api.BackupPayload{BinlogInfo: binlog}
 		payloadBytes, err = json.Marshal(payload)
@@ -124,7 +129,7 @@ func (driver *Driver) Dump(ctx context.Context, out io.Writer, schemaOnly bool) 
 
 	options := sql.TxOptions{}
 	// TiDB does not support readonly, so we only set for MySQL and OceanBase.
-	if driver.dbType == db.MySQL || driver.dbType == db.MariaDB || driver.dbType == db.OceanBase {
+	if driver.dbType == storepb.Engine_MYSQL || driver.dbType == storepb.Engine_MARIADB || driver.dbType == storepb.Engine_OCEANBASE {
 		options.ReadOnly = true
 	}
 	// If `schemaOnly` is false, now we are still holding the tables' exclusive locks.
@@ -136,7 +141,7 @@ func (driver *Driver) Dump(ctx context.Context, out io.Writer, schemaOnly bool) 
 	}
 	defer txn.Rollback()
 
-	log.Debug("begin to dump database", zap.String("database", driver.databaseName), zap.Bool("schemaOnly", schemaOnly))
+	slog.Debug("begin to dump database", slog.String("database", driver.databaseName), slog.Bool("schemaOnly", schemaOnly))
 	if err := dumpTxn(txn, driver.dbType, driver.databaseName, out, schemaOnly); err != nil {
 		return "", err
 	}
@@ -149,7 +154,7 @@ func (driver *Driver) Dump(ctx context.Context, out io.Writer, schemaOnly bool) 
 }
 
 // FlushTablesWithReadLock runs FLUSH TABLES table1, table2, ... WITH READ LOCK for all the tables in the database.
-func FlushTablesWithReadLock(ctx context.Context, dbType db.Type, conn *sql.Conn, database string) error {
+func FlushTablesWithReadLock(ctx context.Context, dbType storepb.Engine, conn *sql.Conn, database string) error {
 	// The lock acquiring could take a long time if there are concurrent exclusive locks on the tables.
 	// We ensures that the execution is canceled after 30 seconds, otherwise we may get dead lock and stuck forever.
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -184,7 +189,7 @@ func FlushTablesWithReadLock(ctx context.Context, dbType db.Type, conn *sql.Conn
 	return txn.Commit()
 }
 
-func dumpTxn(txn *sql.Tx, dbType db.Type, database string, out io.Writer, schemaOnly bool) error {
+func dumpTxn(txn *sql.Tx, dbType storepb.Engine, database string, out io.Writer, schemaOnly bool) error {
 	// Disable foreign key check.
 	// mysqldump uses the same mechanism. When there is any schema or data dependency, we have to disable
 	// the unique and foreign key check so that the restoring will not fail.
@@ -212,8 +217,15 @@ func dumpTxn(txn *sql.Tx, dbType db.Type, database string, out io.Writer, schema
 		if tbl.TableType != viewTableType {
 			continue
 		}
-		if _, err := io.WriteString(out, fmt.Sprintf("%s\n", getTemporaryView(tbl.Name, tbl.ViewColumns))); err != nil {
-			return err
+		if tbl.InvalidView != "" {
+			// We will write the invalid view error string to schema.
+			if _, err := io.WriteString(out, fmt.Sprintf("%s\n", fmt.Sprintf(viewStmtFmt, tbl.Name, fmt.Sprintf("-- %s", tbl.InvalidView)))); err != nil {
+				return err
+			}
+		} else {
+			if _, err := io.WriteString(out, fmt.Sprintf("%s\n", getTemporaryView(tbl.Name, tbl.ViewColumns))); err != nil {
+				return err
+			}
 		}
 	}
 	// Construct tables.
@@ -222,7 +234,7 @@ func dumpTxn(txn *sql.Tx, dbType db.Type, database string, out io.Writer, schema
 			continue
 		}
 		if schemaOnly {
-			tbl.Statement = excludeSchemaAutoIncrementValue(tbl.Statement)
+			tbl.Statement = excludeSchemaAutoValues(tbl.Statement)
 		}
 		if _, err := io.WriteString(out, fmt.Sprintf("%s\n", tbl.Statement)); err != nil {
 			return err
@@ -260,7 +272,7 @@ func dumpTxn(txn *sql.Tx, dbType db.Type, database string, out io.Writer, schema
 	}
 
 	// OceanBase doesn't support "Event Scheduler"
-	if dbType != db.OceanBase {
+	if dbType != storepb.Engine_OCEANBASE {
 		// Event statements.
 		events, err := getEvents(txn, database)
 		if err != nil {
@@ -301,9 +313,13 @@ func getTemporaryView(name string, columns []string) string {
 	return fmt.Sprintf(tempViewStmtFmt, name, stmt)
 }
 
-// excludeSchemaAutoIncrementValue excludes the starting value of AUTO_INCREMENT if it's a schema only dump.
+// excludeSchemaAutoValues excludes
+// 1) the starting value of AUTO_INCREMENT if it's a schema only dump.
 // https://github.com/bytebase/bytebase/issues/123
-func excludeSchemaAutoIncrementValue(s string) string {
+// 2) The auto random base in TiDB.
+// /*T![auto_rand_base] AUTO_RANDOM_BASE=39456621 */.
+func excludeSchemaAutoValues(s string) string {
+	s = excludeAutoRandomBase.ReplaceAllString(s, ``)
 	return excludeAutoIncrement.ReplaceAllString(s, ``)
 }
 
@@ -376,6 +392,8 @@ type TableSchema struct {
 	TableType   string
 	Statement   string
 	ViewColumns []string
+	// InvalidView is the error message indicating an invalid view object.
+	InvalidView string
 }
 
 // routineSchema describes the schema of a function or procedure (routine).
@@ -404,11 +422,11 @@ func getTables(ctx context.Context, conn *sql.Conn, dbName string) ([]*TableSche
 		return nil, err
 	}
 	defer txn.Rollback()
-	return getTablesTx(txn, db.MySQL, dbName)
+	return getTablesTx(txn, storepb.Engine_MYSQL, dbName)
 }
 
 // getTablesTx gets all tables of a database using the provided transaction.
-func getTablesTx(txn *sql.Tx, dbType db.Type, dbName string) ([]*TableSchema, error) {
+func getTablesTx(txn *sql.Tx, dbType storepb.Engine, dbName string) ([]*TableSchema, error) {
 	var tables []*TableSchema
 	query := fmt.Sprintf("SHOW FULL TABLES FROM `%s`;", dbName)
 	rows, err := txn.Query(query)
@@ -436,9 +454,10 @@ func getTablesTx(txn *sql.Tx, dbType db.Type, dbName string) ([]*TableSchema, er
 		if tbl.TableType == viewTableType {
 			viewColumns, err := getViewColumns(txn, dbName, tbl.Name)
 			if err != nil {
-				return nil, errors.Wrapf(err, "failed to call getViewColumns(%q, %q, %q)", dbName, tbl.Name, tbl.TableType)
+				tbl.InvalidView = err.Error()
+			} else {
+				tbl.ViewColumns = viewColumns
 			}
-			tbl.ViewColumns = viewColumns
 		}
 	}
 	return tables, nil
@@ -454,7 +473,7 @@ func trimAfterLastParenthesis(sql string) string {
 }
 
 // getTableStmt gets the create statement of a table.
-func getTableStmt(txn *sql.Tx, dbType db.Type, dbName, tblName, tblType string) (string, error) {
+func getTableStmt(txn *sql.Tx, dbType storepb.Engine, dbName, tblName, tblType string) (string, error) {
 	switch tblType {
 	case baseTableType:
 		query := fmt.Sprintf("SHOW CREATE TABLE `%s`.`%s`;", dbName, tblName)
@@ -465,7 +484,7 @@ func getTableStmt(txn *sql.Tx, dbType db.Type, dbName, tblName, tblType string) 
 			}
 			return "", err
 		}
-		if dbType == db.OceanBase {
+		if dbType == storepb.Engine_OCEANBASE {
 			stmt = trimAfterLastParenthesis(stmt)
 		}
 		return fmt.Sprintf(tableStmtFmt, tblName, stmt), nil
@@ -578,12 +597,12 @@ func isNumeric(t string) bool {
 }
 
 // getRoutines gets all routines of a database.
-func getRoutines(txn *sql.Tx, dbType db.Type, dbName string) ([]*routineSchema, error) {
+func getRoutines(txn *sql.Tx, dbType storepb.Engine, dbName string) ([]*routineSchema, error) {
 	var routines []*routineSchema
 	for _, routineType := range []string{"FUNCTION", "PROCEDURE"} {
 		if err := func() error {
 			var query string
-			if dbType == db.OceanBase {
+			if dbType == storepb.Engine_OCEANBASE {
 				query = fmt.Sprintf("SHOW %s STATUS FROM `%s`;", routineType, dbName)
 			} else {
 				query = fmt.Sprintf("SHOW %s STATUS WHERE Db = '%s';", routineType, dbName)
@@ -591,7 +610,7 @@ func getRoutines(txn *sql.Tx, dbType db.Type, dbName string) ([]*routineSchema, 
 			rows, err := txn.Query(query)
 			if err != nil {
 				// Oceanbase starts to support functions since 4.0.
-				if dbType == db.OceanBase {
+				if dbType == storepb.Engine_OCEANBASE {
 					return nil
 				}
 				return errors.Wrapf(err, "failed query %q", query)
@@ -635,7 +654,8 @@ func getRoutines(txn *sql.Tx, dbType db.Type, dbName string) ([]*routineSchema, 
 // getRoutineStmt gets the create statement of a routine.
 func getRoutineStmt(txn *sql.Tx, dbName, routineName, routineType string) (string, error) {
 	query := fmt.Sprintf("SHOW CREATE %s `%s`.`%s`;", routineType, dbName, routineName)
-	var sqlmode, stmt, charset, collation, unused string
+	var sqlmode, charset, collation, unused string
+	var stmt sql.NullString
 	if err := txn.QueryRow(query).Scan(
 		&unused,
 		&sqlmode,
@@ -649,7 +669,15 @@ func getRoutineStmt(txn *sql.Tx, dbName, routineName, routineType string) (strin
 		}
 		return "", err
 	}
-	return fmt.Sprintf(routineStmtFmt, getReadableRoutineType(routineType), routineName, charset, charset, collation, sqlmode, stmt), nil
+	if !stmt.Valid {
+		// https://dev.mysql.com/doc/refman/8.0/en/show-create-procedure.html
+		slog.Warn("Statement is null, user does not have sufficient permissions",
+			slog.String("routineType", routineType),
+			slog.String("dbName", dbName),
+			slog.String("routineName", routineName))
+		return fmt.Sprintf(nullRoutineStmtFmt, getReadableRoutineType(routineType), routineName), nil
+	}
+	return fmt.Sprintf(routineStmtFmt, getReadableRoutineType(routineType), routineName, charset, charset, collation, sqlmode, stmt.String), nil
 }
 
 // getReadableRoutineType gets the printable routine type.
@@ -718,13 +746,13 @@ func getEventStmt(txn *sql.Tx, dbName, eventName string) (string, error) {
 }
 
 // getTriggers gets all triggers of a database.
-func getTriggers(txn *sql.Tx, dbType db.Type, dbName string) ([]*triggerSchema, error) {
+func getTriggers(txn *sql.Tx, dbType storepb.Engine, dbName string) ([]*triggerSchema, error) {
 	var triggers []*triggerSchema
 	query := fmt.Sprintf("SHOW TRIGGERS FROM `%s`;", dbName)
 	rows, err := txn.Query(query)
 	if err != nil {
 		// Oceanbase starts to support trigger since 4.0.
-		if dbType == db.OceanBase {
+		if dbType == storepb.Engine_OCEANBASE {
 			return nil, nil
 		}
 		return nil, err

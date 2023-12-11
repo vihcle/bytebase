@@ -1,16 +1,16 @@
 import { BackupSetting } from "./backup";
 import { EMPTY_ID, UNKNOWN_ID } from "./const";
-import { Database } from "./database";
 import { DataSource } from "./dataSource";
+import { Database } from "./database";
 import { Environment } from "./environment";
-import { CommandId, CommandRegisterId, PrincipalId } from "./id";
+import { CommandId, CommandRegisterId } from "./id";
 import { Instance } from "./instance";
 import { Issue } from "./issue";
 import { Pipeline, Stage, Task, TaskProgress } from "./pipeline";
 import { Principal } from "./principal";
 import { Project, ProjectMember } from "./project";
-import { VCS } from "./vcs";
 import { SQLReviewPolicy } from "./sqlReview";
+import { VCS } from "./vcs";
 
 // System bot id
 export const SYSTEM_BOT_ID = 1;
@@ -34,18 +34,16 @@ export const MINIMUM_POLL_INTERVAL = 200;
 // Add jitter to avoid timer from different clients converging to the same polling frequency.
 export const POLL_JITTER = 200;
 
-// It may take a while to perform instance related operations since we are
-// connecting the remote instance. And certain operations just take longer for
-// a particular database type due to its unique property (e.g. create migration schema
-// is a heavier operation in TiDB than traditional RDBMS).
-export const INSTANCE_OPERATION_TIMEOUT = 60000;
+// Link to inquire enterprise plan
+export const ENTERPRISE_INQUIRE_LINK =
+  "https://www.bytebase.com/contact-us?source=console";
 
 // RowStatus
 export type RowStatus = "NORMAL" | "ARCHIVED";
 
 // Router
 export type RouterSlug = {
-  principalId?: PrincipalId;
+  principalEmail?: string;
   environmentSlug?: string;
   projectSlug?: string;
   projectWebhookSlug?: string;
@@ -53,7 +51,6 @@ export type RouterSlug = {
   instanceSlug?: string;
   databaseSlug?: string;
   tableName?: string;
-  dataSourceSlug?: string;
   vcsSlug?: string;
   connectionSlug?: string;
   sheetSlug?: string;
@@ -61,9 +58,10 @@ export type RouterSlug = {
   ssoName?: string;
 
   // Resource names.
-  projectName?: string;
   databaseGroupName?: string;
   schemaGroupName?: string;
+  changelistName?: string;
+  branchName?: string;
 };
 
 // Quick Action Type
@@ -145,7 +143,6 @@ const makeUnknown = (type: ResourceType) => {
     workflowType: "UI",
     visibility: "PUBLIC",
     tenantMode: "DISABLED",
-    dbNameTemplate: "",
     schemaChangeType: "DDL",
   };
 
@@ -358,7 +355,6 @@ const makeEmpty = (type: ResourceType) => {
     workflowType: "UI",
     visibility: "PUBLIC",
     tenantMode: "DISABLED",
-    dbNameTemplate: "",
     schemaChangeType: "DDL",
   };
 

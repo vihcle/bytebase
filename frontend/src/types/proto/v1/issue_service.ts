@@ -1,8 +1,10 @@
 /* eslint-disable */
-import type { CallContext, CallOptions } from "nice-grpc-common";
-import * as _m0 from "protobufjs/minimal";
+import Long from "long";
+import _m0 from "protobufjs/minimal";
+import { Duration } from "../google/protobuf/duration";
 import { FieldMask } from "../google/protobuf/field_mask";
 import { Timestamp } from "../google/protobuf/timestamp";
+import { Expr } from "../google/type/expr";
 
 export const protobufPackage = "bytebase.v1";
 
@@ -67,7 +69,7 @@ export interface CreateIssueRequest {
    */
   parent: string;
   /** The issue to create. */
-  issue?: Issue | undefined;
+  issue: Issue | undefined;
 }
 
 export interface ListIssuesRequest {
@@ -92,6 +94,10 @@ export interface ListIssuesRequest {
    * the call that provided the page token.
    */
   pageToken: string;
+  /** Filter is used to filter issues returned in the list. */
+  filter: string;
+  /** Query is the query statement. */
+  query: string;
 }
 
 export interface ListIssuesResponse {
@@ -111,14 +117,14 @@ export interface UpdateIssueRequest {
    * The issue's `name` field is used to identify the issue to update.
    * Format: projects/{project}/issues/{issue}
    */
-  issue?:
+  issue:
     | Issue
     | undefined;
   /** The list of fields to update. */
-  updateMask?: string[] | undefined;
+  updateMask: string[] | undefined;
 }
 
-export interface BatchUpdateIssuesRequest {
+export interface BatchUpdateIssuesStatusRequest {
   /**
    * The parent resource shared by all issues being updated.
    * Format: projects/{project}
@@ -127,15 +133,16 @@ export interface BatchUpdateIssuesRequest {
    */
   parent: string;
   /**
-   * The request message specifying the resources to update.
-   * A maximum of 1000 databases can be modified in a batch.
+   * The list of issues to update.
+   * Format: projects/{project}/issues/{issue}
    */
-  requests: UpdateIssueRequest[];
+  issues: string[];
+  /** The new status. */
+  status: IssueStatus;
+  reason: string;
 }
 
-export interface BatchUpdateIssuesResponse {
-  /** Issues updated. */
-  issues: Issue[];
+export interface BatchUpdateIssuesStatusResponse {
 }
 
 export interface ApproveIssueRequest {
@@ -195,8 +202,8 @@ export interface Issue {
   subscribers: string[];
   /** Format: users/hello@world.com */
   creator: string;
-  createTime?: Date | undefined;
-  updateTime?:
+  createTime: Date | undefined;
+  updateTime:
     | Date
     | undefined;
   /**
@@ -211,6 +218,22 @@ export interface Issue {
    * Format: projects/{project}/rollouts/{rollout}
    */
   rollout: string;
+  /** Used if the issue type is GRANT_REQUEST. */
+  grantRequest:
+    | GrantRequest
+    | undefined;
+  /**
+   * The releasers of the pending stage of the issue rollout, judging
+   * from the rollout policy.
+   * If the policy is auto rollout, the releasers are the project owners and the issue creator.
+   * Format:
+   * - roles/workspaceOwner
+   * - roles/workspaceDBA
+   * - roles/projectOwner
+   * - roles/projectReleaser
+   * - users/{email}
+   */
+  releasers: string[];
 }
 
 export enum Issue_Type {
@@ -304,8 +327,23 @@ export function issue_Approver_StatusToJSON(object: Issue_Approver_Status): stri
   }
 }
 
+export interface GrantRequest {
+  /**
+   * The requested role.
+   * Format: roles/EXPORTER.
+   */
+  role: string;
+  /**
+   * The user to be granted.
+   * Format: users/{email}.
+   */
+  user: string;
+  condition: Expr | undefined;
+  expiration: Duration | undefined;
+}
+
 export interface ApprovalTemplate {
-  flow?: ApprovalFlow | undefined;
+  flow: ApprovalFlow | undefined;
   title: string;
   description: string;
   /**
@@ -481,7 +519,7 @@ export interface CreateIssueCommentRequest {
    * Format: projects/{project}/issues/{issue}
    */
   parent: string;
-  issueComment?: IssueComment | undefined;
+  issueComment: IssueComment | undefined;
 }
 
 export interface UpdateIssueCommentRequest {
@@ -490,11 +528,11 @@ export interface UpdateIssueCommentRequest {
    * Format: projects/{project}/issues/{issue}
    */
   parent: string;
-  issueComment?:
+  issueComment:
     | IssueComment
     | undefined;
   /** The list of fields to update. */
-  updateMask?: string[] | undefined;
+  updateMask: string[] | undefined;
 }
 
 export interface IssueComment {
@@ -502,8 +540,8 @@ export interface IssueComment {
   comment: string;
   /** TODO: use struct message instead. */
   payload: string;
-  createTime?: Date | undefined;
-  updateTime?: Date | undefined;
+  createTime: Date | undefined;
+  updateTime: Date | undefined;
 }
 
 function createBaseGetIssueRequest(): GetIssueRequest {
@@ -553,22 +591,25 @@ export const GetIssueRequest = {
 
   fromJSON(object: any): GetIssueRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      force: isSet(object.force) ? Boolean(object.force) : false,
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      force: isSet(object.force) ? globalThis.Boolean(object.force) : false,
     };
   },
 
   toJSON(message: GetIssueRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.force !== undefined && (obj.force = message.force);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.force === true) {
+      obj.force = message.force;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetIssueRequest>): GetIssueRequest {
     return GetIssueRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetIssueRequest>): GetIssueRequest {
     const message = createBaseGetIssueRequest();
     message.name = object.name ?? "";
@@ -624,22 +665,25 @@ export const CreateIssueRequest = {
 
   fromJSON(object: any): CreateIssueRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
       issue: isSet(object.issue) ? Issue.fromJSON(object.issue) : undefined,
     };
   },
 
   toJSON(message: CreateIssueRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.issue !== undefined && (obj.issue = message.issue ? Issue.toJSON(message.issue) : undefined);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.issue !== undefined) {
+      obj.issue = Issue.toJSON(message.issue);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<CreateIssueRequest>): CreateIssueRequest {
     return CreateIssueRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<CreateIssueRequest>): CreateIssueRequest {
     const message = createBaseCreateIssueRequest();
     message.parent = object.parent ?? "";
@@ -649,7 +693,7 @@ export const CreateIssueRequest = {
 };
 
 function createBaseListIssuesRequest(): ListIssuesRequest {
-  return { parent: "", pageSize: 0, pageToken: "" };
+  return { parent: "", pageSize: 0, pageToken: "", filter: "", query: "" };
 }
 
 export const ListIssuesRequest = {
@@ -662,6 +706,12 @@ export const ListIssuesRequest = {
     }
     if (message.pageToken !== "") {
       writer.uint32(26).string(message.pageToken);
+    }
+    if (message.filter !== "") {
+      writer.uint32(34).string(message.filter);
+    }
+    if (message.query !== "") {
+      writer.uint32(42).string(message.query);
     }
     return writer;
   },
@@ -694,6 +744,20 @@ export const ListIssuesRequest = {
 
           message.pageToken = reader.string();
           continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.filter = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.query = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -705,29 +769,44 @@ export const ListIssuesRequest = {
 
   fromJSON(object: any): ListIssuesRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
+      filter: isSet(object.filter) ? globalThis.String(object.filter) : "",
+      query: isSet(object.query) ? globalThis.String(object.query) : "",
     };
   },
 
   toJSON(message: ListIssuesRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      obj.pageToken = message.pageToken;
+    }
+    if (message.filter !== "") {
+      obj.filter = message.filter;
+    }
+    if (message.query !== "") {
+      obj.query = message.query;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListIssuesRequest>): ListIssuesRequest {
     return ListIssuesRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListIssuesRequest>): ListIssuesRequest {
     const message = createBaseListIssuesRequest();
     message.parent = object.parent ?? "";
     message.pageSize = object.pageSize ?? 0;
     message.pageToken = object.pageToken ?? "";
+    message.filter = object.filter ?? "";
+    message.query = object.query ?? "";
     return message;
   },
 };
@@ -779,26 +858,25 @@ export const ListIssuesResponse = {
 
   fromJSON(object: any): ListIssuesResponse {
     return {
-      issues: Array.isArray(object?.issues) ? object.issues.map((e: any) => Issue.fromJSON(e)) : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+      issues: globalThis.Array.isArray(object?.issues) ? object.issues.map((e: any) => Issue.fromJSON(e)) : [],
+      nextPageToken: isSet(object.nextPageToken) ? globalThis.String(object.nextPageToken) : "",
     };
   },
 
   toJSON(message: ListIssuesResponse): unknown {
     const obj: any = {};
-    if (message.issues) {
-      obj.issues = message.issues.map((e) => e ? Issue.toJSON(e) : undefined);
-    } else {
-      obj.issues = [];
+    if (message.issues?.length) {
+      obj.issues = message.issues.map((e) => Issue.toJSON(e));
     }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    if (message.nextPageToken !== "") {
+      obj.nextPageToken = message.nextPageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListIssuesResponse>): ListIssuesResponse {
     return ListIssuesResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListIssuesResponse>): ListIssuesResponse {
     const message = createBaseListIssuesResponse();
     message.issues = object.issues?.map((e) => Issue.fromPartial(e)) || [];
@@ -861,15 +939,18 @@ export const UpdateIssueRequest = {
 
   toJSON(message: UpdateIssueRequest): unknown {
     const obj: any = {};
-    message.issue !== undefined && (obj.issue = message.issue ? Issue.toJSON(message.issue) : undefined);
-    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
+    if (message.issue !== undefined) {
+      obj.issue = Issue.toJSON(message.issue);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateIssueRequest>): UpdateIssueRequest {
     return UpdateIssueRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateIssueRequest>): UpdateIssueRequest {
     const message = createBaseUpdateIssueRequest();
     message.issue = (object.issue !== undefined && object.issue !== null) ? Issue.fromPartial(object.issue) : undefined;
@@ -878,25 +959,31 @@ export const UpdateIssueRequest = {
   },
 };
 
-function createBaseBatchUpdateIssuesRequest(): BatchUpdateIssuesRequest {
-  return { parent: "", requests: [] };
+function createBaseBatchUpdateIssuesStatusRequest(): BatchUpdateIssuesStatusRequest {
+  return { parent: "", issues: [], status: 0, reason: "" };
 }
 
-export const BatchUpdateIssuesRequest = {
-  encode(message: BatchUpdateIssuesRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+export const BatchUpdateIssuesStatusRequest = {
+  encode(message: BatchUpdateIssuesStatusRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.parent !== "") {
       writer.uint32(10).string(message.parent);
     }
-    for (const v of message.requests) {
-      UpdateIssueRequest.encode(v!, writer.uint32(18).fork()).ldelim();
+    for (const v of message.issues) {
+      writer.uint32(18).string(v!);
+    }
+    if (message.status !== 0) {
+      writer.uint32(24).int32(message.status);
+    }
+    if (message.reason !== "") {
+      writer.uint32(34).string(message.reason);
     }
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): BatchUpdateIssuesRequest {
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchUpdateIssuesStatusRequest {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseBatchUpdateIssuesRequest();
+    const message = createBaseBatchUpdateIssuesStatusRequest();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -912,7 +999,21 @@ export const BatchUpdateIssuesRequest = {
             break;
           }
 
-          message.requests.push(UpdateIssueRequest.decode(reader, reader.uint32()));
+          message.issues.push(reader.string());
+          continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.status = reader.int32() as any;
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.reason = reader.string();
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -923,62 +1024,61 @@ export const BatchUpdateIssuesRequest = {
     return message;
   },
 
-  fromJSON(object: any): BatchUpdateIssuesRequest {
+  fromJSON(object: any): BatchUpdateIssuesStatusRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
-      requests: Array.isArray(object?.requests) ? object.requests.map((e: any) => UpdateIssueRequest.fromJSON(e)) : [],
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      issues: globalThis.Array.isArray(object?.issues) ? object.issues.map((e: any) => globalThis.String(e)) : [],
+      status: isSet(object.status) ? issueStatusFromJSON(object.status) : 0,
+      reason: isSet(object.reason) ? globalThis.String(object.reason) : "",
     };
   },
 
-  toJSON(message: BatchUpdateIssuesRequest): unknown {
+  toJSON(message: BatchUpdateIssuesStatusRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    if (message.requests) {
-      obj.requests = message.requests.map((e) => e ? UpdateIssueRequest.toJSON(e) : undefined);
-    } else {
-      obj.requests = [];
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.issues?.length) {
+      obj.issues = message.issues;
+    }
+    if (message.status !== 0) {
+      obj.status = issueStatusToJSON(message.status);
+    }
+    if (message.reason !== "") {
+      obj.reason = message.reason;
     }
     return obj;
   },
 
-  create(base?: DeepPartial<BatchUpdateIssuesRequest>): BatchUpdateIssuesRequest {
-    return BatchUpdateIssuesRequest.fromPartial(base ?? {});
+  create(base?: DeepPartial<BatchUpdateIssuesStatusRequest>): BatchUpdateIssuesStatusRequest {
+    return BatchUpdateIssuesStatusRequest.fromPartial(base ?? {});
   },
-
-  fromPartial(object: DeepPartial<BatchUpdateIssuesRequest>): BatchUpdateIssuesRequest {
-    const message = createBaseBatchUpdateIssuesRequest();
+  fromPartial(object: DeepPartial<BatchUpdateIssuesStatusRequest>): BatchUpdateIssuesStatusRequest {
+    const message = createBaseBatchUpdateIssuesStatusRequest();
     message.parent = object.parent ?? "";
-    message.requests = object.requests?.map((e) => UpdateIssueRequest.fromPartial(e)) || [];
+    message.issues = object.issues?.map((e) => e) || [];
+    message.status = object.status ?? 0;
+    message.reason = object.reason ?? "";
     return message;
   },
 };
 
-function createBaseBatchUpdateIssuesResponse(): BatchUpdateIssuesResponse {
-  return { issues: [] };
+function createBaseBatchUpdateIssuesStatusResponse(): BatchUpdateIssuesStatusResponse {
+  return {};
 }
 
-export const BatchUpdateIssuesResponse = {
-  encode(message: BatchUpdateIssuesResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    for (const v of message.issues) {
-      Issue.encode(v!, writer.uint32(10).fork()).ldelim();
-    }
+export const BatchUpdateIssuesStatusResponse = {
+  encode(_: BatchUpdateIssuesStatusResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): BatchUpdateIssuesResponse {
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchUpdateIssuesStatusResponse {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseBatchUpdateIssuesResponse();
+    const message = createBaseBatchUpdateIssuesStatusResponse();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
-        case 1:
-          if (tag !== 10) {
-            break;
-          }
-
-          message.issues.push(Issue.decode(reader, reader.uint32()));
-          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -988,27 +1088,20 @@ export const BatchUpdateIssuesResponse = {
     return message;
   },
 
-  fromJSON(object: any): BatchUpdateIssuesResponse {
-    return { issues: Array.isArray(object?.issues) ? object.issues.map((e: any) => Issue.fromJSON(e)) : [] };
+  fromJSON(_: any): BatchUpdateIssuesStatusResponse {
+    return {};
   },
 
-  toJSON(message: BatchUpdateIssuesResponse): unknown {
+  toJSON(_: BatchUpdateIssuesStatusResponse): unknown {
     const obj: any = {};
-    if (message.issues) {
-      obj.issues = message.issues.map((e) => e ? Issue.toJSON(e) : undefined);
-    } else {
-      obj.issues = [];
-    }
     return obj;
   },
 
-  create(base?: DeepPartial<BatchUpdateIssuesResponse>): BatchUpdateIssuesResponse {
-    return BatchUpdateIssuesResponse.fromPartial(base ?? {});
+  create(base?: DeepPartial<BatchUpdateIssuesStatusResponse>): BatchUpdateIssuesStatusResponse {
+    return BatchUpdateIssuesStatusResponse.fromPartial(base ?? {});
   },
-
-  fromPartial(object: DeepPartial<BatchUpdateIssuesResponse>): BatchUpdateIssuesResponse {
-    const message = createBaseBatchUpdateIssuesResponse();
-    message.issues = object.issues?.map((e) => Issue.fromPartial(e)) || [];
+  fromPartial(_: DeepPartial<BatchUpdateIssuesStatusResponse>): BatchUpdateIssuesStatusResponse {
+    const message = createBaseBatchUpdateIssuesStatusResponse();
     return message;
   },
 };
@@ -1060,22 +1153,25 @@ export const ApproveIssueRequest = {
 
   fromJSON(object: any): ApproveIssueRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      comment: isSet(object.comment) ? String(object.comment) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
     };
   },
 
   toJSON(message: ApproveIssueRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.comment !== undefined && (obj.comment = message.comment);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ApproveIssueRequest>): ApproveIssueRequest {
     return ApproveIssueRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ApproveIssueRequest>): ApproveIssueRequest {
     const message = createBaseApproveIssueRequest();
     message.name = object.name ?? "";
@@ -1131,22 +1227,25 @@ export const RejectIssueRequest = {
 
   fromJSON(object: any): RejectIssueRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      comment: isSet(object.comment) ? String(object.comment) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
     };
   },
 
   toJSON(message: RejectIssueRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.comment !== undefined && (obj.comment = message.comment);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<RejectIssueRequest>): RejectIssueRequest {
     return RejectIssueRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<RejectIssueRequest>): RejectIssueRequest {
     const message = createBaseRejectIssueRequest();
     message.name = object.name ?? "";
@@ -1202,22 +1301,25 @@ export const RequestIssueRequest = {
 
   fromJSON(object: any): RequestIssueRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      comment: isSet(object.comment) ? String(object.comment) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
     };
   },
 
   toJSON(message: RequestIssueRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.comment !== undefined && (obj.comment = message.comment);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<RequestIssueRequest>): RequestIssueRequest {
     return RequestIssueRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<RequestIssueRequest>): RequestIssueRequest {
     const message = createBaseRequestIssueRequest();
     message.name = object.name ?? "";
@@ -1246,6 +1348,8 @@ function createBaseIssue(): Issue {
     updateTime: undefined,
     plan: "",
     rollout: "",
+    grantRequest: undefined,
+    releasers: [],
   };
 }
 
@@ -1304,6 +1408,12 @@ export const Issue = {
     }
     if (message.rollout !== "") {
       writer.uint32(146).string(message.rollout);
+    }
+    if (message.grantRequest !== undefined) {
+      GrantRequest.encode(message.grantRequest, writer.uint32(154).fork()).ldelim();
+    }
+    for (const v of message.releasers) {
+      writer.uint32(162).string(v!);
     }
     return writer;
   },
@@ -1441,6 +1551,20 @@ export const Issue = {
 
           message.rollout = reader.string();
           continue;
+        case 19:
+          if (tag !== 154) {
+            break;
+          }
+
+          message.grantRequest = GrantRequest.decode(reader, reader.uint32());
+          continue;
+        case 20:
+          if (tag !== 162) {
+            break;
+          }
+
+          message.releasers.push(reader.string());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1452,68 +1576,105 @@ export const Issue = {
 
   fromJSON(object: any): Issue {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      uid: isSet(object.uid) ? String(object.uid) : "",
-      title: isSet(object.title) ? String(object.title) : "",
-      description: isSet(object.description) ? String(object.description) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      uid: isSet(object.uid) ? globalThis.String(object.uid) : "",
+      title: isSet(object.title) ? globalThis.String(object.title) : "",
+      description: isSet(object.description) ? globalThis.String(object.description) : "",
       type: isSet(object.type) ? issue_TypeFromJSON(object.type) : 0,
       status: isSet(object.status) ? issueStatusFromJSON(object.status) : 0,
-      assignee: isSet(object.assignee) ? String(object.assignee) : "",
-      assigneeAttention: isSet(object.assigneeAttention) ? Boolean(object.assigneeAttention) : false,
-      approvers: Array.isArray(object?.approvers) ? object.approvers.map((e: any) => Issue_Approver.fromJSON(e)) : [],
-      approvalTemplates: Array.isArray(object?.approvalTemplates)
+      assignee: isSet(object.assignee) ? globalThis.String(object.assignee) : "",
+      assigneeAttention: isSet(object.assigneeAttention) ? globalThis.Boolean(object.assigneeAttention) : false,
+      approvers: globalThis.Array.isArray(object?.approvers)
+        ? object.approvers.map((e: any) => Issue_Approver.fromJSON(e))
+        : [],
+      approvalTemplates: globalThis.Array.isArray(object?.approvalTemplates)
         ? object.approvalTemplates.map((e: any) => ApprovalTemplate.fromJSON(e))
         : [],
-      approvalFindingDone: isSet(object.approvalFindingDone) ? Boolean(object.approvalFindingDone) : false,
-      approvalFindingError: isSet(object.approvalFindingError) ? String(object.approvalFindingError) : "",
-      subscribers: Array.isArray(object?.subscribers) ? object.subscribers.map((e: any) => String(e)) : [],
-      creator: isSet(object.creator) ? String(object.creator) : "",
+      approvalFindingDone: isSet(object.approvalFindingDone) ? globalThis.Boolean(object.approvalFindingDone) : false,
+      approvalFindingError: isSet(object.approvalFindingError) ? globalThis.String(object.approvalFindingError) : "",
+      subscribers: globalThis.Array.isArray(object?.subscribers)
+        ? object.subscribers.map((e: any) => globalThis.String(e))
+        : [],
+      creator: isSet(object.creator) ? globalThis.String(object.creator) : "",
       createTime: isSet(object.createTime) ? fromJsonTimestamp(object.createTime) : undefined,
       updateTime: isSet(object.updateTime) ? fromJsonTimestamp(object.updateTime) : undefined,
-      plan: isSet(object.plan) ? String(object.plan) : "",
-      rollout: isSet(object.rollout) ? String(object.rollout) : "",
+      plan: isSet(object.plan) ? globalThis.String(object.plan) : "",
+      rollout: isSet(object.rollout) ? globalThis.String(object.rollout) : "",
+      grantRequest: isSet(object.grantRequest) ? GrantRequest.fromJSON(object.grantRequest) : undefined,
+      releasers: globalThis.Array.isArray(object?.releasers)
+        ? object.releasers.map((e: any) => globalThis.String(e))
+        : [],
     };
   },
 
   toJSON(message: Issue): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.uid !== undefined && (obj.uid = message.uid);
-    message.title !== undefined && (obj.title = message.title);
-    message.description !== undefined && (obj.description = message.description);
-    message.type !== undefined && (obj.type = issue_TypeToJSON(message.type));
-    message.status !== undefined && (obj.status = issueStatusToJSON(message.status));
-    message.assignee !== undefined && (obj.assignee = message.assignee);
-    message.assigneeAttention !== undefined && (obj.assigneeAttention = message.assigneeAttention);
-    if (message.approvers) {
-      obj.approvers = message.approvers.map((e) => e ? Issue_Approver.toJSON(e) : undefined);
-    } else {
-      obj.approvers = [];
+    if (message.name !== "") {
+      obj.name = message.name;
     }
-    if (message.approvalTemplates) {
-      obj.approvalTemplates = message.approvalTemplates.map((e) => e ? ApprovalTemplate.toJSON(e) : undefined);
-    } else {
-      obj.approvalTemplates = [];
+    if (message.uid !== "") {
+      obj.uid = message.uid;
     }
-    message.approvalFindingDone !== undefined && (obj.approvalFindingDone = message.approvalFindingDone);
-    message.approvalFindingError !== undefined && (obj.approvalFindingError = message.approvalFindingError);
-    if (message.subscribers) {
-      obj.subscribers = message.subscribers.map((e) => e);
-    } else {
-      obj.subscribers = [];
+    if (message.title !== "") {
+      obj.title = message.title;
     }
-    message.creator !== undefined && (obj.creator = message.creator);
-    message.createTime !== undefined && (obj.createTime = message.createTime.toISOString());
-    message.updateTime !== undefined && (obj.updateTime = message.updateTime.toISOString());
-    message.plan !== undefined && (obj.plan = message.plan);
-    message.rollout !== undefined && (obj.rollout = message.rollout);
+    if (message.description !== "") {
+      obj.description = message.description;
+    }
+    if (message.type !== 0) {
+      obj.type = issue_TypeToJSON(message.type);
+    }
+    if (message.status !== 0) {
+      obj.status = issueStatusToJSON(message.status);
+    }
+    if (message.assignee !== "") {
+      obj.assignee = message.assignee;
+    }
+    if (message.assigneeAttention === true) {
+      obj.assigneeAttention = message.assigneeAttention;
+    }
+    if (message.approvers?.length) {
+      obj.approvers = message.approvers.map((e) => Issue_Approver.toJSON(e));
+    }
+    if (message.approvalTemplates?.length) {
+      obj.approvalTemplates = message.approvalTemplates.map((e) => ApprovalTemplate.toJSON(e));
+    }
+    if (message.approvalFindingDone === true) {
+      obj.approvalFindingDone = message.approvalFindingDone;
+    }
+    if (message.approvalFindingError !== "") {
+      obj.approvalFindingError = message.approvalFindingError;
+    }
+    if (message.subscribers?.length) {
+      obj.subscribers = message.subscribers;
+    }
+    if (message.creator !== "") {
+      obj.creator = message.creator;
+    }
+    if (message.createTime !== undefined) {
+      obj.createTime = message.createTime.toISOString();
+    }
+    if (message.updateTime !== undefined) {
+      obj.updateTime = message.updateTime.toISOString();
+    }
+    if (message.plan !== "") {
+      obj.plan = message.plan;
+    }
+    if (message.rollout !== "") {
+      obj.rollout = message.rollout;
+    }
+    if (message.grantRequest !== undefined) {
+      obj.grantRequest = GrantRequest.toJSON(message.grantRequest);
+    }
+    if (message.releasers?.length) {
+      obj.releasers = message.releasers;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<Issue>): Issue {
     return Issue.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<Issue>): Issue {
     const message = createBaseIssue();
     message.name = object.name ?? "";
@@ -1534,6 +1695,10 @@ export const Issue = {
     message.updateTime = object.updateTime ?? undefined;
     message.plan = object.plan ?? "";
     message.rollout = object.rollout ?? "";
+    message.grantRequest = (object.grantRequest !== undefined && object.grantRequest !== null)
+      ? GrantRequest.fromPartial(object.grantRequest)
+      : undefined;
+    message.releasers = object.releasers?.map((e) => e) || [];
     return message;
   },
 };
@@ -1586,25 +1751,136 @@ export const Issue_Approver = {
   fromJSON(object: any): Issue_Approver {
     return {
       status: isSet(object.status) ? issue_Approver_StatusFromJSON(object.status) : 0,
-      principal: isSet(object.principal) ? String(object.principal) : "",
+      principal: isSet(object.principal) ? globalThis.String(object.principal) : "",
     };
   },
 
   toJSON(message: Issue_Approver): unknown {
     const obj: any = {};
-    message.status !== undefined && (obj.status = issue_Approver_StatusToJSON(message.status));
-    message.principal !== undefined && (obj.principal = message.principal);
+    if (message.status !== 0) {
+      obj.status = issue_Approver_StatusToJSON(message.status);
+    }
+    if (message.principal !== "") {
+      obj.principal = message.principal;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<Issue_Approver>): Issue_Approver {
     return Issue_Approver.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<Issue_Approver>): Issue_Approver {
     const message = createBaseIssue_Approver();
     message.status = object.status ?? 0;
     message.principal = object.principal ?? "";
+    return message;
+  },
+};
+
+function createBaseGrantRequest(): GrantRequest {
+  return { role: "", user: "", condition: undefined, expiration: undefined };
+}
+
+export const GrantRequest = {
+  encode(message: GrantRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.role !== "") {
+      writer.uint32(10).string(message.role);
+    }
+    if (message.user !== "") {
+      writer.uint32(18).string(message.user);
+    }
+    if (message.condition !== undefined) {
+      Expr.encode(message.condition, writer.uint32(26).fork()).ldelim();
+    }
+    if (message.expiration !== undefined) {
+      Duration.encode(message.expiration, writer.uint32(34).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): GrantRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGrantRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.role = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.user = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.condition = Expr.decode(reader, reader.uint32());
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.expiration = Duration.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GrantRequest {
+    return {
+      role: isSet(object.role) ? globalThis.String(object.role) : "",
+      user: isSet(object.user) ? globalThis.String(object.user) : "",
+      condition: isSet(object.condition) ? Expr.fromJSON(object.condition) : undefined,
+      expiration: isSet(object.expiration) ? Duration.fromJSON(object.expiration) : undefined,
+    };
+  },
+
+  toJSON(message: GrantRequest): unknown {
+    const obj: any = {};
+    if (message.role !== "") {
+      obj.role = message.role;
+    }
+    if (message.user !== "") {
+      obj.user = message.user;
+    }
+    if (message.condition !== undefined) {
+      obj.condition = Expr.toJSON(message.condition);
+    }
+    if (message.expiration !== undefined) {
+      obj.expiration = Duration.toJSON(message.expiration);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<GrantRequest>): GrantRequest {
+    return GrantRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<GrantRequest>): GrantRequest {
+    const message = createBaseGrantRequest();
+    message.role = object.role ?? "";
+    message.user = object.user ?? "";
+    message.condition = (object.condition !== undefined && object.condition !== null)
+      ? Expr.fromPartial(object.condition)
+      : undefined;
+    message.expiration = (object.expiration !== undefined && object.expiration !== null)
+      ? Duration.fromPartial(object.expiration)
+      : undefined;
     return message;
   },
 };
@@ -1677,25 +1953,32 @@ export const ApprovalTemplate = {
   fromJSON(object: any): ApprovalTemplate {
     return {
       flow: isSet(object.flow) ? ApprovalFlow.fromJSON(object.flow) : undefined,
-      title: isSet(object.title) ? String(object.title) : "",
-      description: isSet(object.description) ? String(object.description) : "",
-      creator: isSet(object.creator) ? String(object.creator) : "",
+      title: isSet(object.title) ? globalThis.String(object.title) : "",
+      description: isSet(object.description) ? globalThis.String(object.description) : "",
+      creator: isSet(object.creator) ? globalThis.String(object.creator) : "",
     };
   },
 
   toJSON(message: ApprovalTemplate): unknown {
     const obj: any = {};
-    message.flow !== undefined && (obj.flow = message.flow ? ApprovalFlow.toJSON(message.flow) : undefined);
-    message.title !== undefined && (obj.title = message.title);
-    message.description !== undefined && (obj.description = message.description);
-    message.creator !== undefined && (obj.creator = message.creator);
+    if (message.flow !== undefined) {
+      obj.flow = ApprovalFlow.toJSON(message.flow);
+    }
+    if (message.title !== "") {
+      obj.title = message.title;
+    }
+    if (message.description !== "") {
+      obj.description = message.description;
+    }
+    if (message.creator !== "") {
+      obj.creator = message.creator;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ApprovalTemplate>): ApprovalTemplate {
     return ApprovalTemplate.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ApprovalTemplate>): ApprovalTemplate {
     const message = createBaseApprovalTemplate();
     message.flow = (object.flow !== undefined && object.flow !== null)
@@ -1744,15 +2027,15 @@ export const ApprovalFlow = {
   },
 
   fromJSON(object: any): ApprovalFlow {
-    return { steps: Array.isArray(object?.steps) ? object.steps.map((e: any) => ApprovalStep.fromJSON(e)) : [] };
+    return {
+      steps: globalThis.Array.isArray(object?.steps) ? object.steps.map((e: any) => ApprovalStep.fromJSON(e)) : [],
+    };
   },
 
   toJSON(message: ApprovalFlow): unknown {
     const obj: any = {};
-    if (message.steps) {
-      obj.steps = message.steps.map((e) => e ? ApprovalStep.toJSON(e) : undefined);
-    } else {
-      obj.steps = [];
+    if (message.steps?.length) {
+      obj.steps = message.steps.map((e) => ApprovalStep.toJSON(e));
     }
     return obj;
   },
@@ -1760,7 +2043,6 @@ export const ApprovalFlow = {
   create(base?: DeepPartial<ApprovalFlow>): ApprovalFlow {
     return ApprovalFlow.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ApprovalFlow>): ApprovalFlow {
     const message = createBaseApprovalFlow();
     message.steps = object.steps?.map((e) => ApprovalStep.fromPartial(e)) || [];
@@ -1816,17 +2098,17 @@ export const ApprovalStep = {
   fromJSON(object: any): ApprovalStep {
     return {
       type: isSet(object.type) ? approvalStep_TypeFromJSON(object.type) : 0,
-      nodes: Array.isArray(object?.nodes) ? object.nodes.map((e: any) => ApprovalNode.fromJSON(e)) : [],
+      nodes: globalThis.Array.isArray(object?.nodes) ? object.nodes.map((e: any) => ApprovalNode.fromJSON(e)) : [],
     };
   },
 
   toJSON(message: ApprovalStep): unknown {
     const obj: any = {};
-    message.type !== undefined && (obj.type = approvalStep_TypeToJSON(message.type));
-    if (message.nodes) {
-      obj.nodes = message.nodes.map((e) => e ? ApprovalNode.toJSON(e) : undefined);
-    } else {
-      obj.nodes = [];
+    if (message.type !== 0) {
+      obj.type = approvalStep_TypeToJSON(message.type);
+    }
+    if (message.nodes?.length) {
+      obj.nodes = message.nodes.map((e) => ApprovalNode.toJSON(e));
     }
     return obj;
   },
@@ -1834,7 +2116,6 @@ export const ApprovalStep = {
   create(base?: DeepPartial<ApprovalStep>): ApprovalStep {
     return ApprovalStep.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ApprovalStep>): ApprovalStep {
     const message = createBaseApprovalStep();
     message.type = object.type ?? 0;
@@ -1912,27 +2193,31 @@ export const ApprovalNode = {
     return {
       type: isSet(object.type) ? approvalNode_TypeFromJSON(object.type) : 0,
       groupValue: isSet(object.groupValue) ? approvalNode_GroupValueFromJSON(object.groupValue) : undefined,
-      role: isSet(object.role) ? String(object.role) : undefined,
-      externalNodeId: isSet(object.externalNodeId) ? String(object.externalNodeId) : undefined,
+      role: isSet(object.role) ? globalThis.String(object.role) : undefined,
+      externalNodeId: isSet(object.externalNodeId) ? globalThis.String(object.externalNodeId) : undefined,
     };
   },
 
   toJSON(message: ApprovalNode): unknown {
     const obj: any = {};
-    message.type !== undefined && (obj.type = approvalNode_TypeToJSON(message.type));
-    message.groupValue !== undefined &&
-      (obj.groupValue = message.groupValue !== undefined
-        ? approvalNode_GroupValueToJSON(message.groupValue)
-        : undefined);
-    message.role !== undefined && (obj.role = message.role);
-    message.externalNodeId !== undefined && (obj.externalNodeId = message.externalNodeId);
+    if (message.type !== 0) {
+      obj.type = approvalNode_TypeToJSON(message.type);
+    }
+    if (message.groupValue !== undefined) {
+      obj.groupValue = approvalNode_GroupValueToJSON(message.groupValue);
+    }
+    if (message.role !== undefined) {
+      obj.role = message.role;
+    }
+    if (message.externalNodeId !== undefined) {
+      obj.externalNodeId = message.externalNodeId;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ApprovalNode>): ApprovalNode {
     return ApprovalNode.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ApprovalNode>): ApprovalNode {
     const message = createBaseApprovalNode();
     message.type = object.type ?? 0;
@@ -1990,23 +2275,25 @@ export const CreateIssueCommentRequest = {
 
   fromJSON(object: any): CreateIssueCommentRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
       issueComment: isSet(object.issueComment) ? IssueComment.fromJSON(object.issueComment) : undefined,
     };
   },
 
   toJSON(message: CreateIssueCommentRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.issueComment !== undefined &&
-      (obj.issueComment = message.issueComment ? IssueComment.toJSON(message.issueComment) : undefined);
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.issueComment !== undefined) {
+      obj.issueComment = IssueComment.toJSON(message.issueComment);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<CreateIssueCommentRequest>): CreateIssueCommentRequest {
     return CreateIssueCommentRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<CreateIssueCommentRequest>): CreateIssueCommentRequest {
     const message = createBaseCreateIssueCommentRequest();
     message.parent = object.parent ?? "";
@@ -2074,7 +2361,7 @@ export const UpdateIssueCommentRequest = {
 
   fromJSON(object: any): UpdateIssueCommentRequest {
     return {
-      parent: isSet(object.parent) ? String(object.parent) : "",
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
       issueComment: isSet(object.issueComment) ? IssueComment.fromJSON(object.issueComment) : undefined,
       updateMask: isSet(object.updateMask) ? FieldMask.unwrap(FieldMask.fromJSON(object.updateMask)) : undefined,
     };
@@ -2082,17 +2369,21 @@ export const UpdateIssueCommentRequest = {
 
   toJSON(message: UpdateIssueCommentRequest): unknown {
     const obj: any = {};
-    message.parent !== undefined && (obj.parent = message.parent);
-    message.issueComment !== undefined &&
-      (obj.issueComment = message.issueComment ? IssueComment.toJSON(message.issueComment) : undefined);
-    message.updateMask !== undefined && (obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask)));
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.issueComment !== undefined) {
+      obj.issueComment = IssueComment.toJSON(message.issueComment);
+    }
+    if (message.updateMask !== undefined) {
+      obj.updateMask = FieldMask.toJSON(FieldMask.wrap(message.updateMask));
+    }
     return obj;
   },
 
   create(base?: DeepPartial<UpdateIssueCommentRequest>): UpdateIssueCommentRequest {
     return UpdateIssueCommentRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<UpdateIssueCommentRequest>): UpdateIssueCommentRequest {
     const message = createBaseUpdateIssueCommentRequest();
     message.parent = object.parent ?? "";
@@ -2181,9 +2472,9 @@ export const IssueComment = {
 
   fromJSON(object: any): IssueComment {
     return {
-      uid: isSet(object.uid) ? String(object.uid) : "",
-      comment: isSet(object.comment) ? String(object.comment) : "",
-      payload: isSet(object.payload) ? String(object.payload) : "",
+      uid: isSet(object.uid) ? globalThis.String(object.uid) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
+      payload: isSet(object.payload) ? globalThis.String(object.payload) : "",
       createTime: isSet(object.createTime) ? fromJsonTimestamp(object.createTime) : undefined,
       updateTime: isSet(object.updateTime) ? fromJsonTimestamp(object.updateTime) : undefined,
     };
@@ -2191,18 +2482,27 @@ export const IssueComment = {
 
   toJSON(message: IssueComment): unknown {
     const obj: any = {};
-    message.uid !== undefined && (obj.uid = message.uid);
-    message.comment !== undefined && (obj.comment = message.comment);
-    message.payload !== undefined && (obj.payload = message.payload);
-    message.createTime !== undefined && (obj.createTime = message.createTime.toISOString());
-    message.updateTime !== undefined && (obj.updateTime = message.updateTime.toISOString());
+    if (message.uid !== "") {
+      obj.uid = message.uid;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
+    if (message.payload !== "") {
+      obj.payload = message.payload;
+    }
+    if (message.createTime !== undefined) {
+      obj.createTime = message.createTime.toISOString();
+    }
+    if (message.updateTime !== undefined) {
+      obj.updateTime = message.updateTime.toISOString();
+    }
     return obj;
   },
 
   create(base?: DeepPartial<IssueComment>): IssueComment {
     return IssueComment.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<IssueComment>): IssueComment {
     const message = createBaseIssueComment();
     message.uid = object.uid ?? "";
@@ -2643,22 +2943,22 @@ export const IssueServiceDefinition = {
         },
       },
     },
-    batchUpdateIssues: {
-      name: "BatchUpdateIssues",
-      requestType: BatchUpdateIssuesRequest,
+    batchUpdateIssuesStatus: {
+      name: "BatchUpdateIssuesStatus",
+      requestType: BatchUpdateIssuesStatusRequest,
       requestStream: false,
-      responseType: BatchUpdateIssuesResponse,
+      responseType: BatchUpdateIssuesStatusResponse,
       responseStream: false,
       options: {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              47,
+              53,
               58,
               1,
               42,
               34,
-              42,
+              48,
               47,
               118,
               49,
@@ -2701,6 +3001,12 @@ export const IssueServiceDefinition = {
               97,
               116,
               101,
+              83,
+              116,
+              97,
+              116,
+              117,
+              115,
             ]),
           ],
         },
@@ -2885,83 +3191,43 @@ export const IssueServiceDefinition = {
   },
 } as const;
 
-export interface IssueServiceImplementation<CallContextExt = {}> {
-  getIssue(request: GetIssueRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Issue>>;
-  createIssue(request: CreateIssueRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Issue>>;
-  listIssues(
-    request: ListIssuesRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<ListIssuesResponse>>;
-  updateIssue(request: UpdateIssueRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Issue>>;
-  createIssueComment(
-    request: CreateIssueCommentRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<IssueComment>>;
-  updateIssueComment(
-    request: UpdateIssueCommentRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<IssueComment>>;
-  batchUpdateIssues(
-    request: BatchUpdateIssuesRequest,
-    context: CallContext & CallContextExt,
-  ): Promise<DeepPartial<BatchUpdateIssuesResponse>>;
-  approveIssue(request: ApproveIssueRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Issue>>;
-  rejectIssue(request: RejectIssueRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Issue>>;
-  requestIssue(request: RequestIssueRequest, context: CallContext & CallContextExt): Promise<DeepPartial<Issue>>;
-}
-
-export interface IssueServiceClient<CallOptionsExt = {}> {
-  getIssue(request: DeepPartial<GetIssueRequest>, options?: CallOptions & CallOptionsExt): Promise<Issue>;
-  createIssue(request: DeepPartial<CreateIssueRequest>, options?: CallOptions & CallOptionsExt): Promise<Issue>;
-  listIssues(
-    request: DeepPartial<ListIssuesRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<ListIssuesResponse>;
-  updateIssue(request: DeepPartial<UpdateIssueRequest>, options?: CallOptions & CallOptionsExt): Promise<Issue>;
-  createIssueComment(
-    request: DeepPartial<CreateIssueCommentRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<IssueComment>;
-  updateIssueComment(
-    request: DeepPartial<UpdateIssueCommentRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<IssueComment>;
-  batchUpdateIssues(
-    request: DeepPartial<BatchUpdateIssuesRequest>,
-    options?: CallOptions & CallOptionsExt,
-  ): Promise<BatchUpdateIssuesResponse>;
-  approveIssue(request: DeepPartial<ApproveIssueRequest>, options?: CallOptions & CallOptionsExt): Promise<Issue>;
-  rejectIssue(request: DeepPartial<RejectIssueRequest>, options?: CallOptions & CallOptionsExt): Promise<Issue>;
-  requestIssue(request: DeepPartial<RequestIssueRequest>, options?: CallOptions & CallOptionsExt): Promise<Issue>;
-}
-
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
 export type DeepPartial<T> = T extends Builtin ? T
-  : T extends Array<infer U> ? Array<DeepPartial<U>> : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
+  : T extends Long ? string | number | Long : T extends globalThis.Array<infer U> ? globalThis.Array<DeepPartial<U>>
+  : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
 
 function toTimestamp(date: Date): Timestamp {
-  const seconds = date.getTime() / 1_000;
+  const seconds = numberToLong(date.getTime() / 1_000);
   const nanos = (date.getTime() % 1_000) * 1_000_000;
   return { seconds, nanos };
 }
 
 function fromTimestamp(t: Timestamp): Date {
-  let millis = (t.seconds || 0) * 1_000;
+  let millis = (t.seconds.toNumber() || 0) * 1_000;
   millis += (t.nanos || 0) / 1_000_000;
-  return new Date(millis);
+  return new globalThis.Date(millis);
 }
 
 function fromJsonTimestamp(o: any): Date {
-  if (o instanceof Date) {
+  if (o instanceof globalThis.Date) {
     return o;
   } else if (typeof o === "string") {
-    return new Date(o);
+    return new globalThis.Date(o);
   } else {
     return fromTimestamp(Timestamp.fromJSON(o));
   }
+}
+
+function numberToLong(number: number) {
+  return Long.fromNumber(number);
+}
+
+if (_m0.util.Long !== Long) {
+  _m0.util.Long = Long as any;
+  _m0.configure();
 }
 
 function isSet(value: any): boolean {

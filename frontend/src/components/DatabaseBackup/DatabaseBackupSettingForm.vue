@@ -37,7 +37,7 @@
 
             <router-link
               class="normal-link text-sm"
-              :to="`/environment/${database.instanceEntity.environmentEntity.uid}`"
+              :to="`/environment/${database.effectiveEnvironmentEntity.uid}`"
             >
               {{
                 $t(
@@ -131,7 +131,7 @@
       </div>
 
       <div
-        class="w-full mt-5 pt-4 flex justify-end border-t border-block-border"
+        class="w-full mt-4 pt-4 flex justify-end border-t border-block-border"
       >
         <button
           type="button"
@@ -160,10 +160,18 @@
 </template>
 
 <script lang="ts" setup>
+import { NPopover } from "naive-ui";
 import { computed, PropType, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { NPopover } from "naive-ui";
+import { DrawerContent } from "@/components/v2";
+import { pushNotification, useBackupV1Store } from "@/store";
 import { ComposedDatabase, unknown } from "@/types";
+import { Duration } from "@/types/proto/google/protobuf/duration";
+import { BackupSetting } from "@/types/proto/v1/database_service";
+import {
+  BackupPlanSchedule,
+  backupPlanScheduleToJSON,
+} from "@/types/proto/v1/org_policy_service";
 import {
   AVAILABLE_DAYS_OF_WEEK,
   AVAILABLE_HOURS_OF_DAY,
@@ -174,13 +182,6 @@ import {
   localToUTC,
   parseScheduleFromBackupSetting,
 } from "./utils";
-import { pushNotification, useBackupV1Store } from "@/store";
-import {
-  BackupPlanSchedule,
-  backupPlanScheduleToJSON,
-} from "@/types/proto/v1/org_policy_service";
-import { BackupSetting } from "@/types/proto/v1/database_service";
-import { DrawerContent } from "@/components/v2";
 
 interface BackupSettingEdit {
   enabled: boolean;
@@ -304,10 +305,10 @@ const handleSave = async () => {
         dayOfWeek: setting.dayOfWeek,
       }),
       hookUrl: props.backupSetting.hookUrl,
-      backupRetainDuration: {
+      backupRetainDuration: Duration.fromPartial({
         seconds: setting.retentionPeriodTs,
         nanos: 0,
-      },
+      }),
     });
 
     const action = setting.enabled
@@ -412,7 +413,8 @@ function extractEditValue(backupSetting: BackupSetting): BackupSettingEdit {
     enabled: backupSetting.cronSchedule !== "",
     dayOfWeek: schedule.dayOfWeek,
     hour: schedule.hourOfDay,
-    retentionPeriodTs: backupSetting.backupRetainDuration?.seconds ?? 0,
+    retentionPeriodTs:
+      backupSetting.backupRetainDuration?.seconds?.toNumber() ?? 0,
   };
 }
 

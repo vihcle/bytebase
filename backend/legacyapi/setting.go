@@ -22,8 +22,6 @@ const (
 	SettingWorkspaceExternalApproval SettingName = "bb.workspace.approval.external"
 	// SettingEnterpriseLicense is the setting name for enterprise license.
 	SettingEnterpriseLicense SettingName = "bb.enterprise.license"
-	// SettingEnterpriseTrial is the setting name for free trial.
-	SettingEnterpriseTrial SettingName = "bb.enterprise.trial"
 	// SettingAppIM is the setting name for IM applications.
 	SettingAppIM SettingName = "bb.app.im"
 	// SettingWatermark is the setting name for watermark displaying.
@@ -40,6 +38,12 @@ const (
 	SettingWorkspaceMailDelivery SettingName = "bb.workspace.mail-delivery"
 	// SettingSchemaTemplate is the setting name for schema template.
 	SettingSchemaTemplate SettingName = "bb.workspace.schema-template"
+	// SettingDataClassification is the setting name for data classification.
+	SettingDataClassification SettingName = "bb.workspace.data-classification"
+	// SettingSemanticTypes is the setting name for semantic types.
+	SettingSemanticTypes SettingName = "bb.workspace.semantic-types"
+	// SettingMaskingAlgorithms is the setting name for masking algorithms.
+	SettingMaskingAlgorithm SettingName = "bb.workspace.masking-algorithm"
 )
 
 // IMType is the type of IM.

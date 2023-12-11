@@ -18,14 +18,14 @@ export const useRouterStore = defineStore("router", {
     },
     routeSlug(currentRoute: RouteLocationNormalized): RouterSlug {
       {
-        // /u/:principalId
+        // /users/:email
         // Total 2 elements, 2nd element is the principal id
         const profileComponents = currentRoute.path.match(
-          "/u/([0-9a-zA-Z_-]+)"
+          /\/users\/(\S+@\S+\.\S+)/
         ) || ["/", undefined];
         if (profileComponents[1]) {
           return {
-            principalId: parseInt(profileComponents[1]),
+            principalEmail: profileComponents[1],
           };
         }
       }
@@ -61,14 +61,29 @@ export const useRouterStore = defineStore("router", {
       }
 
       {
-        // /project/:projectSlug
-        // Total 2 elements, 2nd element is the project slug
+        // /project/:projectSlug/changelists/:changelistName
+        // Total 3 elements, 2nd element is the project slug, 3rd element is the project changelist name.
         const projectComponents = currentRoute.path.match(
-          "/project/([0-9a-zA-Z_-]+)"
+          "/project/([0-9a-zA-Z_-]+)/changelists/([0-9a-zA-Z_-]+)"
         ) || ["/", undefined];
-        if (projectComponents[1]) {
+        if (projectComponents.length === 3) {
           return {
             projectSlug: projectComponents[1],
+            changelistName: projectComponents[2],
+          };
+        }
+      }
+
+      {
+        // /project/:projectSlug/branches/:branchName
+        // Total 3 elements, 2nd element is the project slug, 3rd element is the project changelist name.
+        const projectComponents = currentRoute.path.match(
+          "/project/([0-9a-zA-Z_-]+)/branches/([0-9a-zA-Z_-]+)"
+        ) || ["/", undefined];
+        if (projectComponents.length === 3) {
+          return {
+            projectSlug: projectComponents[1],
+            branchName: projectComponents[2],
           };
         }
       }
@@ -96,20 +111,6 @@ export const useRouterStore = defineStore("router", {
           return {
             databaseSlug: databaseComponents[1],
             tableName: databaseComponents[2],
-          };
-        }
-      }
-
-      {
-        // /db/:databaseSlug/data-source/:dataSourceSlug
-        // Total 3 elements, 2nd element is the database slug, 3rd element is the data source slug
-        const dataSourceComponents = currentRoute.path.match(
-          "/db/([0-9a-zA-Z_-]+)/data-source/([0-9a-zA-Z_-]+)"
-        ) || ["/", undefined, undefined];
-        if (dataSourceComponents[1] && dataSourceComponents[2]) {
-          return {
-            databaseSlug: dataSourceComponents[1],
-            dataSourceSlug: dataSourceComponents[2],
           };
         }
       }
@@ -208,16 +209,43 @@ export const useRouterStore = defineStore("router", {
       }
 
       {
-        // /projects/proj-nt-iq3z/database-groups/test/table-groups/asd123
+        // /project/proj-nt-iq3z/database-groups/test/table-groups/asd123
         const schemaGroupDetailComponents = currentRoute.path.match(
-          "/projects/([0-9a-zA-Z_-]+)/database-groups/([0-9a-zA-Z_-]+)/table-groups/([0-9a-zA-Z_-]+)"
+          "/project/([0-9a-zA-Z_-]+)/database-groups/([0-9a-zA-Z_-]+)/table-groups/([0-9a-zA-Z_-]+)"
         ) || ["/", undefined];
 
         if (schemaGroupDetailComponents.length === 4) {
           return {
-            projectName: schemaGroupDetailComponents[1],
+            projectSlug: schemaGroupDetailComponents[1],
             databaseGroupName: schemaGroupDetailComponents[2],
             schemaGroupName: schemaGroupDetailComponents[3],
+          };
+        }
+      }
+
+      {
+        // /project/proj-nt-iq3z/database-groups/test
+        const schemaGroupDetailComponents = currentRoute.path.match(
+          "/project/([0-9a-zA-Z_-]+)/database-groups/([0-9a-zA-Z_-]+)"
+        ) || ["/", undefined];
+
+        if (schemaGroupDetailComponents.length === 3) {
+          return {
+            projectSlug: schemaGroupDetailComponents[1],
+            databaseGroupName: schemaGroupDetailComponents[2],
+          };
+        }
+      }
+
+      {
+        // /project/:projectSlug
+        // Total 2 elements, 2nd element is the project slug
+        const projectComponents = currentRoute.path.match(
+          "/project/([0-9a-zA-Z_-]+)"
+        ) || ["/", undefined];
+        if (projectComponents[1]) {
+          return {
+            projectSlug: projectComponents[1],
           };
         }
       }

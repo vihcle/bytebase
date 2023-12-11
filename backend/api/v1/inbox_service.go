@@ -3,9 +3,9 @@ package v1
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -58,7 +58,10 @@ func (s *InboxService) ListInbox(ctx context.Context, request *v1pb.ListInboxReq
 	limitPlusOne := limit + 1
 	offset := int(pageToken.Offset)
 
-	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
 	find := &store.FindInboxMessage{
 		ReceiverUID: &principalID,
 		Limit:       &limitPlusOne,
@@ -104,7 +107,7 @@ func (s *InboxService) ListInbox(ctx context.Context, request *v1pb.ListInboxReq
 	for _, inbox := range inboxList {
 		inboxV1, err := s.convertToInboxMessage(ctx, inbox)
 		if err != nil {
-			log.Error("failed to convert inbox message", zap.Int("inbox", inbox.UID), zap.Error(err))
+			slog.Error("failed to convert inbox message", slog.Int("inbox", inbox.UID), log.BBError(err))
 			continue
 		}
 		resp.InboxMessages = append(resp.InboxMessages, inboxV1)
@@ -115,7 +118,10 @@ func (s *InboxService) ListInbox(ctx context.Context, request *v1pb.ListInboxReq
 
 // GetInboxSummary gets the inbox summary.
 func (s *InboxService) GetInboxSummary(ctx context.Context, _ *v1pb.GetInboxSummaryRequest) (*v1pb.InboxSummary, error) {
-	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
 	summary, err := s.store.FindInboxSummary(ctx, principalID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to find inbox summary with error: %v", err.Error())
@@ -136,7 +142,7 @@ func (s *InboxService) UpdateInbox(ctx context.Context, request *v1pb.UpdateInbo
 		return nil, status.Errorf(codes.InvalidArgument, "update_mask must be set")
 	}
 
-	inboxUID, err := getUIDFromName(request.InboxMessage.Name, inboxNamePrefix)
+	inboxUID, err := common.GetUIDFromName(request.InboxMessage.Name, common.InboxNamePrefix)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -194,7 +200,7 @@ func (s *InboxService) convertToInboxMessage(ctx context.Context, inbox *store.I
 	}
 
 	return &v1pb.InboxMessage{
-		Name:        fmt.Sprintf("%s%d", inboxNamePrefix, inbox.UID),
+		Name:        fmt.Sprintf("%s%d", common.InboxNamePrefix, inbox.UID),
 		ActivityUid: fmt.Sprintf("%d", inbox.ActivityUID),
 		Status:      status,
 		Activity:    activity,

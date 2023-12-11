@@ -1,5 +1,5 @@
 <template>
-  <div class="space-y-4">
+  <div class="w-full space-y-4">
     <div class="space-y-2">
       <div
         v-for="(user, index) in state.userList"
@@ -14,7 +14,6 @@
             <NInput
               v-model:value="user.email"
               :input-props="{ type: 'text', autocomplete: 'off' }"
-              class="!w-10 sm:!w-20 shrink-0"
               placeholder="foo"
               @blur="validateUser(user, index)"
               @input="clearValidationError(index)"
@@ -40,7 +39,7 @@
           </p>
         </div>
         <div v-if="hasRBACFeature" class="sm:hidden w-36">
-          <RoleSelect v-model:role="user.userRole" />
+          <WorkspaceRoleSelect v-model:role="user.userRole" />
         </div>
         <div
           v-if="hasRBACFeature"
@@ -96,20 +95,14 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, reactive } from "vue";
-import { NButton, NInput, NSwitch } from "naive-ui";
 import { cloneDeep } from "lodash-es";
-
+import { NButton, NInput, NSwitch } from "naive-ui";
+import { computed, reactive } from "vue";
+import { WorkspaceRoleSelect, RoleRadioSelect } from "@/components/v2";
+import { featureToRef, useUserStore, useCurrentUserV1 } from "@/store";
 import { emptyUser } from "@/types";
-import { isValidEmail, hasWorkspacePermissionV1, randomString } from "@/utils";
-import {
-  useUIStateStore,
-  featureToRef,
-  useUserStore,
-  useCurrentUserV1,
-} from "@/store";
-import { RoleSelect, RoleRadioSelect } from "@/components/v2";
 import { User, UserRole, UserType } from "@/types/proto/v1/auth_service";
+import { isValidEmail, hasWorkspacePermissionV1, randomString } from "@/utils";
 import { copyServiceKeyToClipboardIfNeeded } from "./common";
 
 interface LocalState {
@@ -137,10 +130,8 @@ const state = reactive<LocalState>({
   errorList: [],
 });
 
-for (let i = 0; i < 3; i++) {
-  state.userList.push(emptyUser());
-  state.errorList.push("");
-}
+state.userList.push(emptyUser());
+state.errorList.push("");
 
 const toggleUserServiceAccount = (user: User, index: number, on: boolean) => {
   user.userType = on ? UserType.SERVICE_ACCOUNT : UserType.USER;
@@ -239,11 +230,6 @@ const addOrInvite = async () => {
         regenerateTempMfaSecret: false,
       });
     }
-
-    useUIStateStore().saveIntroStateByKey({
-      key: "member.addOrInvite",
-      newState: true,
-    });
   }
   state.userList.forEach((item) => {
     Object.assign(item, emptyUser());

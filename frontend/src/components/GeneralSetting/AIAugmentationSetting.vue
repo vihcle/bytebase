@@ -1,31 +1,25 @@
 <template>
-  <div ref="containerRef" class="px-4 py-6 lg:flex">
+  <div ref="containerRef" class="py-6 lg:flex">
     <div class="text-left lg:w-1/4">
-      <h1 class="text-2xl font-bold">
-        {{ $t("settings.general.workspace.plugin.openai.ai-augmentation") }}
-      </h1>
+      <div class="flex items-center space-x-2">
+        <h1 class="text-2xl font-bold">
+          {{ $t("settings.general.workspace.plugin.openai.ai-augmentation") }}
+        </h1>
+        <FeatureBadge feature="bb.feature.plugin.openai" />
+      </div>
       <span v-if="!allowEdit" class="text-sm text-gray-400">
-        {{ $t("settings.general.workspace.only-owner-can-edit") }}
+        {{ $t("settings.general.workspace.only-admin-can-edit") }}
       </span>
     </div>
-    <div class="flex-1 lg:px-5">
-      <div class="mb-7 mt-5 lg:mt-0">
+    <div class="flex-1 lg:px-4">
+      <div class="mb-7 mt-4 lg:mt-0">
         <label
-          class="flex items-center gap-x-2 tooltip-wrapper"
+          class="flex items-center gap-x-2"
           :class="[allowEdit ? 'cursor-pointer' : 'cursor-not-allowed']"
         >
           <span class="font-medium">{{
             $t("settings.general.workspace.plugin.openai.openai-key.self")
           }}</span>
-
-          <FeatureBadge feature="bb.feature.plugin.openai" />
-
-          <span
-            v-if="!allowEdit"
-            class="text-sm text-gray-400 -translate-y-2 tooltip"
-          >
-            {{ $t("settings.general.workspace.only-owner-can-edit") }}
-          </span>
         </label>
         <div class="mb-3 text-sm text-gray-400">
           <i18n-t
@@ -45,33 +39,31 @@
             </template>
           </i18n-t>
         </div>
-        <BBTextField
-          class="mb-5 w-full"
-          :disabled="!allowEdit"
-          :value="state.openAIKey"
-          :placeholder="
-            $t(
-              'settings.general.workspace.plugin.openai.openai-key.placeholder'
-            )
-          "
-          @input="handleOpenAIKeyChange"
-        />
+        <NTooltip placement="top-start" :disabled="allowEdit">
+          <template #trigger>
+            <NInput
+              v-model:value="state.openAIKey"
+              class="mb-4 w-full"
+              :disabled="!allowEdit"
+              :placeholder="
+                $t(
+                  'settings.general.workspace.plugin.openai.openai-key.placeholder'
+                )
+              "
+            />
+          </template>
+          <span class="text-sm text-gray-400 -translate-y-2">
+            {{ $t("settings.general.workspace.only-admin-can-edit") }}
+          </span>
+        </NTooltip>
+
         <label
-          class="flex items-center gap-x-2 tooltip-wrapper"
+          class="flex items-center gap-x-2"
           :class="[allowEdit ? 'cursor-pointer' : 'cursor-not-allowed']"
         >
           <span class="font-medium">{{
             $t("settings.general.workspace.plugin.openai.openai-endpoint.self")
           }}</span>
-
-          <FeatureBadge feature="bb.feature.plugin.openai" />
-
-          <span
-            v-if="!allowEdit"
-            class="text-sm text-gray-400 -translate-y-2 tooltip"
-          >
-            {{ $t("settings.general.workspace.only-owner-can-edit") }}
-          </span>
         </label>
         <div class="mb-3 text-sm text-gray-400">
           {{
@@ -80,21 +72,27 @@
             )
           }}
         </div>
-        <BBTextField
-          class="mb-5 w-full"
-          :disabled="!allowEdit"
-          :value="state.openAIEndpoint"
-          @input="handleOpenAIEndpointChange"
-        />
-        <div class="flex">
-          <button
-            type="button"
-            class="btn-primary ml-auto"
+        <NTooltip placement="top-start" :disabled="allowEdit">
+          <template #trigger>
+            <NInput
+              v-model:value="state.openAIEndpoint"
+              class="mb-4 w-full"
+              :disabled="!allowEdit"
+            />
+          </template>
+          <span class="text-sm text-gray-400 -translate-y-2">
+            {{ $t("settings.general.workspace.only-admin-can-edit") }}
+          </span>
+        </NTooltip>
+
+        <div class="flex justify-end">
+          <NButton
+            type="primary"
             :disabled="!allowSave"
             @click.prevent="updateOpenAIKeyEndpoint"
           >
             {{ $t("common.update") }}
-          </button>
+          </NButton>
         </div>
       </div>
     </div>
@@ -108,12 +106,12 @@
 </template>
 
 <script lang="ts" setup>
+import scrollIntoView from "scroll-into-view-if-needed";
 import { computed, onMounted, reactive, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { hasFeature, pushNotification, useCurrentUserV1 } from "@/store";
-import { hasWorkspacePermissionV1 } from "@/utils";
-import scrollIntoView from "scroll-into-view-if-needed";
 import { useSettingV1Store } from "@/store/modules/v1/setting";
+import { hasWorkspacePermissionV1 } from "@/utils";
 
 interface LocalState {
   openAIKey: string;
@@ -166,16 +164,10 @@ function maskKey(key: string | undefined): string {
   return key ? key.slice(0, 3) + "***" + key.slice(-4) : "";
 }
 
-const handleOpenAIKeyChange = (event: InputEvent) => {
-  state.openAIKey = (event.target as HTMLInputElement).value;
-};
-
-const handleOpenAIEndpointChange = (event: InputEvent) => {
-  state.openAIEndpoint = (event.target as HTMLInputElement).value;
-};
-
 const updateOpenAIKeyEndpoint = async () => {
-  if (!hasFeature("bb.feature.plugin.openai")) {
+  // Always allow to unset the key.
+  const isUnset = state.openAIKey === "" && state.openAIEndpoint === "";
+  if (!isUnset && !hasFeature("bb.feature.plugin.openai")) {
     state.showFeatureModal = true;
     return;
   }

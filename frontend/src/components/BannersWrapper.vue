@@ -1,67 +1,50 @@
 <template>
-  <BannerUpgradeSubscription />
-  <template v-if="shouldShowDemoBanner">
-    <BannerDemo />
-  </template>
-  <template v-if="shouldShowDebugBanner">
-    <BannerDebug />
-  </template>
-  <template v-if="shouldShowSubscriptionBanner">
-    <BannerSubscription />
-  </template>
-  <template v-if="shouldShowReadonlyBanner">
-    <div class="bg-info">
-      <div class="text-center py-1 px-3 font-medium text-white truncate">
-        {{ $t("banner.readonly") }}
+  <HideInStandaloneMode>
+    <BannerUpgradeSubscription />
+    <template v-if="shouldShowDemoBanner">
+      <BannerDemo />
+    </template>
+    <template v-if="shouldShowSubscriptionBanner">
+      <BannerSubscription />
+    </template>
+    <template v-if="shouldShowReadonlyBanner">
+      <div class="bg-info">
+        <div class="text-center py-1 px-3 font-medium text-white truncate">
+          {{ $t("banner.readonly") }}
+        </div>
       </div>
-    </div>
-  </template>
-  <template v-if="shouldShowExternalUrlBanner">
-    <BannerExternalUrl />
-  </template>
+    </template>
+    <template v-if="shouldShowExternalUrlBanner">
+      <BannerExternalUrl />
+    </template>
+  </HideInStandaloneMode>
+
+  <BannerAnnouncement />
 </template>
 
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import { computed } from "vue";
-import {
-  useActuatorV1Store,
-  useCurrentUserV1,
-  useSubscriptionV1Store,
-} from "@/store/modules";
-import { hasWorkspacePermissionV1, isDev } from "@/utils";
+import { useActuatorV1Store, useSubscriptionV1Store } from "@/store/modules";
+import { PlanType } from "@/types/proto/v1/subscription_service";
+import { isDev } from "@/utils";
+import BannerAnnouncement from "@/views/BannerAnnouncement.vue";
 import BannerDemo from "@/views/BannerDemo.vue";
-import BannerDebug from "@/views/BannerDebug.vue";
 import BannerExternalUrl from "@/views/BannerExternalUrl.vue";
 import BannerSubscription from "@/views/BannerSubscription.vue";
 import BannerUpgradeSubscription from "@/views/BannerUpgradeSubscription.vue";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+import HideInStandaloneMode from "./misc/HideInStandaloneMode.vue";
 
 const actuatorStore = useActuatorV1Store();
-const currentUserV1 = useCurrentUserV1();
 const subscriptionStore = useSubscriptionV1Store();
 
-const { isDemo, isReadonly, isDebug, needConfigureExternalUrl } =
+const { isDemo, isReadonly, needConfigureExternalUrl } =
   storeToRefs(actuatorStore);
 const { isExpired, isTrialing, currentPlan, existTrialLicense } =
   storeToRefs(subscriptionStore);
 
 const shouldShowDemoBanner = computed(() => {
-  // Only show demo banner if it's the default demo (as opposed to the feature demo).
-  return actuatorStore.serverInfo?.demoName == "default";
-});
-
-// For now, debug mode is a global setting and will affect all users.
-// So we only allow DBA and Owner to toggle it and thus show a banner
-// reminding them to turn off
-const shouldShowDebugBanner = computed(() => {
-  return (
-    isDebug.value &&
-    hasWorkspacePermissionV1(
-      "bb.permission.workspace.debug",
-      currentUserV1.value.userRole
-    )
-  );
+  return actuatorStore.serverInfo?.demoName != "";
 });
 
 const shouldShowSubscriptionBanner = computed(() => {

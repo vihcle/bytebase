@@ -3,7 +3,6 @@ package tests
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,8 +13,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/testing/protocmp"
 
-	api "github.com/bytebase/bytebase/backend/legacyapi"
-	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/resources/mysql"
 	"github.com/bytebase/bytebase/backend/resources/postgres"
 	"github.com/bytebase/bytebase/backend/tests/fake"
@@ -43,7 +40,7 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 		`
 	)
 	wantDatabaseMetadata := &v1pb.DatabaseMetadata{
-		Name:         "test_sync_postgresql_schema_db",
+		Name:         "instances/instance-syncer-postgres/databases/test_sync_postgresql_schema_db/metadata",
 		CharacterSet: "UTF8",
 		Collation:    "en_US.UTF-8",
 		Schemas: []*v1pb.SchemaMetadata{
@@ -90,9 +87,9 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 					{
 						Name: "VW",
 						Definition: strings.Join([]string{
-							` SELECT "TFK".a,`,
-							`    "TFK".b,`,
-							`    "TFK".c`,
+							` SELECT a,`,
+							`    b,`,
+							`    c`,
 							`   FROM "TFK";`},
 							"\n"),
 						DependentColumns: []*v1pb.DependentColumn{
@@ -169,7 +166,7 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 
 	// Create a PostgreSQL instance.
 	pgPort := getTestPort()
-	stopInstance := postgres.SetupTestInstance(t, pgPort, resourceDir)
+	stopInstance := postgres.SetupTestInstance(pgBinDir, t.TempDir(), pgPort)
 	defer stopInstance()
 
 	pgDB, err := sql.Open("pgx", fmt.Sprintf("host=/tmp port=%d user=root database=postgres", pgPort))
@@ -181,46 +178,33 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 
 	_, err = pgDB.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %v", databaseName))
 	a.NoError(err)
-
 	_, err = pgDB.Exec("CREATE USER bytebase WITH ENCRYPTED PASSWORD 'bytebase'")
 	a.NoError(err)
-
 	_, err = pgDB.Exec("ALTER USER bytebase WITH SUPERUSER")
 	a.NoError(err)
 
-	// Create a project.
-	project, err := ctl.createProject(ctx)
-	a.NoError(err)
-	projectUID, err := strconv.Atoi(project.Uid)
-	a.NoError(err)
-
-	prodEnvironment, err := ctl.getEnvironment(ctx, "prod")
-	a.NoError(err)
-
 	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
-		InstanceId: generateRandomString("instance", 10),
+		InstanceId: "instance-syncer-postgres",
 		Instance: &v1pb.Instance{
 			Title:       "pgInstance",
 			Engine:      v1pb.Engine_POSTGRES,
-			Environment: prodEnvironment.Name,
+			Environment: "environments/prod",
 			Activation:  true,
 			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: "/tmp", Port: strconv.Itoa(pgPort), Username: "bytebase", Password: "bytebase"}},
 		},
 	})
 	a.NoError(err)
 
-	err = ctl.createDatabase(ctx, projectUID, instance, databaseName, "bytebase", nil)
+	err = ctl.createDatabaseV2(ctx, ctl.project, instance, nil /* environment */, databaseName, "bytebase", nil)
 	a.NoError(err)
 
 	database, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
 		Name: fmt.Sprintf("%s/databases/%s", instance.Name, databaseName),
 	})
 	a.NoError(err)
-	databaseUID, err := strconv.Atoi(database.Uid)
-	a.NoError(err)
 
 	sheet, err := ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
-		Parent: project.Name,
+		Parent: ctl.project.Name,
 		Sheet: &v1pb.Sheet{
 			Title:      "create schema",
 			Content:    []byte(createSchema),
@@ -230,35 +214,14 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 		},
 	})
 	a.NoError(err)
-	sheetUID, err := strconv.Atoi(strings.TrimPrefix(sheet.Name, fmt.Sprintf("%s/sheets/", project.Name)))
-	a.NoError(err)
 
 	// Create an issue that updates database schema.
-	createContext, err := json.Marshal(&api.MigrationContext{
-		DetailList: []*api.MigrationDetail{
-			{
-				MigrationType: db.Migrate,
-				DatabaseID:    databaseUID,
-				SheetID:       sheetUID,
-			},
-		},
-	})
+	err = ctl.changeDatabase(ctx, ctl.project, database, sheet, v1pb.Plan_ChangeDatabaseConfig_MIGRATE)
 	a.NoError(err)
-	issue, err := ctl.createIssue(api.IssueCreate{
-		ProjectID:     projectUID,
-		Name:          fmt.Sprintf("Create sequence for database %q", databaseName),
-		Type:          api.IssueDatabaseSchemaUpdate,
-		Description:   fmt.Sprintf("Create sequence of database %q.", databaseName),
-		AssigneeID:    api.SystemBotID,
-		CreateContext: string(createContext),
-	})
-	a.NoError(err)
-	status, err := ctl.waitIssuePipeline(ctx, issue.ID)
-	a.NoError(err)
-	a.Equal(api.TaskDone, status)
 
 	latestSchemaMetadata, err := ctl.databaseServiceClient.GetDatabaseMetadata(ctx, &v1pb.GetDatabaseMetadataRequest{
 		Name: fmt.Sprintf("%s/metadata", database.Name),
+		View: v1pb.DatabaseMetadataView_DATABASE_METADATA_VIEW_FULL,
 	})
 	a.NoError(err)
 
@@ -289,7 +252,7 @@ func TestSyncerForMySQL(t *testing.T) {
 		);
 		`
 		expectedSchema = `{
-			"name":"test_sync_mysql_schema_db",
+			"name":"instances/instance-syncer-mysql/databases/test_sync_mysql_schema_db/metadata",
 			"schemas":[
 			   {
 				  "tables":[
@@ -469,39 +432,28 @@ func TestSyncerForMySQL(t *testing.T) {
 	_, err = mysqlDB.Exec("GRANT ALTER, ALTER ROUTINE, CREATE, CREATE ROUTINE, CREATE VIEW, DELETE, DROP, EVENT, EXECUTE, INDEX, INSERT, PROCESS, REFERENCES, SELECT, SHOW DATABASES, SHOW VIEW, TRIGGER, UPDATE, USAGE, REPLICATION CLIENT, REPLICATION SLAVE, LOCK TABLES, RELOAD ON *.* to bytebase")
 	a.NoError(err)
 
-	// Create a project.
-	project, err := ctl.createProject(ctx)
-	a.NoError(err)
-	projectUID, err := strconv.Atoi(project.Uid)
-	a.NoError(err)
-
-	prodEnvironment, err := ctl.getEnvironment(ctx, "prod")
-	a.NoError(err)
-
 	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
-		InstanceId: generateRandomString("instance", 10),
+		InstanceId: "instance-syncer-mysql",
 		Instance: &v1pb.Instance{
 			Title:       "mysqlInstance",
 			Engine:      v1pb.Engine_MYSQL,
-			Environment: prodEnvironment.Name,
+			Environment: "environments/prod",
 			Activation:  true,
 			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: "127.0.0.1", Port: strconv.Itoa(mysqlPort), Username: "bytebase", Password: "bytebase"}},
 		},
 	})
 	a.NoError(err)
 
-	err = ctl.createDatabase(ctx, projectUID, instance, databaseName, "", nil)
+	err = ctl.createDatabaseV2(ctx, ctl.project, instance, nil /* environment */, databaseName, "", nil)
 	a.NoError(err)
 
 	database, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
 		Name: fmt.Sprintf("%s/databases/%s", instance.Name, databaseName),
 	})
 	a.NoError(err)
-	databaseUID, err := strconv.Atoi(database.Uid)
-	a.NoError(err)
 
 	sheet, err := ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
-		Parent: project.Name,
+		Parent: ctl.project.Name,
 		Sheet: &v1pb.Sheet{
 			Title:      "create schema",
 			Content:    []byte(createSchema),
@@ -511,35 +463,14 @@ func TestSyncerForMySQL(t *testing.T) {
 		},
 	})
 	a.NoError(err)
-	sheetUID, err := strconv.Atoi(strings.TrimPrefix(sheet.Name, fmt.Sprintf("%s/sheets/", project.Name)))
-	a.NoError(err)
 
 	// Create an issue that updates database schema.
-	createContext, err := json.Marshal(&api.MigrationContext{
-		DetailList: []*api.MigrationDetail{
-			{
-				MigrationType: db.Migrate,
-				DatabaseID:    databaseUID,
-				SheetID:       sheetUID,
-			},
-		},
-	})
+	err = ctl.changeDatabase(ctx, ctl.project, database, sheet, v1pb.Plan_ChangeDatabaseConfig_MIGRATE)
 	a.NoError(err)
-	issue, err := ctl.createIssue(api.IssueCreate{
-		ProjectID:     projectUID,
-		Name:          fmt.Sprintf("Create sequence for database %q", databaseName),
-		Type:          api.IssueDatabaseSchemaUpdate,
-		Description:   fmt.Sprintf("Create sequence of database %q.", databaseName),
-		AssigneeID:    api.SystemBotID,
-		CreateContext: string(createContext),
-	})
-	a.NoError(err)
-	status, err := ctl.waitIssuePipeline(ctx, issue.ID)
-	a.NoError(err)
-	a.Equal(api.TaskDone, status)
 
 	latestSchemaMetadata, err := ctl.databaseServiceClient.GetDatabaseMetadata(ctx, &v1pb.GetDatabaseMetadataRequest{
 		Name: fmt.Sprintf("%s/metadata", database.Name),
+		View: v1pb.DatabaseMetadataView_DATABASE_METADATA_VIEW_FULL,
 	})
 	a.NoError(err)
 

@@ -6,7 +6,6 @@ import (
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/component/config"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
-	"github.com/bytebase/bytebase/backend/plugin/app/feishu"
 )
 
 func getBaseProfile(dataDir string) config.Profile {
@@ -30,7 +29,6 @@ func getBaseProfile(dataDir string) config.Profile {
 		SaaS:                 flags.saas,
 		DataDir:              dataDir,
 		ResourceDir:          common.GetResourceDir(dataDir),
-		Debug:                flags.debug,
 		DemoName:             flags.demoName,
 		Version:              version,
 		GitCommit:            gitcommit,
@@ -39,7 +37,8 @@ func getBaseProfile(dataDir string) config.Profile {
 		BackupRegion:         flags.backupRegion,
 		BackupBucket:         flags.backupBucket,
 		BackupCredentialFile: flags.backupCredential,
-		FeishuAPIURL:         feishu.APIPath,
 		LastActiveTs:         time.Now().Unix(),
+		Lsp:                  flags.lsp,
+		DevelopmentIAM:       flags.developmentIAM,
 	}
 }

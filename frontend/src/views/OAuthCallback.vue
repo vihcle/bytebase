@@ -1,7 +1,7 @@
 <template>
   <div class="p-4">
-    <div>{{ state.message }}</div>
     <div v-if="state.hasError" class="mt-2">
+      <div>{{ state.message }}</div>
       <button
         v-if="state.oAuthState?.popup"
         type="button"
@@ -18,10 +18,9 @@
 </template>
 
 <script lang="ts" setup>
+import { parse } from "qs";
 import { onMounted, reactive } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { parse } from "qs";
-
 import { useAuthStore } from "@/store";
 import { OAuthState, OAuthWindowEventPayload } from "../types";
 
@@ -100,15 +99,16 @@ const triggerAuthCallback = async () => {
         web: true,
       });
       if (mfaTempToken) {
-        router.push({
+        const route = router.resolve({
           name: "auth.mfa",
           query: {
             mfaTempToken,
             redirect: oAuthState.redirect || "",
           },
         });
+        window.location.href = route.href;
       } else {
-        router.push(oAuthState.redirect || "/");
+        window.location.href = oAuthState.redirect || "/";
       }
     }
   } else if (

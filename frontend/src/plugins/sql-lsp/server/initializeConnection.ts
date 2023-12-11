@@ -1,10 +1,10 @@
+import { TextDocuments } from "vscode-languageserver";
+import { TextDocument } from "vscode-languageserver-textdocument";
 import {
   createConnection,
   BrowserMessageReader,
   BrowserMessageWriter,
-  TextDocuments,
 } from "vscode-languageserver/browser";
-import { TextDocument } from "vscode-languageserver-textdocument";
 
 export const initializeConnection = (
   context: DedicatedWorkerGlobalScope | Worker

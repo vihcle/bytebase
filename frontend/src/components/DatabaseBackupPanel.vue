@@ -15,7 +15,7 @@
             <router-link
               v-if="hasBackupPolicyViolation"
               class="flex items-center normal-link text-sm"
-              :to="`/environment/${database.instanceEntity.environmentEntity.uid}`"
+              :to="`/environment/${database.effectiveEnvironmentEntity.uid}`"
             >
               <heroicons-outline:exclamation-circle class="w-4 h-4 mr-1" />
               <span>{{ $t("database.backup-policy-violation") }}</span>
@@ -54,7 +54,8 @@
               )
             }}
             <a
-              href="https://bytebase.com/docs/backup/#post-backup-webhook?source=console"
+              href="https://www.bytebase.com/docs/disaster-recovery/backup/#post-backup-webhook?source=console"
+              target="_blank"
               class="normal-link inline-flex flex-row items-center"
             >
               {{ $t("common.learn-more") }}
@@ -88,14 +89,14 @@
         <span class="ml-1 text-control-light">{{
           $t("database.backup.disabled")
         }}</span>
-        <button
-          v-if="allowAdmin && !state.autoBackupEnabled"
-          type="button"
-          class="ml-4 btn-primary"
-          @click.prevent="state.showBackupSettingModal = true"
-        >
-          {{ $t("database.enable-backup") }}
-        </button>
+        <div v-if="allowAdmin && !state.autoBackupEnabled" class="ml-4">
+          <NButton
+            type="primary"
+            @click.prevent="state.showBackupSettingModal = true"
+          >
+            {{ $t("database.enable-backup") }}
+          </NButton>
+        </div>
       </div>
     </div>
     <div class="pt-6 space-y-4">
@@ -111,14 +112,13 @@
             :allow-admin="allowAdmin"
           />
 
-          <button
+          <NButton
             v-if="allowEdit && !disableBackupButton"
-            type="button"
-            class="btn-normal whitespace-nowrap items-center"
+            type="primary"
             @click.prevent="state.showCreateBackupModal = true"
           >
             {{ $t("database.backup-now") }}
-          </button>
+          </NButton>
         </div>
       </div>
       <BackupTable
@@ -162,6 +162,7 @@
 </template>
 
 <script lang="ts" setup>
+import { isEqual } from "lodash-es";
 import {
   computed,
   watchEffect,
@@ -170,22 +171,7 @@ import {
   PropType,
   onBeforeMount,
 } from "vue";
-import { isEqual } from "lodash-es";
 import { useI18n } from "vue-i18n";
-
-import {
-  ComposedDatabase,
-  NORMAL_POLL_INTERVAL,
-  POLL_JITTER,
-  MINIMUM_POLL_INTERVAL,
-} from "@/types";
-import DatabaseBackupCreateForm from "@/components/DatabaseBackupCreateForm.vue";
-import PITRRestoreButton from "@/components/DatabaseDetail/PITRRestoreButton.vue";
-import {
-  pushNotification,
-  useBackupV1Store,
-  useGracefulRequest,
-} from "@/store";
 import {
   DatabaseBackupSettingForm,
   BackupTable,
@@ -193,22 +179,36 @@ import {
   localFromUTC,
   parseScheduleFromBackupSetting,
 } from "@/components/DatabaseBackup/";
+import DatabaseBackupCreateForm from "@/components/DatabaseBackupCreateForm.vue";
+import PITRRestoreButton from "@/components/DatabaseDetail/PITRRestoreButton.vue";
+import { Drawer } from "@/components/v2";
+import {
+  pushNotification,
+  useBackupV1Store,
+  useGracefulRequest,
+} from "@/store";
 import {
   usePolicyV1Store,
   defaultBackupSchedule,
 } from "@/store/modules/v1/policy";
 import {
-  PolicyType,
-  BackupPlanSchedule,
-} from "@/types/proto/v1/org_policy_service";
-import { instanceV1HasBackupRestore } from "@/utils";
+  ComposedDatabase,
+  NORMAL_POLL_INTERVAL,
+  POLL_JITTER,
+  MINIMUM_POLL_INTERVAL,
+} from "@/types";
+import { Duration } from "@/types/proto/google/protobuf/duration";
 import {
   Backup,
   BackupSetting,
   Backup_BackupState,
   Backup_BackupType,
 } from "@/types/proto/v1/database_service";
-import { Drawer } from "@/components/v2";
+import {
+  PolicyType,
+  BackupPlanSchedule,
+} from "@/types/proto/v1/org_policy_service";
+import { instanceV1HasBackupRestore } from "@/utils";
 
 interface LocalState {
   showCreateBackupModal: boolean;
@@ -270,7 +270,7 @@ watchEffect(prepareBackupList);
 
 const prepareBackupPolicy = () => {
   policyV1Store.getOrFetchPolicyByParentAndType({
-    parentPath: props.database.instanceEntity.environment,
+    parentPath: props.database.effectiveEnvironment,
     policyType: PolicyType.BACKUP_PLAN,
   });
 };
@@ -283,7 +283,7 @@ const assignBackupSetting = (backupSetting: BackupSetting) => {
   state.autoBackupHour = schedule.hourOfDay;
   state.autoBackupDayOfWeek = schedule.dayOfWeek;
   state.autoBackupRetentionPeriodTs =
-    backupSetting.backupRetainDuration?.seconds ?? 0;
+    backupSetting.backupRetainDuration?.seconds?.toNumber() ?? 0;
   state.autoBackupHookUrl = backupSetting.hookUrl;
   state.autoBackupUpdatedHookUrl = backupSetting.hookUrl;
 
@@ -363,7 +363,7 @@ const autoBackupRetentionDays = computed(() => {
 
 const backupPolicy = computed((): BackupPlanSchedule => {
   const policy = policyV1Store.getPolicyByParentAndType({
-    parentPath: props.database.instanceEntity.environment,
+    parentPath: props.database.effectiveEnvironment,
     policyType: PolicyType.BACKUP_PLAN,
   });
   return policy?.backupPlanPolicy?.schedule ?? defaultBackupSchedule;
@@ -448,10 +448,10 @@ const updateBackupHookUrl = () => {
         dayOfWeek: state.autoBackupDayOfWeek,
       }),
       hookUrl: state.autoBackupUpdatedHookUrl,
-      backupRetainDuration: {
+      backupRetainDuration: Duration.fromPartial({
         seconds: state.autoBackupRetentionPeriodTs,
         nanos: 0,
-      },
+      }),
     })
     .then((backupSetting: BackupSetting) => {
       assignBackupSetting(backupSetting);

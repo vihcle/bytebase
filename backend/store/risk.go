@@ -34,7 +34,7 @@ const (
 // RiskMessage is the message for risks.
 type RiskMessage struct {
 	Source     RiskSource
-	Level      int64
+	Level      int32
 	Name       string
 	Active     bool
 	Expression *expr.Expr // *v1alpha1.ParsedExpr
@@ -48,7 +48,7 @@ type RiskMessage struct {
 type UpdateRiskMessage struct {
 	Name       *string
 	Active     *bool
-	Level      *int64
+	Level      *int32
 	Expression *expr.Expr
 	RowStatus  *api.RowStatus
 }
@@ -107,9 +107,10 @@ func (s *Store) GetRisk(ctx context.Context, id int64) (*RiskMessage, error) {
 }
 
 // ListRisks lists risks.
+// returned risks are sorted by source, level DESC, id.
 func (s *Store) ListRisks(ctx context.Context) ([]*RiskMessage, error) {
-	if risks, ok := s.risksCache.Load(0); ok {
-		return risks.([]*RiskMessage), nil
+	if v, ok := s.risksCache.Get(0); ok {
+		return v, nil
 	}
 
 	query := `
@@ -168,7 +169,7 @@ func (s *Store) ListRisks(ctx context.Context) ([]*RiskMessage, error) {
 		return nil, errors.Wrap(err, "failed to commit")
 	}
 
-	s.risksCache.Store(0, risks)
+	s.risksCache.Add(0, risks)
 	return risks, nil
 }
 
@@ -206,7 +207,7 @@ func (s *Store) CreateRisk(ctx context.Context, risk *RiskMessage, creatorID int
 		return nil, errors.Wrap(err, "failed to commit")
 	}
 
-	s.risksCache.Delete(0)
+	s.risksCache.Remove(0)
 	return &RiskMessage{
 		ID:         id,
 		Source:     risk.Source,
@@ -260,6 +261,6 @@ func (s *Store) UpdateRisk(ctx context.Context, patch *UpdateRiskMessage, id int
 		return nil, errors.Wrap(err, "failed to commit")
 	}
 
-	s.risksCache.Delete(0)
+	s.risksCache.Remove(0)
 	return s.GetRisk(ctx, id)
 }

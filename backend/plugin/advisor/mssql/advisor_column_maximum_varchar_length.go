@@ -3,18 +3,18 @@ package mssql
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 
 	"github.com/antlr4-go/antlr/v4"
 	parser "github.com/bytebase/tsql-parser"
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
 
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
-	bbparser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	tsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/tsql"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -22,7 +22,7 @@ var (
 )
 
 func init() {
-	advisor.Register(db.MSSQL, advisor.MSSQLColumnMaximumVarcharLength, &ColumnMaximumVarcharLengthAdvisor{})
+	advisor.Register(storepb.Engine_MSSQL, advisor.MSSQLColumnMaximumVarcharLength, &ColumnMaximumVarcharLengthAdvisor{})
 }
 
 // ColumnMaximumVarcharLengthAdvisor is the advisor checking for maximum varchar length..
@@ -97,18 +97,18 @@ func (l *columnMaximumVarcharLengthChecker) EnterData_type(ctx *parser.Data_type
 		currentLength = math.MaxInt32 // 2 ^ 31 - 1
 		line = ctx.MAX().GetSymbol().GetLine()
 	} else if ctx.GetExt_type() != nil && ctx.GetScale() != nil && ctx.GetPrec() == nil && ctx.GetInc() == nil {
-		normalizedTypeString := bbparser.NormalizeTSQLIdentifier(ctx.GetExt_type())
+		normalizedTypeString := tsqlparser.NormalizeTSQLIdentifier(ctx.GetExt_type())
 		if _, ok := l.checkTypeString[normalizedTypeString]; !ok {
 			return
 		}
 		length, err := strconv.Atoi(ctx.GetScale().GetText())
 		if err != nil {
-			log.Error("failed to convert scale to int", zap.Error(err))
+			slog.Error("failed to convert scale to int", log.BBError(err))
 		}
 		currentLength = length
 		line = ctx.GetScale().GetLine()
 	} else if ctx.GetUnscaled_type() != nil {
-		normalizedTypeString := bbparser.NormalizeTSQLIdentifier(ctx.GetUnscaled_type())
+		normalizedTypeString := tsqlparser.NormalizeTSQLIdentifier(ctx.GetUnscaled_type())
 		if _, ok := l.checkTypeString[normalizedTypeString]; !ok {
 			return
 		}

@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/protobuf/types/known/wrapperspb"
-
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/plugin/db"
@@ -37,7 +35,7 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 		excludedDatabases = append(excludedDatabases, fmt.Sprintf("'%s'", k))
 	}
 
-	var databases []*storepb.DatabaseMetadata
+	var databases []*storepb.DatabaseSchemaMetadata
 	// Query db info
 	where := fmt.Sprintf("name NOT IN (%s)", strings.Join(excludedDatabases, ", "))
 	query := `
@@ -51,7 +49,7 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 	}
 	defer rows.Close()
 	for rows.Next() {
-		database := &storepb.DatabaseMetadata{}
+		database := &storepb.DatabaseSchemaMetadata{}
 		if err := rows.Scan(
 			&database.Name,
 		); err != nil {
@@ -71,7 +69,7 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 }
 
 // SyncDBSchema syncs a single database schema.
-func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetadata, error) {
+func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetadata, error) {
 	schemaMetadata := &storepb.SchemaMetadata{
 		Name: "",
 	}
@@ -110,7 +108,8 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 			return nil, err
 		}
 		if defaultStr.Valid {
-			column.Default = &wrapperspb.StringValue{Value: defaultStr.String}
+			// TODO: use correct default type
+			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultStr.String}
 		}
 		columnMap[tableName] = append(columnMap[tableName], column)
 	}
@@ -172,7 +171,7 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 		return nil, util.FormatErrorWithQuery(err, tableQuery)
 	}
 
-	return &storepb.DatabaseMetadata{
+	return &storepb.DatabaseSchemaMetadata{
 		Name:    driver.databaseName,
 		Schemas: []*storepb.SchemaMetadata{schemaMetadata},
 	}, nil

@@ -1,12 +1,22 @@
 /* eslint-disable */
-import * as Long from "long";
-import type { CallContext, CallOptions } from "nice-grpc-common";
-import * as _m0 from "protobufjs/minimal";
+import Long from "long";
+import _m0 from "protobufjs/minimal";
 import { Duration } from "../google/protobuf/duration";
 import { NullValue, nullValueFromJSON, nullValueToJSON, Value } from "../google/protobuf/struct";
-import { Engine, engineFromJSON, engineToJSON } from "./common";
+import { Engine, engineFromJSON, engineToJSON, ExportFormat, exportFormatFromJSON, exportFormatToJSON } from "./common";
+import { DatabaseMetadata } from "./database_service";
 
 export const protobufPackage = "bytebase.v1";
+
+export interface DifferPreviewRequest {
+  engine: Engine;
+  oldSchema: string;
+  newMetadata: DatabaseMetadata | undefined;
+}
+
+export interface DifferPreviewResponse {
+  schema: string;
+}
 
 export interface AdminExecuteRequest {
   /**
@@ -25,7 +35,7 @@ export interface AdminExecuteRequest {
   /** The maximum number of rows to return. */
   limit: number;
   /** The timeout for the request. */
-  timeout?: Duration | undefined;
+  timeout: Duration | undefined;
 }
 
 export interface AdminExecuteResponse {
@@ -50,63 +60,12 @@ export interface ExportRequest {
   /** The maximum number of rows to return. */
   limit: number;
   /** The export format. */
-  format: ExportRequest_Format;
+  format: ExportFormat;
   /**
    * The admin is used for workspace owner and DBA for exporting data from SQL Editor Admin mode.
-   * The exported data is not anonymized.
+   * The exported data is not masked.
    */
   admin: boolean;
-}
-
-export enum ExportRequest_Format {
-  FORMAT_UNSPECIFIED = 0,
-  CSV = 1,
-  JSON = 2,
-  SQL = 3,
-  XLSX = 4,
-  UNRECOGNIZED = -1,
-}
-
-export function exportRequest_FormatFromJSON(object: any): ExportRequest_Format {
-  switch (object) {
-    case 0:
-    case "FORMAT_UNSPECIFIED":
-      return ExportRequest_Format.FORMAT_UNSPECIFIED;
-    case 1:
-    case "CSV":
-      return ExportRequest_Format.CSV;
-    case 2:
-    case "JSON":
-      return ExportRequest_Format.JSON;
-    case 3:
-    case "SQL":
-      return ExportRequest_Format.SQL;
-    case 4:
-    case "XLSX":
-      return ExportRequest_Format.XLSX;
-    case -1:
-    case "UNRECOGNIZED":
-    default:
-      return ExportRequest_Format.UNRECOGNIZED;
-  }
-}
-
-export function exportRequest_FormatToJSON(object: ExportRequest_Format): string {
-  switch (object) {
-    case ExportRequest_Format.FORMAT_UNSPECIFIED:
-      return "FORMAT_UNSPECIFIED";
-    case ExportRequest_Format.CSV:
-      return "CSV";
-    case ExportRequest_Format.JSON:
-      return "JSON";
-    case ExportRequest_Format.SQL:
-      return "SQL";
-    case ExportRequest_Format.XLSX:
-      return "XLSX";
-    case ExportRequest_Format.UNRECOGNIZED:
-    default:
-      return "UNRECOGNIZED";
-  }
 }
 
 export interface ExportResponse {
@@ -131,7 +90,15 @@ export interface QueryRequest {
   /** The maximum number of rows to return. */
   limit: number;
   /** The timeout for the request. */
-  timeout?: Duration | undefined;
+  timeout?:
+    | Duration
+    | undefined;
+  /**
+   * The id of data source.
+   * It is used for querying admin data source even if the instance has read-only data sources.
+   * Or it can be used to query a specific read-only data source.
+   */
+  dataSourceId: string;
 }
 
 export interface QueryResponse {
@@ -139,6 +106,8 @@ export interface QueryResponse {
   results: QueryResult[];
   /** The query advices. */
   advices: Advice[];
+  /** The query is allowed to be exported or not. */
+  allowExport: boolean;
 }
 
 export interface QueryResult {
@@ -158,7 +127,7 @@ export interface QueryResult {
   /** The error message if the query failed. */
   error: string;
   /** The time it takes to execute the query. */
-  latency?:
+  latency:
     | Duration
     | undefined;
   /** The query statement for the result. */
@@ -177,11 +146,11 @@ export interface RowValue {
   doubleValue?: number | undefined;
   floatValue?: number | undefined;
   int32Value?: number | undefined;
-  int64Value?: number | undefined;
+  int64Value?: Long | undefined;
   stringValue?: string | undefined;
   uint32Value?: number | undefined;
   uint64Value?:
-    | number
+    | Long
     | undefined;
   /** value_value is used for Spanner and TUPLE ARRAY MAP in Clickhouse only. */
   valueValue?: any | undefined;
@@ -198,6 +167,8 @@ export interface Advice {
   content: string;
   /** The advice line number in the SQL statement. */
   line: number;
+  /** The advice column number in the SQL statement. */
+  column: number;
   /** The advice detail. */
   detail: string;
 }
@@ -265,6 +236,176 @@ export interface PrettyResponse {
   /** The expected SDL schema after normalizing. */
   expectedSchema: string;
 }
+
+export interface CheckRequest {
+  statement: string;
+  /** Format: instances/{instance}/databases/{databaseName} */
+  database: string;
+}
+
+export interface CheckResponse {
+  advices: Advice[];
+}
+
+export interface StringifyMetadataRequest {
+  metadata:
+    | DatabaseMetadata
+    | undefined;
+  /** The database engine of the schema string. */
+  engine: Engine;
+}
+
+export interface StringifyMetadataResponse {
+  schema: string;
+}
+
+function createBaseDifferPreviewRequest(): DifferPreviewRequest {
+  return { engine: 0, oldSchema: "", newMetadata: undefined };
+}
+
+export const DifferPreviewRequest = {
+  encode(message: DifferPreviewRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.engine !== 0) {
+      writer.uint32(8).int32(message.engine);
+    }
+    if (message.oldSchema !== "") {
+      writer.uint32(18).string(message.oldSchema);
+    }
+    if (message.newMetadata !== undefined) {
+      DatabaseMetadata.encode(message.newMetadata, writer.uint32(26).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): DifferPreviewRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDifferPreviewRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.engine = reader.int32() as any;
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.oldSchema = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.newMetadata = DatabaseMetadata.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DifferPreviewRequest {
+    return {
+      engine: isSet(object.engine) ? engineFromJSON(object.engine) : 0,
+      oldSchema: isSet(object.oldSchema) ? globalThis.String(object.oldSchema) : "",
+      newMetadata: isSet(object.newMetadata) ? DatabaseMetadata.fromJSON(object.newMetadata) : undefined,
+    };
+  },
+
+  toJSON(message: DifferPreviewRequest): unknown {
+    const obj: any = {};
+    if (message.engine !== 0) {
+      obj.engine = engineToJSON(message.engine);
+    }
+    if (message.oldSchema !== "") {
+      obj.oldSchema = message.oldSchema;
+    }
+    if (message.newMetadata !== undefined) {
+      obj.newMetadata = DatabaseMetadata.toJSON(message.newMetadata);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DifferPreviewRequest>): DifferPreviewRequest {
+    return DifferPreviewRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DifferPreviewRequest>): DifferPreviewRequest {
+    const message = createBaseDifferPreviewRequest();
+    message.engine = object.engine ?? 0;
+    message.oldSchema = object.oldSchema ?? "";
+    message.newMetadata = (object.newMetadata !== undefined && object.newMetadata !== null)
+      ? DatabaseMetadata.fromPartial(object.newMetadata)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseDifferPreviewResponse(): DifferPreviewResponse {
+  return { schema: "" };
+}
+
+export const DifferPreviewResponse = {
+  encode(message: DifferPreviewResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.schema !== "") {
+      writer.uint32(10).string(message.schema);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): DifferPreviewResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDifferPreviewResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.schema = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DifferPreviewResponse {
+    return { schema: isSet(object.schema) ? globalThis.String(object.schema) : "" };
+  },
+
+  toJSON(message: DifferPreviewResponse): unknown {
+    const obj: any = {};
+    if (message.schema !== "") {
+      obj.schema = message.schema;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DifferPreviewResponse>): DifferPreviewResponse {
+    return DifferPreviewResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DifferPreviewResponse>): DifferPreviewResponse {
+    const message = createBaseDifferPreviewResponse();
+    message.schema = object.schema ?? "";
+    return message;
+  },
+};
 
 function createBaseAdminExecuteRequest(): AdminExecuteRequest {
   return { name: "", connectionDatabase: "", statement: "", limit: 0, timeout: undefined };
@@ -343,28 +484,37 @@ export const AdminExecuteRequest = {
 
   fromJSON(object: any): AdminExecuteRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      connectionDatabase: isSet(object.connectionDatabase) ? String(object.connectionDatabase) : "",
-      statement: isSet(object.statement) ? String(object.statement) : "",
-      limit: isSet(object.limit) ? Number(object.limit) : 0,
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      connectionDatabase: isSet(object.connectionDatabase) ? globalThis.String(object.connectionDatabase) : "",
+      statement: isSet(object.statement) ? globalThis.String(object.statement) : "",
+      limit: isSet(object.limit) ? globalThis.Number(object.limit) : 0,
       timeout: isSet(object.timeout) ? Duration.fromJSON(object.timeout) : undefined,
     };
   },
 
   toJSON(message: AdminExecuteRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.connectionDatabase !== undefined && (obj.connectionDatabase = message.connectionDatabase);
-    message.statement !== undefined && (obj.statement = message.statement);
-    message.limit !== undefined && (obj.limit = Math.round(message.limit));
-    message.timeout !== undefined && (obj.timeout = message.timeout ? Duration.toJSON(message.timeout) : undefined);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.connectionDatabase !== "") {
+      obj.connectionDatabase = message.connectionDatabase;
+    }
+    if (message.statement !== "") {
+      obj.statement = message.statement;
+    }
+    if (message.limit !== 0) {
+      obj.limit = Math.round(message.limit);
+    }
+    if (message.timeout !== undefined) {
+      obj.timeout = Duration.toJSON(message.timeout);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<AdminExecuteRequest>): AdminExecuteRequest {
     return AdminExecuteRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<AdminExecuteRequest>): AdminExecuteRequest {
     const message = createBaseAdminExecuteRequest();
     message.name = object.name ?? "";
@@ -414,15 +564,15 @@ export const AdminExecuteResponse = {
   },
 
   fromJSON(object: any): AdminExecuteResponse {
-    return { results: Array.isArray(object?.results) ? object.results.map((e: any) => QueryResult.fromJSON(e)) : [] };
+    return {
+      results: globalThis.Array.isArray(object?.results) ? object.results.map((e: any) => QueryResult.fromJSON(e)) : [],
+    };
   },
 
   toJSON(message: AdminExecuteResponse): unknown {
     const obj: any = {};
-    if (message.results) {
-      obj.results = message.results.map((e) => e ? QueryResult.toJSON(e) : undefined);
-    } else {
-      obj.results = [];
+    if (message.results?.length) {
+      obj.results = message.results.map((e) => QueryResult.toJSON(e));
     }
     return obj;
   },
@@ -430,7 +580,6 @@ export const AdminExecuteResponse = {
   create(base?: DeepPartial<AdminExecuteResponse>): AdminExecuteResponse {
     return AdminExecuteResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<AdminExecuteResponse>): AdminExecuteResponse {
     const message = createBaseAdminExecuteResponse();
     message.results = object.results?.map((e) => QueryResult.fromPartial(e)) || [];
@@ -525,30 +674,41 @@ export const ExportRequest = {
 
   fromJSON(object: any): ExportRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      connectionDatabase: isSet(object.connectionDatabase) ? String(object.connectionDatabase) : "",
-      statement: isSet(object.statement) ? String(object.statement) : "",
-      limit: isSet(object.limit) ? Number(object.limit) : 0,
-      format: isSet(object.format) ? exportRequest_FormatFromJSON(object.format) : 0,
-      admin: isSet(object.admin) ? Boolean(object.admin) : false,
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      connectionDatabase: isSet(object.connectionDatabase) ? globalThis.String(object.connectionDatabase) : "",
+      statement: isSet(object.statement) ? globalThis.String(object.statement) : "",
+      limit: isSet(object.limit) ? globalThis.Number(object.limit) : 0,
+      format: isSet(object.format) ? exportFormatFromJSON(object.format) : 0,
+      admin: isSet(object.admin) ? globalThis.Boolean(object.admin) : false,
     };
   },
 
   toJSON(message: ExportRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.connectionDatabase !== undefined && (obj.connectionDatabase = message.connectionDatabase);
-    message.statement !== undefined && (obj.statement = message.statement);
-    message.limit !== undefined && (obj.limit = Math.round(message.limit));
-    message.format !== undefined && (obj.format = exportRequest_FormatToJSON(message.format));
-    message.admin !== undefined && (obj.admin = message.admin);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.connectionDatabase !== "") {
+      obj.connectionDatabase = message.connectionDatabase;
+    }
+    if (message.statement !== "") {
+      obj.statement = message.statement;
+    }
+    if (message.limit !== 0) {
+      obj.limit = Math.round(message.limit);
+    }
+    if (message.format !== 0) {
+      obj.format = exportFormatToJSON(message.format);
+    }
+    if (message.admin === true) {
+      obj.admin = message.admin;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ExportRequest>): ExportRequest {
     return ExportRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ExportRequest>): ExportRequest {
     const message = createBaseExportRequest();
     message.name = object.name ?? "";
@@ -602,15 +762,15 @@ export const ExportResponse = {
 
   toJSON(message: ExportResponse): unknown {
     const obj: any = {};
-    message.content !== undefined &&
-      (obj.content = base64FromBytes(message.content !== undefined ? message.content : new Uint8Array(0)));
+    if (message.content.length !== 0) {
+      obj.content = base64FromBytes(message.content);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ExportResponse>): ExportResponse {
     return ExportResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ExportResponse>): ExportResponse {
     const message = createBaseExportResponse();
     message.content = object.content ?? new Uint8Array(0);
@@ -619,7 +779,7 @@ export const ExportResponse = {
 };
 
 function createBaseQueryRequest(): QueryRequest {
-  return { name: "", connectionDatabase: "", statement: "", limit: 0, timeout: undefined };
+  return { name: "", connectionDatabase: "", statement: "", limit: 0, timeout: undefined, dataSourceId: "" };
 }
 
 export const QueryRequest = {
@@ -638,6 +798,9 @@ export const QueryRequest = {
     }
     if (message.timeout !== undefined) {
       Duration.encode(message.timeout, writer.uint32(42).fork()).ldelim();
+    }
+    if (message.dataSourceId !== "") {
+      writer.uint32(50).string(message.dataSourceId);
     }
     return writer;
   },
@@ -684,6 +847,13 @@ export const QueryRequest = {
 
           message.timeout = Duration.decode(reader, reader.uint32());
           continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.dataSourceId = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -695,28 +865,41 @@ export const QueryRequest = {
 
   fromJSON(object: any): QueryRequest {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      connectionDatabase: isSet(object.connectionDatabase) ? String(object.connectionDatabase) : "",
-      statement: isSet(object.statement) ? String(object.statement) : "",
-      limit: isSet(object.limit) ? Number(object.limit) : 0,
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      connectionDatabase: isSet(object.connectionDatabase) ? globalThis.String(object.connectionDatabase) : "",
+      statement: isSet(object.statement) ? globalThis.String(object.statement) : "",
+      limit: isSet(object.limit) ? globalThis.Number(object.limit) : 0,
       timeout: isSet(object.timeout) ? Duration.fromJSON(object.timeout) : undefined,
+      dataSourceId: isSet(object.dataSourceId) ? globalThis.String(object.dataSourceId) : "",
     };
   },
 
   toJSON(message: QueryRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.connectionDatabase !== undefined && (obj.connectionDatabase = message.connectionDatabase);
-    message.statement !== undefined && (obj.statement = message.statement);
-    message.limit !== undefined && (obj.limit = Math.round(message.limit));
-    message.timeout !== undefined && (obj.timeout = message.timeout ? Duration.toJSON(message.timeout) : undefined);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.connectionDatabase !== "") {
+      obj.connectionDatabase = message.connectionDatabase;
+    }
+    if (message.statement !== "") {
+      obj.statement = message.statement;
+    }
+    if (message.limit !== 0) {
+      obj.limit = Math.round(message.limit);
+    }
+    if (message.timeout !== undefined) {
+      obj.timeout = Duration.toJSON(message.timeout);
+    }
+    if (message.dataSourceId !== "") {
+      obj.dataSourceId = message.dataSourceId;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<QueryRequest>): QueryRequest {
     return QueryRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<QueryRequest>): QueryRequest {
     const message = createBaseQueryRequest();
     message.name = object.name ?? "";
@@ -726,12 +909,13 @@ export const QueryRequest = {
     message.timeout = (object.timeout !== undefined && object.timeout !== null)
       ? Duration.fromPartial(object.timeout)
       : undefined;
+    message.dataSourceId = object.dataSourceId ?? "";
     return message;
   },
 };
 
 function createBaseQueryResponse(): QueryResponse {
-  return { results: [], advices: [] };
+  return { results: [], advices: [], allowExport: false };
 }
 
 export const QueryResponse = {
@@ -741,6 +925,9 @@ export const QueryResponse = {
     }
     for (const v of message.advices) {
       Advice.encode(v!, writer.uint32(18).fork()).ldelim();
+    }
+    if (message.allowExport === true) {
+      writer.uint32(24).bool(message.allowExport);
     }
     return writer;
   },
@@ -766,6 +953,13 @@ export const QueryResponse = {
 
           message.advices.push(Advice.decode(reader, reader.uint32()));
           continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.allowExport = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -777,22 +971,22 @@ export const QueryResponse = {
 
   fromJSON(object: any): QueryResponse {
     return {
-      results: Array.isArray(object?.results) ? object.results.map((e: any) => QueryResult.fromJSON(e)) : [],
-      advices: Array.isArray(object?.advices) ? object.advices.map((e: any) => Advice.fromJSON(e)) : [],
+      results: globalThis.Array.isArray(object?.results) ? object.results.map((e: any) => QueryResult.fromJSON(e)) : [],
+      advices: globalThis.Array.isArray(object?.advices) ? object.advices.map((e: any) => Advice.fromJSON(e)) : [],
+      allowExport: isSet(object.allowExport) ? globalThis.Boolean(object.allowExport) : false,
     };
   },
 
   toJSON(message: QueryResponse): unknown {
     const obj: any = {};
-    if (message.results) {
-      obj.results = message.results.map((e) => e ? QueryResult.toJSON(e) : undefined);
-    } else {
-      obj.results = [];
+    if (message.results?.length) {
+      obj.results = message.results.map((e) => QueryResult.toJSON(e));
     }
-    if (message.advices) {
-      obj.advices = message.advices.map((e) => e ? Advice.toJSON(e) : undefined);
-    } else {
-      obj.advices = [];
+    if (message.advices?.length) {
+      obj.advices = message.advices.map((e) => Advice.toJSON(e));
+    }
+    if (message.allowExport === true) {
+      obj.allowExport = message.allowExport;
     }
     return obj;
   },
@@ -800,11 +994,11 @@ export const QueryResponse = {
   create(base?: DeepPartial<QueryResponse>): QueryResponse {
     return QueryResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<QueryResponse>): QueryResponse {
     const message = createBaseQueryResponse();
     message.results = object.results?.map((e) => QueryResult.fromPartial(e)) || [];
     message.advices = object.advices?.map((e) => Advice.fromPartial(e)) || [];
+    message.allowExport = object.allowExport ?? false;
     return message;
   },
 };
@@ -949,54 +1143,55 @@ export const QueryResult = {
 
   fromJSON(object: any): QueryResult {
     return {
-      columnNames: Array.isArray(object?.columnNames) ? object.columnNames.map((e: any) => String(e)) : [],
-      columnTypeNames: Array.isArray(object?.columnTypeNames) ? object.columnTypeNames.map((e: any) => String(e)) : [],
-      rows: Array.isArray(object?.rows) ? object.rows.map((e: any) => QueryRow.fromJSON(e)) : [],
-      masked: Array.isArray(object?.masked) ? object.masked.map((e: any) => Boolean(e)) : [],
-      sensitive: Array.isArray(object?.sensitive) ? object.sensitive.map((e: any) => Boolean(e)) : [],
-      error: isSet(object.error) ? String(object.error) : "",
+      columnNames: globalThis.Array.isArray(object?.columnNames)
+        ? object.columnNames.map((e: any) => globalThis.String(e))
+        : [],
+      columnTypeNames: globalThis.Array.isArray(object?.columnTypeNames)
+        ? object.columnTypeNames.map((e: any) => globalThis.String(e))
+        : [],
+      rows: globalThis.Array.isArray(object?.rows) ? object.rows.map((e: any) => QueryRow.fromJSON(e)) : [],
+      masked: globalThis.Array.isArray(object?.masked) ? object.masked.map((e: any) => globalThis.Boolean(e)) : [],
+      sensitive: globalThis.Array.isArray(object?.sensitive)
+        ? object.sensitive.map((e: any) => globalThis.Boolean(e))
+        : [],
+      error: isSet(object.error) ? globalThis.String(object.error) : "",
       latency: isSet(object.latency) ? Duration.fromJSON(object.latency) : undefined,
-      statement: isSet(object.statement) ? String(object.statement) : "",
+      statement: isSet(object.statement) ? globalThis.String(object.statement) : "",
     };
   },
 
   toJSON(message: QueryResult): unknown {
     const obj: any = {};
-    if (message.columnNames) {
-      obj.columnNames = message.columnNames.map((e) => e);
-    } else {
-      obj.columnNames = [];
+    if (message.columnNames?.length) {
+      obj.columnNames = message.columnNames;
     }
-    if (message.columnTypeNames) {
-      obj.columnTypeNames = message.columnTypeNames.map((e) => e);
-    } else {
-      obj.columnTypeNames = [];
+    if (message.columnTypeNames?.length) {
+      obj.columnTypeNames = message.columnTypeNames;
     }
-    if (message.rows) {
-      obj.rows = message.rows.map((e) => e ? QueryRow.toJSON(e) : undefined);
-    } else {
-      obj.rows = [];
+    if (message.rows?.length) {
+      obj.rows = message.rows.map((e) => QueryRow.toJSON(e));
     }
-    if (message.masked) {
-      obj.masked = message.masked.map((e) => e);
-    } else {
-      obj.masked = [];
+    if (message.masked?.length) {
+      obj.masked = message.masked;
     }
-    if (message.sensitive) {
-      obj.sensitive = message.sensitive.map((e) => e);
-    } else {
-      obj.sensitive = [];
+    if (message.sensitive?.length) {
+      obj.sensitive = message.sensitive;
     }
-    message.error !== undefined && (obj.error = message.error);
-    message.latency !== undefined && (obj.latency = message.latency ? Duration.toJSON(message.latency) : undefined);
-    message.statement !== undefined && (obj.statement = message.statement);
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
+    if (message.latency !== undefined) {
+      obj.latency = Duration.toJSON(message.latency);
+    }
+    if (message.statement !== "") {
+      obj.statement = message.statement;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<QueryResult>): QueryResult {
     return QueryResult.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<QueryResult>): QueryResult {
     const message = createBaseQueryResult();
     message.columnNames = object.columnNames?.map((e) => e) || [];
@@ -1049,15 +1244,15 @@ export const QueryRow = {
   },
 
   fromJSON(object: any): QueryRow {
-    return { values: Array.isArray(object?.values) ? object.values.map((e: any) => RowValue.fromJSON(e)) : [] };
+    return {
+      values: globalThis.Array.isArray(object?.values) ? object.values.map((e: any) => RowValue.fromJSON(e)) : [],
+    };
   },
 
   toJSON(message: QueryRow): unknown {
     const obj: any = {};
-    if (message.values) {
-      obj.values = message.values.map((e) => e ? RowValue.toJSON(e) : undefined);
-    } else {
-      obj.values = [];
+    if (message.values?.length) {
+      obj.values = message.values.map((e) => RowValue.toJSON(e));
     }
     return obj;
   },
@@ -1065,7 +1260,6 @@ export const QueryRow = {
   create(base?: DeepPartial<QueryRow>): QueryRow {
     return QueryRow.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<QueryRow>): QueryRow {
     const message = createBaseQueryRow();
     message.values = object.values?.map((e) => RowValue.fromPartial(e)) || [];
@@ -1181,7 +1375,7 @@ export const RowValue = {
             break;
           }
 
-          message.int64Value = longToNumber(reader.int64() as Long);
+          message.int64Value = reader.int64() as Long;
           continue;
         case 8:
           if (tag !== 66) {
@@ -1202,7 +1396,7 @@ export const RowValue = {
             break;
           }
 
-          message.uint64Value = longToNumber(reader.uint64() as Long);
+          message.uint64Value = reader.uint64() as Long;
           continue;
         case 11:
           if (tag !== 90) {
@@ -1223,41 +1417,60 @@ export const RowValue = {
   fromJSON(object: any): RowValue {
     return {
       nullValue: isSet(object.nullValue) ? nullValueFromJSON(object.nullValue) : undefined,
-      boolValue: isSet(object.boolValue) ? Boolean(object.boolValue) : undefined,
+      boolValue: isSet(object.boolValue) ? globalThis.Boolean(object.boolValue) : undefined,
       bytesValue: isSet(object.bytesValue) ? bytesFromBase64(object.bytesValue) : undefined,
-      doubleValue: isSet(object.doubleValue) ? Number(object.doubleValue) : undefined,
-      floatValue: isSet(object.floatValue) ? Number(object.floatValue) : undefined,
-      int32Value: isSet(object.int32Value) ? Number(object.int32Value) : undefined,
-      int64Value: isSet(object.int64Value) ? Number(object.int64Value) : undefined,
-      stringValue: isSet(object.stringValue) ? String(object.stringValue) : undefined,
-      uint32Value: isSet(object.uint32Value) ? Number(object.uint32Value) : undefined,
-      uint64Value: isSet(object.uint64Value) ? Number(object.uint64Value) : undefined,
+      doubleValue: isSet(object.doubleValue) ? globalThis.Number(object.doubleValue) : undefined,
+      floatValue: isSet(object.floatValue) ? globalThis.Number(object.floatValue) : undefined,
+      int32Value: isSet(object.int32Value) ? globalThis.Number(object.int32Value) : undefined,
+      int64Value: isSet(object.int64Value) ? Long.fromValue(object.int64Value) : undefined,
+      stringValue: isSet(object.stringValue) ? globalThis.String(object.stringValue) : undefined,
+      uint32Value: isSet(object.uint32Value) ? globalThis.Number(object.uint32Value) : undefined,
+      uint64Value: isSet(object.uint64Value) ? Long.fromValue(object.uint64Value) : undefined,
       valueValue: isSet(object?.valueValue) ? object.valueValue : undefined,
     };
   },
 
   toJSON(message: RowValue): unknown {
     const obj: any = {};
-    message.nullValue !== undefined &&
-      (obj.nullValue = message.nullValue !== undefined ? nullValueToJSON(message.nullValue) : undefined);
-    message.boolValue !== undefined && (obj.boolValue = message.boolValue);
-    message.bytesValue !== undefined &&
-      (obj.bytesValue = message.bytesValue !== undefined ? base64FromBytes(message.bytesValue) : undefined);
-    message.doubleValue !== undefined && (obj.doubleValue = message.doubleValue);
-    message.floatValue !== undefined && (obj.floatValue = message.floatValue);
-    message.int32Value !== undefined && (obj.int32Value = Math.round(message.int32Value));
-    message.int64Value !== undefined && (obj.int64Value = Math.round(message.int64Value));
-    message.stringValue !== undefined && (obj.stringValue = message.stringValue);
-    message.uint32Value !== undefined && (obj.uint32Value = Math.round(message.uint32Value));
-    message.uint64Value !== undefined && (obj.uint64Value = Math.round(message.uint64Value));
-    message.valueValue !== undefined && (obj.valueValue = message.valueValue);
+    if (message.nullValue !== undefined) {
+      obj.nullValue = nullValueToJSON(message.nullValue);
+    }
+    if (message.boolValue !== undefined) {
+      obj.boolValue = message.boolValue;
+    }
+    if (message.bytesValue !== undefined) {
+      obj.bytesValue = base64FromBytes(message.bytesValue);
+    }
+    if (message.doubleValue !== undefined) {
+      obj.doubleValue = message.doubleValue;
+    }
+    if (message.floatValue !== undefined) {
+      obj.floatValue = message.floatValue;
+    }
+    if (message.int32Value !== undefined) {
+      obj.int32Value = Math.round(message.int32Value);
+    }
+    if (message.int64Value !== undefined) {
+      obj.int64Value = (message.int64Value || Long.ZERO).toString();
+    }
+    if (message.stringValue !== undefined) {
+      obj.stringValue = message.stringValue;
+    }
+    if (message.uint32Value !== undefined) {
+      obj.uint32Value = Math.round(message.uint32Value);
+    }
+    if (message.uint64Value !== undefined) {
+      obj.uint64Value = (message.uint64Value || Long.UZERO).toString();
+    }
+    if (message.valueValue !== undefined) {
+      obj.valueValue = message.valueValue;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<RowValue>): RowValue {
     return RowValue.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<RowValue>): RowValue {
     const message = createBaseRowValue();
     message.nullValue = object.nullValue ?? undefined;
@@ -1266,17 +1479,21 @@ export const RowValue = {
     message.doubleValue = object.doubleValue ?? undefined;
     message.floatValue = object.floatValue ?? undefined;
     message.int32Value = object.int32Value ?? undefined;
-    message.int64Value = object.int64Value ?? undefined;
+    message.int64Value = (object.int64Value !== undefined && object.int64Value !== null)
+      ? Long.fromValue(object.int64Value)
+      : undefined;
     message.stringValue = object.stringValue ?? undefined;
     message.uint32Value = object.uint32Value ?? undefined;
-    message.uint64Value = object.uint64Value ?? undefined;
+    message.uint64Value = (object.uint64Value !== undefined && object.uint64Value !== null)
+      ? Long.fromValue(object.uint64Value)
+      : undefined;
     message.valueValue = object.valueValue ?? undefined;
     return message;
   },
 };
 
 function createBaseAdvice(): Advice {
-  return { status: 0, code: 0, title: "", content: "", line: 0, detail: "" };
+  return { status: 0, code: 0, title: "", content: "", line: 0, column: 0, detail: "" };
 }
 
 export const Advice = {
@@ -1296,8 +1513,11 @@ export const Advice = {
     if (message.line !== 0) {
       writer.uint32(40).int32(message.line);
     }
+    if (message.column !== 0) {
+      writer.uint32(48).int32(message.column);
+    }
     if (message.detail !== "") {
-      writer.uint32(50).string(message.detail);
+      writer.uint32(58).string(message.detail);
     }
     return writer;
   },
@@ -1345,7 +1565,14 @@ export const Advice = {
           message.line = reader.int32();
           continue;
         case 6:
-          if (tag !== 50) {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.column = reader.int32();
+          continue;
+        case 7:
+          if (tag !== 58) {
             break;
           }
 
@@ -1363,29 +1590,44 @@ export const Advice = {
   fromJSON(object: any): Advice {
     return {
       status: isSet(object.status) ? advice_StatusFromJSON(object.status) : 0,
-      code: isSet(object.code) ? Number(object.code) : 0,
-      title: isSet(object.title) ? String(object.title) : "",
-      content: isSet(object.content) ? String(object.content) : "",
-      line: isSet(object.line) ? Number(object.line) : 0,
-      detail: isSet(object.detail) ? String(object.detail) : "",
+      code: isSet(object.code) ? globalThis.Number(object.code) : 0,
+      title: isSet(object.title) ? globalThis.String(object.title) : "",
+      content: isSet(object.content) ? globalThis.String(object.content) : "",
+      line: isSet(object.line) ? globalThis.Number(object.line) : 0,
+      column: isSet(object.column) ? globalThis.Number(object.column) : 0,
+      detail: isSet(object.detail) ? globalThis.String(object.detail) : "",
     };
   },
 
   toJSON(message: Advice): unknown {
     const obj: any = {};
-    message.status !== undefined && (obj.status = advice_StatusToJSON(message.status));
-    message.code !== undefined && (obj.code = Math.round(message.code));
-    message.title !== undefined && (obj.title = message.title);
-    message.content !== undefined && (obj.content = message.content);
-    message.line !== undefined && (obj.line = Math.round(message.line));
-    message.detail !== undefined && (obj.detail = message.detail);
+    if (message.status !== 0) {
+      obj.status = advice_StatusToJSON(message.status);
+    }
+    if (message.code !== 0) {
+      obj.code = Math.round(message.code);
+    }
+    if (message.title !== "") {
+      obj.title = message.title;
+    }
+    if (message.content !== "") {
+      obj.content = message.content;
+    }
+    if (message.line !== 0) {
+      obj.line = Math.round(message.line);
+    }
+    if (message.column !== 0) {
+      obj.column = Math.round(message.column);
+    }
+    if (message.detail !== "") {
+      obj.detail = message.detail;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<Advice>): Advice {
     return Advice.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<Advice>): Advice {
     const message = createBaseAdvice();
     message.status = object.status ?? 0;
@@ -1393,6 +1635,7 @@ export const Advice = {
     message.title = object.title ?? "";
     message.content = object.content ?? "";
     message.line = object.line ?? 0;
+    message.column = object.column ?? 0;
     message.detail = object.detail ?? "";
     return message;
   },
@@ -1456,23 +1699,28 @@ export const PrettyRequest = {
   fromJSON(object: any): PrettyRequest {
     return {
       engine: isSet(object.engine) ? engineFromJSON(object.engine) : 0,
-      currentSchema: isSet(object.currentSchema) ? String(object.currentSchema) : "",
-      expectedSchema: isSet(object.expectedSchema) ? String(object.expectedSchema) : "",
+      currentSchema: isSet(object.currentSchema) ? globalThis.String(object.currentSchema) : "",
+      expectedSchema: isSet(object.expectedSchema) ? globalThis.String(object.expectedSchema) : "",
     };
   },
 
   toJSON(message: PrettyRequest): unknown {
     const obj: any = {};
-    message.engine !== undefined && (obj.engine = engineToJSON(message.engine));
-    message.currentSchema !== undefined && (obj.currentSchema = message.currentSchema);
-    message.expectedSchema !== undefined && (obj.expectedSchema = message.expectedSchema);
+    if (message.engine !== 0) {
+      obj.engine = engineToJSON(message.engine);
+    }
+    if (message.currentSchema !== "") {
+      obj.currentSchema = message.currentSchema;
+    }
+    if (message.expectedSchema !== "") {
+      obj.expectedSchema = message.expectedSchema;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<PrettyRequest>): PrettyRequest {
     return PrettyRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<PrettyRequest>): PrettyRequest {
     const message = createBasePrettyRequest();
     message.engine = object.engine ?? 0;
@@ -1529,26 +1777,295 @@ export const PrettyResponse = {
 
   fromJSON(object: any): PrettyResponse {
     return {
-      currentSchema: isSet(object.currentSchema) ? String(object.currentSchema) : "",
-      expectedSchema: isSet(object.expectedSchema) ? String(object.expectedSchema) : "",
+      currentSchema: isSet(object.currentSchema) ? globalThis.String(object.currentSchema) : "",
+      expectedSchema: isSet(object.expectedSchema) ? globalThis.String(object.expectedSchema) : "",
     };
   },
 
   toJSON(message: PrettyResponse): unknown {
     const obj: any = {};
-    message.currentSchema !== undefined && (obj.currentSchema = message.currentSchema);
-    message.expectedSchema !== undefined && (obj.expectedSchema = message.expectedSchema);
+    if (message.currentSchema !== "") {
+      obj.currentSchema = message.currentSchema;
+    }
+    if (message.expectedSchema !== "") {
+      obj.expectedSchema = message.expectedSchema;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<PrettyResponse>): PrettyResponse {
     return PrettyResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<PrettyResponse>): PrettyResponse {
     const message = createBasePrettyResponse();
     message.currentSchema = object.currentSchema ?? "";
     message.expectedSchema = object.expectedSchema ?? "";
+    return message;
+  },
+};
+
+function createBaseCheckRequest(): CheckRequest {
+  return { statement: "", database: "" };
+}
+
+export const CheckRequest = {
+  encode(message: CheckRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.statement !== "") {
+      writer.uint32(10).string(message.statement);
+    }
+    if (message.database !== "") {
+      writer.uint32(18).string(message.database);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CheckRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCheckRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.statement = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.database = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CheckRequest {
+    return {
+      statement: isSet(object.statement) ? globalThis.String(object.statement) : "",
+      database: isSet(object.database) ? globalThis.String(object.database) : "",
+    };
+  },
+
+  toJSON(message: CheckRequest): unknown {
+    const obj: any = {};
+    if (message.statement !== "") {
+      obj.statement = message.statement;
+    }
+    if (message.database !== "") {
+      obj.database = message.database;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<CheckRequest>): CheckRequest {
+    return CheckRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<CheckRequest>): CheckRequest {
+    const message = createBaseCheckRequest();
+    message.statement = object.statement ?? "";
+    message.database = object.database ?? "";
+    return message;
+  },
+};
+
+function createBaseCheckResponse(): CheckResponse {
+  return { advices: [] };
+}
+
+export const CheckResponse = {
+  encode(message: CheckResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.advices) {
+      Advice.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CheckResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCheckResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.advices.push(Advice.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CheckResponse {
+    return {
+      advices: globalThis.Array.isArray(object?.advices) ? object.advices.map((e: any) => Advice.fromJSON(e)) : [],
+    };
+  },
+
+  toJSON(message: CheckResponse): unknown {
+    const obj: any = {};
+    if (message.advices?.length) {
+      obj.advices = message.advices.map((e) => Advice.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<CheckResponse>): CheckResponse {
+    return CheckResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<CheckResponse>): CheckResponse {
+    const message = createBaseCheckResponse();
+    message.advices = object.advices?.map((e) => Advice.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseStringifyMetadataRequest(): StringifyMetadataRequest {
+  return { metadata: undefined, engine: 0 };
+}
+
+export const StringifyMetadataRequest = {
+  encode(message: StringifyMetadataRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.metadata !== undefined) {
+      DatabaseMetadata.encode(message.metadata, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.engine !== 0) {
+      writer.uint32(16).int32(message.engine);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): StringifyMetadataRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStringifyMetadataRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.metadata = DatabaseMetadata.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.engine = reader.int32() as any;
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): StringifyMetadataRequest {
+    return {
+      metadata: isSet(object.metadata) ? DatabaseMetadata.fromJSON(object.metadata) : undefined,
+      engine: isSet(object.engine) ? engineFromJSON(object.engine) : 0,
+    };
+  },
+
+  toJSON(message: StringifyMetadataRequest): unknown {
+    const obj: any = {};
+    if (message.metadata !== undefined) {
+      obj.metadata = DatabaseMetadata.toJSON(message.metadata);
+    }
+    if (message.engine !== 0) {
+      obj.engine = engineToJSON(message.engine);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<StringifyMetadataRequest>): StringifyMetadataRequest {
+    return StringifyMetadataRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<StringifyMetadataRequest>): StringifyMetadataRequest {
+    const message = createBaseStringifyMetadataRequest();
+    message.metadata = (object.metadata !== undefined && object.metadata !== null)
+      ? DatabaseMetadata.fromPartial(object.metadata)
+      : undefined;
+    message.engine = object.engine ?? 0;
+    return message;
+  },
+};
+
+function createBaseStringifyMetadataResponse(): StringifyMetadataResponse {
+  return { schema: "" };
+}
+
+export const StringifyMetadataResponse = {
+  encode(message: StringifyMetadataResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.schema !== "") {
+      writer.uint32(10).string(message.schema);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): StringifyMetadataResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStringifyMetadataResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.schema = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): StringifyMetadataResponse {
+    return { schema: isSet(object.schema) ? globalThis.String(object.schema) : "" };
+  },
+
+  toJSON(message: StringifyMetadataResponse): unknown {
+    const obj: any = {};
+    if (message.schema !== "") {
+      obj.schema = message.schema;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<StringifyMetadataResponse>): StringifyMetadataResponse {
+    return StringifyMetadataResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<StringifyMetadataResponse>): StringifyMetadataResponse {
+    const message = createBaseStringifyMetadataResponse();
+    message.schema = object.schema ?? "";
     return message;
   },
 };
@@ -1558,20 +2075,6 @@ export const SQLServiceDefinition = {
   name: "SQLService",
   fullName: "bytebase.v1.SQLService",
   methods: {
-    pretty: {
-      name: "Pretty",
-      requestType: PrettyRequest,
-      requestStream: false,
-      responseType: PrettyResponse,
-      responseStream: false,
-      options: {
-        _unknownFields: {
-          578365826: [
-            new Uint8Array([19, 58, 1, 42, 34, 14, 47, 118, 49, 47, 115, 113, 108, 47, 112, 114, 101, 116, 116, 121]),
-          ],
-        },
-      },
-    },
     query: {
       name: "Query",
       requestType: QueryRequest,
@@ -1685,53 +2188,139 @@ export const SQLServiceDefinition = {
         },
       },
     },
+    differPreview: {
+      name: "DifferPreview",
+      requestType: DifferPreviewRequest,
+      requestStream: false,
+      responseType: DifferPreviewResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              26,
+              58,
+              1,
+              42,
+              34,
+              21,
+              47,
+              118,
+              49,
+              47,
+              115,
+              113,
+              108,
+              47,
+              100,
+              105,
+              102,
+              102,
+              101,
+              114,
+              80,
+              114,
+              101,
+              118,
+              105,
+              101,
+              119,
+            ]),
+          ],
+        },
+      },
+    },
+    check: {
+      name: "Check",
+      requestType: CheckRequest,
+      requestStream: false,
+      responseType: CheckResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([18, 58, 1, 42, 34, 13, 47, 118, 49, 47, 115, 113, 108, 47, 99, 104, 101, 99, 107]),
+          ],
+        },
+      },
+    },
+    pretty: {
+      name: "Pretty",
+      requestType: PrettyRequest,
+      requestStream: false,
+      responseType: PrettyResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([19, 58, 1, 42, 34, 14, 47, 118, 49, 47, 115, 113, 108, 47, 112, 114, 101, 116, 116, 121]),
+          ],
+        },
+      },
+    },
+    stringifyMetadata: {
+      name: "StringifyMetadata",
+      requestType: StringifyMetadataRequest,
+      requestStream: false,
+      responseType: StringifyMetadataResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              39,
+              58,
+              1,
+              42,
+              34,
+              34,
+              47,
+              118,
+              49,
+              47,
+              115,
+              99,
+              104,
+              101,
+              109,
+              97,
+              68,
+              101,
+              115,
+              105,
+              103,
+              110,
+              58,
+              115,
+              116,
+              114,
+              105,
+              110,
+              103,
+              105,
+              102,
+              121,
+              77,
+              101,
+              116,
+              97,
+              100,
+              97,
+              116,
+              97,
+            ]),
+          ],
+        },
+      },
+    },
   },
 } as const;
 
-export interface SQLServiceImplementation<CallContextExt = {}> {
-  pretty(request: PrettyRequest, context: CallContext & CallContextExt): Promise<DeepPartial<PrettyResponse>>;
-  query(request: QueryRequest, context: CallContext & CallContextExt): Promise<DeepPartial<QueryResponse>>;
-  export(request: ExportRequest, context: CallContext & CallContextExt): Promise<DeepPartial<ExportResponse>>;
-  adminExecute(
-    request: AsyncIterable<AdminExecuteRequest>,
-    context: CallContext & CallContextExt,
-  ): ServerStreamingMethodResult<DeepPartial<AdminExecuteResponse>>;
-}
-
-export interface SQLServiceClient<CallOptionsExt = {}> {
-  pretty(request: DeepPartial<PrettyRequest>, options?: CallOptions & CallOptionsExt): Promise<PrettyResponse>;
-  query(request: DeepPartial<QueryRequest>, options?: CallOptions & CallOptionsExt): Promise<QueryResponse>;
-  export(request: DeepPartial<ExportRequest>, options?: CallOptions & CallOptionsExt): Promise<ExportResponse>;
-  adminExecute(
-    request: AsyncIterable<DeepPartial<AdminExecuteRequest>>,
-    options?: CallOptions & CallOptionsExt,
-  ): AsyncIterable<AdminExecuteResponse>;
-}
-
-declare const self: any | undefined;
-declare const window: any | undefined;
-declare const global: any | undefined;
-const tsProtoGlobalThis: any = (() => {
-  if (typeof globalThis !== "undefined") {
-    return globalThis;
-  }
-  if (typeof self !== "undefined") {
-    return self;
-  }
-  if (typeof window !== "undefined") {
-    return window;
-  }
-  if (typeof global !== "undefined") {
-    return global;
-  }
-  throw "Unable to locate global object";
-})();
-
 function bytesFromBase64(b64: string): Uint8Array {
-  if (tsProtoGlobalThis.Buffer) {
-    return Uint8Array.from(tsProtoGlobalThis.Buffer.from(b64, "base64"));
+  if (globalThis.Buffer) {
+    return Uint8Array.from(globalThis.Buffer.from(b64, "base64"));
   } else {
-    const bin = tsProtoGlobalThis.atob(b64);
+    const bin = globalThis.atob(b64);
     const arr = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; ++i) {
       arr[i] = bin.charCodeAt(i);
@@ -1741,33 +2330,25 @@ function bytesFromBase64(b64: string): Uint8Array {
 }
 
 function base64FromBytes(arr: Uint8Array): string {
-  if (tsProtoGlobalThis.Buffer) {
-    return tsProtoGlobalThis.Buffer.from(arr).toString("base64");
+  if (globalThis.Buffer) {
+    return globalThis.Buffer.from(arr).toString("base64");
   } else {
     const bin: string[] = [];
     arr.forEach((byte) => {
-      bin.push(String.fromCharCode(byte));
+      bin.push(globalThis.String.fromCharCode(byte));
     });
-    return tsProtoGlobalThis.btoa(bin.join(""));
+    return globalThis.btoa(bin.join(""));
   }
 }
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
 export type DeepPartial<T> = T extends Builtin ? T
-  : T extends Array<infer U> ? Array<DeepPartial<U>> : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
+  : T extends Long ? string | number | Long : T extends globalThis.Array<infer U> ? globalThis.Array<DeepPartial<U>>
+  : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
 
-function longToNumber(long: Long): number {
-  if (long.gt(Number.MAX_SAFE_INTEGER)) {
-    throw new tsProtoGlobalThis.Error("Value is larger than Number.MAX_SAFE_INTEGER");
-  }
-  return long.toNumber();
-}
-
-// If you get a compile-error about 'Constructor<Long> and ... have no overlap',
-// add '--ts_proto_opt=esModuleInterop=true' as a flag when calling 'protoc'.
 if (_m0.util.Long !== Long) {
   _m0.util.Long = Long as any;
   _m0.configure();
@@ -1776,5 +2357,3 @@ if (_m0.util.Long !== Long) {
 function isSet(value: any): boolean {
   return value !== null && value !== undefined;
 }
-
-export type ServerStreamingMethodResult<Response> = { [Symbol.asyncIterator](): AsyncIterator<Response, void> };

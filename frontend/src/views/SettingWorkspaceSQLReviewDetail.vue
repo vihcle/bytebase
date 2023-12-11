@@ -1,5 +1,5 @@
 <template>
-  <FeatureAttention custom-class="my-5" feature="bb.feature.sql-review" />
+  <FeatureAttention custom-class="mb-4" feature="bb.feature.sql-review" />
   <SQLReviewCreation
     v-if="state.editMode"
     key="sql-review-creation"
@@ -9,9 +9,9 @@
     :selected-rule-list="ruleListOfPolicy"
     @cancel="state.editMode = false"
   />
-  <div v-else class="mt-5">
+  <div v-else>
     <div
-      class="flex flex-col items-center space-x-2 justify-center md:flex-row"
+      class="flex flex-col gap-y-2 items-start md:items-center gap-x-2 justify-center md:flex-row"
     >
       <div class="flex-1 flex space-x-2 items-center justify-start">
         <BBBadge
@@ -28,11 +28,12 @@
           <BBBadge
             :text="$t('sql-review.disabled')"
             :can-remove="false"
-            :style="'DISABLED'"
+            :badge-style="'DISABLED'"
+            ::badge-style="'DISABLED'"
           />
         </div>
         <BBTextField
-          class="flex-1 text-3xl py-0.5 px-0.5 font-bold truncate"
+          class="flex-1 text-xl md:text-3xl py-0.5 px-0.5 font-bold truncate"
           :disabled="!hasPermission"
           :required="true"
           :focus-on-mount="false"
@@ -42,31 +43,24 @@
           @end-editing="changeName"
         />
       </div>
-      <div v-if="hasPermission" class="flex space-x-2">
-        <button
+      <div v-if="hasPermission" class="flex gap-x-2">
+        <NButton
           v-if="reviewPolicy.enforce"
-          type="button"
-          class="btn-normal py-2 px-4"
           @click.prevent="state.showDisableModal = true"
         >
           {{ $t("common.disable") }}
-        </button>
-        <button
-          v-else
-          type="button"
-          class="btn-normal py-2 px-4"
-          @click.prevent="state.showEnableModal = true"
-        >
+        </NButton>
+        <NButton v-else @click.prevent="state.showEnableModal = true">
           {{ $t("common.enable") }}
-        </button>
-        <button type="button" class="btn-primary" @click="onEdit">
+        </NButton>
+        <NButton type="primary" @click="onEdit">
           {{ $t("sql-review.create.configure-rule.change-template") }}
-        </button>
+        </NButton>
       </div>
     </div>
     <BBAttention
       v-if="!reviewPolicy.environment"
-      class="my-5"
+      class="my-4"
       :style="`WARN`"
       :title="$t('sql-review.create.basic-info.no-linked-environments')"
     />
@@ -85,7 +79,7 @@
       @comment-change="onCommentChange"
     />
     <BBButtonConfirm
-      class="my-5"
+      class="my-4"
       :disabled="!hasPermission"
       :style="'DELETE'"
       :button-text="$t('sql-review.delete')"
@@ -98,12 +92,12 @@
       v-if="state.rulesUpdated"
       class="w-full mt-4 py-4 border-t border-block-border flex justify-between bg-white sticky bottom-0 z-10"
     >
-      <button type="button" class="btn-normal" @click.prevent="onCancelChanges">
+      <NButton @click.prevent="onCancelChanges">
         <span> {{ $t("common.cancel") }}</span>
-      </button>
-      <button type="button" class="btn-primary" @click.prevent="onApplyChanges">
+      </NButton>
+      <NButton type="primary" @click.prevent="onApplyChanges">
         {{ $t("common.confirm-and-update") }}
-      </button>
+      </NButton>
     </div>
   </div>
   <BBAlert
@@ -139,25 +133,13 @@
 </template>
 
 <script lang="ts" setup>
+import { cloneDeep, groupBy } from "lodash-es";
 import { computed, reactive, toRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
-import { cloneDeep } from "lodash-es";
-
-import { idFromSlug, hasWorkspacePermissionV1 } from "@/utils";
-import {
-  unknown,
-  RuleLevel,
-  RuleTemplate,
-  SQLReviewPolicy,
-  SchemaRuleEngineType,
-  RuleType,
-  TEMPLATE_LIST,
-  convertPolicyRuleToRuleTemplate,
-  ruleIsAvailableInSubscription,
-  convertRuleTemplateToPolicyRule,
-} from "@/types";
 import { BBTextField } from "@/bbkit";
+import { PayloadForEngine } from "@/components/SQLReview/components/RuleConfigComponents";
+import { EnvironmentV1Name } from "@/components/v2";
 import {
   pushNotification,
   useCurrentUserV1,
@@ -165,13 +147,25 @@ import {
   useSubscriptionV1Store,
 } from "@/store";
 import {
+  unknown,
+  RuleTemplate,
+  SQLReviewPolicy,
+  RuleType,
+  SchemaPolicyRule,
+  TEMPLATE_LIST,
+  convertPolicyRuleToRuleTemplate,
+  ruleIsAvailableInSubscription,
+  convertRuleTemplateToPolicyRule,
+} from "@/types";
+import { Engine } from "@/types/proto/v1/common";
+import { SQLReviewRuleLevel } from "@/types/proto/v1/org_policy_service";
+import { idFromSlug, hasWorkspacePermissionV1 } from "@/utils";
+import {
   payloadValueListToComponentList,
   SQLRuleFilter,
   useSQLRuleFilter,
   SQLRuleTable,
 } from "../components/SQLReview/components";
-import { EnvironmentV1Name } from "@/components/v2";
-import { PayloadValueType } from "@/components/SQLReview/components/RuleConfigComponents";
 
 const props = defineProps({
   sqlReviewPolicySlug: {
@@ -185,8 +179,8 @@ interface LocalState {
   showEnableModal: boolean;
   selectedCategory?: string;
   editMode: boolean;
-  checkedEngine: Set<SchemaRuleEngineType>;
-  checkedLevel: Set<RuleLevel>;
+  checkedEngine: Set<Engine>;
+  checkedLevel: Set<SQLReviewRuleLevel>;
   ruleList: RuleTemplate[];
   rulesUpdated: boolean;
   updating: boolean;
@@ -203,8 +197,8 @@ const state = reactive<LocalState>({
   showDisableModal: false,
   showEnableModal: false,
   editMode: false,
-  checkedEngine: new Set<SchemaRuleEngineType>(),
-  checkedLevel: new Set<RuleLevel>(),
+  checkedEngine: new Set<Engine>(),
+  checkedLevel: new Set<SQLReviewRuleLevel>(),
   ruleList: [],
   rulesUpdated: false,
   updating: false,
@@ -241,23 +235,25 @@ const ruleListOfPolicy = computed((): RuleTemplate[] => {
     new Map<RuleType, RuleTemplate>()
   );
 
-  for (const policyRule of reviewPolicy.value.ruleList) {
-    const rule = ruleTemplateMap.get(policyRule.type);
+  const groupByRule = groupBy(reviewPolicy.value.ruleList, (rule) => rule.type);
+
+  for (const [type, ruleList] of Object.entries(groupByRule)) {
+    const rule = ruleTemplateMap.get(type as RuleType);
     if (!rule) {
       continue;
     }
 
-    const data = convertPolicyRuleToRuleTemplate(policyRule, rule);
+    const data = convertPolicyRuleToRuleTemplate(ruleList, rule);
     if (data) {
       ruleTemplateList.push(data);
+      ruleTemplateMap.delete(type as RuleType);
     }
-    ruleTemplateMap.delete(policyRule.type);
   }
 
   for (const rule of ruleTemplateMap.values()) {
     ruleTemplateList.push({
       ...rule,
-      level: RuleLevel.DISABLED,
+      level: SQLReviewRuleLevel.DISABLED,
     });
   }
 
@@ -318,12 +314,11 @@ const markChange = (rule: RuleTemplate, overrides: Partial<RuleTemplate>) => {
   state.rulesUpdated = true;
 };
 
-const onPayloadChange = (rule: RuleTemplate, data: PayloadValueType[]) => {
-  const componentList = payloadValueListToComponentList(rule, data);
-  markChange(rule, { componentList });
+const onPayloadChange = (rule: RuleTemplate, data: PayloadForEngine) => {
+  markChange(rule, payloadValueListToComponentList(rule, data));
 };
 
-const onLevelChange = (rule: RuleTemplate, level: RuleLevel) => {
+const onLevelChange = (rule: RuleTemplate, level: SQLReviewRuleLevel) => {
   markChange(rule, { level });
 };
 
@@ -338,18 +333,18 @@ const onCancelChanges = () => {
 
 const onApplyChanges = async () => {
   const policy = reviewPolicy.value;
-  const upsert = {
-    ruleList: state.ruleList.map((rule) =>
-      convertRuleTemplateToPolicyRule(rule)
-    ),
-  };
+
+  const ruleList: SchemaPolicyRule[] = [];
+  for (const rule of state.ruleList) {
+    ruleList.push(...convertRuleTemplateToPolicyRule(rule));
+  }
 
   state.updating = true;
   try {
     await useSQLReviewStore().updateReviewPolicy({
       id: policy.id,
       name: policy.name,
-      ...upsert,
+      ruleList,
     });
     state.rulesUpdated = false;
     pushNotification({

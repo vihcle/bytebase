@@ -1,17 +1,48 @@
+import { ClientError, Status } from "nice-grpc-common";
+import { RichClientError } from "nice-grpc-error-details";
+import { defineStore } from "pinia";
 import { sqlServiceClient } from "@/grpcweb";
 import { SQLResultSetV1 } from "@/types";
+import { PlanCheckRun_Result_SqlReviewReport } from "@/types/proto/v1/rollout_service";
 import {
   ExportRequest,
-  ExportRequest_Format,
   QueryRequest,
+  Advice,
+  Advice_Status,
 } from "@/types/proto/v1/sql_service";
 import { extractGrpcErrorMessage } from "@/utils/grpcweb";
-import { ClientError, Status } from "nice-grpc-common";
-import { defineStore } from "pinia";
+
+const getSqlReviewReports = (err: unknown): Advice[] => {
+  const advices: Advice[] = [];
+  if (err instanceof RichClientError) {
+    for (const extra of err.extra) {
+      if (
+        extra.$type === "google.protobuf.Any" &&
+        extra.typeUrl.endsWith("SqlReviewReport")
+      ) {
+        const sqlReviewReport = PlanCheckRun_Result_SqlReviewReport.decode(
+          extra.value
+        );
+        advices.push({
+          status: Advice_Status.ERROR,
+          code: sqlReviewReport.code,
+          title: "",
+          content: sqlReviewReport.detail,
+          detail: sqlReviewReport.detail,
+          line: sqlReviewReport.line,
+          column: sqlReviewReport.column,
+        });
+      }
+    }
+  }
+
+  return advices;
+};
 
 export const useSQLStore = defineStore("sql", () => {
   const queryReadonly = async (
-    params: QueryRequest
+    params: QueryRequest,
+    signal: AbortSignal
   ): Promise<SQLResultSetV1> => {
     try {
       const response = await sqlServiceClient.query(params, {
@@ -19,6 +50,7 @@ export const useSQLStore = defineStore("sql", () => {
         // errors manually.
         ignoredCodes: [Status.PERMISSION_DENIED],
         silent: true,
+        signal,
       });
 
       return {
@@ -26,19 +58,21 @@ export const useSQLStore = defineStore("sql", () => {
         ...response,
       };
     } catch (err) {
-      const error = extractGrpcErrorMessage(err);
-      const status = err instanceof ClientError ? err.code : Status.UNKNOWN;
       return {
-        error,
+        error: extractGrpcErrorMessage(err),
         results: [],
-        advices: [],
-        status,
+        advices: getSqlReviewReports(err),
+        allowExport: false,
+        status: err instanceof ClientError ? err.code : Status.UNKNOWN,
       };
     }
   };
 
   const exportData = async (params: ExportRequest) => {
-    return await sqlServiceClient.export(params);
+    return await sqlServiceClient.export(params, {
+      // Won't jump to 403 page when permission denied.
+      ignoredCodes: [Status.PERMISSION_DENIED],
+    });
   };
 
   return {
@@ -46,33 +80,3 @@ export const useSQLStore = defineStore("sql", () => {
     exportData,
   };
 });
-
-export const getExportRequestFormat = (
-  format: "CSV" | "JSON" | "SQL" | "XLSX"
-): ExportRequest_Format => {
-  switch (format) {
-    case "CSV":
-      return ExportRequest_Format.CSV;
-    case "JSON":
-      return ExportRequest_Format.JSON;
-    case "SQL":
-      return ExportRequest_Format.SQL;
-    case "XLSX":
-      return ExportRequest_Format.XLSX;
-    default:
-      return ExportRequest_Format.FORMAT_UNSPECIFIED;
-  }
-};
-
-export const getExportFileType = (format: "CSV" | "JSON" | "SQL" | "XLSX") => {
-  switch (format) {
-    case "CSV":
-      return "text/csv";
-    case "JSON":
-      return "application/json";
-    case "SQL":
-      return "application/sql";
-    case "XLSX":
-      return "application/vnd.ms-excel";
-  }
-};

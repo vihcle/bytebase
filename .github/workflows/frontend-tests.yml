@@ -8,14 +8,18 @@ on:
     paths:
       - "frontend/**"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   eslint-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: pnpm/action-setup@v2.2.4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2.4.0
         with:
-          version: 8.6.0
+          version: 8.8.0
       - uses: actions/setup-node@v3
         with:
           node-version: "18"
@@ -30,10 +34,10 @@ jobs:
   frontend-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: pnpm/action-setup@v2.2.4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2.4.0
         with:
-          version: 8.6.0
+          version: 8.8.0
       - uses: actions/setup-node@v3
         with:
           node-version: "18"

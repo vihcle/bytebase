@@ -9,17 +9,18 @@
       @toggle-checked-level="$emit('toggle-checked-level', $event)"
     />
     <div
-      class="flex justify-between items-center border-t border-control-border pt-4"
+      class="flex flex-row sm:flex-col lg:flex-row items-center sm:items-start lg:items-center justify-between gap-y-2 gap-x-2 border-t border-control-border pt-4"
     >
       <SQLReviewCategoryTabFilter
-        :selected="params.selectedCategory"
+        :value="params.selectedCategory"
         :category-list="categoryFilterList"
-        @select="$emit('change-category', $event)"
+        @update:value="$emit('change-category', $event)"
       />
-      <BBTableSearch
+      <SearchBox
         ref="searchField"
-        :placeholder="$t('sql-review.search-rule-name')"
-        @change-text="$emit('change-search-text', $event)"
+        :value="params.searchText"
+        :placeholder="$t('common.filter-by-name')"
+        @update:value="$emit('change-search-text', $event)"
       />
     </div>
   </div>
@@ -28,15 +29,11 @@
 <script lang="ts" setup>
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-
-import {
-  convertToCategoryList,
-  RuleLevel,
-  RuleTemplate,
-  SchemaRuleEngineType,
-} from "@/types";
-import type { CategoryFilterItem } from "./SQLReviewCategoryTabFilter.vue";
+import { convertToCategoryList, RuleTemplate } from "@/types";
+import { Engine } from "@/types/proto/v1/common";
+import { SQLReviewRuleLevel } from "@/types/proto/v1/org_policy_service";
 import SQLReviewCategorySummaryFilter from "./SQLReviewCategorySummaryFilter.vue";
+import type { CategoryFilterItem } from "./SQLReviewCategoryTabFilter.vue";
 import SQLReviewCategoryTabFilter from "./SQLReviewCategoryTabFilter.vue";
 import { SQLRuleFilterParams } from "./useSQLRuleFilter";
 
@@ -46,8 +43,8 @@ const props = defineProps<{
 }>();
 
 defineEmits<{
-  (event: "toggle-checked-engine", engine: SchemaRuleEngineType): void;
-  (event: "toggle-checked-level", level: RuleLevel): void;
+  (event: "toggle-checked-engine", engine: Engine): void;
+  (event: "toggle-checked-level", level: SQLReviewRuleLevel): void;
   (event: "change-category", category: string | undefined): void;
   (event: "change-search-text", keyword: string): void;
 }>();

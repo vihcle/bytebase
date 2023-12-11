@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -17,42 +16,6 @@ import (
 
 // SystemBotID is the ID of the system robot.
 const SystemBotID = 1
-
-// GetPrincipalByID gets an instance of Principal by ID.
-func (s *Store) GetPrincipalByID(ctx context.Context, id int) (*api.Principal, error) {
-	user, err := s.GetUserByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if user == nil {
-		return nil, nil
-	}
-
-	composedPrincipal, err := composePrincipal(user)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to compose Principal role with user [%+v]", user)
-	}
-
-	return composedPrincipal, nil
-}
-
-// composePrincipal composes an instance of Principal by principalRaw.
-func composePrincipal(user *UserMessage) (*api.Principal, error) {
-	principal := &api.Principal{
-		ID:    user.ID,
-		Type:  user.Type,
-		Name:  user.Name,
-		Email: user.Email,
-		// Do not return to the client.
-		PasswordHash: user.PasswordHash,
-		Role:         user.Role,
-	}
-	// TODO(d): move this user v1 store.
-	if principal.ID == api.SystemBotID {
-		principal.Role = api.Owner
-	}
-	return principal, nil
-}
 
 // FindUserMessage is the message for finding users.
 type FindUserMessage struct {
@@ -92,6 +55,14 @@ type UserMessage struct {
 
 // GetUser gets an user.
 func (s *Store) GetUser(ctx context.Context, find *FindUserMessage) (*UserMessage, error) {
+	if find.Email != nil && *find.Email == api.SystemBotEmail {
+		return &UserMessage{
+			ID:    api.SystemBotID,
+			Email: api.SystemBotEmail,
+			Type:  api.SystemBot,
+			Role:  api.Owner,
+		}, nil
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -133,15 +104,15 @@ func (s *Store) ListUsers(ctx context.Context, find *FindUserMessage) ([]*UserMe
 	}
 
 	for _, user := range users {
-		s.userIDCache.Store(user.ID, user)
+		s.userIDCache.Add(user.ID, user)
 	}
 	return users, nil
 }
 
 // GetUserByID gets the user by ID.
 func (s *Store) GetUserByID(ctx context.Context, id int) (*UserMessage, error) {
-	if user, ok := s.userIDCache.Load(id); ok {
-		return user.(*UserMessage), nil
+	if v, ok := s.userIDCache.Get(id); ok {
+		return v, nil
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -165,7 +136,7 @@ func (s *Store) GetUserByID(ctx context.Context, id int) (*UserMessage, error) {
 		return nil, err
 	}
 
-	s.userIDCache.Store(user.ID, user)
+	s.userIDCache.Add(user.ID, user)
 	return user, nil
 }
 
@@ -175,7 +146,11 @@ func (*Store) listUserImpl(ctx context.Context, tx *Tx, find *FindUserMessage) (
 		where, args = append(where, fmt.Sprintf("principal.id = $%d", len(args)+1)), append(args, *v)
 	}
 	if v := find.Email; v != nil {
-		where, args = append(where, fmt.Sprintf("principal.email = $%d", len(args)+1)), append(args, strings.ToLower(*v))
+		if *v == api.AllUsers {
+			where, args = append(where, fmt.Sprintf("principal.email = $%d", len(args)+1)), append(args, *v)
+		} else {
+			where, args = append(where, fmt.Sprintf("principal.email = $%d", len(args)+1)), append(args, strings.ToLower(*v))
+		}
 	}
 	if v := find.Type; v != nil {
 		where, args = append(where, fmt.Sprintf("principal.type = $%d", len(args)+1)), append(args, *v)
@@ -337,7 +312,7 @@ func (s *Store) CreateUser(ctx context.Context, create *UserMessage, creatorID i
 		Phone:        create.Phone,
 		Role:         role,
 	}
-	s.userIDCache.Store(user.ID, user)
+	s.userIDCache.Add(user.ID, user)
 	return user, nil
 }
 
@@ -440,10 +415,10 @@ func (s *Store) UpdateUser(ctx context.Context, userID int, patch *UpdateUserMes
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	s.userIDCache.Store(user.ID, user)
+	s.userIDCache.Add(user.ID, user)
 	if patch.Email != nil && patch.Phone != nil {
-		s.projectIDPolicyCache = sync.Map{}
-		s.projectPolicyCache = sync.Map{}
+		s.projectIDPolicyCache.Purge()
+		s.projectPolicyCache.Purge()
 	}
 	return user, nil
 }

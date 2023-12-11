@@ -5,6 +5,7 @@ package bytebase.v1;
 import "google/api/annotations.proto";
 import "google/api/client.proto";
 import "google/api/field_behavior.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "google/type/expr.proto";
 import "v1/common.proto";
@@ -104,6 +105,9 @@ message Value {
     WorkspaceTrialSetting workspace_trial_setting_value = 7;
     ExternalApprovalSetting external_approval_setting_value = 8;
     SchemaTemplateSetting schema_template_setting_value = 9;
+    DataClassificationSetting data_classification_setting_value = 10;
+    SemanticTypeSetting semantic_type_setting_value = 11;
+    MaskingAlgorithmSetting masking_algorithm_setting_value = 12;
   }
 }
 
@@ -196,6 +200,31 @@ message WorkspaceProfileSetting {
 
   // The webhook URL for the GitOps workflow.
   string gitops_webhook_url = 5;
+
+  // The duration for token.
+  google.protobuf.Duration token_duration = 6;
+
+  // The setting of custom announcement
+  Announcement announcement = 7;
+}
+
+message Announcement {
+  // We support three levels of AlertLevel: INFO, WARNING, and ERROR.
+  enum AlertLevel {
+    ALERT_LEVEL_UNSPECIFIED = 0;
+    ALERT_LEVEL_INFO = 1;
+    ALERT_LEVEL_WARNING = 2;
+    ALERT_LEVEL_CRITICAL = 3;
+  }
+
+  // The alert level of announcemnt
+  AlertLevel level = 1;
+
+  // The text of announcemnt
+  string text = 2;
+
+  // The optional link, user can follow the link to check extra details
+  string link = 3;
 }
 
 message WorkspaceApprovalSetting {
@@ -228,11 +257,35 @@ message SchemaTemplateSetting {
     string category = 3;
 
     ColumnMetadata column = 4;
+
+    ColumnConfig config = 5;
   }
 
   repeated FieldTemplate field_templates = 1;
 
-  // TODO: support table_templates
+  message ColumnType {
+    Engine engine = 1;
+
+    bool enabled = 2;
+
+    repeated string types = 3;
+  }
+
+  repeated ColumnType column_types = 2;
+
+  message TableTemplate {
+    string id = 1;
+
+    Engine engine = 2;
+
+    string category = 3;
+
+    TableMetadata table = 4;
+
+    TableConfig config = 5;
+  }
+
+  repeated TableTemplate table_templates = 3;
 }
 
 message WorkspaceTrialSetting {
@@ -249,14 +302,101 @@ message WorkspaceTrialSetting {
   PlanType plan = 6;
 }
 
-message DataCategorySetting {
-  // Hard-coded schema comment format: [0-9]+-[0-9]+-[0-9]+
-  message DataCategoryConfig {
+message DataClassificationSetting {
+  message DataClassificationConfig {
+    // id is the uuid for classification. Each project can chose one classification config.
     string id = 1;
     string title = 2;
-    // Maps category to level.
-    map<string, string> category_level = 3;
-    // TODO(ed): store the actual config.
+
+    message Level {
+      string id = 1;
+      string title = 2;
+      string description = 3;
+    }
+
+    // levels is user defined level list for classification.
+    // The order for the level decides its priority.
+    repeated Level levels = 3;
+
+    message DataClassification {
+      // id is the classification id in [0-9]+-[0-9]+-[0-9]+ format.
+      string id = 1;
+      string title = 2;
+      string description = 3;
+      optional string level_id = 4;
+    }
+
+    // classification is the id - DataClassification map.
+    // The id should in [0-9]+-[0-9]+-[0-9]+ format.
+    map<string, DataClassification> classification = 4;
   }
-  repeated DataCategoryConfig configs = 1;
+  repeated DataClassificationConfig configs = 1;
+}
+
+message SemanticTypeSetting {
+  message SemanticType {
+    // id is the uuid for semantic type.
+    string id = 1;
+    // the title of the semantic type, it should not be empty.
+    string title = 2;
+    // the description of the semantic type, it can be empty.
+    string description = 3;
+    // the partial mask algorithm id for the semantic type, if it is empty, should use the default partial mask algorithm.
+    string partial_mask_algorithm_id = 4;
+    // the full mask algorithm id for the semantic type, if it is empty, should use the default full mask algorithm.
+    string full_mask_algorithm_id = 5;
+  }
+
+  repeated SemanticType types = 1;
+}
+
+message MaskingAlgorithmSetting {
+  message Algorithm {
+    // id is the uuid for masking algorithm.
+    string id = 1;
+    // title is the title for masking algorithm.
+    string title = 2;
+    // description is the description for masking algorithm.
+    string description = 3;
+
+    // Category is the category for masking algorithm. Currently, it accepts 2 categories only: MASK and HASH.
+    // The range of accepted Payload is decided by the category.
+    // MASK: FullMask, RangeMask
+    // HASH: MD5Mask
+    string category = 4;
+
+    message FullMask {
+      // substitution is the string used to replace the original value, the
+      // max length of the string is 16 bytes.
+      string substitution = 1;
+    }
+
+    message RangeMask {
+      message Slice {
+        // start is the start index of the original value, start from 0 and should be less than stop.
+        int32 start = 1;
+        // stop is the stop index of the original value, should be less than the length of the original value.
+        int32 end = 2;
+        // substitution is the string used to replace the OriginalValue[start:end).
+        string substitution = 3;
+      }
+      // We store it as a repeated field to face the fact that the original value may have multiple parts should be masked.
+      // But frontend can be started with a single rule easily.
+      repeated Slice slices = 1;
+    }
+
+    message MD5Mask {
+      // salt is the salt value to generate a different hash that with the word alone.
+      string salt = 1;
+    }
+
+    oneof mask {
+      FullMask full_mask = 5;
+      RangeMask range_mask = 6;
+      MD5Mask md5_mask = 7;
+    }
+  }
+
+  // algorithms is the list of masking algorithms.
+  repeated Algorithm algorithms = 1;
 }

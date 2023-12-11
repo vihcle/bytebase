@@ -1,5 +1,6 @@
 /* eslint-disable */
-import * as _m0 from "protobufjs/minimal";
+import Long from "long";
+import _m0 from "protobufjs/minimal";
 import { Duration } from "../google/protobuf/duration";
 import { Expr } from "../google/type/expr";
 import { IssuePayloadApproval } from "./approval";
@@ -7,27 +8,27 @@ import { IssuePayloadApproval } from "./approval";
 export const protobufPackage = "bytebase.store";
 
 export interface IssuePayload {
-  approval?: IssuePayloadApproval | undefined;
-  grantRequest?: GrantRequest | undefined;
-  grouping?: Grouping | undefined;
-}
-
-export interface Grouping {
-  /** The group name, format projects/{project}/database_groups/{database_group} */
-  databaseGroupName: string;
+  approval: IssuePayloadApproval | undefined;
+  grantRequest: GrantRequest | undefined;
 }
 
 export interface GrantRequest {
-  /** The requested role, e.g. roles/EXPORTER. */
+  /**
+   * The requested role.
+   * Format: roles/EXPORTER.
+   */
   role: string;
-  /** The requested user, e.g. users/hello@bytebase.com. */
+  /**
+   * The user to be granted.
+   * Format: users/{userUID}.
+   */
   user: string;
-  condition?: Expr | undefined;
-  expiration?: Duration | undefined;
+  condition: Expr | undefined;
+  expiration: Duration | undefined;
 }
 
 function createBaseIssuePayload(): IssuePayload {
-  return { approval: undefined, grantRequest: undefined, grouping: undefined };
+  return { approval: undefined, grantRequest: undefined };
 }
 
 export const IssuePayload = {
@@ -37,9 +38,6 @@ export const IssuePayload = {
     }
     if (message.grantRequest !== undefined) {
       GrantRequest.encode(message.grantRequest, writer.uint32(18).fork()).ldelim();
-    }
-    if (message.grouping !== undefined) {
-      Grouping.encode(message.grouping, writer.uint32(26).fork()).ldelim();
     }
     return writer;
   },
@@ -65,13 +63,6 @@ export const IssuePayload = {
 
           message.grantRequest = GrantRequest.decode(reader, reader.uint32());
           continue;
-        case 3:
-          if (tag !== 26) {
-            break;
-          }
-
-          message.grouping = Grouping.decode(reader, reader.uint32());
-          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -85,24 +76,23 @@ export const IssuePayload = {
     return {
       approval: isSet(object.approval) ? IssuePayloadApproval.fromJSON(object.approval) : undefined,
       grantRequest: isSet(object.grantRequest) ? GrantRequest.fromJSON(object.grantRequest) : undefined,
-      grouping: isSet(object.grouping) ? Grouping.fromJSON(object.grouping) : undefined,
     };
   },
 
   toJSON(message: IssuePayload): unknown {
     const obj: any = {};
-    message.approval !== undefined &&
-      (obj.approval = message.approval ? IssuePayloadApproval.toJSON(message.approval) : undefined);
-    message.grantRequest !== undefined &&
-      (obj.grantRequest = message.grantRequest ? GrantRequest.toJSON(message.grantRequest) : undefined);
-    message.grouping !== undefined && (obj.grouping = message.grouping ? Grouping.toJSON(message.grouping) : undefined);
+    if (message.approval !== undefined) {
+      obj.approval = IssuePayloadApproval.toJSON(message.approval);
+    }
+    if (message.grantRequest !== undefined) {
+      obj.grantRequest = GrantRequest.toJSON(message.grantRequest);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<IssuePayload>): IssuePayload {
     return IssuePayload.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<IssuePayload>): IssuePayload {
     const message = createBaseIssuePayload();
     message.approval = (object.approval !== undefined && object.approval !== null)
@@ -111,65 +101,6 @@ export const IssuePayload = {
     message.grantRequest = (object.grantRequest !== undefined && object.grantRequest !== null)
       ? GrantRequest.fromPartial(object.grantRequest)
       : undefined;
-    message.grouping = (object.grouping !== undefined && object.grouping !== null)
-      ? Grouping.fromPartial(object.grouping)
-      : undefined;
-    return message;
-  },
-};
-
-function createBaseGrouping(): Grouping {
-  return { databaseGroupName: "" };
-}
-
-export const Grouping = {
-  encode(message: Grouping, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.databaseGroupName !== "") {
-      writer.uint32(10).string(message.databaseGroupName);
-    }
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): Grouping {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseGrouping();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 10) {
-            break;
-          }
-
-          message.databaseGroupName = reader.string();
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): Grouping {
-    return { databaseGroupName: isSet(object.databaseGroupName) ? String(object.databaseGroupName) : "" };
-  },
-
-  toJSON(message: Grouping): unknown {
-    const obj: any = {};
-    message.databaseGroupName !== undefined && (obj.databaseGroupName = message.databaseGroupName);
-    return obj;
-  },
-
-  create(base?: DeepPartial<Grouping>): Grouping {
-    return Grouping.fromPartial(base ?? {});
-  },
-
-  fromPartial(object: DeepPartial<Grouping>): Grouping {
-    const message = createBaseGrouping();
-    message.databaseGroupName = object.databaseGroupName ?? "";
     return message;
   },
 };
@@ -241,8 +172,8 @@ export const GrantRequest = {
 
   fromJSON(object: any): GrantRequest {
     return {
-      role: isSet(object.role) ? String(object.role) : "",
-      user: isSet(object.user) ? String(object.user) : "",
+      role: isSet(object.role) ? globalThis.String(object.role) : "",
+      user: isSet(object.user) ? globalThis.String(object.user) : "",
       condition: isSet(object.condition) ? Expr.fromJSON(object.condition) : undefined,
       expiration: isSet(object.expiration) ? Duration.fromJSON(object.expiration) : undefined,
     };
@@ -250,18 +181,24 @@ export const GrantRequest = {
 
   toJSON(message: GrantRequest): unknown {
     const obj: any = {};
-    message.role !== undefined && (obj.role = message.role);
-    message.user !== undefined && (obj.user = message.user);
-    message.condition !== undefined && (obj.condition = message.condition ? Expr.toJSON(message.condition) : undefined);
-    message.expiration !== undefined &&
-      (obj.expiration = message.expiration ? Duration.toJSON(message.expiration) : undefined);
+    if (message.role !== "") {
+      obj.role = message.role;
+    }
+    if (message.user !== "") {
+      obj.user = message.user;
+    }
+    if (message.condition !== undefined) {
+      obj.condition = Expr.toJSON(message.condition);
+    }
+    if (message.expiration !== undefined) {
+      obj.expiration = Duration.toJSON(message.expiration);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GrantRequest>): GrantRequest {
     return GrantRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GrantRequest>): GrantRequest {
     const message = createBaseGrantRequest();
     message.role = object.role ?? "";
@@ -279,9 +216,15 @@ export const GrantRequest = {
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
 export type DeepPartial<T> = T extends Builtin ? T
-  : T extends Array<infer U> ? Array<DeepPartial<U>> : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
+  : T extends Long ? string | number | Long : T extends globalThis.Array<infer U> ? globalThis.Array<DeepPartial<U>>
+  : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
+
+if (_m0.util.Long !== Long) {
+  _m0.util.Long = Long as any;
+  _m0.configure();
+}
 
 function isSet(value: any): boolean {
   return value !== null && value !== undefined;

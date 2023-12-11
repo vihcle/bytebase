@@ -10,7 +10,6 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/pkg/errors"
 
@@ -21,7 +20,7 @@ import (
 
 // SyncInstance syncs the instance.
 func (d *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, error) {
-	var databases []*storepb.DatabaseMetadata
+	var databases []*storepb.DatabaseSchemaMetadata
 	iter := d.dbClient.ListDatabases(ctx, &databasepb.ListDatabasesRequest{
 		Parent: d.config.Host,
 	})
@@ -50,7 +49,7 @@ func (d *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, error)
 			continue
 		}
 
-		databases = append(databases, &storepb.DatabaseMetadata{Name: databaseName})
+		databases = append(databases, &storepb.DatabaseSchemaMetadata{Name: databaseName})
 	}
 
 	return &db.InstanceMetadata{
@@ -59,7 +58,7 @@ func (d *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, error)
 }
 
 // SyncDBSchema syncs a single database schema.
-func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetadata, error) {
+func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetadata, error) {
 	notFound, err := d.notFoundDatabase(ctx, d.databaseName)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to check if database exists")
@@ -71,7 +70,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetadata, e
 	tx := d.client.ReadOnlyTransaction()
 	defer tx.Close()
 
-	databaseMetadata := &storepb.DatabaseMetadata{
+	databaseMetadata := &storepb.DatabaseSchemaMetadata{
 		Name: d.databaseName,
 	}
 	tableMap, err := getTable(ctx, tx)
@@ -200,7 +199,8 @@ func getColumn(ctx context.Context, tx *spanner.ReadOnlyTransaction) (map[db.Tab
 		}
 		column.Position = int32(position)
 		if defaultStr.Valid {
-			column.Default = &wrapperspb.StringValue{Value: defaultStr.StringVal}
+			// TODO: use correct default type
+			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultStr.StringVal}
 		}
 		key := db.TableKey{Schema: schemaName, Table: tableName}
 		columnsMap[key] = append(columnsMap[key], column)

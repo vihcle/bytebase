@@ -1,14 +1,9 @@
 <template>
-  <!-- it is recommended by naive-ui that we leave the local to null when the language is en -->
-  <NConfigProvider
-    :locale="generalLang"
-    :date-locale="dateLang"
-    :theme-overrides="themeOverrides"
-  >
+  <CustomThemeProvider>
     <Watermark />
 
     <NDialogProvider>
-      <BBModalStack>
+      <OverlayStackManager>
         <KBarWrapper>
           <router-view />
           <template v-if="state.notificationList.length > 0">
@@ -18,35 +13,26 @@
               @close="removeNotification"
             />
           </template>
-          <HelpDrawer />
         </KBarWrapper>
-      </BBModalStack>
+      </OverlayStackManager>
     </NDialogProvider>
-  </NConfigProvider>
+  </CustomThemeProvider>
 </template>
 
 <script lang="ts" setup>
-import { NConfigProvider, NDialogProvider } from "naive-ui";
+import { NDialogProvider } from "naive-ui";
 import { ServerError } from "nice-grpc-common";
 import { ClientError, Status } from "nice-grpc-web";
-import { reactive, watchEffect, onErrorCaptured, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
-
-import { isDev } from "./utils";
-import { BBNotificationItem } from "./bbkit/types";
-import { themeOverrides, dateLang, generalLang } from "../naive-ui.config";
-import { t } from "./plugins/i18n";
-import {
-  useAuthStore,
-  useNotificationStore,
-  useUIStateStore,
-  useHelpStore,
-} from "./store";
-import { RouteMapList } from "@/types";
-import KBarWrapper from "./components/KBar/KBarWrapper.vue";
-import BBModalStack from "./bbkit/BBModalStack.vue";
-import HelpDrawer from "@/components/HelpDrawer";
+import { reactive, watchEffect, onErrorCaptured } from "vue";
+import { useRouter } from "vue-router";
 import Watermark from "@/components/misc/Watermark.vue";
+import CustomThemeProvider from "./CustomThemeProvider.vue";
+import { BBNotificationItem } from "./bbkit/types";
+import KBarWrapper from "./components/KBar/KBarWrapper.vue";
+import OverlayStackManager from "./components/misc/OverlayStackManager.vue";
+import { t } from "./plugins/i18n";
+import { useAuthStore, useNotificationStore } from "./store";
+import { isDev } from "./utils";
 
 // Show at most 3 notifications to prevent excessive notification when shit hits the fan.
 const MAX_NOTIFICATION_DISPLAY_COUNT = 3;
@@ -60,20 +46,15 @@ const CRITICAL_NOTIFICATION_DURATION = 10000;
 interface LocalState {
   notificationList: BBNotificationItem[];
   prevLoggedIn: boolean;
-  helpTimer: number | null;
-  RouteMapList: RouteMapList | null;
 }
 
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
-const route = useRoute();
 const router = useRouter();
 
 const state = reactive<LocalState>({
   notificationList: [],
   prevLoggedIn: authStore.isLoggedIn(),
-  helpTimer: null,
-  RouteMapList: null,
 });
 
 setInterval(() => {
@@ -90,6 +71,7 @@ setInterval(() => {
 
 const removeNotification = (item: BBNotificationItem | undefined) => {
   if (!item) return;
+  item.onClose();
   const index = state.notificationList.indexOf(item);
   if (index >= 0) {
     state.notificationList.splice(index, 1);
@@ -111,6 +93,7 @@ const watchNotification = () => {
       description: notification.description || "",
       link: notification.link || "",
       linkTitle: notification.linkTitle || "",
+      onClose: notification.onClose || (() => {}),
     };
     state.notificationList.unshift(item);
     if (!notification.manualHide) {
@@ -125,43 +108,6 @@ const watchNotification = () => {
     }
   }
 };
-
-// watch route change for help
-watch(
-  () => route.name,
-  async (routeName) => {
-    const uiStateStore = useUIStateStore();
-    const helpStore = useHelpStore();
-
-    // Hide opened help drawer if route changed.
-    helpStore.exitHelp();
-
-    if (!state.RouteMapList) {
-      const res = await fetch("/help/routeMapList.json");
-      state.RouteMapList = await res.json();
-    }
-
-    // Clear timer after every route change.
-    if (state.helpTimer) {
-      clearTimeout(state.helpTimer);
-      state.helpTimer = null;
-    }
-
-    const helpId = state.RouteMapList?.find(
-      (pair) => pair.routeName === routeName
-    )?.helpName;
-
-    if (helpId && !uiStateStore.getIntroStateByKey(`${helpId}`)) {
-      state.helpTimer = window.setTimeout(() => {
-        helpStore.showHelp(helpId, true);
-        uiStateStore.saveIntroStateByKey({
-          key: `${helpId}`,
-          newState: true,
-        });
-      }, 1000);
-    }
-  }
-);
 
 watchEffect(watchNotification);
 

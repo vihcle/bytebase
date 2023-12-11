@@ -1,5 +1,6 @@
 <template>
   <BBGrid
+    class="border w-full"
     :column-list="COLUMN_LIST"
     :data-source="filteredApprovalRuleList"
     :row-clickable="false"
@@ -8,16 +9,12 @@
     v-bind="$attrs"
   >
     <template #item="{ item: rule }: { item: LocalApprovalRule }">
-      <div class="bb-grid-cell">
+      <div class="bb-grid-cell whitespace-nowrap">
         {{ rule.template?.title }}
-      </div>
-      <div class="bb-grid-cell justify-center">
-        <template v-if="creatorOfRule(rule).name === SYSTEM_BOT_USER_NAME">
-          {{ $t("custom-approval.approval-flow.type.system") }}
-        </template>
-        <template v-else>
-          {{ $t("custom-approval.approval-flow.type.custom") }}
-        </template>
+        <SystemLabel
+          v-if="creatorOfRule(rule).name === SYSTEM_BOT_USER_NAME"
+          class="ml-1"
+        />
       </div>
       <div class="bb-grid-cell">
         {{ creatorOfRule(rule).title }}
@@ -66,18 +63,18 @@
 </template>
 
 <script lang="ts" setup>
+import { NButton } from "naive-ui";
 import { computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton } from "naive-ui";
-
 import { BBGrid, type BBGridColumn } from "@/bbkit";
-import { SpinnerButton } from "../../common";
+import SystemLabel from "@/components/SystemLabel.vue";
 import { pushNotification, useWorkspaceApprovalSettingStore } from "@/store";
 import { LocalApprovalRule, SYSTEM_BOT_USER_NAME } from "@/types";
 import { ApprovalFlow } from "@/types/proto/store/approval";
+import { creatorOfRule } from "@/utils";
+import { SpinnerButton } from "../../common";
 import { StepsTable } from "../common";
 import { useCustomApprovalContext } from "../context";
-import { creatorOfRule } from "@/utils";
 
 type LocalState = {
   viewFlow: ApprovalFlow | undefined;
@@ -94,11 +91,6 @@ const { hasFeature, showFeatureModal, allowAdmin, dialog } = context;
 const COLUMN_LIST = computed(() => {
   const columns: BBGridColumn[] = [
     { title: t("common.name"), width: "1fr" },
-    {
-      title: t("common.type"),
-      width: "8rem",
-      class: "justify-center",
-    },
     { title: t("common.creator"), width: "minmax(auto, 10rem)" },
     {
       title: t("custom-approval.approval-flow.approval-nodes"),

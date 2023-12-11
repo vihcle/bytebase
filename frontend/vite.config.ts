@@ -1,14 +1,16 @@
-import { defineConfig } from "vite";
-import vue from "@vitejs/plugin-vue";
-import { resolve } from "path";
-import VueI18n from "@intlify/vite-plugin-vue-i18n";
-import Icons from "unplugin-icons/vite";
-import IconsResolver from "unplugin-icons/resolver";
-import Components from "unplugin-vue-components/vite";
+import VueI18nPlugin from "@intlify/unplugin-vue-i18n/vite";
 import yaml from "@rollup/plugin-yaml";
+import vue from "@vitejs/plugin-vue";
+import { CodeInspectorPlugin } from "code-inspector-plugin";
+import { resolve } from "path";
+import IconsResolver from "unplugin-icons/resolver";
+import Icons from "unplugin-icons/vite";
+import Components from "unplugin-vue-components/vite";
+import { defineConfig } from "vite";
 
 const SERVER_PORT = parseInt(process.env.PORT ?? "3000", 10) ?? 3000;
 const HTTPS_PORT = 443;
+const LOCAL_ENDPOINT = "http://localhost:8080";
 
 export default defineConfig(() => {
   // NOTE: the following lines is to solve https://github.com/gitpod-io/gitpod/issues/6719
@@ -21,8 +23,9 @@ export default defineConfig(() => {
     plugins: [
       vue(),
       // https://github.com/intlify/vite-plugin-vue-i18n
-      VueI18n({
+      VueI18nPlugin({
         include: [resolve(__dirname, "src/locales/**")],
+        strictMessage: false,
       }),
       Components({
         dirs: [resolve("src/components"), resolve("src/bbkit")],
@@ -35,6 +38,9 @@ export default defineConfig(() => {
       }),
       Icons(),
       yaml(),
+      CodeInspectorPlugin({
+        bundler: "vite",
+      }),
     ],
     build: {
       rollupOptions: {
@@ -49,21 +55,26 @@ export default defineConfig(() => {
       host: "0.0.0.0",
       proxy: {
         "/v1:adminExecute": {
-          target: "ws://localhost:8080/",
+          target: `ws://${extractHostPort(LOCAL_ENDPOINT)}/`,
+          changeOrigin: true,
+          ws: true,
+        },
+        "/lsp": {
+          target: `ws://${extractHostPort(LOCAL_ENDPOINT)}/`,
           changeOrigin: true,
           ws: true,
         },
         "/api": {
-          target: "http://localhost:8080/api",
+          target: `${LOCAL_ENDPOINT}/api`,
           changeOrigin: true,
           rewrite: (path: string) => path.replace(/^\/api/, ""),
         },
         "/hook": {
-          target: "http://localhost:8080/",
+          target: LOCAL_ENDPOINT,
           changeOrigin: true,
         },
         "/v1": {
-          target: "http://localhost:8080/v1",
+          target: `${LOCAL_ENDPOINT}/v1`,
           changeOrigin: true,
           rewrite: (path: string) => path.replace(/^\/v1/, ""),
         },
@@ -76,6 +87,7 @@ export default defineConfig(() => {
       alias: {
         "@/": `${resolve(__dirname, "src")}/`,
         "@sql-lsp/": `${resolve(__dirname, "src/plugins/sql-lsp")}/`,
+        "@public/": `${resolve(__dirname, "public")}/`,
       },
     },
     test: {
@@ -85,3 +97,8 @@ export default defineConfig(() => {
     envPrefix: "BB_",
   };
 });
+
+const extractHostPort = (url: string) => {
+  const parsed = new URL(url);
+  return parsed.host;
+};

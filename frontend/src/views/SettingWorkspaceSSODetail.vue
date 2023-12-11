@@ -1,8 +1,8 @@
 <template>
-  <div class="w-full sticky top-0">
-    <ArchiveBanner v-if="isDeleted" />
+  <div v-if="isDeleted" class="w-full sticky top-0 mb-4">
+    <ArchiveBanner />
   </div>
-  <div class="w-full mt-4 space-y-4">
+  <div class="w-full space-y-4">
     <div class="w-full flex flex-row justify-between items-center">
       <div class="textinfolabel mr-4">
         {{ $t("settings.sso.description") }}
@@ -16,7 +16,6 @@
         </a>
       </div>
     </div>
-    <hr />
   </div>
 
   <IdentityProviderCreateForm
@@ -34,8 +33,8 @@
 <script lang="ts" setup>
 import { computed, reactive } from "vue";
 import { useRoute } from "vue-router";
-import { useIdentityProviderStore } from "@/store/modules/idp";
 import IdentityProviderCreateForm from "@/components/IdentityProviderCreateForm.vue";
+import { useIdentityProviderStore } from "@/store/modules/idp";
 import { State } from "@/types/proto/v1/common";
 
 interface LocalState {

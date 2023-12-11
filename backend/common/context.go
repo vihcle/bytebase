@@ -8,4 +8,8 @@ const (
 	PrincipalIDContextKey ContextKey = iota
 	// RoleContextKey is the key name used to store principal role in the context.
 	RoleContextKey
+	// LoopbackContextKey is the key name used for loopback interface in the context.
+	LoopbackContextKey
+	// UserContextKey is the key name used to store user message in the context.
+	UserContextKey
 )

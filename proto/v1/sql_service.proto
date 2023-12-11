@@ -7,16 +7,11 @@ import "google/api/field_behavior.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "v1/common.proto";
+import "v1/database_service.proto";
 
 option go_package = "generated-go/v1";
 
 service SQLService {
-  rpc Pretty(PrettyRequest) returns (PrettyResponse) {
-    option (google.api.http) = {
-      post: "/v1/sql/pretty"
-      body: "*"
-    };
-  }
   rpc Query(QueryRequest) returns (QueryResponse) {
     option (google.api.http) = {
       post: "/v1/{name=instances/*}:query"
@@ -32,6 +27,44 @@ service SQLService {
   rpc AdminExecute(stream AdminExecuteRequest) returns (stream AdminExecuteResponse) {
     option (google.api.http) = {get: "/v1:adminExecute"};
   }
+  rpc DifferPreview(DifferPreviewRequest) returns (DifferPreviewResponse) {
+    option (google.api.http) = {
+      post: "/v1/sql/differPreview"
+      body: "*"
+    };
+  }
+  rpc Check(CheckRequest) returns (CheckResponse) {
+    option (google.api.http) = {
+      post: "/v1/sql/check"
+      body: "*"
+    };
+  }
+
+  rpc Pretty(PrettyRequest) returns (PrettyResponse) {
+    option (google.api.http) = {
+      post: "/v1/sql/pretty"
+      body: "*"
+    };
+  }
+
+  rpc StringifyMetadata(StringifyMetadataRequest) returns (StringifyMetadataResponse) {
+    option (google.api.http) = {
+      post: "/v1/schemaDesign:stringifyMetadata"
+      body: "*"
+    };
+  }
+}
+
+message DifferPreviewRequest {
+  Engine engine = 1;
+
+  string old_schema = 2;
+
+  DatabaseMetadata new_metadata = 3;
+}
+
+message DifferPreviewResponse {
+  string schema = 1;
 }
 
 message AdminExecuteRequest {
@@ -60,13 +93,6 @@ message AdminExecuteResponse {
 }
 
 message ExportRequest {
-  enum Format {
-    FORMAT_UNSPECIFIED = 0;
-    CSV = 1;
-    JSON = 2;
-    SQL = 3;
-    XLSX = 4;
-  }
   // The name is the instance name to execute the query against.
   // Format: instances/{instance}
   string name = 1 [(google.api.field_behavior) = REQUIRED];
@@ -83,10 +109,10 @@ message ExportRequest {
   int32 limit = 4;
 
   // The export format.
-  Format format = 5;
+  ExportFormat format = 5;
 
   // The admin is used for workspace owner and DBA for exporting data from SQL Editor Admin mode.
-  // The exported data is not anonymized.
+  // The exported data is not masked.
   bool admin = 6;
 }
 
@@ -112,7 +138,12 @@ message QueryRequest {
   int32 limit = 4;
 
   // The timeout for the request.
-  google.protobuf.Duration timeout = 5;
+  optional google.protobuf.Duration timeout = 5;
+
+  // The id of data source.
+  // It is used for querying admin data source even if the instance has read-only data sources.
+  // Or it can be used to query a specific read-only data source.
+  string data_source_id = 6;
 }
 
 message QueryResponse {
@@ -121,6 +152,9 @@ message QueryResponse {
 
   // The query advices.
   repeated Advice advices = 2;
+
+  // The query is allowed to be exported or not.
+  bool allow_export = 3;
 }
 
 message QueryResult {
@@ -195,8 +229,11 @@ message Advice {
   // The advice line number in the SQL statement.
   int32 line = 5;
 
+  // The advice column number in the SQL statement.
+  int32 column = 6;
+
   // The advice detail.
-  string detail = 6;
+  string detail = 7;
 }
 
 message PrettyRequest {
@@ -216,4 +253,25 @@ message PrettyResponse {
 
   // The expected SDL schema after normalizing.
   string expected_schema = 2;
+}
+
+message CheckRequest {
+  string statement = 1;
+
+  // Format: instances/{instance}/databases/{databaseName}
+  string database = 2;
+}
+
+message CheckResponse {
+  repeated Advice advices = 1;
+}
+
+message StringifyMetadataRequest {
+  DatabaseMetadata metadata = 1 [(google.api.field_behavior) = REQUIRED];
+  // The database engine of the schema string.
+  Engine engine = 2;
+}
+
+message StringifyMetadataResponse {
+  string schema = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
 }

@@ -17,7 +17,7 @@
           class="relative border-collapse table-fixed z-[1]"
           v-bind="tableResize.getTableProps()"
         >
-          <thead class="sticky top-0 z-[1] shadow">
+          <thead class="sticky top-0 z-[1] drop-shadow-sm">
             <tr>
               <th
                 v-for="header of table.getFlatHeaders()"
@@ -26,25 +26,38 @@
                 v-bind="tableResize.getColumnProps(header.index)"
               >
                 <div class="flex items-center overflow-hidden">
-                  <span>
+                  <span
+                    class="flex flex-row items-center cursor-pointer select-none"
+                    @click="header.column.getToggleSortingHandler()?.($event)"
+                  >
                     <template
                       v-if="String(header.column.columnDef.header).length > 0"
                     >
                       {{ header.column.columnDef.header }}
                     </template>
                     <br v-else class="min-h-[1rem] inline-flex" />
+                    <ColumnSortedIcon
+                      :is-sorted="header.column.getIsSorted()"
+                    />
                   </span>
 
                   <SensitiveDataIcon
                     v-if="isSensitiveColumn(header.index)"
                     class="ml-0.5 shrink-0"
                   />
-                  <FeatureBadgeForInstanceLicense
-                    v-else-if="isColumnMissingSensitive(header.index)"
-                    :show="true"
-                    custom-class="ml-0.5 shrink-0"
-                    feature="bb.feature.sensitive-data"
-                  />
+                  <template v-else-if="isColumnMissingSensitive(header.index)">
+                    <FeatureBadgeForInstanceLicense
+                      v-if="hasSensitiveFeature"
+                      :show="true"
+                      custom-class="ml-0.5 shrink-0"
+                      feature="bb.feature.sensitive-data"
+                    />
+                    <FeatureBadge
+                      v-else
+                      feature="bb.feature.sensitive-data"
+                      custom-class="ml-0.5 shrink-0"
+                    />
+                  </template>
                 </div>
 
                 <!-- The drag-to-resize handler -->
@@ -61,13 +74,21 @@
               v-for="(row, rowIndex) of table.getRowModel().rows"
               :key="rowIndex"
               class="group"
+              :data-row-index="offset + rowIndex"
             >
               <td
                 v-for="(cell, cellIndex) of row.getVisibleCells()"
                 :key="cellIndex"
-                class="px-2 py-1 text-sm dark:text-gray-100 leading-5 whitespace-nowrap break-all border border-block-border group-last:border-b-0 group-even:bg-gray-50/50 dark:group-even:bg-gray-700/50"
+                class="p-0 text-sm dark:text-gray-100 leading-5 whitespace-nowrap break-all border border-block-border group-last:border-b-0 group-even:bg-gray-50/50 dark:group-even:bg-gray-700/50"
+                :data-col-index="cellIndex"
               >
-                <TableCell :html="renderCellValue(cell.getValue())" />
+                <TableCell
+                  :value="cell.getValue()"
+                  :keyword="keyword"
+                  :set-index="setIndex"
+                  :row-index="offset + rowIndex"
+                  :col-index="cellIndex"
+                />
               </td>
             </tr>
           </tbody>
@@ -84,14 +105,14 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, nextTick, PropType, ref, watch } from "vue";
 import { ColumnDef, Table } from "@tanstack/vue-table";
-import { escape } from "lodash-es";
-
-import useTableColumnWidthLogic from "./useTableResize";
+import { computed, nextTick, PropType, ref, watch } from "vue";
+import { useSubscriptionV1Store } from "@/store";
+import { useSQLResultViewContext } from "../context";
+import ColumnSortedIcon from "./ColumnSortedIcon.vue";
 import SensitiveDataIcon from "./SensitiveDataIcon.vue";
 import TableCell from "./TableCell.vue";
-import { getHighlightHTMLByRegExp } from "@/utils";
+import useTableColumnWidthLogic from "./useTableResize";
 
 export type DataTableColumn = {
   key: string;
@@ -119,14 +140,19 @@ const props = defineProps({
     type: Object as PropType<Table<string[]>>,
     required: true,
   },
-  keyword: {
-    type: String,
-    default: "",
+  setIndex: {
+    type: Number,
+    default: 0,
+  },
+  offset: {
+    type: Number,
+    default: 0,
   },
 });
 
 const scrollerRef = ref<HTMLDivElement>();
 const tableRef = ref<HTMLTableElement>();
+const subscriptionStore = useSubscriptionV1Store();
 
 const tableResize = useTableColumnWidthLogic({
   tableRef,
@@ -136,6 +162,11 @@ const tableResize = useTableColumnWidthLogic({
 });
 
 const data = computed(() => props.data);
+const { keyword } = useSQLResultViewContext();
+
+const hasSensitiveFeature = computed(() => {
+  return subscriptionStore.hasFeature("bb.feature.sensitive-data");
+});
 
 const isSensitiveColumn = (index: number): boolean => {
   return props.masked[index] ?? false;
@@ -143,24 +174,6 @@ const isSensitiveColumn = (index: number): boolean => {
 
 const isColumnMissingSensitive = (index: number): boolean => {
   return (props.sensitive[index] ?? false) && !isSensitiveColumn(index);
-};
-
-const renderCellValue = (value: any) => {
-  const str = String(value);
-  if (str.length === 0) {
-    return `<br style="min-width: 1rem; display: inline-flex;" />`;
-  }
-
-  const { keyword } = props;
-  if (!keyword) {
-    return escape(str);
-  }
-
-  return getHighlightHTMLByRegExp(
-    escape(str),
-    escape(keyword),
-    false /* !caseSensitive */
-  );
 };
 
 const scrollTo = (x: number, y: number) => {
@@ -179,5 +192,19 @@ watch(
   { immediate: true }
 );
 
-defineExpose({ scrollTo });
+watch(
+  () => props.offset,
+  () => {
+    // When the offset changed, we need to reset the scroll position.
+    scrollTo(0, 0);
+  }
+);
+
+watch(
+  () => props.table.getState().sorting,
+  () => {
+    // When the sorting changed, we need to reset table size.
+    tableResize.reset();
+  }
+);
 </script>

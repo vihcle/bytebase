@@ -1,16 +1,18 @@
+import { useLocalStorage } from "@vueuse/core";
 import axios from "axios";
 import isEmpty from "lodash-es/isEmpty";
-import { createApp } from "vue";
 import Long from "long";
 import protobufjs from "protobufjs";
-protobufjs.util.Long = Long;
-protobufjs.configure();
-
-import i18n from "./plugins/i18n";
-import NaiveUI from "./plugins/naive-ui";
+import { createApp } from "vue";
+import App from "./App.vue";
+import "./assets/css/github-markdown-style.css";
+import "./assets/css/inter.css";
+import "./assets/css/tailwind.css";
+import dataSourceType from "./directives/data-source-type";
 import dayjs from "./plugins/dayjs";
 import highlight from "./plugins/highlight";
-import mountDemoApp from "./plugins/demo";
+import i18n from "./plugins/i18n";
+import NaiveUI from "./plugins/naive-ui";
 import { isSilent } from "./plugins/silent-request";
 import { router } from "./router";
 import {
@@ -19,10 +21,10 @@ import {
   useActuatorV1Store,
   useAuthStore,
   useSubscriptionV1Store,
+  PageMode,
 } from "./store";
 import {
   databaseSlug,
-  dataSourceSlug,
   environmentName,
   environmentSlug,
   humanizeTs,
@@ -39,12 +41,9 @@ import {
   sizeToFit,
   urlfy,
 } from "./utils";
-import dataSourceType from "./directives/data-source-type";
-import App from "./App.vue";
-import "./assets/css/inter.css";
-import "./assets/css/tailwind.css";
-import "./assets/css/github-markdown-style.css";
-import "./plugins/demo/style.css";
+
+protobufjs.util.Long = Long;
+protobufjs.configure();
 
 console.debug("dev:", isDev());
 console.debug("release:", isRelease());
@@ -155,7 +154,6 @@ app.config.globalProperties.projectSlug = projectSlug;
 app.config.globalProperties.instanceName = instanceName;
 app.config.globalProperties.instanceSlug = instanceSlug;
 app.config.globalProperties.databaseSlug = databaseSlug;
-app.config.globalProperties.dataSourceSlug = dataSourceSlug;
 app.config.globalProperties.connectionSlug = connectionSlug;
 
 app
@@ -168,35 +166,41 @@ app
 // We need to restore the basic info in order to perform route authentication.
 // Even using the <suspense>, it's still too late, thus we do the fetch here.
 // We use finally because we always want to mount the app regardless of the error.
-const initActuator = () => {
+const initActuator = async () => {
   const actuatorStore = useActuatorV1Store();
-  return actuatorStore.fetchServerInfo();
+
+  const searchParams = new URLSearchParams(window.location.search);
+  let mode = searchParams.get("mode") as PageMode;
+  const cachedMode = useLocalStorage<PageMode>("bb.page-mode", "BUNDLED");
+  if (mode !== "BUNDLED" && mode !== "STANDALONE") {
+    mode = cachedMode.value;
+  }
+
+  cachedMode.value = mode;
+  actuatorStore.pageMode = mode;
+
+  actuatorStore.fetchServerInfo();
 };
-const initSubscription = () => {
-  const subscriptionStore = useSubscriptionV1Store();
-  return subscriptionStore.fetchSubscription();
+const initSubscription = async () => {
+  await useSubscriptionV1Store().fetchSubscription();
 };
-const initFeatureMatrix = () => {
-  const subscriptionStore = useSubscriptionV1Store();
-  return subscriptionStore.fetchFeatureMatrix();
+const initFeatureMatrix = async () => {
+  await useSubscriptionV1Store().fetchFeatureMatrix();
 };
-const restoreUser = () => {
-  const authStore = useAuthStore();
-  return authStore.restoreUser();
+const restoreUser = async () => {
+  await useAuthStore().restoreUser();
 };
-Promise.all([
-  initActuator(),
-  initFeatureMatrix(),
-  initSubscription(),
-  restoreUser(),
-]).finally(() => {
+const initBasicModules = async () => {
+  await Promise.all([
+    initActuator(),
+    initFeatureMatrix(),
+    initSubscription(),
+    restoreUser(),
+  ]);
+};
+
+initBasicModules().finally(() => {
   // Install router after the necessary data fetching is complete.
   app.use(router).use(highlight).use(i18n).use(NaiveUI);
   app.mount("#app");
-
-  // Try to mount demo vue app instance
-  const serverInfo = useActuatorV1Store().serverInfo;
-  if ((serverInfo && serverInfo.demoName) || isDev()) {
-    mountDemoApp();
-  }
 });

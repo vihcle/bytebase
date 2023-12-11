@@ -7,57 +7,25 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/bytebase/bytebase/backend/common"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
-
-// GetProjectByID gets an instance of Project.
-func (s *Store) GetProjectByID(ctx context.Context, id int) (*api.Project, error) {
-	project, err := s.GetProjectV2(ctx, &FindProjectMessage{UID: &id})
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get Project with ID %d", id)
-	}
-	if project == nil {
-		return nil, nil
-	}
-	composedProject, err := s.composeProject(project)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to compose Project with projectRaw[%+v]", project)
-	}
-	return composedProject, nil
-}
-
-func (*Store) composeProject(project *ProjectMessage) (*api.Project, error) {
-	composedProject := &api.Project{
-		ID:               project.UID,
-		ResourceID:       project.ResourceID,
-		RowStatus:        api.Normal,
-		Name:             project.Title,
-		Key:              project.Key,
-		WorkflowType:     project.Workflow,
-		Visibility:       project.Visibility,
-		TenantMode:       project.TenantMode,
-		DBNameTemplate:   project.DBNameTemplate,
-		SchemaChangeType: project.SchemaChangeType,
-	}
-	if project.Deleted {
-		composedProject.RowStatus = api.Archived
-	}
-	return composedProject, nil
-}
 
 // ProjectMessage is the message for project.
 type ProjectMessage struct {
-	ResourceID       string
-	Title            string
-	Key              string
-	Workflow         api.ProjectWorkflowType
-	Visibility       api.ProjectVisibility
-	TenantMode       api.ProjectTenantMode
-	DBNameTemplate   string
-	SchemaChangeType api.ProjectSchemaChangeType
-	Webhooks         []*ProjectWebhookMessage
+	ResourceID                 string
+	Title                      string
+	Key                        string
+	Workflow                   api.ProjectWorkflowType
+	Visibility                 api.ProjectVisibility
+	TenantMode                 api.ProjectTenantMode
+	SchemaChangeType           api.ProjectSchemaChangeType
+	Webhooks                   []*ProjectWebhookMessage
+	DataClassificationConfigID string
+	Setting                    *storepb.Project
 	// The following fields are output only and not used for create().
 	UID     int
 	Deleted bool
@@ -77,25 +45,26 @@ type UpdateProjectMessage struct {
 	UpdaterID  int
 	ResourceID string
 
-	Title            *string
-	Key              *string
-	TenantMode       *api.ProjectTenantMode
-	DBNameTemplate   *string
-	Workflow         *api.ProjectWorkflowType
-	SchemaChangeType *api.ProjectSchemaChangeType
-	Delete           *bool
+	Title                      *string
+	Key                        *string
+	TenantMode                 *api.ProjectTenantMode
+	Workflow                   *api.ProjectWorkflowType
+	SchemaChangeType           *api.ProjectSchemaChangeType
+	DataClassificationConfigID *string
+	Setting                    *storepb.Project
+	Delete                     *bool
 }
 
 // GetProjectV2 gets project by resource ID.
 func (s *Store) GetProjectV2(ctx context.Context, find *FindProjectMessage) (*ProjectMessage, error) {
 	if find.ResourceID != nil {
-		if project, ok := s.projectCache.Load(*find.ResourceID); ok {
-			return project.(*ProjectMessage), nil
+		if v, ok := s.projectCache.Get(*find.ResourceID); ok {
+			return v, nil
 		}
 	}
 	if find.UID != nil {
-		if project, ok := s.projectIDCache.Load(*find.UID); ok {
-			return project.(*ProjectMessage), nil
+		if v, ok := s.projectIDCache.Get(*find.UID); ok {
+			return v, nil
 		}
 	}
 
@@ -167,6 +136,13 @@ func (s *Store) CreateProjectV2(ctx context.Context, create *ProjectMessage, cre
 	if err != nil {
 		return nil, err
 	}
+	if create.Setting == nil {
+		create.Setting = &storepb.Project{}
+	}
+	payload, err := protojson.Marshal(create.Setting)
+	if err != nil {
+		return nil, err
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -175,14 +151,15 @@ func (s *Store) CreateProjectV2(ctx context.Context, create *ProjectMessage, cre
 	defer tx.Rollback()
 
 	project := &ProjectMessage{
-		ResourceID:       create.ResourceID,
-		Title:            create.Title,
-		Key:              create.Key,
-		Workflow:         create.Workflow,
-		Visibility:       create.Visibility,
-		TenantMode:       create.TenantMode,
-		DBNameTemplate:   create.DBNameTemplate,
-		SchemaChangeType: create.SchemaChangeType,
+		ResourceID:                 create.ResourceID,
+		Title:                      create.Title,
+		Key:                        create.Key,
+		Workflow:                   create.Workflow,
+		Visibility:                 create.Visibility,
+		TenantMode:                 create.TenantMode,
+		SchemaChangeType:           create.SchemaChangeType,
+		DataClassificationConfigID: create.DataClassificationConfigID,
+		Setting:                    create.Setting,
 	}
 	if err := tx.QueryRowContext(ctx, `
 			INSERT INTO project (
@@ -194,10 +171,11 @@ func (s *Store) CreateProjectV2(ctx context.Context, create *ProjectMessage, cre
 				workflow_type,
 				visibility,
 				tenant_mode,
-				db_name_template,
-				schema_change_type
+				schema_change_type,
+				data_classification_config_id,
+				setting
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 			RETURNING id
 		`,
 		creatorID,
@@ -208,8 +186,9 @@ func (s *Store) CreateProjectV2(ctx context.Context, create *ProjectMessage, cre
 		create.Workflow,
 		create.Visibility,
 		create.TenantMode,
-		create.DBNameTemplate,
 		create.SchemaChangeType,
+		create.DataClassificationConfigID,
+		payload,
 	).Scan(
 		&project.UID,
 	); err != nil {
@@ -281,19 +260,28 @@ func (s *Store) updateProjectImplV2(ctx context.Context, tx *Tx, patch *UpdatePr
 	if v := patch.TenantMode; v != nil {
 		set, args = append(set, fmt.Sprintf("tenant_mode = $%d", len(args)+1)), append(args, *v)
 	}
-	if v := patch.DBNameTemplate; v != nil {
-		set, args = append(set, fmt.Sprintf("db_name_template = $%d", len(args)+1)), append(args, *v)
-	}
 	if v := patch.Workflow; v != nil {
 		set, args = append(set, fmt.Sprintf("workflow_type = $%d", len(args)+1)), append(args, *v)
 	}
 	if v := patch.SchemaChangeType; v != nil {
 		set, args = append(set, fmt.Sprintf("schema_change_type = $%d", len(args)+1)), append(args, *v)
 	}
+	if v := patch.DataClassificationConfigID; v != nil {
+		set, args = append(set, fmt.Sprintf("data_classification_config_id = $%d", len(args)+1)), append(args, *v)
+	}
+	if v := patch.Setting; v != nil {
+		payload, err := protojson.Marshal(patch.Setting)
+		if err != nil {
+			return nil, err
+		}
+		set, args = append(set, fmt.Sprintf("setting = $%d", len(args)+1)), append(args, payload)
+	}
+
 	args = append(args, patch.ResourceID)
 
 	project := &ProjectMessage{}
 	var rowStatus string
+	var payload []byte
 	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
 		UPDATE project
 		SET `+strings.Join(set, ", ")+`
@@ -306,8 +294,9 @@ func (s *Store) updateProjectImplV2(ctx context.Context, tx *Tx, patch *UpdatePr
 			workflow_type,
 			visibility,
 			tenant_mode,
-			db_name_template,
 			schema_change_type,
+			data_classification_config_id,
+			setting,
 			row_status
 	`, len(args)),
 		args...,
@@ -319,8 +308,9 @@ func (s *Store) updateProjectImplV2(ctx context.Context, tx *Tx, patch *UpdatePr
 		&project.Workflow,
 		&project.Visibility,
 		&project.TenantMode,
-		&project.DBNameTemplate,
 		&project.SchemaChangeType,
+		&project.DataClassificationConfigID,
+		&payload,
 		&rowStatus,
 	); err != nil {
 		if err == sql.ErrNoRows {
@@ -328,6 +318,12 @@ func (s *Store) updateProjectImplV2(ctx context.Context, tx *Tx, patch *UpdatePr
 		}
 		return nil, err
 	}
+	setting := &storepb.Project{}
+	if err := protojsonUnmarshaler.Unmarshal(payload, setting); err != nil {
+		return nil, err
+	}
+	project.Setting = setting
+
 	projectWebhooks, err := s.findProjectWebhookImplV2(ctx, tx, &FindProjectWebhookMessage{ProjectID: &project.UID})
 	if err != nil {
 		return nil, err
@@ -359,11 +355,13 @@ func (s *Store) listProjectImplV2(ctx context.Context, tx *Tx, find *FindProject
 			workflow_type,
 			visibility,
 			tenant_mode,
-			db_name_template,
 			schema_change_type,
+			data_classification_config_id,
+			setting,
 			row_status
 		FROM project
-		WHERE `+strings.Join(where, " AND "),
+		WHERE `+strings.Join(where, " AND ")+`
+		ORDER BY project.id`,
 		args...,
 	)
 	if err != nil {
@@ -373,6 +371,7 @@ func (s *Store) listProjectImplV2(ctx context.Context, tx *Tx, find *FindProject
 
 	for rows.Next() {
 		var projectMessage ProjectMessage
+		var payload []byte
 		var rowStatus string
 		if err := rows.Scan(
 			&projectMessage.UID,
@@ -382,12 +381,18 @@ func (s *Store) listProjectImplV2(ctx context.Context, tx *Tx, find *FindProject
 			&projectMessage.Workflow,
 			&projectMessage.Visibility,
 			&projectMessage.TenantMode,
-			&projectMessage.DBNameTemplate,
 			&projectMessage.SchemaChangeType,
+			&projectMessage.DataClassificationConfigID,
+			&payload,
 			&rowStatus,
 		); err != nil {
 			return nil, err
 		}
+		setting := &storepb.Project{}
+		if err := protojsonUnmarshaler.Unmarshal(payload, setting); err != nil {
+			return nil, err
+		}
+		projectMessage.Setting = setting
 		projectMessage.Deleted = convertRowStatusToDeleted(rowStatus)
 		projectMessages = append(projectMessages, &projectMessage)
 	}
@@ -407,13 +412,13 @@ func (s *Store) listProjectImplV2(ctx context.Context, tx *Tx, find *FindProject
 }
 
 func (s *Store) storeProjectCache(project *ProjectMessage) {
-	s.projectCache.Store(project.ResourceID, project)
-	s.projectIDCache.Store(project.UID, project)
+	s.projectCache.Add(project.ResourceID, project)
+	s.projectIDCache.Add(project.UID, project)
 }
 
 func (s *Store) removeProjectCache(resourceID string) {
-	if project, ok := s.projectCache.Load(resourceID); ok {
-		s.projectIDCache.Delete(project.(*ProjectMessage).UID)
+	if project, ok := s.projectCache.Get(resourceID); ok {
+		s.projectIDCache.Remove(project.UID)
 	}
-	s.projectCache.Delete(resourceID)
+	s.projectCache.Remove(resourceID)
 }

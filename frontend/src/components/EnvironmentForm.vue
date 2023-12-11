@@ -4,22 +4,18 @@
       class="divide-y divide-block-border"
       :class="drawer ? 'w-[36rem]' : 'w-full px-4 pb-4'"
     >
-      <div class="grid grid-cols-1 gap-x-4">
-        <div class="col-span-1">
+      <div class="flex flex-col gap-y-6">
+        <div class="flex flex-col gap-y-2">
           <label for="name" class="textlabel">
             {{ $t("common.environment-name") }}
             <span class="text-red-600">*</span>
           </label>
-          <BBTextField
-            class="mt-2 w-full"
+          <NInput
+            v-model:value="state.environment.title"
             :disabled="!allowEdit"
-            :required="true"
-            :value="state.environment.title"
-            @input="handleEnvironmentNameChange"
+            size="large"
           />
-        </div>
 
-        <div class="mt-2">
           <ResourceIdField
             ref="resourceIdField"
             resource-type="environment"
@@ -30,12 +26,12 @@
           />
         </div>
 
-        <div class="col-span-1 mt-6">
+        <div class="flex flex-col gap-y-2">
           <label class="textlabel flex items-center">
             {{ $t("policy.environment-tier.name") }}
             <FeatureBadge feature="bb.feature.environment-tier-policy" />
           </label>
-          <p class="mt-2 text-sm text-gray-600">
+          <p class="text-sm text-gray-600">
             <i18n-t tag="span" keypath="policy.environment-tier.description">
               <template #newline><br /></template>
             </i18n-t>
@@ -47,138 +43,80 @@
               }}<heroicons-outline:external-link class="w-4 h-4"
             /></a>
           </p>
-          <div class="mt-4 flex flex-col space-y-4">
-            <div class="flex space-x-4">
-              <BBCheckbox
-                :value="state.environmentTier === EnvironmentTier.PROTECTED"
-                :disabled="!allowEdit"
-                @toggle="(on: boolean) => {
+          <NCheckbox
+            :checked="state.environmentTier === EnvironmentTier.PROTECTED"
+            :disabled="!allowEdit"
+            style="--n-label-padding: 0 0 0 1rem"
+            @update:checked="(on: boolean) => {
                 state.environmentTier = on ? EnvironmentTier.PROTECTED : EnvironmentTier.UNPROTECTED
               }"
-              />
-              <div>
-                <div class="textlabel">
-                  {{ $t("policy.environment-tier.mark-env-as-production") }}
-                </div>
-              </div>
-            </div>
-          </div>
+          >
+            {{ $t("policy.environment-tier.mark-env-as-production") }}
+          </NCheckbox>
         </div>
-        <div class="col-span-1 mt-6">
+
+        <div class="flex flex-col gap-y-2">
           <label class="textlabel">
             {{ $t("policy.rollout.name") }}
           </label>
-          <span v-show="valueChanged('approvalPolicy')" class="textlabeltip">{{
-            $t("policy.rollout.tip")
-          }}</span>
-          <div class="mt-1 textinfolabel">
+          <span
+            v-show="!create && valueChanged('rolloutPolicy')"
+            class="textlabeltip !ml-0"
+            >{{ $t("policy.rollout.tip") }}</span
+          >
+          <div class="textinfolabel">
             {{ $t("policy.rollout.info") }}
           </div>
-          <div class="mt-4 flex flex-col space-y-4">
-            <div class="flex space-x-4">
-              <input
-                v-model="state.approvalPolicy.deploymentApprovalPolicy!.defaultStrategy"
-                name="manual-approval-never"
-                tabindex="-1"
-                type="radio"
-                class="text-accent disabled:text-accent-disabled focus:ring-accent"
-                :value="ApprovalStrategy.AUTOMATIC"
-                :disabled="!allowEdit"
-              />
-              <div class="-mt-0.5">
-                <div class="textlabel">
-                  {{ $t("policy.rollout.auto") }}
-                </div>
-                <div class="mt-1 textinfolabel">
-                  {{ $t("policy.rollout.auto-info") }}
-                </div>
-              </div>
-            </div>
-
-            <div class="flex space-x-4">
-              <input
-                v-model="state.approvalPolicy.deploymentApprovalPolicy!.defaultStrategy"
-                name="manual-approval-always"
-                tabindex="-1"
-                type="radio"
-                class="text-accent disabled:text-accent-disabled focus:ring-accent"
-                :value="ApprovalStrategy.MANUAL"
-                :disabled="!allowEdit"
-              />
-              <div class="-mt-0.5">
-                <div class="textlabel flex">
-                  {{ $t("policy.rollout.manual") }}
-                  <FeatureBadge feature="bb.feature.approval-policy" />
-                </div>
-                <div class="mt-1 textinfolabel">
-                  {{ $t("policy.rollout.manual-info") }}
-                </div>
-              </div>
-            </div>
-
-            <AssigneeGroupEditor
-              class="ml-8"
-              :policy="state.approvalPolicy"
-              :allow-edit="allowEdit"
-              @update="(assigneeGroupList) => {
-                state.approvalPolicy.deploymentApprovalPolicy!.deploymentApprovalStrategies = assigneeGroupList
-              }"
-            />
-          </div>
+          <RolloutPolicyConfig
+            v-model:policy="state.rolloutPolicy"
+            :disabled="!allowEdit"
+          />
         </div>
-        <div class="col-span-1 mt-6">
+
+        <div class="flex flex-col gap-y-2">
           <label class="textlabel"> {{ $t("policy.backup.name") }} </label>
-          <span v-show="valueChanged('backupPolicy')" class="textlabeltip">{{
-            $t("policy.backup.tip")
-          }}</span>
-          <div class="mt-4 flex flex-col space-y-4">
-            <div class="flex space-x-4">
-              <input
-                v-model="state.backupPolicy.backupPlanPolicy!.schedule"
-                tabindex="-1"
-                type="radio"
-                class="text-accent disabled:text-accent-disabled focus:ring-accent"
-                :value="BackupPlanSchedule.UNSET"
-                :disabled="!allowEdit"
-              />
-              <div class="-mt-0.5">
+          <span
+            v-show="valueChanged('backupPolicy')"
+            class="textlabeltip !ml-0"
+            >{{ $t("policy.backup.tip") }}</span
+          >
+          <NRadioGroup
+            v-model:value="state.backupPolicy.backupPlanPolicy!.schedule"
+            :disabled="!allowEdit"
+            class="!flex flex-col gap-y-2"
+          >
+            <NRadio
+              :value="BackupPlanSchedule.UNSET"
+              style="--n-label-padding: 0 0 0 1rem"
+            >
+              <div class="flex flex-col">
                 <div class="textlabel">
                   {{ $t("policy.backup.not-enforced") }}
                 </div>
-                <div class="mt-1 textinfolabel">
+                <div class="textinfolabel">
                   {{ $t("policy.backup.not-enforced-info") }}
                 </div>
               </div>
-            </div>
-            <div class="flex space-x-4">
-              <input
-                v-model="state.backupPolicy.backupPlanPolicy!.schedule"
-                tabindex="-1"
-                type="radio"
-                class="text-accent disabled:text-accent-disabled focus:ring-accent"
-                :value="BackupPlanSchedule.DAILY"
-                :disabled="!allowEdit"
-              />
-              <div class="-mt-0.5">
+            </NRadio>
+            <NRadio
+              :value="BackupPlanSchedule.DAILY"
+              style="--n-label-padding: 0 0 0 1rem"
+            >
+              <div class="flex flex-col">
                 <div class="textlabel flex">
                   {{ $t("policy.backup.daily") }}
                   <FeatureBadge feature="bb.feature.backup-policy" />
                 </div>
-                <div class="mt-1 textinfolabel">
+                <div class="textinfolabel">
                   {{ $t("policy.backup.daily-info") }}
                 </div>
               </div>
-            </div>
-            <div class="flex space-x-4">
-              <input
-                v-model="state.backupPolicy.backupPlanPolicy!.schedule"
-                tabindex="-1"
-                type="radio"
-                class="text-accent disabled:text-accent-disabled focus:ring-accent"
-                :value="BackupPlanSchedule.WEEKLY"
-                :disabled="!allowEdit"
-              />
-              <div class="-mt-0.5">
+            </NRadio>
+            <NRadio
+              :value="BackupPlanSchedule.WEEKLY"
+              style="--n-label-padding: 0 0 0 1rem"
+            >
+              <div class="flex flex-col">
                 <div class="textlabel flex">
                   {{ $t("policy.backup.weekly") }}
                   <FeatureBadge feature="bb.feature.backup-policy" />
@@ -187,38 +125,39 @@
                   {{ $t("policy.backup.weekly-info") }}
                 </div>
               </div>
-            </div>
-          </div>
+            </NRadio>
+          </NRadioGroup>
         </div>
-        <div v-if="!create" class="col-span-1 mt-6">
+
+        <div v-if="!create" class="flex flex-col gap-y-2">
           <label class="textlabel">
             {{ $t("sql-review.title") }}
           </label>
-          <div class="mt-3">
-            <div v-if="sqlReviewPolicy" class="inline-flex items-center">
-              <BBSwitch
+          <div>
+            <div
+              v-if="sqlReviewPolicy"
+              class="inline-flex items-center gap-x-2"
+            >
+              <Switch
                 v-if="allowEditSQLReviewPolicy"
-                class="mr-2"
-                :text="true"
                 :value="sqlReviewPolicy.enforce"
-                @toggle="toggleSQLReviewPolicy"
+                :text="true"
+                @update:value="toggleSQLReviewPolicy"
               />
-              <button
-                type="button"
-                class="text-sm font-medium text-accent hover:underline-2"
-                @click.prevent="onSQLReviewPolicyClick"
+              <NButton
+                quaternary
+                type="primary"
+                @click="onSQLReviewPolicyClick"
               >
                 {{ sqlReviewPolicy.name }}
-              </button>
+              </NButton>
             </div>
-            <button
+            <NButton
               v-else-if="hasPermission"
-              type="button"
-              class="btn-normal py-2 px-4 gap-x-1 items-center"
               @click.prevent="onSQLReviewPolicyClick"
             >
               {{ $t("sql-review.configure-policy") }}
-            </button>
+            </NButton>
             <span v-else class="textinfolabel">
               {{ $t("sql-review.no-policy-set") }}
             </span>
@@ -260,23 +199,21 @@
           />
         </template>
         <div v-else></div>
-        <div v-if="allowEdit">
-          <button
-            type="button"
-            class="btn-normal py-2 px-4"
+
+        <div v-if="allowEdit" class="flex items-center justify-end gap-x-3">
+          <NButton
             :disabled="!valueChanged()"
             @click.prevent="revertEnvironment"
           >
             {{ $t("common.revert") }}
-          </button>
-          <button
-            type="submit"
-            class="btn-primary ml-3 inline-flex justify-center py-2 px-4"
+          </NButton>
+          <NButton
+            type="primary"
             :disabled="!valueChanged()"
             @click.prevent="updateEnvironment"
           >
             {{ $t("common.update") }}
-          </button>
+          </NButton>
         </div>
       </div>
     </div>
@@ -300,47 +237,44 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, reactive, PropType, watch, watchEffect, ref } from "vue";
 import { cloneDeep, isEqual, isEmpty } from "lodash-es";
+import { NButton, NCheckbox, NInput, NRadioGroup } from "naive-ui";
 import { Status } from "nice-grpc-common";
-import { useRouter } from "vue-router";
+import { computed, reactive, PropType, watch, watchEffect, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton } from "naive-ui";
-
-import type { ResourceId, SQLReviewPolicy, ValidatedMessage } from "@/types";
-import { useEnvironmentV1Store } from "@/store/modules/v1/environment";
-import { environmentNamePrefix } from "@/store/modules/v1/common";
-import { getErrorCode } from "@/utils/grpcweb";
-import { BBSwitch } from "@/bbkit";
-import { DrawerContent } from "@/components/v2";
-import {
-  extractEnvironmentResourceName,
-  hasWorkspacePermissionV1,
-  sqlReviewPolicySlug,
-} from "@/utils";
+import { useRouter } from "vue-router";
+import { DrawerContent, Switch } from "@/components/v2";
+import ResourceIdField from "@/components/v2/Form/ResourceIdField.vue";
 import {
   pushNotification,
   useCurrentUserV1,
   useEnvironmentV1List,
   useSQLReviewStore,
 } from "@/store";
-import AssigneeGroupEditor from "./EnvironmentForm/AssigneeGroupEditor.vue";
-import ResourceIdField from "@/components/v2/Form/ResourceIdField.vue";
-import {
-  Policy,
-  PolicyType,
-  BackupPlanSchedule,
-  ApprovalStrategy,
-} from "@/types/proto/v1/org_policy_service";
+import { environmentNamePrefix } from "@/store/modules/v1/common";
+import { useEnvironmentV1Store } from "@/store/modules/v1/environment";
+import type { ResourceId, SQLReviewPolicy, ValidatedMessage } from "@/types";
+import { State } from "@/types/proto/v1/common";
 import {
   Environment,
   EnvironmentTier,
 } from "@/types/proto/v1/environment_service";
-import { State } from "@/types/proto/v1/common";
+import {
+  Policy,
+  PolicyType,
+  BackupPlanSchedule,
+} from "@/types/proto/v1/org_policy_service";
+import {
+  extractEnvironmentResourceName,
+  hasWorkspacePermissionV1,
+  sqlReviewPolicySlug,
+} from "@/utils";
+import { getErrorCode } from "@/utils/grpcweb";
+import RolloutPolicyConfig from "./EnvironmentForm/RolloutPolicyConfig.vue";
 
 interface LocalState {
   environment: Environment;
-  approvalPolicy: Policy;
+  rolloutPolicy: Policy;
   backupPolicy: Policy;
   environmentTier: EnvironmentTier;
 }
@@ -356,7 +290,7 @@ const props = defineProps({
     required: true,
     type: Object as PropType<Environment>,
   },
-  approvalPolicy: {
+  rolloutPolicy: {
     required: true,
     type: Object as PropType<Policy>,
   },
@@ -386,7 +320,7 @@ const emit = defineEmits([
 const { t } = useI18n();
 const state = reactive<LocalState>({
   environment: cloneDeep(props.environment),
-  approvalPolicy: cloneDeep(props.approvalPolicy),
+  rolloutPolicy: cloneDeep(props.rolloutPolicy),
   backupPolicy: cloneDeep(props.backupPolicy),
   environmentTier: props.environmentTier,
 });
@@ -429,10 +363,6 @@ const sqlReviewPolicy = computed((): SQLReviewPolicy | undefined => {
   return sqlReviewStore.getReviewPolicyByEnvironmentUID(environmentId.value);
 });
 
-const handleEnvironmentNameChange = (event: InputEvent) => {
-  state.environment.title = (event.target as HTMLInputElement).value;
-};
-
 const onSQLReviewPolicyClick = () => {
   if (sqlReviewPolicy.value) {
     router.push({
@@ -459,9 +389,9 @@ watch(
 );
 
 watch(
-  () => props.approvalPolicy,
+  () => props.rolloutPolicy,
   (cur: Policy) => {
-    state.approvalPolicy = cloneDeep(cur);
+    state.rolloutPolicy = cloneDeep(cur);
   }
 );
 
@@ -552,13 +482,18 @@ const allowEditSQLReviewPolicy = computed(() => {
 });
 
 const valueChanged = (
-  field?: "environment" | "approvalPolicy" | "backupPolicy" | "environmentTier"
+  field?:
+    | "environment"
+    | "approvalPolicy"
+    | "rolloutPolicy"
+    | "backupPolicy"
+    | "environmentTier"
 ): boolean => {
   switch (field) {
     case "environment":
       return !isEqual(props.environment, state.environment);
-    case "approvalPolicy":
-      return !isEqual(props.approvalPolicy, state.approvalPolicy);
+    case "rolloutPolicy":
+      return !isEqual(props.rolloutPolicy, state.rolloutPolicy);
     case "backupPolicy":
       return !isEqual(props.backupPolicy, state.backupPolicy);
     case "environmentTier":
@@ -567,7 +502,7 @@ const valueChanged = (
     default:
       return (
         !isEqual(props.environment, state.environment) ||
-        !isEqual(props.approvalPolicy, state.approvalPolicy) ||
+        !isEqual(props.rolloutPolicy, state.rolloutPolicy) ||
         !isEqual(props.backupPolicy, state.backupPolicy) ||
         !isEqual(props.environmentTier, state.environmentTier)
       );
@@ -576,7 +511,7 @@ const valueChanged = (
 
 const revertEnvironment = () => {
   state.environment = cloneDeep(props.environment!);
-  state.approvalPolicy = cloneDeep(props.approvalPolicy!);
+  state.rolloutPolicy = cloneDeep(props.rolloutPolicy!);
   state.backupPolicy = cloneDeep(props.backupPolicy!);
   state.environmentTier = cloneDeep(props.environmentTier!);
 };
@@ -588,7 +523,7 @@ const createEnvironment = () => {
       name: resourceIdField.value?.resourceId,
       title: state.environment.title,
     },
-    state.approvalPolicy,
+    state.rolloutPolicy,
     state.backupPolicy,
     state.environmentTier
   );
@@ -607,12 +542,12 @@ const updateEnvironment = () => {
     emit("update", patchedEnvironment);
   }
 
-  if (!isEqual(props.approvalPolicy, state.approvalPolicy)) {
+  if (!isEqual(props.rolloutPolicy, state.rolloutPolicy)) {
     emit(
       "update-policy",
       state.environment,
-      PolicyType.DEPLOYMENT_APPROVAL,
-      state.approvalPolicy
+      PolicyType.ROLLOUT_POLICY,
+      state.rolloutPolicy
     );
   }
 

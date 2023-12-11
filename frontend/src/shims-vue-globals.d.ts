@@ -1,6 +1,7 @@
+import type dayjs from "dayjs";
+import type { isEmpty } from "lodash-es";
 import type {
   databaseSlug,
-  dataSourceSlug,
   environmentName,
   environmentSlug,
   humanizeTs,
@@ -14,8 +15,6 @@ import type {
   sizeToFit,
   urlfy,
 } from "./utils";
-import type dayjs from "dayjs";
-import type { isEmpty } from "lodash-es";
 
 declare module "vue" {
   export interface ComponentCustomProperties {
@@ -38,6 +37,5 @@ declare module "vue" {
     instanceName: typeof instanceName;
     instanceSlug: typeof instanceSlug;
     databaseSlug: typeof databaseSlug;
-    dataSourceSlug: typeof dataSourceSlug;
   }
 }

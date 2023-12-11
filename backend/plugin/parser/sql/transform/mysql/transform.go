@@ -6,18 +6,18 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pingcap/tidb/parser"
-	"github.com/pingcap/tidb/parser/ast"
-	"github.com/pingcap/tidb/parser/format"
-	"github.com/pingcap/tidb/parser/model"
-	"github.com/pingcap/tidb/parser/mysql"
+	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
+	"github.com/pingcap/tidb/pkg/parser/format"
+	"github.com/pingcap/tidb/pkg/parser/model"
+	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pkg/errors"
 
-	bbparser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
+	tidbparser "github.com/bytebase/bytebase/backend/plugin/parser/tidb"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/transform"
-	// Register pingcap parser driver.
-	_ "github.com/pingcap/tidb/types/parser_driver"
 )
 
 var (
@@ -25,9 +25,9 @@ var (
 )
 
 func init() {
-	transform.Register(bbparser.MySQL, &SchemaTransformer{})
-	transform.Register(bbparser.TiDB, &SchemaTransformer{})
-	transform.Register(bbparser.OceanBase, &SchemaTransformer{})
+	transform.Register(storepb.Engine_MYSQL, &SchemaTransformer{})
+	transform.Register(storepb.Engine_TIDB, &SchemaTransformer{})
+	transform.Register(storepb.Engine_OCEANBASE, &SchemaTransformer{})
 }
 
 // SchemaTransformer it the transformer for MySQL dialect.
@@ -87,15 +87,15 @@ func (t *SchemaTransformer) Normalize(schema string, standard string) (string, e
 
 	// Phase One: build the schema table set.
 	tableSet := make(tableSet)
-	list, err := bbparser.SplitMultiSQL(bbparser.MySQL, schema)
+	list, err := mysqlparser.SplitSQL(schema)
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to split SQL")
 	}
 
 	changeDelimiter := false
 	for i, stmt := range list {
-		if bbparser.IsDelimiter(stmt.Text) {
-			delimiter, err := bbparser.ExtractDelimiter(stmt.Text)
+		if mysqlparser.IsDelimiter(stmt.Text) {
+			delimiter, err := mysqlparser.ExtractDelimiter(stmt.Text)
 			if err != nil {
 				return "", errors.Wrapf(err, "failed to extract delimiter from %q", stmt.Text)
 			}
@@ -113,7 +113,7 @@ func (t *SchemaTransformer) Normalize(schema string, standard string) (string, e
 			remainingStatement = append(remainingStatement, stmt.Text)
 			continue
 		}
-		if bbparser.IsTiDBUnsupportDDLStmt(stmt.Text) {
+		if tidbparser.IsTiDBUnsupportDDLStmt(stmt.Text) {
 			remainingStatement = append(remainingStatement, stmt.Text)
 			continue
 		}
@@ -121,8 +121,11 @@ func (t *SchemaTransformer) Normalize(schema string, standard string) (string, e
 		if err != nil {
 			return "", errors.Wrapf(err, "failed to parse schema %q", schema)
 		}
-		if len(nodeList) != 1 {
-			return "", errors.Errorf("Expect one statement after splitting but found %d", len(nodeList))
+		if len(nodeList) == 0 {
+			continue
+		}
+		if len(nodeList) > 1 {
+			return "", errors.Errorf("Expect one statement after splitting but found %d, text %q", len(nodeList), stmt.Text)
 		}
 
 		switch node := nodeList[0].(type) {
@@ -140,13 +143,13 @@ func (t *SchemaTransformer) Normalize(schema string, standard string) (string, e
 	}
 
 	// Phase Two: find the missing table and index for schema and remove the collation and charset if needed.
-	standardList, err := bbparser.SplitMultiSQL(bbparser.MySQL, standard)
+	standardList, err := mysqlparser.SplitSQL(standard)
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to split SQL")
 	}
 
 	for _, stmt := range standardList {
-		if bbparser.IsTiDBUnsupportDDLStmt(stmt.Text) {
+		if tidbparser.IsTiDBUnsupportDDLStmt(stmt.Text) {
 			// TODO(rebelice): consider the unsupported DDL.
 			continue
 		}
@@ -154,8 +157,11 @@ func (t *SchemaTransformer) Normalize(schema string, standard string) (string, e
 		if err != nil {
 			return "", errors.Wrapf(err, "failed to parse schema %q", schema)
 		}
-		if len(nodeList) != 1 {
-			return "", errors.Errorf("Expect one statement after splitting but found %d", len(nodeList))
+		if len(nodeList) == 0 {
+			continue
+		}
+		if len(nodeList) > 1 {
+			return "", errors.Errorf("Expect one statement after splitting but found %d, text %q", len(nodeList), stmt.Text)
 		}
 
 		switch node := nodeList[0].(type) {
@@ -183,7 +189,7 @@ func (t *SchemaTransformer) Normalize(schema string, standard string) (string, e
 	//   3. missing indexes for existed table are below of this table and as the origin order.
 	//   4. missing tables are below of existed tables and as the origin order.
 	for _, stmt := range standardList {
-		if bbparser.IsTiDBUnsupportDDLStmt(stmt.Text) {
+		if tidbparser.IsTiDBUnsupportDDLStmt(stmt.Text) {
 			// TODO(rebelice): consider the unsupported DDL.
 			continue
 		}
@@ -191,8 +197,11 @@ func (t *SchemaTransformer) Normalize(schema string, standard string) (string, e
 		if err != nil {
 			return "", errors.Wrapf(err, "failed to parse schema %q", schema)
 		}
-		if len(nodeList) != 1 {
-			return "", errors.Errorf("Expect one statement after splitting but found %d", len(nodeList))
+		if len(nodeList) == 0 {
+			continue
+		}
+		if len(nodeList) > 1 {
+			return "", errors.Errorf("Expect one statement after splitting but found %d, text %q", len(nodeList), stmt.Text)
 		}
 
 		switch node := nodeList[0].(type) {
@@ -341,15 +350,15 @@ func extractEngineCharsetAndCollation(table *ast.CreateTableStmt) (engine, chars
 
 // Check checks the schema format.
 func (*SchemaTransformer) Check(schema string) (int, error) {
-	list, err := bbparser.SplitMultiSQL(bbparser.MySQL, schema)
+	list, err := mysqlparser.SplitSQL(schema)
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to split SQL")
 	}
 
 	changeDelimiter := false
 	for _, stmt := range list {
-		if bbparser.IsDelimiter(stmt.Text) {
-			delimiter, err := bbparser.ExtractDelimiter(stmt.Text)
+		if mysqlparser.IsDelimiter(stmt.Text) {
+			delimiter, err := mysqlparser.ExtractDelimiter(stmt.Text)
 			if err != nil {
 				return 0, errors.Wrapf(err, "failed to extract delimiter from %q", stmt.Text)
 			}
@@ -365,15 +374,18 @@ func (*SchemaTransformer) Check(schema string) (int, error) {
 			// So we need to skip the statement if the delimiter is not `;`.
 			continue
 		}
-		if bbparser.IsTiDBUnsupportDDLStmt(stmt.Text) {
+		if tidbparser.IsTiDBUnsupportDDLStmt(stmt.Text) {
 			continue
 		}
 		nodeList, _, err := parser.New().Parse(stmt.Text, "", "")
 		if err != nil {
 			return stmt.LastLine, errors.Wrapf(err, "failed to parse schema %q", schema)
 		}
-		if len(nodeList) != 1 {
-			return stmt.LastLine, errors.Errorf("Expect one statement after splitting but found %d", len(nodeList))
+		if len(nodeList) == 0 {
+			continue
+		}
+		if len(nodeList) > 1 {
+			return stmt.LastLine, errors.Errorf("Expect one statement after splitting but found %d, text %q", len(nodeList), stmt.Text)
 		}
 
 		switch node := nodeList[0].(type) {
@@ -433,15 +445,15 @@ func (*SchemaTransformer) Check(schema string) (int, error) {
 // Transform returns the transformed schema.
 func (*SchemaTransformer) Transform(schema string) (string, error) {
 	var result []string
-	list, err := bbparser.SplitMultiSQL(bbparser.MySQL, schema)
+	list, err := mysqlparser.SplitSQL(schema)
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to split SQL")
 	}
 
 	changeDelimiter := false
 	for _, stmt := range list {
-		if bbparser.IsDelimiter(stmt.Text) {
-			delimiter, err := bbparser.ExtractDelimiter(stmt.Text)
+		if mysqlparser.IsDelimiter(stmt.Text) {
+			delimiter, err := mysqlparser.ExtractDelimiter(stmt.Text)
 			if err != nil {
 				return "", errors.Wrapf(err, "failed to extract delimiter from %q", stmt.Text)
 			}
@@ -459,7 +471,7 @@ func (*SchemaTransformer) Transform(schema string) (string, error) {
 			result = append(result, stmt.Text+"\n\n")
 			continue
 		}
-		if bbparser.IsTiDBUnsupportDDLStmt(stmt.Text) {
+		if tidbparser.IsTiDBUnsupportDDLStmt(stmt.Text) {
 			result = append(result, stmt.Text+"\n\n")
 			continue
 		}
@@ -469,8 +481,11 @@ func (*SchemaTransformer) Transform(schema string) (string, error) {
 			result = append(result, stmt.Text+"\n\n")
 			continue
 		}
-		if len(nodeList) != 1 {
-			return "", errors.Errorf("Expect one statement after splitting but found %d", len(nodeList))
+		if len(nodeList) == 0 {
+			continue
+		}
+		if len(nodeList) > 1 {
+			return "", errors.Errorf("Expect one statement after splitting but found %d, text %q", len(nodeList), stmt.Text)
 		}
 
 		switch node := nodeList[0].(type) {
@@ -540,7 +555,7 @@ func deparse(newNodeList []ast.Node) (string, error) {
 		if err := node.Restore(format.NewRestoreCtx(format.DefaultRestoreFlags|format.RestoreStringWithoutCharset|format.RestorePrettyFormat, &buf)); err != nil {
 			return "", err
 		}
-		if _, err := buf.Write([]byte(";\n\n")); err != nil {
+		if _, err := buf.WriteString(";\n\n"); err != nil {
 			return "", err
 		}
 	}

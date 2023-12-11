@@ -2,12 +2,19 @@ syntax = "proto3";
 
 package bytebase.store;
 
+import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
 
 option go_package = "generated-go/store";
 
 // DatabaseMetadata is the metadata for databases.
 message DatabaseMetadata {
+  map<string, string> labels = 1;
+  google.protobuf.Timestamp last_sync_time = 2;
+}
+
+// DatabaseSchemaMetadata is the schema metadata for databases.
+message DatabaseSchemaMetadata {
   string name = 1;
 
   // The schemas is the list of schemas in a database.
@@ -161,13 +168,42 @@ message TableMetadata {
   string create_options = 10;
 
   // The comment is the comment of a table.
+  // classification and user_comment is parsed from the comment.
   string comment = 11;
 
-  // The category is the category of a table from the comment.
-  string category = 13;
+  // The classification is the classification of a table parsed from the comment.
+  string classification = 13;
+
+  // The user_comment is the user comment of a table parsed from the comment.
+  string user_comment = 14;
 
   // The foreign_keys is the list of foreign keys in a table.
   repeated ForeignKeyMetadata foreign_keys = 12;
+
+  // The partitions is the list of partitions in a table.
+  repeated TablePartitionMetadata partitions = 15;
+}
+
+// TablePartitionMetadata is the metadata for table partitions.
+message TablePartitionMetadata {
+  // The name is the name of a table partition.
+  string name = 1;
+
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    RANGE = 1;
+    LIST = 2;
+    HASH = 3;
+  }
+
+  // The type of a table partition.
+  Type type = 2;
+
+  // The expression is the expression of a table partition.
+  string expression = 3;
+
+  // The subpartitions is the list of subpartitions in a table partition.
+  repeated TablePartitionMetadata subpartitions = 4;
 }
 
 // ColumnMetadata is the metadata for columns.
@@ -178,26 +214,35 @@ message ColumnMetadata {
   // The position is the position in columns.
   int32 position = 2;
 
-  // The default is the default of a column. Use google.protobuf.StringValue to distinguish between an empty string default value or no default.
-  google.protobuf.StringValue default = 3;
+  // The default_value is the default value of a column.
+  oneof default_value {
+    // The default is the default of a column. Use google.protobuf.StringValue to distinguish between an empty string default value or no default.
+    google.protobuf.StringValue default = 3;
+    bool default_null = 4;
+    string default_expression = 5;
+  }
 
   // The nullable is the nullable of a column.
-  bool nullable = 4;
+  bool nullable = 6;
 
   // The type is the type of a column.
-  string type = 5;
+  string type = 7;
 
   // The character_set is the character_set of a column.
-  string character_set = 6;
+  string character_set = 8;
 
   // The collation is the collation of a column.
-  string collation = 7;
+  string collation = 9;
 
   // The comment is the comment of a column.
-  string comment = 8;
+  // classification and user_comment is parsed from the comment.
+  string comment = 10;
 
-  // The category is the category of a table from the comment.
-  string category = 9;
+  // The classification is the classification of a table parsed from the comment.
+  string classification = 11;
+
+  // The user_comment is the user comment of a table parsed from the comment.
+  string user_comment = 12;
 }
 
 // ViewMetadata is the metadata for views.
@@ -329,4 +374,38 @@ message SecretItem {
 
   // The description is the description of the secret.
   string description = 3;
+}
+
+message DatabaseConfig {
+  string name = 1;
+
+  // The schema_configs is the list of configs for schemas in a database.
+  repeated SchemaConfig schema_configs = 2;
+}
+
+message SchemaConfig {
+  // The name is the schema name.
+  // It is an empty string for databases without such concept such as MySQL.
+  string name = 1;
+
+  // The table_configs is the list of configs for tables in a schema.
+  repeated TableConfig table_configs = 2;
+}
+
+message TableConfig {
+  // The name is the name of a table.
+  string name = 1;
+
+  // The column_configs is the ordered list of configs for columns in a table.
+  repeated ColumnConfig column_configs = 2;
+}
+
+message ColumnConfig {
+  // The name is the name of a column.
+  string name = 1;
+
+  string semantic_type_id = 2;
+
+  // The user labels for a column.
+  map<string, string> labels = 3;
 }

@@ -76,6 +76,10 @@
 
 <script lang="ts" setup>
 import { reactive, watch, ref } from "vue";
+import { onMounted } from "vue";
+import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
 import {
   useIdentityProviderStore,
   useInstanceV1Store,
@@ -89,15 +93,15 @@ import {
   useDatabaseSecretStore,
   useActuatorV1Store,
 } from "@/store";
-import { onMounted } from "vue";
-import { computed } from "vue";
-import { FeatureType, planTypeToString } from "@/types";
 import { useEnvironmentV1Store } from "@/store/modules/v1/environment";
+import {
+  FeatureType,
+  planTypeToString,
+  defaultTokenDurationInHours,
+} from "@/types";
 import { EnvironmentTier } from "@/types/proto/v1/environment_service";
-import { useI18n } from "vue-i18n";
-import { PlanType } from "@/types/proto/v1/subscription_service";
-import { useRouter } from "vue-router";
 import { PolicyType } from "@/types/proto/v1/org_policy_service";
+import { PlanType } from "@/types/proto/v1/subscription_service";
 
 interface LocalState {
   showModal: boolean;
@@ -151,6 +155,16 @@ watch(
     }
     if (settingV1Store.workspaceProfileSetting?.require2fa ?? false) {
       set.add("bb.feature.2fa");
+    }
+    if (
+      !!settingV1Store.workspaceProfileSetting?.tokenDuration?.seconds &&
+      settingV1Store.workspaceProfileSetting?.tokenDuration?.seconds.toNumber() !=
+        defaultTokenDurationInHours * 60 * 60
+    ) {
+      set.add("bb.feature.secure-token");
+    }
+    if (settingV1Store.workspaceProfileSetting?.announcement?.text ?? false) {
+      set.add("bb.feature.announcement");
     }
     const openAIKeySetting = settingV1Store.getSettingByName(
       "bb.plugin.openai.key"

@@ -5,20 +5,23 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	// Import go-ora Oracle driver.
 	"github.com/pkg/errors"
-	go_ora "github.com/sijms/go-ora/v2"
-	"go.uber.org/zap"
+	goora "github.com/sijms/go-ora/v2"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	plsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/plsql"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
@@ -26,8 +29,10 @@ var (
 	_ db.Driver = (*Driver)(nil)
 )
 
+const dbVersion12 = 12
+
 func init() {
-	db.Register(db.Oracle, newDriver)
+	db.Register(storepb.Engine_ORACLE, newDriver)
 }
 
 // Driver is the Oracle driver.
@@ -36,6 +41,7 @@ type Driver struct {
 	databaseName     string
 	serviceName      string
 	schemaTenantMode bool
+	connectionCtx    db.ConnectionContext
 }
 
 func newDriver(db.DriverConfig) db.Driver {
@@ -43,7 +49,7 @@ func newDriver(db.DriverConfig) db.Driver {
 }
 
 // Open opens a Oracle driver.
-func (driver *Driver) Open(ctx context.Context, _ db.Type, config db.ConnectionConfig, _ db.ConnectionContext) (db.Driver, error) {
+func (driver *Driver) Open(ctx context.Context, _ storepb.Engine, config db.ConnectionConfig, connectionCtx db.ConnectionContext) (db.Driver, error) {
 	port, err := strconv.Atoi(config.Port)
 	if err != nil {
 		return nil, errors.Errorf("invalid port %q", config.Port)
@@ -52,7 +58,7 @@ func (driver *Driver) Open(ctx context.Context, _ db.Type, config db.ConnectionC
 	if config.SID != "" {
 		options["SID"] = config.SID
 	}
-	dsn := go_ora.BuildUrl(config.Host, port, config.ServiceName, config.Username, config.Password, options)
+	dsn := goora.BuildUrl(config.Host, port, config.ServiceName, config.Username, config.Password, options)
 	db, err := sql.Open("oracle", dsn)
 	if err != nil {
 		return nil, err
@@ -66,6 +72,7 @@ func (driver *Driver) Open(ctx context.Context, _ db.Type, config db.ConnectionC
 	driver.databaseName = config.Database
 	driver.serviceName = config.ServiceName
 	driver.schemaTenantMode = config.SchemaTenantMode
+	driver.connectionCtx = connectionCtx
 	return driver, nil
 }
 
@@ -80,8 +87,8 @@ func (driver *Driver) Ping(ctx context.Context) error {
 }
 
 // GetType returns the database type.
-func (*Driver) GetType() db.Type {
-	return db.Oracle
+func (*Driver) GetType() storepb.Engine {
+	return storepb.Engine_ORACLE
 }
 
 // GetDB gets the database.
@@ -107,8 +114,6 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, opt
 
 	totalRowsAffected := int64(0)
 	f := func(stmt string) error {
-		// The underlying oracle golang driver go-ora does not support semicolon, so we should trim the suffix semicolon.
-		stmt = strings.TrimSuffix(stmt, ";")
 		sqlResult, err := tx.ExecContext(ctx, stmt)
 		if err != nil {
 			return err
@@ -116,14 +121,14 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, opt
 		rowsAffected, err := sqlResult.RowsAffected()
 		if err != nil {
 			// Since we cannot differentiate DDL and DML yet, we have to ignore the error.
-			log.Debug("rowsAffected returns error", zap.Error(err))
+			slog.Debug("rowsAffected returns error", log.BBError(err))
 		} else {
 			totalRowsAffected += rowsAffected
 		}
 		return nil
 	}
 
-	if _, err := parser.SplitMultiSQLStream(parser.Oracle, strings.NewReader(statement), f); err != nil {
+	if _, err := plsqlparser.SplitMultiSQLStream(strings.NewReader(statement), f); err != nil {
 		return 0, err
 	}
 
@@ -139,14 +144,9 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, opt
 	return totalRowsAffected, nil
 }
 
-// QueryConn querys a SQL statement in a given connection.
-func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]any, error) {
-	return util.Query(ctx, db.Oracle, conn, statement, queryContext)
-}
-
-// QueryConn2 queries a SQL statement in a given connection.
-func (driver *Driver) QueryConn2(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]*v1pb.QueryResult, error) {
-	singleSQLs, err := parser.SplitMultiSQL(parser.Oracle, statement)
+// QueryConn queries a SQL statement in a given connection.
+func (driver *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]*v1pb.QueryResult, error) {
+	singleSQLs, err := plsqlparser.SplitSQL(statement)
 	if err != nil {
 		return nil, err
 	}
@@ -169,16 +169,39 @@ func (driver *Driver) QueryConn2(ctx context.Context, conn *sql.Conn, statement 
 	return results, nil
 }
 
-func getOracleStatementWithResultLimit(stmt string, limit int) string {
-	return fmt.Sprintf("SELECT * FROM (%s) WHERE ROWNUM <= %d", stmt, limit)
+func (driver *Driver) getOracleStatementWithResultLimit(stmt string, queryContext *db.QueryContext) (string, error) {
+	engineVersion := driver.connectionCtx.EngineVersion
+	versionIdx := strings.Index(engineVersion, ".")
+	if versionIdx < 0 {
+		return "", errors.New("instance version number is invalid")
+	}
+	versionNumber, err := strconv.Atoi(engineVersion[:versionIdx])
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case versionNumber < dbVersion12:
+		return getStatementWithResultLimitFor11g(stmt, queryContext.Limit), nil
+	default:
+		res, err := getStatementWithResultLimitFor12c(stmt, queryContext.Limit)
+		if err != nil {
+			return "", err
+		}
+		return res, nil
+	}
 }
 
-func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL parser.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
+func (driver *Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL base.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
 	statement := strings.TrimRight(singleSQL.Text, " \n\t;")
 
 	stmt := statement
 	if !strings.HasPrefix(strings.ToUpper(stmt), "EXPLAIN") && queryContext.Limit > 0 {
-		stmt = getOracleStatementWithResultLimit(stmt, queryContext.Limit)
+		var err error
+		stmt, err = driver.getOracleStatementWithResultLimit(stmt, queryContext)
+		if err != nil {
+			slog.Error("fail to add limit clause", "statement", statement, log.BBError(err))
+			stmt = getStatementWithResultLimitFor11g(stmt, queryContext.Limit)
+		}
 	}
 
 	if queryContext.ReadOnly {
@@ -186,8 +209,22 @@ func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL par
 		queryContext.ReadOnly = false
 	}
 
+	if queryContext.SensitiveSchemaInfo != nil {
+		for _, database := range queryContext.SensitiveSchemaInfo.DatabaseList {
+			if len(database.SchemaList) == 0 {
+				continue
+			}
+			if len(database.SchemaList) > 1 {
+				return nil, errors.Errorf("Oracle schema info should only have one schema per database, but got %d, %v", len(database.SchemaList), database.SchemaList)
+			}
+			if database.SchemaList[0].Name != database.Name {
+				return nil, errors.Errorf("Oracle schema info should have the same database name and schema name, but got %s and %s", database.Name, database.SchemaList[0].Name)
+			}
+		}
+	}
+
 	startTime := time.Now()
-	result, err := util.Query2(ctx, db.Oracle, conn, stmt, queryContext)
+	result, err := util.Query(ctx, storepb.Engine_ORACLE, conn, stmt, queryContext)
 	if err != nil {
 		return nil, err
 	}
@@ -198,5 +235,32 @@ func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL par
 
 // RunStatement runs a SQL statement in a given connection.
 func (*Driver) RunStatement(ctx context.Context, conn *sql.Conn, statement string) ([]*v1pb.QueryResult, error) {
-	return util.RunStatement(ctx, parser.Oracle, conn, statement)
+	return util.RunStatement(ctx, storepb.Engine_ORACLE, conn, statement)
+}
+
+func (driver *Driver) getVersion(ctx context.Context) (int, int, error) {
+	// https://docs.oracle.com/en/database/oracle/oracle-database/19/upgrd/oracle-database-release-numbers.html#GUID-1E2F3945-C0EE-4EB2-A933-8D1862D8ECE2
+	var banner string
+	if err := driver.db.QueryRowContext(ctx, "SELECT BANNER FROM v$version").Scan(&banner); err != nil {
+		return 0, 0, err
+	}
+
+	return parseVersion(banner)
+}
+
+func parseVersion(banner string) (int, int, error) {
+	re := regexp.MustCompile(`(\d+)\.(\d+)`)
+	match := re.FindStringSubmatch(banner)
+	if len(match) >= 3 {
+		firstVersion, err := strconv.Atoi(match[1])
+		if err != nil {
+			return 0, 0, errors.Errorf("failed to parse first version from banner: %s", banner)
+		}
+		secondVersion, err := strconv.Atoi(match[2])
+		if err != nil {
+			return 0, 0, errors.Errorf("failed to parse second version from banner: %s", banner)
+		}
+		return firstVersion, secondVersion, nil
+	}
+	return 0, 0, errors.Errorf("failed to parse version from banner: %s", banner)
 }

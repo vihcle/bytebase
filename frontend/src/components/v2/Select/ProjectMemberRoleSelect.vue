@@ -1,11 +1,15 @@
 <template>
   <NSelect
+    v-bind="$attrs"
     :value="role"
     :options="roleOptions"
     :max-tag-count="'responsive'"
-    :placeholder="'Select role'"
+    :filterable="true"
+    :filter="filterByName"
+    :render-option="renderOption"
+    :placeholder="$t('role.select')"
     :render-label="renderLabel"
-    v-bind="$attrs"
+    class="bb-project-member-role-select"
     @update:value="changeRole"
   />
   <FeatureModal
@@ -16,15 +20,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, ref } from "vue";
-import { type SelectOption, NSelect } from "naive-ui";
-
-import { featureToRef, useRoleStore } from "@/store";
-import { PresetRoleType, ProjectRoleType } from "@/types";
-import { displayRoleTitle } from "@/utils";
+import { type SelectOption, NSelect, NTooltip } from "naive-ui";
+import { computed, h, ref, VNode } from "vue";
 import FeatureBadge from "@/components/FeatureGuard/FeatureBadge.vue";
 import FeatureModal from "@/components/FeatureGuard/FeatureModal.vue";
+import { featureToRef, useRoleStore } from "@/store";
+import { PresetRoleType, ProjectRoleType } from "@/types";
 import { Role } from "@/types/proto/v1/role_service";
+import { displayRoleDescription, displayRoleTitle } from "@/utils";
 
 type ProjectRoleSelectOption = SelectOption & {
   value: string;
@@ -32,24 +35,25 @@ type ProjectRoleSelectOption = SelectOption & {
 };
 
 defineProps<{
-  role: ProjectRoleType;
+  role?: ProjectRoleType;
 }>();
 
 const emit = defineEmits<{
   (event: "update:role", role: ProjectRoleType): void;
 }>();
 
-const FREE_ROLE_LIST = [PresetRoleType.OWNER, PresetRoleType.DEVELOPER];
+const FREE_ROLE_LIST = [
+  PresetRoleType.OWNER,
+  PresetRoleType.DEVELOPER,
+  PresetRoleType.RELEASER,
+  PresetRoleType.QUERIER,
+  PresetRoleType.EXPORTER,
+  PresetRoleType.VIEWER,
+];
 const hasCustomRoleFeature = featureToRef("bb.feature.custom-role");
 const showFeatureModal = ref(false);
 const roleList = computed(() => {
   const roleList = useRoleStore().roleList;
-  // For enterprise plan, we don't allow to add exporter role.
-  if (hasCustomRoleFeature.value) {
-    return roleList.filter((role) => {
-      return role.name !== PresetRoleType.EXPORTER;
-    });
-  }
   return roleList;
 });
 
@@ -97,10 +101,24 @@ const changeRole = (value: string) => {
   }
   emit("update:role", value);
 };
-</script>
 
-<script lang="ts">
-defineComponent({
-  inheritAttrs: false,
-});
+const filterByName = (pattern: string, option: SelectOption) => {
+  const { role } = option as ProjectRoleSelectOption;
+  pattern = pattern.toLowerCase();
+  return role.name.toLowerCase().includes(pattern);
+};
+
+const renderOption = ({
+  node,
+  option,
+}: {
+  node: VNode;
+  option: SelectOption;
+}) => {
+  const { role } = option as ProjectRoleSelectOption;
+  return h(NTooltip, null, {
+    trigger: () => node,
+    default: () => displayRoleDescription(role.name),
+  });
+};
 </script>

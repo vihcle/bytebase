@@ -19,7 +19,6 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, computed } from "vue";
 import {
   KBarProvider,
   KBarPortal,
@@ -28,15 +27,17 @@ import {
   KBarSearch,
   defineAction,
 } from "@bytebase/vue-kbar";
-import { compareAction as compare } from "./utils";
-import { useRouter } from "vue-router";
-import RenderResults from "./RenderResults.vue";
-import KBarHelper from "./KBarHelper.vue";
-import KBarFooter from "./KBarFooter.vue";
+import { storeToRefs } from "pinia";
+import { defineComponent, computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { useModalStackStatus } from "../../bbkit/BBModalStack.vue";
-import { useCurrentUserV1 } from "@/store";
+import { useRouter } from "vue-router";
+import { useOverlayStackContext } from "@/components/misc/OverlayStackManager.vue";
+import { useActuatorV1Store, useCurrentUserV1 } from "@/store";
 import { UNKNOWN_USER_NAME } from "@/types";
+import KBarFooter from "./KBarFooter.vue";
+import KBarHelper from "./KBarHelper.vue";
+import RenderResults from "./RenderResults.vue";
+import { compareAction as compare } from "./utils";
 
 export default defineComponent({
   name: "KBarWrapper",
@@ -53,12 +54,17 @@ export default defineComponent({
   setup() {
     const { t } = useI18n();
     const router = useRouter();
-    const modalStack = useModalStackStatus();
+    const { stack: overlayStack } = useOverlayStackContext();
+    const { pageMode } = storeToRefs(useActuatorV1Store());
 
     const placeholder = computed(() => t("kbar.options.placeholder"));
 
     const disabled = computed(() => {
-      if (modalStack.value.length > 0) {
+      if (pageMode.value === "STANDALONE") {
+        return true;
+      }
+
+      if (overlayStack.value.length > 0) {
         // Disable kbar when any modal dialog is shown
         // We don't want to show modal dialogs and kbar at the same time
         // This also avoids navigating through kbar, which may
@@ -81,14 +87,6 @@ export default defineComponent({
         keywords: "navigation",
         perform: () => router.push({ name: "workspace.home" }),
       }),
-      defineAction({
-        id: "bb.navigation.anomaly-center",
-        name: "Anomaly Center",
-        shortcut: ["g", "a", "c"],
-        section: t("kbar.navigation"),
-        keywords: "navigation",
-        perform: () => router.push({ name: "workspace.anomaly-center" }),
-      }),
     ]);
 
     return {
@@ -101,7 +99,7 @@ export default defineComponent({
 });
 </script>
 
-<style scoped>
+<style scoped lang="postcss">
 .bb-kbar-mask {
   @apply bg-gray-300 bg-opacity-80;
 }

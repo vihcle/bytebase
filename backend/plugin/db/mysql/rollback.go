@@ -5,20 +5,16 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"regexp"
 	"strings"
 
-	// Register pingcap parser driver.
-	_ "github.com/pingcap/tidb/types/parser_driver"
-
-	"github.com/pingcap/tidb/parser"
-	"github.com/pingcap/tidb/parser/ast"
+	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
 
-	"github.com/bytebase/bytebase/backend/common/log"
-	bbparser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	tidbparser "github.com/bytebase/bytebase/backend/plugin/parser/tidb"
 	"github.com/bytebase/bytebase/backend/resources/mysqlutil"
 )
 
@@ -83,7 +79,7 @@ func (driver *Driver) GenerateRollbackSQL(ctx context.Context, binlogSizeLimit i
 		args = append(args, "--port", driver.connCfg.Port)
 	}
 	cmd := exec.CommandContext(ctx, mysqlutil.GetPath(mysqlutil.MySQLBinlog, driver.dbBinDir), args...)
-	log.Debug("mysqlbinlog", zap.String("command", cmd.String()))
+	slog.Debug("mysqlbinlog", slog.String("command", cmd.String()))
 	if driver.connCfg.Password != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("MYSQL_PWD=%s", driver.connCfg.Password))
 	}
@@ -151,7 +147,7 @@ func (driver *Driver) GenerateRollbackSQL(ctx context.Context, binlogSizeLimit i
 // GetTableColumns parses the schema to get the table columns map.
 // This is used to generate rollback SQL from the binlog events.
 func GetTableColumns(schema string) (map[string][]string, error) {
-	_, supportStmts, err := bbparser.ExtractTiDBUnsupportStmts(schema)
+	_, supportStmts, err := tidbparser.ExtractTiDBUnsupportedStmts(schema)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to extract TiDB unsupported statements from old statements %q", schema)
 	}
@@ -244,6 +240,17 @@ func replacePrefix(line, old, new string) string {
 }
 
 func replaceColumns(columnNames []string, body []string, sepLine, lineSuffix, sectionSuffix string) ([]string, error) {
+	var equal string
+	switch sepLine {
+	case "SET":
+		equal = "="
+	case "WHERE":
+		// Use NULL-safe equal operator.
+		equal = "<=>"
+	default:
+		return nil, errors.Errorf("invalid sepLine %q", sepLine)
+	}
+
 	var ret []string
 	for i := 0; i < len(body); {
 		line := body[i]
@@ -265,9 +272,9 @@ func replaceColumns(columnNames []string, body []string, sepLine, lineSuffix, se
 				return nil, errors.Errorf("invalid value line %q, must starts with %q", line, prefix)
 			}
 			if j == len(columnNames)-1 {
-				ret = append(ret, fmt.Sprintf("  `%s`=%s%s", columnNames[j], strings.TrimPrefix(line, prefix), sectionSuffix))
+				ret = append(ret, fmt.Sprintf("  `%s`%s%s%s", columnNames[j], equal, strings.TrimPrefix(line, prefix), sectionSuffix))
 			} else {
-				ret = append(ret, fmt.Sprintf("  `%s`=%s%s", columnNames[j], strings.TrimPrefix(line, prefix), lineSuffix))
+				ret = append(ret, fmt.Sprintf("  `%s`%s%s%s", columnNames[j], equal, strings.TrimPrefix(line, prefix), lineSuffix))
 			}
 		}
 		i += len(columnNames)

@@ -5,9 +5,9 @@
     tabindex="0"
     v-bind="$attrs"
   >
-    <main class="flex-1 relative overflow-y-auto">
+    <main class="flex-1 relative overflow-y-auto space-y-4">
       <div
-        class="px-4 space-y-2 lg:space-y-0 lg:flex lg:items-center lg:justify-between"
+        class="space-y-2 lg:space-y-0 lg:flex lg:items-center lg:justify-between"
       >
         <div class="flex-1 min-w-0 shrink-0">
           <!-- Summary -->
@@ -57,7 +57,7 @@
           }}</NButton>
           <NButton
             @click="createMigration('bb.issue.database.schema.update')"
-            >{{ $t("database.alter-schema") }}</NButton
+            >{{ $t("database.edit-schema") }}</NButton
           >
           <NButton @click="createMigration('bb.issue.database.data.update')">{{
             $t("database.change-data")
@@ -65,16 +65,15 @@
         </div>
       </div>
 
-      <hr class="my-4" />
+      <hr />
 
       <FeatureAttentionForInstanceLicense
         v-if="existMatchedUnactivateInstance"
-        custom-class="m-5"
         :style="`WARN`"
         feature="bb.feature.database-grouping"
       />
 
-      <div class="w-full px-3 max-w-5xl grid grid-cols-5 gap-x-6">
+      <div class="w-full max-w-5xl grid grid-cols-5 gap-x-6">
         <div class="col-span-3">
           <p class="pl-1 text-lg mb-2">
             {{ $t("database-group.condition.self") }}
@@ -94,8 +93,8 @@
         </div>
       </div>
 
-      <hr class="mt-8 my-4" />
-      <div class="w-full max-w-5xl px-4">
+      <hr />
+      <div class="w-full max-w-5xl">
         <div class="w-full flex flex-row justify-between items-center">
           <p class="my-4">{{ $t("database-group.table-group.self") }}</p>
           <div>
@@ -113,12 +112,11 @@
   </div>
 
   <DatabaseGroupPanel
-    v-if="editState.showConfigurePanel"
+    v-model:show="editState.showConfigurePanel"
     :project="project"
     :resource-type="editState.type"
     :database-group="editState.databaseGroup"
     :parent-database-group="editState.parentDatabaseGroup"
-    @close="editState.showConfigurePanel = false"
   />
 
   <DatabaseGroupPrevEditorModal
@@ -130,27 +128,25 @@
 </template>
 
 <script lang="ts" setup>
-import { onMounted, reactive, computed, watch, ref } from "vue";
 import { useDebounceFn } from "@vueuse/core";
+import { NButton } from "naive-ui";
+import { onMounted, reactive, computed, watch, ref } from "vue";
+import DatabaseGroupPrevEditorModal from "@/components/AlterSchemaPrepForm/DatabaseGroupPrevEditorModal.vue";
+import DatabaseGroupPanel from "@/components/DatabaseGroup/DatabaseGroupPanel.vue";
+import MatchedDatabaseView from "@/components/DatabaseGroup/MatchedDatabaseView.vue";
+import SchemaGroupTable from "@/components/DatabaseGroup/SchemaGroupTable.vue";
+import ExprEditor from "@/components/DatabaseGroup/common/ExprEditor";
+import { ResourceType } from "@/components/DatabaseGroup/common/ExprEditor/context";
+import { ConditionGroupExpr } from "@/plugins/cel";
 import {
   useDBGroupStore,
   useProjectV1Store,
   useSubscriptionV1Store,
 } from "@/store";
-import {
-  databaseGroupNamePrefix,
-  projectNamePrefix,
-} from "@/store/modules/v1/common";
-import { DatabaseGroup, SchemaGroup } from "@/types/proto/v1/project_service";
-import { ConditionGroupExpr } from "@/plugins/cel";
-import DatabaseGroupPanel from "@/components/DatabaseGroup/DatabaseGroupPanel.vue";
-import ExprEditor from "@/components/DatabaseGroup/common/ExprEditor";
-import MatchedDatabaseView from "@/components/DatabaseGroup/MatchedDatabaseView.vue";
-import SchemaGroupTable from "@/components/DatabaseGroup/SchemaGroupTable.vue";
-import { ResourceType } from "@/components/DatabaseGroup/common/ExprEditor/context";
+import { databaseGroupNamePrefix } from "@/store/modules/v1/common";
 import { ComposedDatabase, ComposedDatabaseGroup } from "@/types";
-import { NButton } from "naive-ui";
-import DatabaseGroupPrevEditorModal from "@/components/AlterSchemaPrepForm/DatabaseGroupPrevEditorModal.vue";
+import { DatabaseGroup, SchemaGroup } from "@/types/proto/v1/project_service";
+import { idFromSlug } from "@/utils";
 
 interface LocalState {
   isLoaded: boolean;
@@ -165,7 +161,7 @@ interface EditDatabaseGroupState {
 }
 
 const props = defineProps({
-  projectName: {
+  projectSlug: {
     required: true,
     type: String,
   },
@@ -191,8 +187,11 @@ const issueType = ref<
   | "bb.issue.database.data.update"
   | undefined
 >();
+const project = computed(() => {
+  return projectStore.getProjectByUID(String(idFromSlug(props.projectSlug)));
+});
 const databaseGroupResourceName = computed(() => {
-  return `${projectNamePrefix}${props.projectName}/${databaseGroupNamePrefix}${props.databaseGroupName}`;
+  return `${project.value.name}/${databaseGroupNamePrefix}${props.databaseGroupName}`;
 });
 const databaseGroup = computed(() => {
   return dbGroupStore.getDBGroupByName(
@@ -205,11 +204,6 @@ const schemaGroupList = computed(() => {
   );
 });
 const environment = computed(() => databaseGroup.value?.environment);
-const project = computed(() => {
-  return projectStore.getProjectByName(
-    `${projectNamePrefix}${props.projectName}`
-  );
-});
 
 onMounted(async () => {
   await dbGroupStore.getOrFetchDBGroupByName(databaseGroupResourceName.value);

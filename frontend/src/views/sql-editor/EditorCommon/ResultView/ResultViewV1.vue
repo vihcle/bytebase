@@ -1,14 +1,16 @@
 <template>
   <NConfigProvider
     v-bind="naiveUIConfig"
-    class="relative flex flex-col justify-start items-start p-2 pb-1"
+    class="relative flex flex-col justify-start items-start p-2 pb-1 overflow-y-auto"
     :class="dark && 'dark bg-dark-bg'"
   >
     <template v-if="executeParams && resultSet && !showPlaceholder">
       <template v-if="viewMode === 'SINGLE-RESULT'">
         <SingleResultViewV1
           :params="executeParams"
+          :sql-result-set="resultSet"
           :result="resultSet.results[0]"
+          :set-index="0"
         />
       </template>
       <template v-else-if="viewMode === 'MULTI-RESULT'">
@@ -23,7 +25,19 @@
             :name="tabName(result, i)"
             class="flex-1 flex flex-col overflow-hidden"
           >
-            <SingleResultViewV1 :params="executeParams" :result="result" />
+            <template #tab>
+              <span>{{ tabName(result, i) }}</span>
+              <Info
+                v-if="result.error"
+                class="ml-2 text-yellow-600 w-4 h-auto"
+              />
+            </template>
+            <SingleResultViewV1
+              :params="executeParams"
+              :sql-result-set="resultSet"
+              :result="result"
+              :set-index="i"
+            />
           </NTabPane>
         </NTabs>
       </template>
@@ -55,31 +69,40 @@
         {{ $t("sql-editor.table-empty-placeholder") }}
       </template>
     </div>
+
+    <Drawer v-model:show="detail.show" @close="detail.show = false">
+      <DetailPanel v-if="detail.show" :result-set="resultSet" />
+    </Drawer>
   </NConfigProvider>
 </template>
 
 <script lang="ts" setup>
-import { computed, PropType, toRef } from "vue";
-import { useI18n } from "vue-i18n";
+import { Info } from "lucide-vue-next";
 import { darkTheme, NConfigProvider, NTabs, NTabPane } from "naive-ui";
 import { Status } from "nice-grpc-common";
-
+import { computed, PropType, ref, toRef } from "vue";
+import { useI18n } from "vue-i18n";
 import { darkThemeOverrides } from "@/../naive-ui.config";
-import SingleResultViewV1 from "./SingleResultViewV1.vue";
-import EmptyView from "./EmptyView.vue";
-import { ExecuteConfig, ExecuteOption, SQLResultSetV1 } from "@/types";
-import { provideSQLResultViewContext } from "./context";
-import ErrorView from "./ErrorView.vue";
-import RequestQueryButton from "./RequestQueryButton.vue";
-import { QueryResult } from "@/types/proto/v1/sql_service";
+import { Drawer } from "@/components/v2";
 import {
   useCurrentUserV1,
   useInstanceV1Store,
   usePolicyV1Store,
   useTabStore,
 } from "@/store";
+import { ExecuteConfig, ExecuteOption, SQLResultSetV1 } from "@/types";
 import { PolicyType } from "@/types/proto/v1/org_policy_service";
+import { QueryResult } from "@/types/proto/v1/sql_service";
 import { hasWorkspacePermissionV1 } from "@/utils";
+import DetailPanel from "./DetailPanel.vue";
+import EmptyView from "./EmptyView.vue";
+import ErrorView from "./ErrorView.vue";
+import RequestQueryButton from "./RequestQueryButton.vue";
+import { provideSQLResultViewContext, SQLResultViewContext } from "./context";
+
+const { default: SingleResultViewV1 } = await import(
+  "./SingleResultViewV1.vue"
+);
 
 type ViewMode = "SINGLE-RESULT" | "MULTI-RESULT" | "EMPTY" | "ERROR";
 
@@ -109,13 +132,20 @@ const props = defineProps({
 const { t } = useI18n();
 const currentUser = useCurrentUserV1();
 const connection = computed(() => useTabStore().currentTab.connection);
+const keyword = ref("");
+const detail: SQLResultViewContext["detail"] = ref({
+  show: false,
+  set: 0,
+  row: 0,
+  col: 0,
+});
 
 const viewMode = computed((): ViewMode => {
   const { resultSet } = props;
   if (!resultSet) {
     return "EMPTY";
   }
-  const { results, error } = resultSet;
+  const { results = [], error } = resultSet;
   if (error) {
     return "ERROR";
   }
@@ -173,5 +203,7 @@ const disallowCopyingData = computed(() => {
 provideSQLResultViewContext({
   dark: toRef(props, "dark"),
   disallowCopyingData,
+  keyword,
+  detail,
 });
 </script>

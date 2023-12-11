@@ -82,6 +82,7 @@ const (
 	ColumnIsReferencedByView                   Code = 421
 	VarcharLengthExceedsLimit                  Code = 422
 	InvalidColumnDefault                       Code = 423
+	DropIndexColumn                            Code = 424
 
 	// 501 engine error code.
 	NotInnoDBEngine Code = 501
@@ -141,4 +142,9 @@ const (
 // Int returns the int type of code.
 func (c Code) Int() int {
 	return int(c)
+}
+
+// Int32 returns the int32 type of code.
+func (c Code) Int32() int32 {
+	return int32(c)
 }

@@ -19,16 +19,16 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	IssueService_GetIssue_FullMethodName           = "/bytebase.v1.IssueService/GetIssue"
-	IssueService_CreateIssue_FullMethodName        = "/bytebase.v1.IssueService/CreateIssue"
-	IssueService_ListIssues_FullMethodName         = "/bytebase.v1.IssueService/ListIssues"
-	IssueService_UpdateIssue_FullMethodName        = "/bytebase.v1.IssueService/UpdateIssue"
-	IssueService_CreateIssueComment_FullMethodName = "/bytebase.v1.IssueService/CreateIssueComment"
-	IssueService_UpdateIssueComment_FullMethodName = "/bytebase.v1.IssueService/UpdateIssueComment"
-	IssueService_BatchUpdateIssues_FullMethodName  = "/bytebase.v1.IssueService/BatchUpdateIssues"
-	IssueService_ApproveIssue_FullMethodName       = "/bytebase.v1.IssueService/ApproveIssue"
-	IssueService_RejectIssue_FullMethodName        = "/bytebase.v1.IssueService/RejectIssue"
-	IssueService_RequestIssue_FullMethodName       = "/bytebase.v1.IssueService/RequestIssue"
+	IssueService_GetIssue_FullMethodName                = "/bytebase.v1.IssueService/GetIssue"
+	IssueService_CreateIssue_FullMethodName             = "/bytebase.v1.IssueService/CreateIssue"
+	IssueService_ListIssues_FullMethodName              = "/bytebase.v1.IssueService/ListIssues"
+	IssueService_UpdateIssue_FullMethodName             = "/bytebase.v1.IssueService/UpdateIssue"
+	IssueService_CreateIssueComment_FullMethodName      = "/bytebase.v1.IssueService/CreateIssueComment"
+	IssueService_UpdateIssueComment_FullMethodName      = "/bytebase.v1.IssueService/UpdateIssueComment"
+	IssueService_BatchUpdateIssuesStatus_FullMethodName = "/bytebase.v1.IssueService/BatchUpdateIssuesStatus"
+	IssueService_ApproveIssue_FullMethodName            = "/bytebase.v1.IssueService/ApproveIssue"
+	IssueService_RejectIssue_FullMethodName             = "/bytebase.v1.IssueService/RejectIssue"
+	IssueService_RequestIssue_FullMethodName            = "/bytebase.v1.IssueService/RequestIssue"
 )
 
 // IssueServiceClient is the client API for IssueService service.
@@ -41,7 +41,7 @@ type IssueServiceClient interface {
 	UpdateIssue(ctx context.Context, in *UpdateIssueRequest, opts ...grpc.CallOption) (*Issue, error)
 	CreateIssueComment(ctx context.Context, in *CreateIssueCommentRequest, opts ...grpc.CallOption) (*IssueComment, error)
 	UpdateIssueComment(ctx context.Context, in *UpdateIssueCommentRequest, opts ...grpc.CallOption) (*IssueComment, error)
-	BatchUpdateIssues(ctx context.Context, in *BatchUpdateIssuesRequest, opts ...grpc.CallOption) (*BatchUpdateIssuesResponse, error)
+	BatchUpdateIssuesStatus(ctx context.Context, in *BatchUpdateIssuesStatusRequest, opts ...grpc.CallOption) (*BatchUpdateIssuesStatusResponse, error)
 	ApproveIssue(ctx context.Context, in *ApproveIssueRequest, opts ...grpc.CallOption) (*Issue, error)
 	RejectIssue(ctx context.Context, in *RejectIssueRequest, opts ...grpc.CallOption) (*Issue, error)
 	RequestIssue(ctx context.Context, in *RequestIssueRequest, opts ...grpc.CallOption) (*Issue, error)
@@ -109,9 +109,9 @@ func (c *issueServiceClient) UpdateIssueComment(ctx context.Context, in *UpdateI
 	return out, nil
 }
 
-func (c *issueServiceClient) BatchUpdateIssues(ctx context.Context, in *BatchUpdateIssuesRequest, opts ...grpc.CallOption) (*BatchUpdateIssuesResponse, error) {
-	out := new(BatchUpdateIssuesResponse)
-	err := c.cc.Invoke(ctx, IssueService_BatchUpdateIssues_FullMethodName, in, out, opts...)
+func (c *issueServiceClient) BatchUpdateIssuesStatus(ctx context.Context, in *BatchUpdateIssuesStatusRequest, opts ...grpc.CallOption) (*BatchUpdateIssuesStatusResponse, error) {
+	out := new(BatchUpdateIssuesStatusResponse)
+	err := c.cc.Invoke(ctx, IssueService_BatchUpdateIssuesStatus_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ type IssueServiceServer interface {
 	UpdateIssue(context.Context, *UpdateIssueRequest) (*Issue, error)
 	CreateIssueComment(context.Context, *CreateIssueCommentRequest) (*IssueComment, error)
 	UpdateIssueComment(context.Context, *UpdateIssueCommentRequest) (*IssueComment, error)
-	BatchUpdateIssues(context.Context, *BatchUpdateIssuesRequest) (*BatchUpdateIssuesResponse, error)
+	BatchUpdateIssuesStatus(context.Context, *BatchUpdateIssuesStatusRequest) (*BatchUpdateIssuesStatusResponse, error)
 	ApproveIssue(context.Context, *ApproveIssueRequest) (*Issue, error)
 	RejectIssue(context.Context, *RejectIssueRequest) (*Issue, error)
 	RequestIssue(context.Context, *RequestIssueRequest) (*Issue, error)
@@ -184,8 +184,8 @@ func (UnimplementedIssueServiceServer) CreateIssueComment(context.Context, *Crea
 func (UnimplementedIssueServiceServer) UpdateIssueComment(context.Context, *UpdateIssueCommentRequest) (*IssueComment, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateIssueComment not implemented")
 }
-func (UnimplementedIssueServiceServer) BatchUpdateIssues(context.Context, *BatchUpdateIssuesRequest) (*BatchUpdateIssuesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BatchUpdateIssues not implemented")
+func (UnimplementedIssueServiceServer) BatchUpdateIssuesStatus(context.Context, *BatchUpdateIssuesStatusRequest) (*BatchUpdateIssuesStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchUpdateIssuesStatus not implemented")
 }
 func (UnimplementedIssueServiceServer) ApproveIssue(context.Context, *ApproveIssueRequest) (*Issue, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ApproveIssue not implemented")
@@ -317,20 +317,20 @@ func _IssueService_UpdateIssueComment_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
-func _IssueService_BatchUpdateIssues_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(BatchUpdateIssuesRequest)
+func _IssueService_BatchUpdateIssuesStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchUpdateIssuesStatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(IssueServiceServer).BatchUpdateIssues(ctx, in)
+		return srv.(IssueServiceServer).BatchUpdateIssuesStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: IssueService_BatchUpdateIssues_FullMethodName,
+		FullMethod: IssueService_BatchUpdateIssuesStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IssueServiceServer).BatchUpdateIssues(ctx, req.(*BatchUpdateIssuesRequest))
+		return srv.(IssueServiceServer).BatchUpdateIssuesStatus(ctx, req.(*BatchUpdateIssuesStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -421,8 +421,8 @@ var IssueService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _IssueService_UpdateIssueComment_Handler,
 		},
 		{
-			MethodName: "BatchUpdateIssues",
-			Handler:    _IssueService_BatchUpdateIssues_Handler,
+			MethodName: "BatchUpdateIssuesStatus",
+			Handler:    _IssueService_BatchUpdateIssuesStatus_Handler,
 		},
 		{
 			MethodName: "ApproveIssue",

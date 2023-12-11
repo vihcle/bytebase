@@ -28,45 +28,67 @@
     - [ActivityIssueCommentCreatePayload.ExternalApprovalEvent.Action](#bytebase-store-ActivityIssueCommentCreatePayload-ExternalApprovalEvent-Action)
     - [ActivityIssueCommentCreatePayload.ExternalApprovalEvent.Type](#bytebase-store-ActivityIssueCommentCreatePayload-ExternalApprovalEvent-Type)
   
-- [store/common.proto](#store_common-proto)
-    - [PageToken](#bytebase-store-PageToken)
-  
-    - [Engine](#bytebase-store-Engine)
-  
-- [store/data_source.proto](#store_data_source-proto)
-    - [DataSourceOptions](#bytebase-store-DataSourceOptions)
-  
 - [store/database.proto](#store_database-proto)
+    - [ColumnConfig](#bytebase-store-ColumnConfig)
+    - [ColumnConfig.LabelsEntry](#bytebase-store-ColumnConfig-LabelsEntry)
     - [ColumnMetadata](#bytebase-store-ColumnMetadata)
+    - [DatabaseConfig](#bytebase-store-DatabaseConfig)
     - [DatabaseMetadata](#bytebase-store-DatabaseMetadata)
+    - [DatabaseMetadata.LabelsEntry](#bytebase-store-DatabaseMetadata-LabelsEntry)
+    - [DatabaseSchemaMetadata](#bytebase-store-DatabaseSchemaMetadata)
     - [DependentColumn](#bytebase-store-DependentColumn)
     - [ExtensionMetadata](#bytebase-store-ExtensionMetadata)
     - [ForeignKeyMetadata](#bytebase-store-ForeignKeyMetadata)
     - [FunctionMetadata](#bytebase-store-FunctionMetadata)
     - [IndexMetadata](#bytebase-store-IndexMetadata)
     - [InstanceRoleMetadata](#bytebase-store-InstanceRoleMetadata)
+    - [SchemaConfig](#bytebase-store-SchemaConfig)
     - [SchemaMetadata](#bytebase-store-SchemaMetadata)
     - [SecretItem](#bytebase-store-SecretItem)
     - [Secrets](#bytebase-store-Secrets)
     - [StreamMetadata](#bytebase-store-StreamMetadata)
+    - [TableConfig](#bytebase-store-TableConfig)
     - [TableMetadata](#bytebase-store-TableMetadata)
+    - [TablePartitionMetadata](#bytebase-store-TablePartitionMetadata)
     - [TaskMetadata](#bytebase-store-TaskMetadata)
     - [ViewMetadata](#bytebase-store-ViewMetadata)
   
     - [StreamMetadata.Mode](#bytebase-store-StreamMetadata-Mode)
     - [StreamMetadata.Type](#bytebase-store-StreamMetadata-Type)
+    - [TablePartitionMetadata.Type](#bytebase-store-TablePartitionMetadata-Type)
     - [TaskMetadata.State](#bytebase-store-TaskMetadata-State)
+  
+- [store/branch.proto](#store_branch-proto)
+    - [BranchConfig](#bytebase-store-BranchConfig)
+    - [BranchSnapshot](#bytebase-store-BranchSnapshot)
+  
+- [store/changelist.proto](#store_changelist-proto)
+    - [Changelist](#bytebase-store-Changelist)
+    - [Changelist.Change](#bytebase-store-Changelist-Change)
+  
+- [store/common.proto](#store_common-proto)
+    - [PageToken](#bytebase-store-PageToken)
+  
+    - [Engine](#bytebase-store-Engine)
+    - [MaskingLevel](#bytebase-store-MaskingLevel)
+    - [VcsType](#bytebase-store-VcsType)
+  
+- [store/data_source.proto](#store_data_source-proto)
+    - [DataSourceOptions](#bytebase-store-DataSourceOptions)
   
 - [store/idp.proto](#store_idp-proto)
     - [FieldMapping](#bytebase-store-FieldMapping)
     - [IdentityProviderConfig](#bytebase-store-IdentityProviderConfig)
     - [IdentityProviderUserInfo](#bytebase-store-IdentityProviderUserInfo)
+    - [LDAPIdentityProviderConfig](#bytebase-store-LDAPIdentityProviderConfig)
     - [OAuth2IdentityProviderConfig](#bytebase-store-OAuth2IdentityProviderConfig)
     - [OIDCIdentityProviderConfig](#bytebase-store-OIDCIdentityProviderConfig)
   
     - [IdentityProviderType](#bytebase-store-IdentityProviderType)
+    - [OAuth2AuthStyle](#bytebase-store-OAuth2AuthStyle)
   
 - [store/instance.proto](#store_instance-proto)
+    - [InstanceMetadata](#bytebase-store-InstanceMetadata)
     - [InstanceOptions](#bytebase-store-InstanceOptions)
   
 - [store/vcs.proto](#store_vcs-proto)
@@ -74,19 +96,21 @@
     - [FileCommit](#bytebase-store-FileCommit)
     - [PushEvent](#bytebase-store-PushEvent)
   
-    - [VcsType](#bytebase-store-VcsType)
-  
 - [store/instance_change_history.proto](#store_instance_change_history-proto)
+    - [ChangedResourceDatabase](#bytebase-store-ChangedResourceDatabase)
+    - [ChangedResourceSchema](#bytebase-store-ChangedResourceSchema)
+    - [ChangedResourceTable](#bytebase-store-ChangedResourceTable)
+    - [ChangedResources](#bytebase-store-ChangedResources)
     - [InstanceChangeHistoryPayload](#bytebase-store-InstanceChangeHistoryPayload)
   
 - [store/issue.proto](#store_issue-proto)
     - [GrantRequest](#bytebase-store-GrantRequest)
-    - [Grouping](#bytebase-store-Grouping)
     - [IssuePayload](#bytebase-store-IssuePayload)
   
 - [store/plan.proto](#store_plan-proto)
     - [PlanConfig](#bytebase-store-PlanConfig)
     - [PlanConfig.ChangeDatabaseConfig](#bytebase-store-PlanConfig-ChangeDatabaseConfig)
+    - [PlanConfig.ChangeDatabaseConfig.GhostFlagsEntry](#bytebase-store-PlanConfig-ChangeDatabaseConfig-GhostFlagsEntry)
     - [PlanConfig.ChangeDatabaseConfig.RollbackDetail](#bytebase-store-PlanConfig-ChangeDatabaseConfig-RollbackDetail)
     - [PlanConfig.CreateDatabaseConfig](#bytebase-store-PlanConfig-CreateDatabaseConfig)
     - [PlanConfig.CreateDatabaseConfig.LabelsEntry](#bytebase-store-PlanConfig-CreateDatabaseConfig-LabelsEntry)
@@ -98,37 +122,74 @@
   
 - [store/plan_check_run.proto](#store_plan_check_run-proto)
     - [PlanCheckRunConfig](#bytebase-store-PlanCheckRunConfig)
+    - [PlanCheckRunConfig.GhostFlagsEntry](#bytebase-store-PlanCheckRunConfig-GhostFlagsEntry)
     - [PlanCheckRunResult](#bytebase-store-PlanCheckRunResult)
     - [PlanCheckRunResult.Result](#bytebase-store-PlanCheckRunResult-Result)
     - [PlanCheckRunResult.Result.SqlReviewReport](#bytebase-store-PlanCheckRunResult-Result-SqlReviewReport)
     - [PlanCheckRunResult.Result.SqlSummaryReport](#bytebase-store-PlanCheckRunResult-Result-SqlSummaryReport)
   
+    - [PlanCheckRunConfig.ChangeDatabaseType](#bytebase-store-PlanCheckRunConfig-ChangeDatabaseType)
     - [PlanCheckRunResult.Result.Status](#bytebase-store-PlanCheckRunResult-Result-Status)
   
 - [store/policy.proto](#store_policy-proto)
     - [Binding](#bytebase-store-Binding)
     - [IamPolicy](#bytebase-store-IamPolicy)
+    - [MaskData](#bytebase-store-MaskData)
+    - [MaskingExceptionPolicy](#bytebase-store-MaskingExceptionPolicy)
+    - [MaskingExceptionPolicy.MaskingException](#bytebase-store-MaskingExceptionPolicy-MaskingException)
+    - [MaskingPolicy](#bytebase-store-MaskingPolicy)
+    - [MaskingRulePolicy](#bytebase-store-MaskingRulePolicy)
+    - [MaskingRulePolicy.MaskingRule](#bytebase-store-MaskingRulePolicy-MaskingRule)
+    - [RolloutPolicy](#bytebase-store-RolloutPolicy)
+    - [SQLReviewPolicy](#bytebase-store-SQLReviewPolicy)
+    - [SQLReviewRule](#bytebase-store-SQLReviewRule)
+  
+    - [MaskingExceptionPolicy.MaskingException.Action](#bytebase-store-MaskingExceptionPolicy-MaskingException-Action)
+    - [SQLReviewRuleLevel](#bytebase-store-SQLReviewRuleLevel)
+  
+- [store/project.proto](#store_project-proto)
+    - [Project](#bytebase-store-Project)
+    - [ProtectionRule](#bytebase-store-ProtectionRule)
+  
+    - [ProtectionRule.Target](#bytebase-store-ProtectionRule-Target)
   
 - [store/setting.proto](#store_setting-proto)
     - [AgentPluginSetting](#bytebase-store-AgentPluginSetting)
+    - [Announcement](#bytebase-store-Announcement)
+    - [DataClassificationSetting](#bytebase-store-DataClassificationSetting)
+    - [DataClassificationSetting.DataClassificationConfig](#bytebase-store-DataClassificationSetting-DataClassificationConfig)
+    - [DataClassificationSetting.DataClassificationConfig.ClassificationEntry](#bytebase-store-DataClassificationSetting-DataClassificationConfig-ClassificationEntry)
+    - [DataClassificationSetting.DataClassificationConfig.DataClassification](#bytebase-store-DataClassificationSetting-DataClassificationConfig-DataClassification)
+    - [DataClassificationSetting.DataClassificationConfig.Level](#bytebase-store-DataClassificationSetting-DataClassificationConfig-Level)
     - [ExternalApprovalSetting](#bytebase-store-ExternalApprovalSetting)
     - [ExternalApprovalSetting.Node](#bytebase-store-ExternalApprovalSetting-Node)
+    - [MaskingAlgorithmSetting](#bytebase-store-MaskingAlgorithmSetting)
+    - [MaskingAlgorithmSetting.Algorithm](#bytebase-store-MaskingAlgorithmSetting-Algorithm)
+    - [MaskingAlgorithmSetting.Algorithm.FullMask](#bytebase-store-MaskingAlgorithmSetting-Algorithm-FullMask)
+    - [MaskingAlgorithmSetting.Algorithm.MD5Mask](#bytebase-store-MaskingAlgorithmSetting-Algorithm-MD5Mask)
+    - [MaskingAlgorithmSetting.Algorithm.RangeMask](#bytebase-store-MaskingAlgorithmSetting-Algorithm-RangeMask)
+    - [MaskingAlgorithmSetting.Algorithm.RangeMask.Slice](#bytebase-store-MaskingAlgorithmSetting-Algorithm-RangeMask-Slice)
     - [SMTPMailDeliverySetting](#bytebase-store-SMTPMailDeliverySetting)
     - [SchemaTemplateSetting](#bytebase-store-SchemaTemplateSetting)
+    - [SchemaTemplateSetting.ColumnType](#bytebase-store-SchemaTemplateSetting-ColumnType)
     - [SchemaTemplateSetting.FieldTemplate](#bytebase-store-SchemaTemplateSetting-FieldTemplate)
+    - [SchemaTemplateSetting.TableTemplate](#bytebase-store-SchemaTemplateSetting-TableTemplate)
+    - [SemanticTypeSetting](#bytebase-store-SemanticTypeSetting)
+    - [SemanticTypeSetting.SemanticType](#bytebase-store-SemanticTypeSetting-SemanticType)
     - [WorkspaceApprovalSetting](#bytebase-store-WorkspaceApprovalSetting)
     - [WorkspaceApprovalSetting.Rule](#bytebase-store-WorkspaceApprovalSetting-Rule)
     - [WorkspaceProfileSetting](#bytebase-store-WorkspaceProfileSetting)
   
+    - [Announcement.AlertLevel](#bytebase-store-Announcement-AlertLevel)
     - [SMTPMailDeliverySetting.Authentication](#bytebase-store-SMTPMailDeliverySetting-Authentication)
     - [SMTPMailDeliverySetting.Encryption](#bytebase-store-SMTPMailDeliverySetting-Encryption)
   
 - [store/sheet.proto](#store_sheet-proto)
     - [SheetPayload](#bytebase-store-SheetPayload)
     - [SheetPayload.SchemaDesign](#bytebase-store-SheetPayload-SchemaDesign)
-    - [SheetPayload.UsedByIssue](#bytebase-store-SheetPayload-UsedByIssue)
     - [SheetPayload.VCSPayload](#bytebase-store-SheetPayload-VCSPayload)
   
+    - [SheetPayload.SchemaDesign.Type](#bytebase-store-SheetPayload-SchemaDesign-Type)
     - [SheetPayload.Type](#bytebase-store-SheetPayload-Type)
   
 - [store/slow_query.proto](#store_slow_query-proto)
@@ -138,6 +199,7 @@
   
 - [store/task_run.proto](#store_task_run-proto)
     - [TaskRunResult](#bytebase-store-TaskRunResult)
+    - [TaskRunResult.Position](#bytebase-store-TaskRunResult-Position)
   
 - [store/user.proto](#store_user-proto)
     - [MFAConfig](#bytebase-store-MFAConfig)
@@ -485,106 +547,43 @@ convert to the expected struct there.
 
 
 
-<a name="store_common-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## store/common.proto
-
-
-
-<a name="bytebase-store-PageToken"></a>
-
-### PageToken
-Used internally for obfuscating the page token.
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| limit | [int32](#int32) |  |  |
-| offset | [int32](#int32) |  |  |
-
-
-
-
-
- 
-
-
-<a name="bytebase-store-Engine"></a>
-
-### Engine
-
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| ENGINE_UNSPECIFIED | 0 |  |
-| CLICKHOUSE | 1 |  |
-| MYSQL | 2 |  |
-| POSTGRES | 3 |  |
-| SNOWFLAKE | 4 |  |
-| SQLITE | 5 |  |
-| TIDB | 6 |  |
-| MONGODB | 7 |  |
-| REDIS | 8 |  |
-| ORACLE | 9 |  |
-| SPANNER | 10 |  |
-| MSSQL | 11 |  |
-| REDSHIFT | 12 |  |
-| MARIADB | 13 |  |
-| OCEANBASE | 14 |  |
-
-
- 
-
- 
-
- 
-
-
-
-<a name="store_data_source-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## store/data_source.proto
-
-
-
-<a name="bytebase-store-DataSourceOptions"></a>
-
-### DataSourceOptions
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| srv | [bool](#bool) |  | srv is a boolean flag that indicates whether the host is a DNS SRV record. |
-| authentication_database | [string](#string) |  | authentication_database is the database name to authenticate against, which stores the user credentials. |
-| sid | [string](#string) |  | sid and service_name are used for Oracle. |
-| service_name | [string](#string) |  |  |
-| ssh_host | [string](#string) |  | SSH related The hostname of the SSH server agent. |
-| ssh_port | [string](#string) |  | The port of the SSH server agent. It&#39;s 22 typically. |
-| ssh_user | [string](#string) |  | The user to login the server. |
-| ssh_obfuscated_password | [string](#string) |  | The password to login the server. If it&#39;s empty string, no password is required. |
-| ssh_obfuscated_private_key | [string](#string) |  | The private key to login the server. If it&#39;s empty string, we will use the system default private key from os.Getenv(&#34;SSH_AUTH_SOCK&#34;). |
-
-
-
-
-
- 
-
- 
-
- 
-
- 
-
-
-
 <a name="store_database-proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
 ## store/database.proto
+
+
+
+<a name="bytebase-store-ColumnConfig"></a>
+
+### ColumnConfig
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name is the name of a column. |
+| semantic_type_id | [string](#string) |  |  |
+| labels | [ColumnConfig.LabelsEntry](#bytebase-store-ColumnConfig-LabelsEntry) | repeated | The user labels for a column. |
+
+
+
+
+
+
+<a name="bytebase-store-ColumnConfig-LabelsEntry"></a>
+
+### ColumnConfig.LabelsEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [string](#string) |  |  |
+
+
+
 
 
 
@@ -599,12 +598,31 @@ ColumnMetadata is the metadata for columns.
 | name | [string](#string) |  | The name is the name of a column. |
 | position | [int32](#int32) |  | The position is the position in columns. |
 | default | [google.protobuf.StringValue](#google-protobuf-StringValue) |  | The default is the default of a column. Use google.protobuf.StringValue to distinguish between an empty string default value or no default. |
+| default_null | [bool](#bool) |  |  |
+| default_expression | [string](#string) |  |  |
 | nullable | [bool](#bool) |  | The nullable is the nullable of a column. |
 | type | [string](#string) |  | The type is the type of a column. |
 | character_set | [string](#string) |  | The character_set is the character_set of a column. |
 | collation | [string](#string) |  | The collation is the collation of a column. |
-| comment | [string](#string) |  | The comment is the comment of a column. |
-| category | [string](#string) |  | The category is the category of a table from the comment. |
+| comment | [string](#string) |  | The comment is the comment of a column. classification and user_comment is parsed from the comment. |
+| classification | [string](#string) |  | The classification is the classification of a table parsed from the comment. |
+| user_comment | [string](#string) |  | The user_comment is the user comment of a table parsed from the comment. |
+
+
+
+
+
+
+<a name="bytebase-store-DatabaseConfig"></a>
+
+### DatabaseConfig
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  |  |
+| schema_configs | [SchemaConfig](#bytebase-store-SchemaConfig) | repeated | The schema_configs is the list of configs for schemas in a database. |
 
 
 
@@ -615,6 +633,38 @@ ColumnMetadata is the metadata for columns.
 
 ### DatabaseMetadata
 DatabaseMetadata is the metadata for databases.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| labels | [DatabaseMetadata.LabelsEntry](#bytebase-store-DatabaseMetadata-LabelsEntry) | repeated |  |
+| last_sync_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-DatabaseMetadata-LabelsEntry"></a>
+
+### DatabaseMetadata.LabelsEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-DatabaseSchemaMetadata"></a>
+
+### DatabaseSchemaMetadata
+DatabaseSchemaMetadata is the schema metadata for databases.
 
 
 | Field | Type | Label | Description |
@@ -742,6 +792,22 @@ InstanceRoleMetadata is the message for instance role.
 
 
 
+<a name="bytebase-store-SchemaConfig"></a>
+
+### SchemaConfig
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name is the schema name. It is an empty string for databases without such concept such as MySQL. |
+| table_configs | [TableConfig](#bytebase-store-TableConfig) | repeated | The table_configs is the list of configs for tables in a schema. |
+
+
+
+
+
+
 <a name="bytebase-store-SchemaMetadata"></a>
 
 ### SchemaMetadata
@@ -817,6 +883,22 @@ This is the concept of schema in Postgres, but it&#39;s a no-op for MySQL.
 
 
 
+<a name="bytebase-store-TableConfig"></a>
+
+### TableConfig
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name is the name of a table. |
+| column_configs | [ColumnConfig](#bytebase-store-ColumnConfig) | repeated | The column_configs is the ordered list of configs for columns in a table. |
+
+
+
+
+
+
 <a name="bytebase-store-TableMetadata"></a>
 
 ### TableMetadata
@@ -835,9 +917,29 @@ TableMetadata is the metadata for tables.
 | index_size | [int64](#int64) |  | The index_size is the estimated index size of a table. |
 | data_free | [int64](#int64) |  | The data_free is the estimated free data size of a table. |
 | create_options | [string](#string) |  | The create_options is the create option of a table. |
-| comment | [string](#string) |  | The comment is the comment of a table. |
-| category | [string](#string) |  | The category is the category of a table from the comment. |
+| comment | [string](#string) |  | The comment is the comment of a table. classification and user_comment is parsed from the comment. |
+| classification | [string](#string) |  | The classification is the classification of a table parsed from the comment. |
+| user_comment | [string](#string) |  | The user_comment is the user comment of a table parsed from the comment. |
 | foreign_keys | [ForeignKeyMetadata](#bytebase-store-ForeignKeyMetadata) | repeated | The foreign_keys is the list of foreign keys in a table. |
+| partitions | [TablePartitionMetadata](#bytebase-store-TablePartitionMetadata) | repeated | The partitions is the list of partitions in a table. |
+
+
+
+
+
+
+<a name="bytebase-store-TablePartitionMetadata"></a>
+
+### TablePartitionMetadata
+TablePartitionMetadata is the metadata for table partitions.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name is the name of a table partition. |
+| type | [TablePartitionMetadata.Type](#bytebase-store-TablePartitionMetadata-Type) |  | The type of a table partition. |
+| expression | [string](#string) |  | The expression is the expression of a table partition. |
+| subpartitions | [TablePartitionMetadata](#bytebase-store-TablePartitionMetadata) | repeated | The subpartitions is the list of subpartitions in a table partition. |
 
 
 
@@ -914,6 +1016,20 @@ ViewMetadata is the metadata for views.
 
 
 
+<a name="bytebase-store-TablePartitionMetadata-Type"></a>
+
+### TablePartitionMetadata.Type
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| TYPE_UNSPECIFIED | 0 |  |
+| RANGE | 1 |  |
+| LIST | 2 |  |
+| HASH | 3 |  |
+
+
+
 <a name="bytebase-store-TaskMetadata-State"></a>
 
 ### TaskMetadata.State
@@ -925,6 +1041,230 @@ ViewMetadata is the metadata for views.
 | STATE_STARTED | 1 |  |
 | STATE_SUSPENDED | 2 |  |
 
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="store_branch-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## store/branch.proto
+
+
+
+<a name="bytebase-store-BranchConfig"></a>
+
+### BranchConfig
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| source_database | [string](#string) |  | The name of source database. Optional. Example: instances/instance-id/databases/database-name. |
+| source_branch | [string](#string) |  | The name of the source branch. Optional. Example: projects/project-id/branches/branch-id. |
+
+
+
+
+
+
+<a name="bytebase-store-BranchSnapshot"></a>
+
+### BranchSnapshot
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| schema | [bytes](#bytes) |  |  |
+| metadata | [DatabaseSchemaMetadata](#bytebase-store-DatabaseSchemaMetadata) |  |  |
+| database_config | [DatabaseConfig](#bytebase-store-DatabaseConfig) |  |  |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="store_changelist-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## store/changelist.proto
+
+
+
+<a name="bytebase-store-Changelist"></a>
+
+### Changelist
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| description | [string](#string) |  |  |
+| changes | [Changelist.Change](#bytebase-store-Changelist-Change) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-Changelist-Change"></a>
+
+### Changelist.Change
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| sheet | [string](#string) |  | The name of a sheet. |
+| source | [string](#string) |  | The source of origin. 1) change history: instances/{instance}/databases/{database}/changeHistories/{changeHistory}. 2) branch: projects/{project}/branches/{branch}. 3) raw SQL if empty. |
+
+
+
+
+
+ 
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="store_common-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## store/common.proto
+
+
+
+<a name="bytebase-store-PageToken"></a>
+
+### PageToken
+Used internally for obfuscating the page token.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| limit | [int32](#int32) |  |  |
+| offset | [int32](#int32) |  |  |
+
+
+
+
+
+ 
+
+
+<a name="bytebase-store-Engine"></a>
+
+### Engine
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| ENGINE_UNSPECIFIED | 0 |  |
+| CLICKHOUSE | 1 |  |
+| MYSQL | 2 |  |
+| POSTGRES | 3 |  |
+| SNOWFLAKE | 4 |  |
+| SQLITE | 5 |  |
+| TIDB | 6 |  |
+| MONGODB | 7 |  |
+| REDIS | 8 |  |
+| ORACLE | 9 |  |
+| SPANNER | 10 |  |
+| MSSQL | 11 |  |
+| REDSHIFT | 12 |  |
+| MARIADB | 13 |  |
+| OCEANBASE | 14 |  |
+| DM | 15 |  |
+| RISINGWAVE | 16 |  |
+| OCEANBASE_ORACLE | 17 |  |
+
+
+
+<a name="bytebase-store-MaskingLevel"></a>
+
+### MaskingLevel
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| MASKING_LEVEL_UNSPECIFIED | 0 |  |
+| NONE | 1 |  |
+| PARTIAL | 2 |  |
+| FULL | 3 |  |
+
+
+
+<a name="bytebase-store-VcsType"></a>
+
+### VcsType
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| VCS_TYPE_UNSPECIFIED | 0 |  |
+| GITLAB | 1 |  |
+| GITHUB | 2 |  |
+| BITBUCKET | 3 |  |
+
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="store_data_source-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## store/data_source.proto
+
+
+
+<a name="bytebase-store-DataSourceOptions"></a>
+
+### DataSourceOptions
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| srv | [bool](#bool) |  | srv is a boolean flag that indicates whether the host is a DNS SRV record. |
+| authentication_database | [string](#string) |  | authentication_database is the database name to authenticate against, which stores the user credentials. |
+| sid | [string](#string) |  | sid and service_name are used for Oracle. |
+| service_name | [string](#string) |  |  |
+| ssh_host | [string](#string) |  | SSH related The hostname of the SSH server agent. |
+| ssh_port | [string](#string) |  | The port of the SSH server agent. It&#39;s 22 typically. |
+| ssh_user | [string](#string) |  | The user to login the server. |
+| ssh_obfuscated_password | [string](#string) |  | The password to login the server. If it&#39;s empty string, no password is required. |
+| ssh_obfuscated_private_key | [string](#string) |  | The private key to login the server. If it&#39;s empty string, we will use the system default private key from os.Getenv(&#34;SSH_AUTH_SOCK&#34;). |
+
+
+
+
+
+ 
 
  
 
@@ -957,8 +1297,9 @@ reference: https://docs.github.com/en/rest/users/users?apiVersion=2022-11-28#get
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | identifier | [string](#string) |  | Identifier is the field name of the unique identifier in 3rd-party idp user info. Required. |
-| display_name | [string](#string) |  | DisplayName is the field name of display name in 3rd-party idp user info. Required. |
-| email | [string](#string) |  | Email is the field name of primary email in 3rd-party idp user info. Required. |
+| display_name | [string](#string) |  | DisplayName is the field name of display name in 3rd-party idp user info. Optional. |
+| email | [string](#string) |  | Email is the field name of primary email in 3rd-party idp user info. Optional. |
+| phone | [string](#string) |  | Phone is the field name of primary phone in 3rd-party idp user info. Optional. |
 
 
 
@@ -975,6 +1316,7 @@ reference: https://docs.github.com/en/rest/users/users?apiVersion=2022-11-28#get
 | ----- | ---- | ----- | ----------- |
 | oauth2_config | [OAuth2IdentityProviderConfig](#bytebase-store-OAuth2IdentityProviderConfig) |  |  |
 | oidc_config | [OIDCIdentityProviderConfig](#bytebase-store-OIDCIdentityProviderConfig) |  |  |
+| ldap_config | [LDAPIdentityProviderConfig](#bytebase-store-LDAPIdentityProviderConfig) |  |  |
 
 
 
@@ -992,6 +1334,30 @@ reference: https://docs.github.com/en/rest/users/users?apiVersion=2022-11-28#get
 | identifier | [string](#string) |  | Identifier is the value of the unique identifier in 3rd-party idp user info. |
 | display_name | [string](#string) |  | DisplayName is the value of display name in 3rd-party idp user info. |
 | email | [string](#string) |  | Email is the value of primary email in 3rd-party idp user info. |
+| phone | [string](#string) |  | Phone is the value of primary phone in 3rd-party idp user info. |
+
+
+
+
+
+
+<a name="bytebase-store-LDAPIdentityProviderConfig"></a>
+
+### LDAPIdentityProviderConfig
+LDAPIdentityProviderConfig is the structure for LDAP identity provider config.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| host | [string](#string) |  | Host is the hostname or IP address of the LDAP server, e.g. &#34;ldap.example.com&#34;. |
+| port | [int32](#int32) |  | Port is the port number of the LDAP server, e.g. 389. When not set, the default port of the corresponding security protocol will be used, i.e. 389 for StartTLS and 636 for LDAPS. |
+| skip_tls_verify | [bool](#bool) |  | SkipTLSVerify controls whether to skip TLS certificate verification. |
+| bind_dn | [string](#string) |  | BindDN is the DN of the user to bind as a service account to perform search requests. |
+| bind_password | [string](#string) |  | BindPassword is the password of the user to bind as a service account. |
+| base_dn | [string](#string) |  | BaseDN is the base DN to search for users, e.g. &#34;ou=users,dc=example,dc=com&#34;. |
+| user_filter | [string](#string) |  | UserFilter is the filter to search for users, e.g. &#34;(uid=%s)&#34;. |
+| security_protocol | [string](#string) |  | SecurityProtocol is the security protocol to be used for establishing connections with the LDAP server. It should be either StartTLS or LDAPS, and cannot be empty. |
+| field_mapping | [FieldMapping](#bytebase-store-FieldMapping) |  | FieldMapping is the mapping of the user attributes returned by the LDAP server. |
 
 
 
@@ -1014,6 +1380,7 @@ OAuth2IdentityProviderConfig is the structure for OAuth2 identity provider confi
 | scopes | [string](#string) | repeated |  |
 | field_mapping | [FieldMapping](#bytebase-store-FieldMapping) |  |  |
 | skip_tls_verify | [bool](#bool) |  |  |
+| auth_style | [OAuth2AuthStyle](#bytebase-store-OAuth2AuthStyle) |  |  |
 
 
 
@@ -1033,6 +1400,7 @@ OIDCIdentityProviderConfig is the structure for OIDC identity provider config.
 | client_secret | [string](#string) |  |  |
 | field_mapping | [FieldMapping](#bytebase-store-FieldMapping) |  |  |
 | skip_tls_verify | [bool](#bool) |  |  |
+| auth_style | [OAuth2AuthStyle](#bytebase-store-OAuth2AuthStyle) |  |  |
 
 
 
@@ -1051,6 +1419,20 @@ OIDCIdentityProviderConfig is the structure for OIDC identity provider config.
 | IDENTITY_PROVIDER_TYPE_UNSPECIFIED | 0 |  |
 | OAUTH2 | 1 |  |
 | OIDC | 2 |  |
+| LDAP | 3 |  |
+
+
+
+<a name="bytebase-store-OAuth2AuthStyle"></a>
+
+### OAuth2AuthStyle
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| OAUTH2_AUTH_STYLE_UNSPECIFIED | 0 |  |
+| IN_PARAMS | 1 | IN_PARAMS sends the &#34;client_id&#34; and &#34;client_secret&#34; in the POST body as application/x-www-form-urlencoded parameters. |
+| IN_HEADER | 2 | IN_HEADER sends the client_id and client_password using HTTP Basic Authorization. This is an optional style described in the OAuth2 RFC 6749 section 2.3.1. |
 
 
  
@@ -1068,6 +1450,22 @@ OIDCIdentityProviderConfig is the structure for OIDC identity provider config.
 
 
 
+<a name="bytebase-store-InstanceMetadata"></a>
+
+### InstanceMetadata
+InstanceMetadata is the metadata for instances.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| mysql_lower_case_table_names | [int32](#int32) |  | The lower_case_table_names config for MySQL instances. It is used to determine whether the table names and database names are case sensitive. |
+| last_sync_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
+
+
+
+
+
+
 <a name="bytebase-store-InstanceOptions"></a>
 
 ### InstanceOptions
@@ -1077,6 +1475,7 @@ InstanceOptions is the option for instances.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | schema_tenant_mode | [bool](#bool) |  | The schema tenant mode is used to determine whether the instance is in schema tenant mode. For Oracle schema tenant mode, the instance a Oracle database and the database is the Oracle schema. |
+| sync_interval | [google.protobuf.Duration](#google-protobuf-Duration) |  | How often the instance is synced. |
 
 
 
@@ -1170,20 +1569,6 @@ InstanceOptions is the option for instances.
 
  
 
-
-<a name="bytebase-store-VcsType"></a>
-
-### VcsType
-
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| VCS_TYPE_UNSPECIFIED | 0 |  |
-| GITLAB | 1 |  |
-| GITHUB | 2 |  |
-| BITBUCKET | 3 |  |
-
-
  
 
  
@@ -1199,6 +1584,68 @@ InstanceOptions is the option for instances.
 
 
 
+<a name="bytebase-store-ChangedResourceDatabase"></a>
+
+### ChangedResourceDatabase
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  |  |
+| schemas | [ChangedResourceSchema](#bytebase-store-ChangedResourceSchema) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-ChangedResourceSchema"></a>
+
+### ChangedResourceSchema
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  |  |
+| tables | [ChangedResourceTable](#bytebase-store-ChangedResourceTable) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-ChangedResourceTable"></a>
+
+### ChangedResourceTable
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-ChangedResources"></a>
+
+### ChangedResources
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| databases | [ChangedResourceDatabase](#bytebase-store-ChangedResourceDatabase) | repeated |  |
+
+
+
+
+
+
 <a name="bytebase-store-InstanceChangeHistoryPayload"></a>
 
 ### InstanceChangeHistoryPayload
@@ -1208,6 +1655,7 @@ InstanceOptions is the option for instances.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | push_event | [PushEvent](#bytebase-store-PushEvent) |  |  |
+| changed_resources | [ChangedResources](#bytebase-store-ChangedResources) |  |  |
 
 
 
@@ -1238,25 +1686,10 @@ InstanceOptions is the option for instances.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| role | [string](#string) |  | The requested role, e.g. roles/EXPORTER. |
-| user | [string](#string) |  | The requested user, e.g. users/hello@bytebase.com. |
+| role | [string](#string) |  | The requested role. Format: roles/EXPORTER. |
+| user | [string](#string) |  | The user to be granted. Format: users/{userUID}. |
 | condition | [google.type.Expr](#google-type-Expr) |  |  |
 | expiration | [google.protobuf.Duration](#google-protobuf-Duration) |  |  |
-
-
-
-
-
-
-<a name="bytebase-store-Grouping"></a>
-
-### Grouping
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| database_group_name | [string](#string) |  | The group name, format projects/{project}/database_groups/{database_group} |
 
 
 
@@ -1273,7 +1706,6 @@ InstanceOptions is the option for instances.
 | ----- | ---- | ----- | ----------- |
 | approval | [IssuePayloadApproval](#bytebase-store-IssuePayloadApproval) |  |  |
 | grant_request | [GrantRequest](#bytebase-store-GrantRequest) |  |  |
-| grouping | [Grouping](#bytebase-store-Grouping) |  |  |
 
 
 
@@ -1319,12 +1751,29 @@ InstanceOptions is the option for instances.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| target | [string](#string) |  | The resource name of the target. Format: instances/{instance-id}/databases/{database-name}. Format: projects/{project}/deploymentConfig. |
+| target | [string](#string) |  | The resource name of the target. Format: instances/{instance-id}/databases/{database-name}. Format: projects/{project}/databaseGroups/{databaseGroup}. Format: projects/{project}/deploymentConfigs/default. The plan should have a single step and single spec for the deployment configuration type. |
 | sheet | [string](#string) |  | The resource name of the sheet. Format: projects/{project}/sheets/{sheet} |
 | type | [PlanConfig.ChangeDatabaseConfig.Type](#bytebase-store-PlanConfig-ChangeDatabaseConfig-Type) |  |  |
 | schema_version | [string](#string) |  | schema_version is parsed from VCS file name. It is automatically generated in the UI workflow. |
 | rollback_enabled | [bool](#bool) |  | If RollbackEnabled, build the RollbackSheetID of the task. |
 | rollback_detail | [PlanConfig.ChangeDatabaseConfig.RollbackDetail](#bytebase-store-PlanConfig-ChangeDatabaseConfig-RollbackDetail) | optional |  |
+| ghost_flags | [PlanConfig.ChangeDatabaseConfig.GhostFlagsEntry](#bytebase-store-PlanConfig-ChangeDatabaseConfig-GhostFlagsEntry) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-PlanConfig-ChangeDatabaseConfig-GhostFlagsEntry"></a>
+
+### PlanConfig.ChangeDatabaseConfig.GhostFlagsEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [string](#string) |  |  |
 
 
 
@@ -1361,10 +1810,9 @@ InstanceOptions is the option for instances.
 | character_set | [string](#string) |  | character_set is the character set of the database. |
 | collation | [string](#string) |  | collation is the collation of the database. |
 | cluster | [string](#string) |  | cluster is the cluster of the database. This is only applicable to ClickHouse for &#34;ON CLUSTER &lt;&lt;cluster&gt;&gt;&#34;. |
-| owner | [string](#string) |  | owner is the owner of the database. This is only applicable to Postgres for &#34;WITH OWNER &lt;&lt;owner&gt;&gt;&#34;.
-
-backup is the resource name of the backup. Format: instances/{instance}/databases/{database}/backups/{backup-name} |
-| backup | [string](#string) |  |  |
+| owner | [string](#string) |  | owner is the owner of the database. This is only applicable to Postgres for &#34;WITH OWNER &lt;&lt;owner&gt;&gt;&#34;. |
+| backup | [string](#string) |  | backup is the resource name of the backup. Format: instances/{instance}/databases/{database}/backups/{backup-name} |
+| environment | [string](#string) |  | The environment resource. Format: environments/prod where prod is the environment resource ID. |
 | labels | [PlanConfig.CreateDatabaseConfig.LabelsEntry](#bytebase-store-PlanConfig-CreateDatabaseConfig-LabelsEntry) | repeated | labels of the database. |
 
 
@@ -1481,8 +1929,28 @@ Type is the database change type.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| sheet_id | [int32](#int32) |  |  |
-| database_id | [int32](#int32) |  |  |
+| sheet_uid | [int32](#int32) |  |  |
+| change_database_type | [PlanCheckRunConfig.ChangeDatabaseType](#bytebase-store-PlanCheckRunConfig-ChangeDatabaseType) |  |  |
+| instance_uid | [int32](#int32) |  |  |
+| database_name | [string](#string) |  |  |
+| database_group_uid | [int64](#int64) | optional | database_group_uid is optional. If it&#39;s set, it means the database is part of a database group. |
+| ghost_flags | [PlanCheckRunConfig.GhostFlagsEntry](#bytebase-store-PlanCheckRunConfig-GhostFlagsEntry) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-PlanCheckRunConfig-GhostFlagsEntry"></a>
+
+### PlanCheckRunConfig.GhostFlagsEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [string](#string) |  |  |
 
 
 
@@ -1516,7 +1984,7 @@ Type is the database change type.
 | status | [PlanCheckRunResult.Result.Status](#bytebase-store-PlanCheckRunResult-Result-Status) |  |  |
 | title | [string](#string) |  |  |
 | content | [string](#string) |  |  |
-| code | [int64](#int64) |  |  |
+| code | [int32](#int32) |  |  |
 | sql_summary_report | [PlanCheckRunResult.Result.SqlSummaryReport](#bytebase-store-PlanCheckRunResult-Result-SqlSummaryReport) |  |  |
 | sql_review_report | [PlanCheckRunResult.Result.SqlReviewReport](#bytebase-store-PlanCheckRunResult-Result-SqlReviewReport) |  |  |
 
@@ -1533,9 +2001,10 @@ Type is the database change type.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| line | [int64](#int64) |  |  |
+| line | [int32](#int32) |  |  |
+| column | [int32](#int32) |  |  |
 | detail | [string](#string) |  |  |
-| code | [int64](#int64) |  | Code from sql review. |
+| code | [int32](#int32) |  | Code from sql review. |
 
 
 
@@ -1550,14 +2019,30 @@ Type is the database change type.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| statement_type | [string](#string) |  |  |
-| affected_rows | [int64](#int64) |  |  |
+| code | [int32](#int32) |  |  |
+| statement_types | [string](#string) | repeated | statement_types are the types of statements that are found in the sql. |
+| affected_rows | [int32](#int32) |  |  |
+| changed_resources | [ChangedResources](#bytebase-store-ChangedResources) |  |  |
 
 
 
 
 
  
+
+
+<a name="bytebase-store-PlanCheckRunConfig-ChangeDatabaseType"></a>
+
+### PlanCheckRunConfig.ChangeDatabaseType
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| CHANGE_DATABASE_TYPE_UNSPECIFIED | 0 |  |
+| DDL | 1 |  |
+| DML | 2 |  |
+| SDL | 3 |  |
+
 
 
 <a name="bytebase-store-PlanCheckRunResult-Result-Status"></a>
@@ -1621,7 +2106,251 @@ Reference: https://cloud.google.com/pubsub/docs/reference/rpc/google.iam.v1#bind
 
 
 
+
+<a name="bytebase-store-MaskData"></a>
+
+### MaskData
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| schema | [string](#string) |  |  |
+| table | [string](#string) |  |  |
+| column | [string](#string) |  |  |
+| masking_level | [MaskingLevel](#bytebase-store-MaskingLevel) |  |  |
+| full_masking_algorithm_id | [string](#string) |  |  |
+| partial_masking_algorithm_id | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-MaskingExceptionPolicy"></a>
+
+### MaskingExceptionPolicy
+MaskingExceptionPolicy is the allowlist of users who can access sensitive data.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| masking_exceptions | [MaskingExceptionPolicy.MaskingException](#bytebase-store-MaskingExceptionPolicy-MaskingException) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-MaskingExceptionPolicy-MaskingException"></a>
+
+### MaskingExceptionPolicy.MaskingException
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| action | [MaskingExceptionPolicy.MaskingException.Action](#bytebase-store-MaskingExceptionPolicy-MaskingException-Action) |  | action is the action that the user can access sensitive data. |
+| masking_level | [MaskingLevel](#bytebase-store-MaskingLevel) |  | Level is the masking level that the user can access sensitive data. |
+| member | [string](#string) |  | Member is the principal who bind to this exception policy instance.
+
+* `user:{emailid}`: An email address that represents a specific Bytebase account. For example, `alice@example.com`. |
+| condition | [google.type.Expr](#google-type-Expr) |  | The condition that is associated with this exception policy instance. |
+
+
+
+
+
+
+<a name="bytebase-store-MaskingPolicy"></a>
+
+### MaskingPolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| mask_data | [MaskData](#bytebase-store-MaskData) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-MaskingRulePolicy"></a>
+
+### MaskingRulePolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| rules | [MaskingRulePolicy.MaskingRule](#bytebase-store-MaskingRulePolicy-MaskingRule) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-MaskingRulePolicy-MaskingRule"></a>
+
+### MaskingRulePolicy.MaskingRule
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | A unique identifier for a node in UUID format. |
+| condition | [google.type.Expr](#google-type-Expr) |  |  |
+| masking_level | [MaskingLevel](#bytebase-store-MaskingLevel) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-RolloutPolicy"></a>
+
+### RolloutPolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| automatic | [bool](#bool) |  |  |
+| workspace_roles | [string](#string) | repeated |  |
+| project_roles | [string](#string) | repeated |  |
+| issue_roles | [string](#string) | repeated | roles/LAST_APPROVER roles/CREATOR |
+
+
+
+
+
+
+<a name="bytebase-store-SQLReviewPolicy"></a>
+
+### SQLReviewPolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  |  |
+| rule_list | [SQLReviewRule](#bytebase-store-SQLReviewRule) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-SQLReviewRule"></a>
+
+### SQLReviewRule
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| type | [string](#string) |  |  |
+| level | [SQLReviewRuleLevel](#bytebase-store-SQLReviewRuleLevel) |  |  |
+| payload | [string](#string) |  |  |
+| engine | [Engine](#bytebase-store-Engine) |  |  |
+| comment | [string](#string) |  |  |
+
+
+
+
+
  
+
+
+<a name="bytebase-store-MaskingExceptionPolicy-MaskingException-Action"></a>
+
+### MaskingExceptionPolicy.MaskingException.Action
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| ACTION_UNSPECIFIED | 0 |  |
+| QUERY | 1 |  |
+| EXPORT | 2 |  |
+
+
+
+<a name="bytebase-store-SQLReviewRuleLevel"></a>
+
+### SQLReviewRuleLevel
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| LEVEL_UNSPECIFIED | 0 |  |
+| ERROR | 1 |  |
+| WARNING | 2 |  |
+| DISABLED | 3 |  |
+
+
+ 
+
+ 
+
+ 
+
+
+
+<a name="store_project-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## store/project.proto
+
+
+
+<a name="bytebase-store-Project"></a>
+
+### Project
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| protection_rules | [ProtectionRule](#bytebase-store-ProtectionRule) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-ProtectionRule"></a>
+
+### ProtectionRule
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | A unique identifier for a node in UUID format. |
+| target | [ProtectionRule.Target](#bytebase-store-ProtectionRule-Target) |  |  |
+| name_filter | [string](#string) |  | The name of the branch/changelist or wildcard. |
+| create_allowed_roles | [string](#string) | repeated | The roles allowed to create branches or changelists. Format: roles/OWNER. |
+
+
+
+
+
+ 
+
+
+<a name="bytebase-store-ProtectionRule-Target"></a>
+
+### ProtectionRule.Target
+The type of target.
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| PROTECTION_TARGET_UNSPECIFIED | 0 |  |
+| BRANCH | 1 |  |
+| CHANGELIST | 2 |  |
+
 
  
 
@@ -1654,6 +2383,107 @@ Reference: https://cloud.google.com/pubsub/docs/reference/rpc/google.iam.v1#bind
 
 
 
+<a name="bytebase-store-Announcement"></a>
+
+### Announcement
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| level | [Announcement.AlertLevel](#bytebase-store-Announcement-AlertLevel) |  | The alert level of announcemnt |
+| text | [string](#string) |  | The text of announcemnt |
+| link | [string](#string) |  | The optional link, user can follow the link to check extra details |
+
+
+
+
+
+
+<a name="bytebase-store-DataClassificationSetting"></a>
+
+### DataClassificationSetting
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| configs | [DataClassificationSetting.DataClassificationConfig](#bytebase-store-DataClassificationSetting-DataClassificationConfig) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-DataClassificationSetting-DataClassificationConfig"></a>
+
+### DataClassificationSetting.DataClassificationConfig
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | id is the uuid for classification. Each project can chose one classification config. |
+| title | [string](#string) |  |  |
+| levels | [DataClassificationSetting.DataClassificationConfig.Level](#bytebase-store-DataClassificationSetting-DataClassificationConfig-Level) | repeated | levels is user defined level list for classification. The order for the level decides its priority. |
+| classification | [DataClassificationSetting.DataClassificationConfig.ClassificationEntry](#bytebase-store-DataClassificationSetting-DataClassificationConfig-ClassificationEntry) | repeated | classification is the id - DataClassification map. The id should in [0-9]&#43;-[0-9]&#43;-[0-9]&#43; format. |
+
+
+
+
+
+
+<a name="bytebase-store-DataClassificationSetting-DataClassificationConfig-ClassificationEntry"></a>
+
+### DataClassificationSetting.DataClassificationConfig.ClassificationEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [DataClassificationSetting.DataClassificationConfig.DataClassification](#bytebase-store-DataClassificationSetting-DataClassificationConfig-DataClassification) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-DataClassificationSetting-DataClassificationConfig-DataClassification"></a>
+
+### DataClassificationSetting.DataClassificationConfig.DataClassification
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | id is the classification id in [0-9]&#43;-[0-9]&#43;-[0-9]&#43; format. |
+| title | [string](#string) |  |  |
+| description | [string](#string) |  |  |
+| level_id | [string](#string) | optional |  |
+
+
+
+
+
+
+<a name="bytebase-store-DataClassificationSetting-DataClassificationConfig-Level"></a>
+
+### DataClassificationSetting.DataClassificationConfig.Level
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  |  |
+| title | [string](#string) |  |  |
+| description | [string](#string) |  |  |
+
+
+
+
+
+
 <a name="bytebase-store-ExternalApprovalSetting"></a>
 
 ### ExternalApprovalSetting
@@ -1680,6 +2510,104 @@ Reference: https://cloud.google.com/pubsub/docs/reference/rpc/google.iam.v1#bind
 | id | [string](#string) |  | A unique identifier for a node in UUID format. We will also include the id in the message sending to the external relay service to identify the node. |
 | title | [string](#string) |  | The title of the node. |
 | endpoint | [string](#string) |  | The external endpoint for the relay service, e.g. &#34;http://hello:1234&#34;. |
+
+
+
+
+
+
+<a name="bytebase-store-MaskingAlgorithmSetting"></a>
+
+### MaskingAlgorithmSetting
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| algorithms | [MaskingAlgorithmSetting.Algorithm](#bytebase-store-MaskingAlgorithmSetting-Algorithm) | repeated | algorithms is the list of masking algorithms. |
+
+
+
+
+
+
+<a name="bytebase-store-MaskingAlgorithmSetting-Algorithm"></a>
+
+### MaskingAlgorithmSetting.Algorithm
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | id is the uuid for masking algorithm. |
+| title | [string](#string) |  | title is the title for masking algorithm. |
+| description | [string](#string) |  | description is the description for masking algorithm. |
+| category | [string](#string) |  | Category is the category for masking algorithm. Currently, it accepts 2 categories only: MASKING and HASHING. The range of accepted Payload is decided by the category. Mask: FullMask, RangeMask Hash: MD5Mask |
+| full_mask | [MaskingAlgorithmSetting.Algorithm.FullMask](#bytebase-store-MaskingAlgorithmSetting-Algorithm-FullMask) |  |  |
+| range_mask | [MaskingAlgorithmSetting.Algorithm.RangeMask](#bytebase-store-MaskingAlgorithmSetting-Algorithm-RangeMask) |  |  |
+| md5_mask | [MaskingAlgorithmSetting.Algorithm.MD5Mask](#bytebase-store-MaskingAlgorithmSetting-Algorithm-MD5Mask) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-MaskingAlgorithmSetting-Algorithm-FullMask"></a>
+
+### MaskingAlgorithmSetting.Algorithm.FullMask
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| substitution | [string](#string) |  | substitution is the string used to replace the original value, the max length of the string is 16 bytes. |
+
+
+
+
+
+
+<a name="bytebase-store-MaskingAlgorithmSetting-Algorithm-MD5Mask"></a>
+
+### MaskingAlgorithmSetting.Algorithm.MD5Mask
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| salt | [string](#string) |  | salt is the salt value to generate a different hash that with the word alone. |
+
+
+
+
+
+
+<a name="bytebase-store-MaskingAlgorithmSetting-Algorithm-RangeMask"></a>
+
+### MaskingAlgorithmSetting.Algorithm.RangeMask
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| slices | [MaskingAlgorithmSetting.Algorithm.RangeMask.Slice](#bytebase-store-MaskingAlgorithmSetting-Algorithm-RangeMask-Slice) | repeated | We store it as a repeated field to face the fact that the original value may have multiple parts should be masked. But frontend can be started with a single rule easily. |
+
+
+
+
+
+
+<a name="bytebase-store-MaskingAlgorithmSetting-Algorithm-RangeMask-Slice"></a>
+
+### MaskingAlgorithmSetting.Algorithm.RangeMask.Slice
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| start | [int32](#int32) |  | start is the start index of the original value, start from 0 and should be less than stop. |
+| end | [int32](#int32) |  | stop is the stop index of the original value, should be less than the length of the original value. |
+| substitution | [string](#string) |  | OriginalValue[start:end) would be replaced with replace_with. |
 
 
 
@@ -1719,6 +2647,25 @@ Reference: https://cloud.google.com/pubsub/docs/reference/rpc/google.iam.v1#bind
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | field_templates | [SchemaTemplateSetting.FieldTemplate](#bytebase-store-SchemaTemplateSetting-FieldTemplate) | repeated |  |
+| column_types | [SchemaTemplateSetting.ColumnType](#bytebase-store-SchemaTemplateSetting-ColumnType) | repeated |  |
+| table_templates | [SchemaTemplateSetting.TableTemplate](#bytebase-store-SchemaTemplateSetting-TableTemplate) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-SchemaTemplateSetting-ColumnType"></a>
+
+### SchemaTemplateSetting.ColumnType
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| engine | [Engine](#bytebase-store-Engine) |  |  |
+| enabled | [bool](#bool) |  |  |
+| types | [string](#string) | repeated |  |
 
 
 
@@ -1737,6 +2684,60 @@ Reference: https://cloud.google.com/pubsub/docs/reference/rpc/google.iam.v1#bind
 | engine | [Engine](#bytebase-store-Engine) |  |  |
 | category | [string](#string) |  |  |
 | column | [ColumnMetadata](#bytebase-store-ColumnMetadata) |  |  |
+| config | [ColumnConfig](#bytebase-store-ColumnConfig) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-SchemaTemplateSetting-TableTemplate"></a>
+
+### SchemaTemplateSetting.TableTemplate
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  |  |
+| engine | [Engine](#bytebase-store-Engine) |  |  |
+| category | [string](#string) |  |  |
+| table | [TableMetadata](#bytebase-store-TableMetadata) |  |  |
+| config | [TableConfig](#bytebase-store-TableConfig) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-SemanticTypeSetting"></a>
+
+### SemanticTypeSetting
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| types | [SemanticTypeSetting.SemanticType](#bytebase-store-SemanticTypeSetting-SemanticType) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-store-SemanticTypeSetting-SemanticType"></a>
+
+### SemanticTypeSetting.SemanticType
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | id is the uuid for semantic type. |
+| title | [string](#string) |  | the title of the semantic type, it should not be empty. |
+| description | [string](#string) |  | the description of the semantic type, it can be empty. |
+| partial_mask_algorithm_id | [string](#string) |  | the partial mask algorithm id for the semantic type, if it is empty, should use the default partial mask algorithm. |
+| full_mask_algorithm_id | [string](#string) |  | the full mask algorithm id for the semantic type, if it is empty, should use the default full mask algorithm. |
 
 
 
@@ -1790,6 +2791,8 @@ The external URL is used for: 1. Constructing the correct callback URL when conf
 | require_2fa | [bool](#bool) |  | Require 2FA for all users. |
 | outbound_ip_list | [string](#string) | repeated | outbound_ip_list is the outbound IP for Bytebase instance in SaaS mode. |
 | gitops_webhook_url | [string](#string) |  | The webhook URL for the GitOps workflow. |
+| token_duration | [google.protobuf.Duration](#google-protobuf-Duration) |  | The duration for token. |
+| announcement | [Announcement](#bytebase-store-Announcement) |  | The setting of custom announcement |
 
 
 
@@ -1798,10 +2801,25 @@ The external URL is used for: 1. Constructing the correct callback URL when conf
  
 
 
+<a name="bytebase-store-Announcement-AlertLevel"></a>
+
+### Announcement.AlertLevel
+We support three levels of AlertLevel: INFO, WARNING, and ERROR.
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| ALERT_LEVEL_UNSPECIFIED | 0 |  |
+| ALERT_LEVEL_INFO | 1 |  |
+| ALERT_LEVEL_WARNING | 2 |  |
+| ALERT_LEVEL_CRITICAL | 3 |  |
+
+
+
 <a name="bytebase-store-SMTPMailDeliverySetting-Authentication"></a>
 
 ### SMTPMailDeliverySetting.Authentication
-We support four types of SMTP authentication: NONE, PLAIN, LOGIN, and CRAM-MD5.
+We support four types of SMTP authentication: NONE, PLAIN, LOGIN, and
+CRAM-MD5.
 
 | Name | Number | Description |
 | ---- | ------ | ----------- |
@@ -1851,8 +2869,9 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 | ----- | ---- | ----- | ----------- |
 | type | [SheetPayload.Type](#bytebase-store-SheetPayload-Type) |  |  |
 | vcs_payload | [SheetPayload.VCSPayload](#bytebase-store-SheetPayload-VCSPayload) |  |  |
-| used_by_issues | [SheetPayload.UsedByIssue](#bytebase-store-SheetPayload-UsedByIssue) | repeated | used_by_issues link to the issues where the sheet is used. |
 | schema_design | [SheetPayload.SchemaDesign](#bytebase-store-SheetPayload-SchemaDesign) |  |  |
+| database_config | [DatabaseConfig](#bytebase-store-DatabaseConfig) |  | The snapshot of the database config when creating the sheet, be used to compare with the baseline_database_config and apply the diff to the database. |
+| baseline_database_config | [DatabaseConfig](#bytebase-store-DatabaseConfig) |  | The snapshot of the baseline database config when creating the sheet. |
 
 
 
@@ -1867,24 +2886,10 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| baseline_change_history_id | [string](#string) |  | The baseline instance change history id of the schema design. |
-| engine | [Engine](#bytebase-store-Engine) |  |  |
-
-
-
-
-
-
-<a name="bytebase-store-SheetPayload-UsedByIssue"></a>
-
-### SheetPayload.UsedByIssue
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| issue_id | [int64](#int64) |  |  |
-| issue_title | [string](#string) |  |  |
+| type | [SheetPayload.SchemaDesign.Type](#bytebase-store-SheetPayload-SchemaDesign-Type) |  | The type of the schema design. |
+| engine | [Engine](#bytebase-store-Engine) |  | The database instance engine of the schema design. |
+| baseline_sheet_id | [string](#string) |  | The id of the baseline sheet including the baseline full schema. |
+| baseline_schema_design_id | [string](#string) |  | The sheet id of the baseline schema design. Only valid when the schema design is a personal draft. |
 
 
 
@@ -1905,12 +2910,26 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 | author | [string](#string) |  |  |
 | last_commit_id | [string](#string) |  |  |
 | last_sync_ts | [int64](#int64) |  |  |
+| push_event | [PushEvent](#bytebase-store-PushEvent) |  |  |
 
 
 
 
 
  
+
+
+<a name="bytebase-store-SheetPayload-SchemaDesign-Type"></a>
+
+### SheetPayload.SchemaDesign.Type
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| TYPE_UNSPECIFIED | 0 |  |
+| MAIN_BRANCH | 1 | Main branch type is the main version of schema design. And only allow to be updated/merged with personal drafts. |
+| PERSONAL_DRAFT | 2 | Personal draft type is a copy of the main branch type schema designs. |
+
 
 
 <a name="bytebase-store-SheetPayload-Type"></a>
@@ -1950,8 +2969,8 @@ SlowQueryDetails is the details of a slow query.
 | start_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  | start_time is the start time of the slow query. |
 | query_time | [google.protobuf.Duration](#google-protobuf-Duration) |  | query_time is the query time of the slow query. |
 | lock_time | [google.protobuf.Duration](#google-protobuf-Duration) |  | lock_time is the lock time of the slow query. |
-| rows_sent | [int64](#int64) |  | rows_sent is the number of rows sent by the slow query. |
-| rows_examined | [int64](#int64) |  | rows_examined is the number of rows examined by the slow query. |
+| rows_sent | [int32](#int32) |  | rows_sent is the number of rows sent by the slow query. |
+| rows_examined | [int32](#int32) |  | rows_examined is the number of rows examined by the slow query. |
 | sql_text | [string](#string) |  | sql_text is the SQL text of the slow query. |
 
 
@@ -1983,14 +3002,14 @@ SlowQueryStatisticsItem is the item of slow query statistics.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | sql_fingerprint | [string](#string) |  | sql_fingerprint is the fingerprint of the slow query. |
-| count | [int64](#int64) |  | count is the number of slow queries with the same fingerprint. |
+| count | [int32](#int32) |  | count is the number of slow queries with the same fingerprint. |
 | latest_log_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  | latest_log_time is the time of the latest slow query with the same fingerprint. |
 | total_query_time | [google.protobuf.Duration](#google-protobuf-Duration) |  | The total query time of the slow query log. |
 | maximum_query_time | [google.protobuf.Duration](#google-protobuf-Duration) |  | The maximum query time of the slow query log. |
-| total_rows_sent | [int64](#int64) |  | The total rows sent of the slow query log. |
-| maximum_rows_sent | [int64](#int64) |  | The maximum rows sent of the slow query log. |
-| total_rows_examined | [int64](#int64) |  | The total rows examined of the slow query log. |
-| maximum_rows_examined | [int64](#int64) |  | The maximum rows examined of the slow query log. |
+| total_rows_sent | [int32](#int32) |  | The total rows sent of the slow query log. |
+| maximum_rows_sent | [int32](#int32) |  | The maximum rows sent of the slow query log. |
+| total_rows_examined | [int32](#int32) |  | The total rows examined of the slow query log. |
+| maximum_rows_examined | [int32](#int32) |  | The maximum rows examined of the slow query log. |
 | samples | [SlowQueryDetails](#bytebase-store-SlowQueryDetails) | repeated | samples are the details of the sample slow queries with the same fingerprint. |
 
 
@@ -2025,6 +3044,24 @@ SlowQueryStatisticsItem is the item of slow query statistics.
 | detail | [string](#string) |  |  |
 | change_history | [string](#string) |  | Format: instances/{instance}/databases/{database}/changeHistories/{changeHistory} |
 | version | [string](#string) |  |  |
+| start_position | [TaskRunResult.Position](#bytebase-store-TaskRunResult-Position) |  |  |
+| end_position | [TaskRunResult.Position](#bytebase-store-TaskRunResult-Position) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-TaskRunResult-Position"></a>
+
+### TaskRunResult.Position
+The following fields are used for error reporting.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| line | [int32](#int32) |  |  |
+| column | [int32](#int32) |  |  |
 
 
 

@@ -1,74 +1,65 @@
 <template>
   <div class="flex h-full w-full flex-col justify-start items-start">
     <template v-if="tab.editMode === 'SQL-EDITOR'">
-      <EditorAction @execute="handleExecute" @save-sheet="trySaveSheet" />
+      <EditorAction @execute="handleExecute" />
 
       <ConnectionPathBar />
 
       <SheetForIssueTipsBar />
 
-      <template
-        v-if="
-          !tabStore.isDisconnected || isSheetOversize || sheetBacktracePayload
-        "
-      >
-        <SQLEditor @execute="handleExecute" @save-sheet="trySaveSheet" />
-      </template>
-      <template v-else>
-        <ConnectionHolder />
-      </template>
+      <Suspense>
+        <SQLEditor @execute="handleExecute" />
+        <template #fallback>
+          <div
+            class="w-full h-auto flex-grow flex flex-col items-center justify-center"
+          >
+            <BBSpin />
+          </div>
+        </template>
+      </Suspense>
     </template>
 
-    <AIChatToSQL
-      v-if="!tabStore.isDisconnected"
-      @apply-statement="handleApplyStatement"
-    />
+    <Suspense>
+      <AIChatToSQL
+        v-if="!tabStore.isDisconnected && showAIChatBox"
+        :allow-config="pageMode === 'BUNDLED'"
+        @apply-statement="handleApplyStatement"
+      />
+    </Suspense>
 
     <ExecutingHintModal />
 
-    <SaveSheetModal ref="saveSheetModal" />
+    <SaveSheetModal />
   </div>
 </template>
 
 <script lang="ts" setup>
-import { computed, ref } from "vue";
-
-import type { Connection, ExecuteConfig, ExecuteOption } from "@/types";
+import { defineAsyncComponent } from "vue";
+import { useExecuteSQL } from "@/composables/useExecuteSQL";
+import { AIChatToSQL } from "@/plugins/ai";
 import {
   useCurrentTab,
   useInstanceV1Store,
-  useSheetV1Store,
   useTabStore,
+  usePageMode,
 } from "@/store";
-import SQLEditor from "./SQLEditor.vue";
+import type { Connection, ExecuteConfig, ExecuteOption } from "@/types";
+import { formatEngineV1 } from "@/utils";
 import {
   EditorAction,
   ConnectionPathBar,
-  ConnectionHolder,
   ExecutingHintModal,
   SaveSheetModal,
 } from "../EditorCommon";
+import { useSQLEditorContext } from "../context";
 import SheetForIssueTipsBar from "./SheetForIssueTipsBar.vue";
-import { useExecuteSQL } from "@/composables/useExecuteSQL";
-import { AIChatToSQL } from "@/plugins/ai";
-import { formatEngineV1, getSheetIssueBacktracePayloadV1 } from "@/utils";
+
+const SQLEditor = defineAsyncComponent(() => import("./SQLEditor.vue"));
 
 const tabStore = useTabStore();
-const sheetV1Store = useSheetV1Store();
-const saveSheetModal = ref<InstanceType<typeof SaveSheetModal>>();
 const tab = useCurrentTab();
-
-const sheet = computed(() => {
-  const sheetName = tabStore.currentTab.sheetName;
-  if (!sheetName) return undefined;
-  const sheet = sheetV1Store.getSheetByName(sheetName);
-  return sheet;
-});
-
-const sheetBacktracePayload = computed(() => {
-  if (!sheet.value) return undefined;
-  return getSheetIssueBacktracePayloadV1(sheet.value);
-});
+const { showAIChatBox } = useSQLEditorContext();
+const pageMode = usePageMode();
 
 const { executeReadonly } = useExecuteSQL();
 
@@ -80,9 +71,9 @@ const handleExecute = (
   executeReadonly(query, config, option);
 };
 
-const trySaveSheet = (sheetName?: string) => {
-  saveSheetModal.value?.trySaveSheet(sheetName);
-};
+// const trySaveSheet = (sheetName?: string) => {
+//   saveSheetModal.value?.trySaveSheet(sheetName);
+// };
 
 const handleApplyStatement = async (
   statement: string,
@@ -100,15 +91,4 @@ const handleApplyStatement = async (
     });
   }
 };
-
-const isSheetOversize = computed(() => {
-  if (!sheet.value) {
-    return false;
-  }
-
-  return (
-    new TextDecoder().decode(sheet.value.content).length <
-    sheet.value.contentSize
-  );
-});
 </script>

@@ -1,12 +1,10 @@
 <template>
-  <NDrawer
+  <Drawer
     :show="slowQueryLog !== undefined"
-    :auto-focus="false"
     width="auto"
-    :z-index="30"
     @update:show="(show: boolean) => !show && $emit('close')"
   >
-    <NDrawerContent
+    <DrawerContent
       :title="$t('slow-query.detail')"
       :closable="true"
       class="w-[calc(100vw-2rem)] lg:max-w-[64rem] xl:max-w-[72rem]"
@@ -29,7 +27,7 @@
             </label>
 
             <EnvironmentV1Name
-              :environment="database.instanceEntity.environmentEntity"
+              :environment="database.effectiveEnvironmentEntity"
             />
           </div>
 
@@ -95,10 +93,10 @@
                 </div>
               </div>
               <div class="bb-grid-cell">
-                {{ detail.queryTime?.seconds.toFixed(2) }}s
+                {{ detail.queryTime?.seconds?.toNumber()?.toFixed(2) }}s
               </div>
               <div class="bb-grid-cell">
-                {{ detail.lockTime?.seconds.toFixed(2) }}s
+                {{ detail.lockTime?.seconds?.toNumber()?.toFixed(2) }}s
               </div>
               <div class="bb-grid-cell">
                 {{ detail.rowsExamined }}
@@ -119,26 +117,27 @@
           </BBGrid>
         </div>
       </div>
-    </NDrawerContent>
-  </NDrawer>
+    </DrawerContent>
+  </Drawer>
 </template>
 
 <script lang="ts" setup>
+import { NButton } from "naive-ui";
 import { computed, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton, NDrawer, NDrawerContent } from "naive-ui";
-
 import { type BBGridColumn, type BBGridRow, BBGrid } from "@/bbkit";
-import type { ComposedSlowQueryLog } from "@/types";
-import type { SlowQueryDetails } from "@/types/proto/v1/database_service";
-import { instanceV1HasSlowQueryDetail } from "@/utils";
+import HighlightCodeBlock from "@/components/HighlightCodeBlock";
 import {
   DatabaseV1Name,
   InstanceV1Name,
   EnvironmentV1Name,
   ProjectV1Name,
+  Drawer,
+  DrawerContent,
 } from "@/components/v2";
-import HighlightCodeBlock from "@/components/HighlightCodeBlock";
+import type { ComposedSlowQueryLog } from "@/types";
+import type { SlowQueryDetails } from "@/types/proto/v1/database_service";
+import { instanceV1HasSlowQueryDetail } from "@/utils";
 import IndexAdvisor from "./IndexAdvisor.vue";
 
 export type SlowQueryDetailsRow = BBGridRow<SlowQueryDetails>;

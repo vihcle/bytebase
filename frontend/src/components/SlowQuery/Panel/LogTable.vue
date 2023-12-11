@@ -68,7 +68,7 @@
         </div>
         <div v-if="showEnvironmentColumn" class="bb-grid-cell">
           <EnvironmentV1Name
-            :environment="item.database.instanceEntity.environmentEntity"
+            :environment="item.database.effectiveEnvironmentEntity"
             :link="false"
           />
         </div>
@@ -116,15 +116,14 @@
 <script lang="ts" setup>
 import { computed, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
-
-import type { Duration } from "@/types/proto/google/protobuf/duration";
 import { type BBGridColumn, type BBGridRow, BBGrid } from "@/bbkit";
-import type { ComposedSlowQueryLog } from "@/types";
 import {
   DatabaseV1Name,
   InstanceV1Name,
   EnvironmentV1Name,
 } from "@/components/v2";
+import type { ComposedSlowQueryLog } from "@/types";
+import type { Duration } from "@/types/proto/google/protobuf/duration";
 import { instanceV1HasSlowQueryDetail } from "@/utils";
 
 export type SlowQueryLogRow = BBGridRow<ComposedSlowQueryLog>;
@@ -240,7 +239,7 @@ const toggleExpandRow = (item: ComposedSlowQueryLog) => {
 const durationText = (duration: Duration | undefined) => {
   if (!duration) return "-";
   const { seconds, nanos } = duration;
-  const total = seconds + nanos / 1e9;
+  const total = seconds.toNumber() + nanos / 1e9;
   return total.toFixed(2) + "s";
 };
 

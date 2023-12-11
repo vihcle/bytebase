@@ -32,12 +32,11 @@ type Profile struct {
 	Readonly bool
 	// When we are running in SaaS mode, some features are not allowed to edit by users.
 	SaaS bool
+	Lsp  bool
 	// DataDir is the directory stores the data including Bytebase's own database, backups, etc.
 	DataDir string
 	// ResourceDir is the directory stores the resources including embedded postgres, mysqlutil, mongoutil and etc.
 	ResourceDir string
-	// Debug decides the log level
-	Debug bool
 	// DemoName specifies the demo name. Empty string means no demo.
 	DemoName string
 	// AppRunnerInterval is the interval for application runner.
@@ -51,10 +50,6 @@ type Profile struct {
 	BackupRegion         string
 	BackupBucket         string
 	BackupCredentialFile string
-
-	// IM integration related fields
-	// FeishuAPIURL is the URL of Feishu API server.
-	FeishuAPIURL string
 
 	// Version is the bytebase's server version
 	Version string
@@ -72,6 +67,8 @@ type Profile struct {
 
 	// LastActiveTs is the service last active timestamp, any API calls will refresh this value.
 	LastActiveTs int64
+
+	DevelopmentIAM bool
 }
 
 // UseEmbedDB returns whether to use embedDB.

@@ -1,43 +1,43 @@
+import { errorDetailsClientMiddleware } from "nice-grpc-error-details";
 import {
   createChannel,
   createClientFactory,
   FetchTransport,
   WebsocketTransport,
 } from "nice-grpc-web";
+import { ActuatorServiceDefinition } from "@/types/proto/v1/actuator_service";
+import { AnomalyServiceDefinition } from "@/types/proto/v1/anomaly_service";
+import { AuthServiceDefinition } from "@/types/proto/v1/auth_service";
+import { BranchServiceDefinition } from "@/types/proto/v1/branch_service";
+import { CelServiceDefinition } from "@/types/proto/v1/cel_service";
+import { ChangelistServiceDefinition } from "@/types/proto/v1/changelist_service";
+import { DatabaseServiceDefinition } from "@/types/proto/v1/database_service";
+import { EnvironmentServiceDefinition } from "@/types/proto/v1/environment_service";
+import { ExternalVersionControlServiceDefinition } from "@/types/proto/v1/externalvs_service";
+import { IdentityProviderServiceDefinition } from "@/types/proto/v1/idp_service";
+import { InboxServiceDefinition } from "@/types/proto/v1/inbox_service";
+import { InstanceRoleServiceDefinition } from "@/types/proto/v1/instance_role_service";
+import { InstanceServiceDefinition } from "@/types/proto/v1/instance_service";
+import { IssueServiceDefinition } from "@/types/proto/v1/issue_service";
+import { LoggingServiceDefinition } from "@/types/proto/v1/logging_service";
+import { OrgPolicyServiceDefinition } from "@/types/proto/v1/org_policy_service";
+import { ProjectServiceDefinition } from "@/types/proto/v1/project_service";
+import { RiskServiceDefinition } from "@/types/proto/v1/risk_service";
+import { RoleServiceDefinition } from "@/types/proto/v1/role_service";
+import { RolloutServiceDefinition } from "@/types/proto/v1/rollout_service";
+import { SettingServiceDefinition } from "@/types/proto/v1/setting_service";
+import { SheetServiceDefinition } from "@/types/proto/v1/sheet_service";
+import { SQLServiceDefinition } from "@/types/proto/v1/sql_service";
+import { SubscriptionServiceDefinition } from "@/types/proto/v1/subscription_service";
 import {
   authInterceptorMiddleware,
   errorNotificationMiddleware,
 } from "./middlewares";
-import { AuthServiceDefinition } from "@/types/proto/v1/auth_service";
-import { RoleServiceDefinition } from "@/types/proto/v1/role_service";
-import { IdentityProviderServiceDefinition } from "@/types/proto/v1/idp_service";
-import { EnvironmentServiceDefinition } from "@/types/proto/v1/environment_service";
-import { InstanceServiceDefinition } from "@/types/proto/v1/instance_service";
-import { OrgPolicyServiceDefinition } from "@/types/proto/v1/org_policy_service";
-import { ProjectServiceDefinition } from "@/types/proto/v1/project_service";
-import { SQLServiceDefinition } from "@/types/proto/v1/sql_service";
-import { RiskServiceDefinition } from "@/types/proto/v1/risk_service";
-import { SettingServiceDefinition } from "@/types/proto/v1/setting_service";
-import { IssueServiceDefinition } from "@/types/proto/v1/issue_service";
-import { DatabaseServiceDefinition } from "@/types/proto/v1/database_service";
-import { SheetServiceDefinition } from "@/types/proto/v1/sheet_service";
-import { InstanceRoleServiceDefinition } from "@/types/proto/v1/instance_role_service";
-import { CelServiceDefinition } from "@/types/proto/v1/cel_service";
-import { SubscriptionServiceDefinition } from "@/types/proto/v1/subscription_service";
-import { ActuatorServiceDefinition } from "@/types/proto/v1/actuator_service";
-import { ExternalVersionControlServiceDefinition } from "@/types/proto/v1/externalvs_service";
-import { LoggingServiceDefinition } from "@/types/proto/v1/logging_service";
-import { BookmarkServiceDefinition } from "@/types/proto/v1/bookmark_service";
-import { InboxServiceDefinition } from "@/types/proto/v1/inbox_service";
-import { AnomalyServiceDefinition } from "@/types/proto/v1/anomaly_service";
-import { SchemaDesignServiceDefinition } from "@/types/proto/v1/schema_design_service";
 
 // Create each grpc service client.
 // Reference: https://github.com/deeplay-io/nice-grpc/blob/master/packages/nice-grpc-web/README.md
 
-const address = import.meta.env.BB_GRPC_LOCAL
-  ? "http://localhost:8080"
-  : window.location.origin;
+const address = import.meta.env.BB_GRPC_LOCAL || window.location.origin;
 
 const channel = createChannel(
   address,
@@ -53,6 +53,7 @@ const websocketChannel = createChannel(
 const clientFactory = createClientFactory()
   // A middleware that is attached first, will be invoked last.
   .use(authInterceptorMiddleware)
+  .use(errorDetailsClientMiddleware)
   .use(errorNotificationMiddleware);
 /**
  * Example to use error notification middleware.
@@ -127,6 +128,11 @@ export const issueServiceClient = clientFactory.create(
   channel
 );
 
+export const rolloutServiceClient = clientFactory.create(
+  RolloutServiceDefinition,
+  channel
+);
+
 export const sqlServiceClient = clientFactory.create(
   SQLServiceDefinition,
   channel
@@ -162,11 +168,6 @@ export const loggingServiceClient = clientFactory.create(
   channel
 );
 
-export const bookmarkServiceClient = clientFactory.create(
-  BookmarkServiceDefinition,
-  channel
-);
-
 export const inboxServiceClient = clientFactory.create(
   InboxServiceDefinition,
   channel
@@ -177,8 +178,13 @@ export const anomalyServiceClient = clientFactory.create(
   channel
 );
 
-export const schemaDesignServiceClient = clientFactory.create(
-  SchemaDesignServiceDefinition,
+export const branchServiceClient = clientFactory.create(
+  BranchServiceDefinition,
+  channel
+);
+
+export const changelistServiceClient = clientFactory.create(
+  ChangelistServiceDefinition,
   channel
 );
 

@@ -1,19 +1,32 @@
-import { computed, ref, unref, watch, watchEffect } from "vue";
+import { isUndefined, uniq } from "lodash-es";
 import { defineStore } from "pinia";
-
-import { IamPolicy } from "@/types/proto/v1/iam_policy";
+import { computed, ref, unref, watch, watchEffect } from "vue";
 import { projectServiceClient } from "@/grpcweb";
-import { ComposedDatabase, MaybeRef, PresetRoleType } from "@/types";
-import { useProjectV1Store } from "./project";
-import { useCurrentUserV1 } from "../auth";
+import { resolveCELExpr } from "@/plugins/cel";
+import { hasFeature, usePolicyV1Store } from "@/store";
 import {
+  ALL_USERS_USER_NAME,
+  ComposedDatabase,
+  MaybeRef,
+  PresetRoleType,
+} from "@/types";
+import { Expr } from "@/types/proto/google/api/expr/v1alpha1/syntax";
+import { IamPolicy } from "@/types/proto/v1/iam_policy";
+import {
+  PolicyType,
+  policyTypeToJSON,
+} from "@/types/proto/v1/org_policy_service";
+import {
+  extractEnvironmentNameListFromExpr,
   hasWorkspacePermissionV1,
   isDeveloperOfProjectV1,
   isMemberOfProjectV1,
   isOwnerOfProjectV1,
 } from "@/utils";
 import { convertFromExpr } from "@/utils/issue/cel";
-import { isUndefined } from "lodash-es";
+import { useCurrentUserV1 } from "../auth";
+import { policyNamePrefix } from "./common";
+import { useProjectV1Store } from "./project";
 
 export const useProjectIamPolicyStore = defineStore(
   "project-iam-policy",
@@ -60,6 +73,11 @@ export const useProjectIamPolicyStore = defineStore(
       project: string,
       policy: IamPolicy
     ) => {
+      policy.bindings.forEach((binding) => {
+        if (binding.members) {
+          binding.members = uniq(binding.members);
+        }
+      });
       const updated = await projectServiceClient.setIamPolicy({
         project,
         policy,
@@ -78,13 +96,20 @@ export const useProjectIamPolicyStore = defineStore(
       return getProjectIamPolicy(project);
     };
 
-    const batchGetOrFetchProjectIamPolicy = async (projectList: string[]) => {
-      // BatchFetch policies that missing in the local map.
-      const missingProjectList = projectList.filter(
-        (project) => !policyMap.value.has(project)
-      );
-      if (missingProjectList.length > 0) {
-        await batchFetchIamPolicy(missingProjectList);
+    const batchGetOrFetchProjectIamPolicy = async (
+      projectList: string[],
+      skipCache = false
+    ) => {
+      if (skipCache) {
+        await batchFetchIamPolicy(projectList);
+      } else {
+        // BatchFetch policies that missing in the local map.
+        const missingProjectList = projectList.filter(
+          (project) => !policyMap.value.has(project)
+        );
+        if (missingProjectList.length > 0) {
+          await batchFetchIamPolicy(missingProjectList);
+        }
       }
       return projectList.map(getProjectIamPolicy);
     };
@@ -179,12 +204,40 @@ export const useCurrentUserIamPolicy = () => {
       return true;
     }
 
+    // Check if the environment is open to query for all users.
+    if (hasFeature("bb.feature.access-control")) {
+      const name = `${policyNamePrefix}${policyTypeToJSON(
+        PolicyType.WORKSPACE_IAM
+      )}`;
+      const policy = usePolicyV1Store().getPolicyByName(name);
+      if (policy) {
+        const bindings = policy.workspaceIamPolicy?.bindings;
+        if (bindings) {
+          const querierBinding = bindings.find(
+            (binding) => binding.role === "roles/QUERIER"
+          );
+          if (querierBinding) {
+            const simpleExpr = resolveCELExpr(
+              querierBinding.parsedExpr?.expr || Expr.fromPartial({})
+            );
+            const envNameList = extractEnvironmentNameListFromExpr(simpleExpr);
+            if (envNameList.includes(database.effectiveEnvironment)) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+
+    // Check if the user has the permission to query the database.
     const policy = database.projectEntity.iamPolicy;
     for (const binding of policy.bindings) {
       if (
         binding.role === PresetRoleType.OWNER &&
         binding.members.find(
-          (member) => member === `user:${currentUser.value.email}`
+          (member) =>
+            member === ALL_USERS_USER_NAME ||
+            member === `user:${currentUser.value.email}`
         )
       ) {
         return true;
@@ -192,7 +245,9 @@ export const useCurrentUserIamPolicy = () => {
       if (
         binding.role === PresetRoleType.QUERIER &&
         binding.members.find(
-          (member) => member === `user:${currentUser.value.email}`
+          (member) =>
+            member === ALL_USERS_USER_NAME ||
+            member === `user:${currentUser.value.email}`
         )
       ) {
         if (binding.parsedExpr?.expr) {
@@ -226,6 +281,8 @@ export const useCurrentUserIamPolicy = () => {
         }
       }
     }
+
+    // Otherwise, the user is not allowed to query the database.
     return false;
   };
 
@@ -242,7 +299,9 @@ export const useCurrentUserIamPolicy = () => {
       if (
         binding.role === PresetRoleType.OWNER &&
         binding.members.find(
-          (member) => member === `user:${currentUser.value.email}`
+          (member) =>
+            member === ALL_USERS_USER_NAME ||
+            member === `user:${currentUser.value.email}`
         )
       ) {
         return true;
@@ -250,7 +309,9 @@ export const useCurrentUserIamPolicy = () => {
       if (
         binding.role === PresetRoleType.EXPORTER &&
         binding.members.find(
-          (member) => member === `user:${currentUser.value.email}`
+          (member) =>
+            member === ALL_USERS_USER_NAME ||
+            member === `user:${currentUser.value.email}`
         )
       ) {
         if (binding.parsedExpr?.expr) {

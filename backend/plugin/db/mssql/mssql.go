@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -12,14 +14,16 @@ import (
 	// Import go-ora Oracle driver.
 	_ "github.com/microsoft/go-mssqldb"
 	_ "github.com/microsoft/go-mssqldb/integratedauth/krb5"
+	"github.com/pkg/errors"
 	"google.golang.org/protobuf/types/known/durationpb"
-
-	"go.uber.org/zap"
 
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	tsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/tsql"
+	tsqlbatch "github.com/bytebase/bytebase/backend/plugin/parser/tsql/batch"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
@@ -28,7 +32,7 @@ var (
 )
 
 func init() {
-	db.Register(db.MSSQL, newDriver)
+	db.Register(storepb.Engine_MSSQL, newDriver)
 }
 
 // Driver is the MSSQL driver.
@@ -42,12 +46,16 @@ func newDriver(db.DriverConfig) db.Driver {
 }
 
 // Open opens a MSSQL driver.
-func (driver *Driver) Open(_ context.Context, _ db.Type, config db.ConnectionConfig, _ db.ConnectionContext) (db.Driver, error) {
+func (driver *Driver) Open(_ context.Context, _ storepb.Engine, config db.ConnectionConfig, _ db.ConnectionContext) (db.Driver, error) {
 	query := url.Values{}
 	query.Add("app name", "Bytebase")
 	if config.Database != "" {
 		query.Add("database", config.Database)
 	}
+
+	// In order to be compatible with db servers that only support old versions of tls.
+	// See: https://github.com/microsoft/go-mssqldb/issues/33
+	query.Add("tlsmin", "1.0")
 	u := &url.URL{
 		Scheme:   "sqlserver",
 		User:     url.UserPassword(config.Username, config.Password),
@@ -74,8 +82,8 @@ func (driver *Driver) Ping(ctx context.Context) error {
 }
 
 // GetType returns the database type.
-func (*Driver) GetType() db.Type {
-	return db.MSSQL
+func (*Driver) GetType() storepb.Engine {
+	return storepb.Engine_MSSQL
 }
 
 // GetDB gets the database.
@@ -91,51 +99,86 @@ func (driver *Driver) Execute(ctx context.Context, statement string, createDatab
 		}
 		return 0, nil
 	}
-	totalRowsAffected := int64(0)
 	tx, err := driver.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
 
-	f := func(stmt string) error {
-		sqlResult, err := tx.ExecContext(ctx, stmt)
-		if err != nil {
-			return err
-		}
-		rowsAffected, err := sqlResult.RowsAffected()
-		if err != nil {
-			// Since we cannot differentiate DDL and DML yet, we have to ignore the error.
-			log.Debug("rowsAffected returns error", zap.Error(err))
-		} else {
-			totalRowsAffected += rowsAffected
-		}
-		return nil
-	}
+	totalAffectRows := int64(0)
 
-	if _, err := parser.SplitMultiSQLStream(parser.MSSQL, strings.NewReader(statement), f); err != nil {
-		return 0, err
+	// Split to batches to support some client commands like GO.
+	s := strings.Split(statement, "\n")
+	scanner := func() (string, error) {
+		if len(s) > 0 {
+			z := s[0]
+			s = s[1:]
+			return z, nil
+		}
+		return "", io.EOF
+	}
+	batch := tsqlbatch.NewBatch(scanner)
+
+	for {
+		command, err := batch.Next()
+		if err != nil {
+			if err == io.EOF {
+				// Try send the last batch to server.
+				v := batch.String()
+				if v != "" {
+					rowsAffected, err := execute(ctx, tx, v)
+					if err != nil {
+						return 0, err
+					}
+					totalAffectRows += rowsAffected
+				}
+				break
+			}
+			return 0, errors.Wrapf(err, "failed to get next batch for statement: %s", batch.String())
+		}
+		if command == nil {
+			continue
+		}
+		switch v := command.(type) {
+		case *tsqlbatch.GoCommand:
+			stmt := batch.String()
+			// Try send the batch to server.
+			for i := uint(0); i < v.Count; i++ {
+				rowsAffected, err := execute(ctx, tx, stmt)
+				if err != nil {
+					return 0, err
+				}
+				totalAffectRows += rowsAffected
+			}
+		default:
+			return 0, errors.Errorf("unsupported command type: %T", v)
+		}
+		batch.Reset(nil)
 	}
 
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
-	return totalRowsAffected, nil
+	return totalAffectRows, nil
 }
 
-// QueryConn querys a SQL statement in a given connection.
-func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]any, error) {
-	return util.Query(ctx, db.MSSQL, conn, statement, queryContext)
+func execute(ctx context.Context, tx *sql.Tx, statement string) (int64, error) {
+	sqlResult, err := tx.ExecContext(ctx, statement)
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to execute statement: %s", statement)
+	}
+	rowsAffected, err := sqlResult.RowsAffected()
+	if err != nil {
+		// Since we cannot differentiate DDL and DML yet, we have to ignore the error.
+		slog.Debug("rowsAffected returns error", log.BBError(err))
+		return 0, nil
+	}
+	return rowsAffected, nil
 }
 
-func getMSSQLStatementWithResultLimit(stmt string, limit int) string {
-	// TODO(d): support SELECT 1 (mssql: No column name was specified for column 1 of 'result').
-	return fmt.Sprintf("WITH result AS (%s) SELECT TOP %d * FROM result;", stmt, limit)
-}
-
-// QueryConn2 queries a SQL statement in a given connection.
-func (driver *Driver) QueryConn2(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]*v1pb.QueryResult, error) {
-	singleSQLs, err := parser.SplitMultiSQL(parser.MSSQL, statement)
+// QueryConn queries a SQL statement in a given connection.
+func (driver *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]*v1pb.QueryResult, error) {
+	singleSQLs, err := tsqlparser.SplitSQL(statement)
 	if err != nil {
 		return nil, err
 	}
@@ -158,12 +201,17 @@ func (driver *Driver) QueryConn2(ctx context.Context, conn *sql.Conn, statement 
 	return results, nil
 }
 
-func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL parser.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
+func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL base.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
 	statement := strings.TrimRight(singleSQL.Text, " \n\t;")
 
 	stmt := statement
 	if !strings.HasPrefix(stmt, "EXPLAIN") && queryContext.Limit > 0 {
-		stmt = getMSSQLStatementWithResultLimit(stmt, queryContext.Limit)
+		var err error
+		stmt, err = getMSSQLStatementWithResultLimit(stmt, queryContext.Limit)
+		if err != nil {
+			slog.Error("fail to add limit clause", "statement", statement, log.BBError(err))
+			stmt = fmt.Sprintf("WITH result AS (%s) SELECT TOP %d * FROM result;", stmt, queryContext.Limit)
+		}
 	}
 
 	if queryContext.ReadOnly {
@@ -171,7 +219,7 @@ func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL par
 		queryContext.ReadOnly = false
 	}
 	startTime := time.Now()
-	result, err := util.Query2(ctx, db.MSSQL, conn, stmt, queryContext)
+	result, err := util.Query(ctx, storepb.Engine_MSSQL, conn, stmt, queryContext)
 	if err != nil {
 		return nil, err
 	}
@@ -182,5 +230,5 @@ func (*Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL par
 
 // RunStatement runs a SQL statement.
 func (*Driver) RunStatement(ctx context.Context, conn *sql.Conn, statement string) ([]*v1pb.QueryResult, error) {
-	return util.RunStatement(ctx, parser.MSSQL, conn, statement)
+	return util.RunStatement(ctx, storepb.Engine_MSSQL, conn, statement)
 }

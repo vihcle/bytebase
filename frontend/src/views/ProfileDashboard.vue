@@ -5,7 +5,7 @@
   >
     <!-- Profile header -->
     <div>
-      <div class="h-32 w-full bg-accent lg:h-48"></div>
+      <div class="-m-6 h-32 bg-accent lg:h-48"></div>
       <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="-mt-20 sm:flex sm:items-end sm:space-x-5">
           <UserAvatar :user="user" size="HUGE" />
@@ -146,6 +146,7 @@
             </dt>
             <dd class="mt-1 text-sm text-main">
               <NInput
+                type="password"
                 size="large"
                 :placeholder="
                   $t('settings.profile.password-confirm-placeholder')
@@ -173,7 +174,7 @@
           <FeatureBadge :feature="'bb.feature.2fa'" custom-class="ml-2" />
         </span>
         <div class="space-x-2">
-          <NButton @click="enable2FA">
+          <NButton v-if="user.email === currentUserV1.email" @click="enable2FA">
             {{ isMFAEnabled ? $t("common.edit") : $t("common.enable") }}
           </NButton>
           <NButton v-if="isMFAEnabled" @click="disable2FA">
@@ -188,7 +189,7 @@
           url="https://www.bytebase.com/docs/administration/2fa?source=console"
         />
       </p>
-      <template v-if="isMFAEnabled">
+      <template v-if="showRegenerateRecoveryCodes">
         <div class="w-full flex flex-row justify-between items-center mt-8">
           <span class="text-lg font-medium">{{
             $t("two-factor.recovery-codes.self")
@@ -235,24 +236,26 @@
 
   <!-- Close modal confirm dialog -->
   <ActionConfirmModal
-    v-if="state.showDisable2FAConfirmModal"
+    v-model:show="state.showDisable2FAConfirmModal"
     :title="$t('two-factor.disable.self')"
     :description="$t('two-factor.disable.description')"
-    :style="'danger'"
-    @close="state.showDisable2FAConfirmModal = false"
+    :positive-button-props="{
+      type: 'error',
+    }"
     @confirm="handleDisable2FA"
   />
 </template>
 
 <script lang="ts" setup>
-import { nextTick, computed, onMounted, onUnmounted, reactive, ref } from "vue";
-import { NButton, NInput } from "naive-ui";
-import { useI18n } from "vue-i18n";
 import { cloneDeep, isEmpty, isEqual } from "lodash-es";
+import { NButton, NInput } from "naive-ui";
+import { nextTick, computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
-
-import { unknownUser } from "../types";
-import { hasWorkspacePermissionV1, roleNameV1 } from "../utils";
+import LearnMoreLink from "@/components/LearnMoreLink.vue";
+import RegenerateRecoveryCodesView from "@/components/RegenerateRecoveryCodesView.vue";
+import UserAvatar from "@/components/User/UserAvatar.vue";
+import PhoneNumberInput from "@/components/v2/Form/PhoneNumberInput.vue";
 import {
   featureToRef,
   pushNotification,
@@ -261,15 +264,13 @@ import {
   useCurrentUserV1,
   useUserStore,
 } from "@/store";
-import LearnMoreLink from "@/components/LearnMoreLink.vue";
 import {
   UpdateUserRequest,
   User,
   UserType,
 } from "@/types/proto/v1/auth_service";
-import RegenerateRecoveryCodesView from "@/components/RegenerateRecoveryCodesView.vue";
-import UserAvatar from "@/components/User/UserAvatar.vue";
-import PhoneNumberInput from "@/components/v2/Form/PhoneNumberInput.vue";
+import { unknownUser } from "../types";
+import { hasWorkspacePermissionV1, roleNameV1 } from "../utils";
 
 interface LocalState {
   editing: boolean;
@@ -281,7 +282,7 @@ interface LocalState {
 }
 
 const props = defineProps<{
-  principalId?: string;
+  principalEmail?: string;
 }>();
 
 const { t } = useI18n();
@@ -325,19 +326,31 @@ const hasRBACFeature = featureToRef("bb.feature.rbac");
 const has2FAFeature = featureToRef("bb.feature.2fa");
 
 const isMFAEnabled = computed(() => {
-  return authStore.currentUser.mfaEnabled;
+  return user.value.mfaEnabled;
+});
+
+// only user can regenerate their recovery-codes.
+const showRegenerateRecoveryCodes = computed(() => {
+  return user.value.mfaEnabled && user.value.name === currentUserV1.value.name;
 });
 
 const user = computed(() => {
-  if (props.principalId) {
-    return userStore.getUserById(String(props.principalId)) ?? unknownUser();
+  if (props.principalEmail) {
+    return userStore.getUserByEmail(props.principalEmail) ?? unknownUser();
   }
   return currentUserV1.value;
 });
 
+// User can change her MFA config.
+// Besides, owner can also change anyone's MFA config.
 const showMFAConfig = computed(() => {
-  // Only show MFA config for the user themselves.
-  return user.value.name === currentUserV1.value.name;
+  return (
+    user.value.name === currentUserV1.value.name ||
+    hasWorkspacePermissionV1(
+      "bb.permission.workspace.manage-member",
+      currentUserV1.value.userRole
+    )
+  );
 });
 
 const passwordMismatch = computed(() => {
@@ -433,7 +446,13 @@ const enable2FA = () => {
 };
 
 const disable2FA = () => {
-  if (actuatorStore.serverInfo?.require2fa) {
+  if (
+    actuatorStore.serverInfo?.require2fa &&
+    !hasWorkspacePermissionV1(
+      "bb.permission.workspace.manage-member",
+      currentUserV1.value.userRole
+    )
+  ) {
     pushNotification({
       module: "bytebase",
       style: "WARN",
@@ -445,17 +464,16 @@ const disable2FA = () => {
 };
 
 const handleDisable2FA = async () => {
-  const user = authStore.currentUser;
   await userStore.updateUser(
     UpdateUserRequest.fromPartial({
       user: {
-        name: user.name,
+        name: user.value.name,
         mfaEnabled: false,
       },
       updateMask: ["mfa_enabled"],
     })
   );
-  await authStore.refreshUserIfNeeded(user.name);
+  await userStore.fetchUser(user.value.name, true /* slient */);
   state.showDisable2FAConfirmModal = false;
   pushNotification({
     module: "bytebase",

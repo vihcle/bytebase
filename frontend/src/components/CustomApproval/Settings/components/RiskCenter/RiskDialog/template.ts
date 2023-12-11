@@ -1,11 +1,10 @@
-import { computed } from "vue";
 import { first, last } from "lodash-es";
-
+import { computed } from "vue";
 import { ConditionGroupExpr, wrapAsGroup } from "@/plugins/cel";
+import { t, te } from "@/plugins/i18n";
 import { useEnvironmentV1List } from "@/store";
 import { PresetRiskLevel } from "@/types";
 import { Risk_Source } from "@/types/proto/v1/risk_service";
-import { t, te } from "@/plugins/i18n";
 import { extractEnvironmentResourceName } from "@/utils";
 
 /*
@@ -125,7 +124,7 @@ export const useRuleTemplates = () => {
 
 export const titleOfTemplate = (template: RuleTemplate) => {
   const { key } = template;
-  const keypath = `custom-approval.security-rule.template.presets.${key}`;
+  const keypath = `custom-approval.risk-rule.template.presets.${key}`;
   if (te(keypath)) {
     return t(keypath);
   }

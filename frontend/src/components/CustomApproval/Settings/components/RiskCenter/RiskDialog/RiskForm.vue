@@ -11,13 +11,13 @@
           <NInput
             v-model:value="state.risk.title"
             :disabled="!allowAdmin"
-            :placeholder="$t('custom-approval.security-rule.input-rule-name')"
+            :placeholder="$t('custom-approval.risk-rule.input-rule-name')"
             @input="$emit('update')"
           />
         </div>
         <div class="space-y-2">
           <label class="block font-medium text-sm text-control">
-            {{ $t("custom-approval.security-rule.risk.self") }}
+            {{ $t("custom-approval.risk-rule.risk.self") }}
           </label>
           <RiskLevelSelect
             v-model:value="state.risk.level"
@@ -27,7 +27,7 @@
         </div>
         <div class="space-y-2">
           <label class="block font-medium text-sm text-control">
-            {{ $t("custom-approval.security-rule.source.self") }}
+            {{ $t("custom-approval.risk-rule.source.self") }}
           </label>
           <RiskSourceSelect
             v-model:value="state.risk.source"
@@ -40,21 +40,21 @@
       <div class="flex-1 flex items-stretch gap-x-4 overflow-hidden">
         <div class="flex-1 space-y-2 py-4 overflow-x-hidden overflow-y-auto">
           <h3 class="font-medium text-sm text-control">
-            {{ $t("custom-approval.security-rule.condition.self") }}
+            {{ $t("custom-approval.risk-rule.condition.self") }}
           </h3>
           <div class="text-sm text-control-light">
-            {{ $t("custom-approval.security-rule.condition.description-tips") }}
+            {{ $t("custom-approval.risk-rule.condition.description-tips") }}
             <LearnMoreLink
-              v-if="false"
-              url="https://www.bytebase.com/404"
+              url="https://www.bytebase.com/docs/administration/risk-center/#configuration?source=console"
               class="ml-1"
             />
           </div>
           <ExprEditor
             :expr="state.expr"
             :allow-admin="allowAdmin"
-            :allow-high-level-factors="false"
-            :risk-source="state.risk.source"
+            :factor-list="getFactorList(state.risk.source)"
+            :factor-support-dropdown="factorSupportDropdown"
+            :factor-options-map="getFactorOptionsMap(state.risk.source)"
             @update="$emit('update')"
           />
         </div>
@@ -64,7 +64,7 @@
           class="w-[45%] max-w-[40rem] overflow-y-auto py-4 shrink-0"
         >
           <h3 class="font-medium text-sm text-control mb-2">
-            {{ $t("custom-approval.security-rule.template.templates") }}
+            {{ $t("custom-approval.risk-rule.template.templates") }}
           </h3>
           <RuleTemplateTable
             :dirty="dirty"
@@ -90,23 +90,12 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, watch } from "vue";
-import { NButton, NInput } from "naive-ui";
 import { cloneDeep } from "lodash-es";
-
-import { Risk } from "@/types/proto/v1/risk_service";
-import {
-  Expr as CELExpr,
-  ParsedExpr,
-} from "@/types/proto/google/api/expr/v1alpha1/syntax";
-import { Expr } from "@/types/proto/google/type/expr";
-import type { ConditionGroupExpr } from "@/plugins/cel";
-import { useRiskCenterContext } from "../context";
+import { NButton, NInput } from "naive-ui";
+import { computed, ref, watch } from "vue";
+import ExprEditor from "@/components/ExprEditor";
 import LearnMoreLink from "@/components/LearnMoreLink.vue";
-import RiskLevelSelect from "./RiskLevelSelect.vue";
-import RiskSourceSelect from "./RiskSourceSelect.vue";
-import ExprEditor from "../../common/ExprEditor";
-import RuleTemplateTable from "./RuleTemplateTable.vue";
+import type { ConditionGroupExpr } from "@/plugins/cel";
 import {
   resolveCELExpr,
   buildCELExpr,
@@ -114,9 +103,24 @@ import {
   validateSimpleExpr,
 } from "@/plugins/cel";
 import {
-  convertCELStringToParsedExpr,
-  convertParsedExprToCELString,
+  Expr as CELExpr,
+  ParsedExpr,
+} from "@/types/proto/google/api/expr/v1alpha1/syntax";
+import { Expr } from "@/types/proto/google/type/expr";
+import { Risk } from "@/types/proto/v1/risk_service";
+import {
+  batchConvertCELStringToParsedExpr,
+  batchConvertParsedExprToCELString,
 } from "@/utils";
+import {
+  getFactorList,
+  getFactorOptionsMap,
+  factorSupportDropdown,
+} from "../../common/utils";
+import { useRiskCenterContext } from "../context";
+import RiskLevelSelect from "./RiskLevelSelect.vue";
+import RiskSourceSelect from "./RiskSourceSelect.vue";
+import RuleTemplateTable from "./RuleTemplateTable.vue";
 
 type LocalState = {
   risk: Risk;
@@ -144,12 +148,18 @@ const mode = computed(() => context.dialog.value?.mode ?? "CREATE");
 
 const resolveLocalState = async () => {
   const risk = cloneDeep(context.dialog.value!.risk);
-  const parsedExpr = await convertCELStringToParsedExpr(
-    risk.condition?.expression ?? ""
-  );
+
+  let expr = CELExpr.fromJSON({});
+  if (risk.condition?.expression) {
+    const parsedExprs = await batchConvertCELStringToParsedExpr([
+      risk.condition.expression,
+    ]);
+    expr = parsedExprs[0].expr ?? CELExpr.fromJSON({});
+  }
+
   state.value = {
     risk,
-    expr: wrapAsGroup(resolveCELExpr(parsedExpr.expr ?? CELExpr.fromJSON({}))),
+    expr: wrapAsGroup(resolveCELExpr(expr)),
   };
 };
 
@@ -178,13 +188,13 @@ const handleUpsert = async () => {
 
   const risk = cloneDeep(state.value.risk);
 
-  const expression = await convertParsedExprToCELString(
+  const expressions = await batchConvertParsedExprToCELString([
     ParsedExpr.fromJSON({
       expr: buildCELExpr(state.value.expr),
-    })
-  );
+    }),
+  ]);
   risk.condition = Expr.fromJSON({
-    expression,
+    expression: expressions[0],
   });
   emit("save", risk);
 };

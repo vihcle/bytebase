@@ -2,7 +2,7 @@
   <BBCheckbox
     :title="title"
     :value="value"
-    :disabled="disabled || !editable"
+    :disabled="disabled"
     @toggle="$emit('update:value', $event)"
   />
 </template>
@@ -10,7 +10,6 @@
 <script lang="ts" setup>
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-
 import { BBCheckbox } from "@/bbkit";
 import type { RuleConfigComponent, RuleTemplate } from "@/types";
 import { getRuleLocalizationKey } from "@/types/sqlReview";
@@ -20,7 +19,6 @@ const props = defineProps<{
   config: RuleConfigComponent;
   value: boolean;
   disabled: boolean;
-  editable: boolean;
 }>();
 
 defineEmits<{

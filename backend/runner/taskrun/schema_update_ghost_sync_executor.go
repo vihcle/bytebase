@@ -3,6 +3,7 @@ package taskrun
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -10,14 +11,15 @@ import (
 	"github.com/github/gh-ost/go/base"
 	"github.com/github/gh-ost/go/logic"
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
+	"github.com/bytebase/bytebase/backend/component/ghost"
 	"github.com/bytebase/bytebase/backend/component/state"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/store"
 	"github.com/bytebase/bytebase/backend/utils"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 // NewSchemaUpdateGhostSyncExecutor creates a schema update (gh-ost) sync task executor.
@@ -37,7 +39,14 @@ type SchemaUpdateGhostSyncExecutor struct {
 }
 
 // RunOnce will run SchemaUpdateGhostSync task once.
-func (exec *SchemaUpdateGhostSyncExecutor) RunOnce(ctx context.Context, task *store.TaskMessage) (terminated bool, result *api.TaskRunResultPayload, err error) {
+// TODO: support cancellation.
+func (exec *SchemaUpdateGhostSyncExecutor) RunOnce(ctx context.Context, _ context.Context, task *store.TaskMessage, taskRunUID int) (terminated bool, result *api.TaskRunResultPayload, err error) {
+	exec.stateCfg.TaskRunExecutionStatuses.Store(taskRunUID,
+		state.TaskRunExecutionStatus{
+			ExecutionStatus: v1pb.TaskRun_EXECUTING,
+			UpdateTime:      time.Now(),
+		})
+
 	payload := &api.TaskDatabaseSchemaUpdateGhostSyncPayload{}
 	if err := json.Unmarshal([]byte(task.Payload), payload); err != nil {
 		return true, nil, errors.Wrap(err, "invalid database schema update gh-ost sync payload")
@@ -47,7 +56,7 @@ func (exec *SchemaUpdateGhostSyncExecutor) RunOnce(ctx context.Context, task *st
 		return true, nil, err
 	}
 
-	return exec.runGhostMigration(ctx, exec.store, task, statement)
+	return exec.runGhostMigration(ctx, task, statement, payload.Flags)
 }
 
 type sharedGhostState struct {
@@ -55,7 +64,7 @@ type sharedGhostState struct {
 	errCh            <-chan error
 }
 
-func (exec *SchemaUpdateGhostSyncExecutor) runGhostMigration(ctx context.Context, stores *store.Store, task *store.TaskMessage, statement string) (terminated bool, result *api.TaskRunResultPayload, err error) {
+func (exec *SchemaUpdateGhostSyncExecutor) runGhostMigration(ctx context.Context, task *store.TaskMessage, statement string, flags map[string]string) (terminated bool, result *api.TaskRunResultPayload, err error) {
 	syncDone := make(chan struct{})
 	// set buffer size to 1 to unblock the sender because there is no listner if the task is canceled.
 	// see PR #2919.
@@ -63,7 +72,7 @@ func (exec *SchemaUpdateGhostSyncExecutor) runGhostMigration(ctx context.Context
 
 	statement = strings.TrimSpace(statement)
 
-	tableName, err := utils.GetTableNameFromStatement(statement)
+	tableName, err := ghost.GetTableNameFromStatement(statement)
 	if err != nil {
 		return true, nil, err
 	}
@@ -88,21 +97,11 @@ func (exec *SchemaUpdateGhostSyncExecutor) runGhostMigration(ctx context.Context
 		return true, nil, errors.Errorf("database not found")
 	}
 
-	instanceUsers, err := stores.ListInstanceUsers(ctx, &store.FindInstanceUserMessage{InstanceUID: task.InstanceID})
-	if err != nil {
-		return true, nil, common.Errorf(common.Internal, "failed to find instance user by instanceID %d", task.InstanceID)
-	}
-
 	materials := utils.GetSecretMapFromDatabaseMessage(database)
 	// To avoid leaking the rendered statement, the error message should use the original statement and not the rendered statement.
 	renderedStatement := utils.RenderStatement(statement, materials)
 
-	config, err := utils.GetGhostConfig(task.ID, database, adminDataSource, exec.secret, instanceUsers, tableName, renderedStatement, false, 10000000)
-	if err != nil {
-		return true, nil, err
-	}
-
-	migrationContext, err := utils.NewMigrationContext(config)
+	migrationContext, err := ghost.NewMigrationContext(task.ID, database, adminDataSource, exec.secret, tableName, renderedStatement, false, flags, 10000000)
 	if err != nil {
 		return true, nil, errors.Wrap(err, "failed to init migrationContext for gh-ost")
 	}
@@ -142,7 +141,7 @@ func (exec *SchemaUpdateGhostSyncExecutor) runGhostMigration(ctx context.Context
 
 	go func() {
 		if err := migrator.Migrate(); err != nil {
-			log.Error("failed to run gh-ost migration", zap.Error(err))
+			slog.Error("failed to run gh-ost migration", log.BBError(err))
 			migrationError <- err
 			return
 		}

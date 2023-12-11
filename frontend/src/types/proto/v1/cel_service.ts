@@ -1,42 +1,42 @@
 /* eslint-disable */
-import type { CallContext, CallOptions } from "nice-grpc-common";
-import * as _m0 from "protobufjs/minimal";
+import Long from "long";
+import _m0 from "protobufjs/minimal";
 import { ParsedExpr } from "../google/api/expr/v1alpha1/syntax";
 
 export const protobufPackage = "bytebase.v1";
 
-export interface ParseRequest {
-  expression: string;
+export interface BatchParseRequest {
+  expressions: string[];
 }
 
-export interface ParseResponse {
-  expression?: ParsedExpr | undefined;
+export interface BatchParseResponse {
+  expressions: ParsedExpr[];
 }
 
-export interface DeparseRequest {
-  expression?: ParsedExpr | undefined;
+export interface BatchDeparseRequest {
+  expressions: ParsedExpr[];
 }
 
-export interface DeparseResponse {
-  expression: string;
+export interface BatchDeparseResponse {
+  expressions: string[];
 }
 
-function createBaseParseRequest(): ParseRequest {
-  return { expression: "" };
+function createBaseBatchParseRequest(): BatchParseRequest {
+  return { expressions: [] };
 }
 
-export const ParseRequest = {
-  encode(message: ParseRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.expression !== "") {
-      writer.uint32(10).string(message.expression);
+export const BatchParseRequest = {
+  encode(message: BatchParseRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.expressions) {
+      writer.uint32(10).string(v!);
     }
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): ParseRequest {
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchParseRequest {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseParseRequest();
+    const message = createBaseBatchParseRequest();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -45,7 +45,7 @@ export const ParseRequest = {
             break;
           }
 
-          message.expression = reader.string();
+          message.expressions.push(reader.string());
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -56,43 +56,48 @@ export const ParseRequest = {
     return message;
   },
 
-  fromJSON(object: any): ParseRequest {
-    return { expression: isSet(object.expression) ? String(object.expression) : "" };
+  fromJSON(object: any): BatchParseRequest {
+    return {
+      expressions: globalThis.Array.isArray(object?.expressions)
+        ? object.expressions.map((e: any) => globalThis.String(e))
+        : [],
+    };
   },
 
-  toJSON(message: ParseRequest): unknown {
+  toJSON(message: BatchParseRequest): unknown {
     const obj: any = {};
-    message.expression !== undefined && (obj.expression = message.expression);
+    if (message.expressions?.length) {
+      obj.expressions = message.expressions;
+    }
     return obj;
   },
 
-  create(base?: DeepPartial<ParseRequest>): ParseRequest {
-    return ParseRequest.fromPartial(base ?? {});
+  create(base?: DeepPartial<BatchParseRequest>): BatchParseRequest {
+    return BatchParseRequest.fromPartial(base ?? {});
   },
-
-  fromPartial(object: DeepPartial<ParseRequest>): ParseRequest {
-    const message = createBaseParseRequest();
-    message.expression = object.expression ?? "";
+  fromPartial(object: DeepPartial<BatchParseRequest>): BatchParseRequest {
+    const message = createBaseBatchParseRequest();
+    message.expressions = object.expressions?.map((e) => e) || [];
     return message;
   },
 };
 
-function createBaseParseResponse(): ParseResponse {
-  return { expression: undefined };
+function createBaseBatchParseResponse(): BatchParseResponse {
+  return { expressions: [] };
 }
 
-export const ParseResponse = {
-  encode(message: ParseResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.expression !== undefined) {
-      ParsedExpr.encode(message.expression, writer.uint32(10).fork()).ldelim();
+export const BatchParseResponse = {
+  encode(message: BatchParseResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.expressions) {
+      ParsedExpr.encode(v!, writer.uint32(10).fork()).ldelim();
     }
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): ParseResponse {
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchParseResponse {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseParseResponse();
+    const message = createBaseBatchParseResponse();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -101,7 +106,7 @@ export const ParseResponse = {
             break;
           }
 
-          message.expression = ParsedExpr.decode(reader, reader.uint32());
+          message.expressions.push(ParsedExpr.decode(reader, reader.uint32()));
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -112,46 +117,48 @@ export const ParseResponse = {
     return message;
   },
 
-  fromJSON(object: any): ParseResponse {
-    return { expression: isSet(object.expression) ? ParsedExpr.fromJSON(object.expression) : undefined };
+  fromJSON(object: any): BatchParseResponse {
+    return {
+      expressions: globalThis.Array.isArray(object?.expressions)
+        ? object.expressions.map((e: any) => ParsedExpr.fromJSON(e))
+        : [],
+    };
   },
 
-  toJSON(message: ParseResponse): unknown {
+  toJSON(message: BatchParseResponse): unknown {
     const obj: any = {};
-    message.expression !== undefined &&
-      (obj.expression = message.expression ? ParsedExpr.toJSON(message.expression) : undefined);
+    if (message.expressions?.length) {
+      obj.expressions = message.expressions.map((e) => ParsedExpr.toJSON(e));
+    }
     return obj;
   },
 
-  create(base?: DeepPartial<ParseResponse>): ParseResponse {
-    return ParseResponse.fromPartial(base ?? {});
+  create(base?: DeepPartial<BatchParseResponse>): BatchParseResponse {
+    return BatchParseResponse.fromPartial(base ?? {});
   },
-
-  fromPartial(object: DeepPartial<ParseResponse>): ParseResponse {
-    const message = createBaseParseResponse();
-    message.expression = (object.expression !== undefined && object.expression !== null)
-      ? ParsedExpr.fromPartial(object.expression)
-      : undefined;
+  fromPartial(object: DeepPartial<BatchParseResponse>): BatchParseResponse {
+    const message = createBaseBatchParseResponse();
+    message.expressions = object.expressions?.map((e) => ParsedExpr.fromPartial(e)) || [];
     return message;
   },
 };
 
-function createBaseDeparseRequest(): DeparseRequest {
-  return { expression: undefined };
+function createBaseBatchDeparseRequest(): BatchDeparseRequest {
+  return { expressions: [] };
 }
 
-export const DeparseRequest = {
-  encode(message: DeparseRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.expression !== undefined) {
-      ParsedExpr.encode(message.expression, writer.uint32(10).fork()).ldelim();
+export const BatchDeparseRequest = {
+  encode(message: BatchDeparseRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.expressions) {
+      ParsedExpr.encode(v!, writer.uint32(10).fork()).ldelim();
     }
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): DeparseRequest {
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchDeparseRequest {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseDeparseRequest();
+    const message = createBaseBatchDeparseRequest();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -160,7 +167,7 @@ export const DeparseRequest = {
             break;
           }
 
-          message.expression = ParsedExpr.decode(reader, reader.uint32());
+          message.expressions.push(ParsedExpr.decode(reader, reader.uint32()));
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -171,46 +178,48 @@ export const DeparseRequest = {
     return message;
   },
 
-  fromJSON(object: any): DeparseRequest {
-    return { expression: isSet(object.expression) ? ParsedExpr.fromJSON(object.expression) : undefined };
+  fromJSON(object: any): BatchDeparseRequest {
+    return {
+      expressions: globalThis.Array.isArray(object?.expressions)
+        ? object.expressions.map((e: any) => ParsedExpr.fromJSON(e))
+        : [],
+    };
   },
 
-  toJSON(message: DeparseRequest): unknown {
+  toJSON(message: BatchDeparseRequest): unknown {
     const obj: any = {};
-    message.expression !== undefined &&
-      (obj.expression = message.expression ? ParsedExpr.toJSON(message.expression) : undefined);
+    if (message.expressions?.length) {
+      obj.expressions = message.expressions.map((e) => ParsedExpr.toJSON(e));
+    }
     return obj;
   },
 
-  create(base?: DeepPartial<DeparseRequest>): DeparseRequest {
-    return DeparseRequest.fromPartial(base ?? {});
+  create(base?: DeepPartial<BatchDeparseRequest>): BatchDeparseRequest {
+    return BatchDeparseRequest.fromPartial(base ?? {});
   },
-
-  fromPartial(object: DeepPartial<DeparseRequest>): DeparseRequest {
-    const message = createBaseDeparseRequest();
-    message.expression = (object.expression !== undefined && object.expression !== null)
-      ? ParsedExpr.fromPartial(object.expression)
-      : undefined;
+  fromPartial(object: DeepPartial<BatchDeparseRequest>): BatchDeparseRequest {
+    const message = createBaseBatchDeparseRequest();
+    message.expressions = object.expressions?.map((e) => ParsedExpr.fromPartial(e)) || [];
     return message;
   },
 };
 
-function createBaseDeparseResponse(): DeparseResponse {
-  return { expression: "" };
+function createBaseBatchDeparseResponse(): BatchDeparseResponse {
+  return { expressions: [] };
 }
 
-export const DeparseResponse = {
-  encode(message: DeparseResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.expression !== "") {
-      writer.uint32(10).string(message.expression);
+export const BatchDeparseResponse = {
+  encode(message: BatchDeparseResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.expressions) {
+      writer.uint32(10).string(v!);
     }
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): DeparseResponse {
+  decode(input: _m0.Reader | Uint8Array, length?: number): BatchDeparseResponse {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseDeparseResponse();
+    const message = createBaseBatchDeparseResponse();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -219,7 +228,7 @@ export const DeparseResponse = {
             break;
           }
 
-          message.expression = reader.string();
+          message.expressions.push(reader.string());
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -230,23 +239,28 @@ export const DeparseResponse = {
     return message;
   },
 
-  fromJSON(object: any): DeparseResponse {
-    return { expression: isSet(object.expression) ? String(object.expression) : "" };
+  fromJSON(object: any): BatchDeparseResponse {
+    return {
+      expressions: globalThis.Array.isArray(object?.expressions)
+        ? object.expressions.map((e: any) => globalThis.String(e))
+        : [],
+    };
   },
 
-  toJSON(message: DeparseResponse): unknown {
+  toJSON(message: BatchDeparseResponse): unknown {
     const obj: any = {};
-    message.expression !== undefined && (obj.expression = message.expression);
+    if (message.expressions?.length) {
+      obj.expressions = message.expressions;
+    }
     return obj;
   },
 
-  create(base?: DeepPartial<DeparseResponse>): DeparseResponse {
-    return DeparseResponse.fromPartial(base ?? {});
+  create(base?: DeepPartial<BatchDeparseResponse>): BatchDeparseResponse {
+    return BatchDeparseResponse.fromPartial(base ?? {});
   },
-
-  fromPartial(object: DeepPartial<DeparseResponse>): DeparseResponse {
-    const message = createBaseDeparseResponse();
-    message.expression = object.expression ?? "";
+  fromPartial(object: DeepPartial<BatchDeparseResponse>): BatchDeparseResponse {
+    const message = createBaseBatchDeparseResponse();
+    message.expressions = object.expressions?.map((e) => e) || [];
     return message;
   },
 };
@@ -256,36 +270,22 @@ export const CelServiceDefinition = {
   name: "CelService",
   fullName: "bytebase.v1.CelService",
   methods: {
-    parse: {
-      name: "Parse",
-      requestType: ParseRequest,
+    batchParse: {
+      name: "BatchParse",
+      requestType: BatchParseRequest,
       requestStream: false,
-      responseType: ParseResponse,
-      responseStream: false,
-      options: {
-        _unknownFields: {
-          578365826: [
-            new Uint8Array([18, 58, 1, 42, 34, 13, 47, 118, 49, 47, 99, 101, 108, 47, 112, 97, 114, 115, 101]),
-          ],
-        },
-      },
-    },
-    deparse: {
-      name: "Deparse",
-      requestType: DeparseRequest,
-      requestStream: false,
-      responseType: DeparseResponse,
+      responseType: BatchParseResponse,
       responseStream: false,
       options: {
         _unknownFields: {
           578365826: [
             new Uint8Array([
-              20,
+              23,
               58,
               1,
               42,
               34,
-              15,
+              18,
               47,
               118,
               49,
@@ -294,7 +294,51 @@ export const CelServiceDefinition = {
               101,
               108,
               47,
-              100,
+              98,
+              97,
+              116,
+              99,
+              104,
+              80,
+              97,
+              114,
+              115,
+              101,
+            ]),
+          ],
+        },
+      },
+    },
+    batchDeparse: {
+      name: "BatchDeparse",
+      requestType: BatchDeparseRequest,
+      requestStream: false,
+      responseType: BatchDeparseResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              25,
+              58,
+              1,
+              42,
+              34,
+              20,
+              47,
+              118,
+              49,
+              47,
+              99,
+              101,
+              108,
+              47,
+              98,
+              97,
+              116,
+              99,
+              104,
+              68,
               101,
               112,
               97,
@@ -309,23 +353,15 @@ export const CelServiceDefinition = {
   },
 } as const;
 
-export interface CelServiceImplementation<CallContextExt = {}> {
-  parse(request: ParseRequest, context: CallContext & CallContextExt): Promise<DeepPartial<ParseResponse>>;
-  deparse(request: DeparseRequest, context: CallContext & CallContextExt): Promise<DeepPartial<DeparseResponse>>;
-}
-
-export interface CelServiceClient<CallOptionsExt = {}> {
-  parse(request: DeepPartial<ParseRequest>, options?: CallOptions & CallOptionsExt): Promise<ParseResponse>;
-  deparse(request: DeepPartial<DeparseRequest>, options?: CallOptions & CallOptionsExt): Promise<DeparseResponse>;
-}
-
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
 export type DeepPartial<T> = T extends Builtin ? T
-  : T extends Array<infer U> ? Array<DeepPartial<U>> : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
+  : T extends Long ? string | number | Long : T extends globalThis.Array<infer U> ? globalThis.Array<DeepPartial<U>>
+  : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
 
-function isSet(value: any): boolean {
-  return value !== null && value !== undefined;
+if (_m0.util.Long !== Long) {
+  _m0.util.Long = Long as any;
+  _m0.configure();
 }

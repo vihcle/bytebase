@@ -1,32 +1,32 @@
 <template>
-  <BBTable
+  <BBGrid
     :column-list="columnList"
     :data-source="viewList"
     :show-header="true"
-    :left-bordered="true"
-    :right-bordered="true"
     :row-clickable="false"
+    class="border"
   >
-    <template #body="{ rowData: view }">
-      <BBTableCell :left-padding="4" class="w-16">
+    <template #item="{ item: view }: BBGridRow<ViewMetadata>">
+      <div class="bb-grid-cell">
         {{ getViewName(view.name) }}
-      </BBTableCell>
-      <BBTableCell class="w-64">
+      </div>
+      <div class="bb-grid-cell break-all">
         {{ view.definition }}
-      </BBTableCell>
-      <BBTableCell class="w-8">
+      </div>
+      <div class="bb-grid-cell">
         {{ view.comment }}
-      </BBTableCell>
+      </div>
     </template>
-  </BBTable>
+  </BBGrid>
 </template>
 
 <script lang="ts" setup>
 import { computed, PropType } from "vue";
 import { useI18n } from "vue-i18n";
-import { ViewMetadata } from "@/types/proto/store/database";
+import { BBGrid, BBGridColumn, BBGridRow } from "@/bbkit";
 import { ComposedDatabase } from "@/types";
 import { Engine } from "@/types/proto/v1/common";
+import { ViewMetadata } from "@/types/proto/v1/database_service";
 
 const props = defineProps({
   database: {
@@ -48,18 +48,25 @@ const { t } = useI18n();
 const engine = computed(() => props.database.instanceEntity.engine);
 
 const hasSchemaProperty = computed(() => {
-  return engine.value === Engine.POSTGRES || engine.value === Engine.SNOWFLAKE;
+  return (
+    engine.value === Engine.POSTGRES ||
+    engine.value === Engine.SNOWFLAKE ||
+    engine.value === Engine.RISINGWAVE
+  );
 });
 
-const columnList = computed(() => [
+const columnList = computed((): BBGridColumn[] => [
   {
     title: t("common.name"),
+    width: "minmax(auto, 1fr)",
   },
   {
     title: t("common.definition"),
+    width: "3fr",
   },
   {
     title: t("database.comment"),
+    width: "minmax(auto, 12rem)",
   },
 ]);
 

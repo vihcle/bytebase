@@ -1,6 +1,6 @@
+import { VNode } from "vue";
 import { VueClass } from "@/utils";
 import { ColumnWidth } from "./BBGrid";
-import { VNode } from "vue";
 
 export type BBButtonType =
   | "NORMAL"
@@ -54,6 +54,7 @@ export type BBTabFilterItem = {
 };
 
 export type BBStepStatus =
+  | "NOT_STARTED"
   | "PENDING"
   | "PENDING_ACTIVE"
   | "PENDING_APPROVAL"
@@ -96,6 +97,7 @@ export type BBNotificationItem = {
   description: string;
   link: string;
   linkTitle: string;
+  onClose: () => void;
 };
 
 export type BBAlertStyle = "INFO" | "SUCCESS" | "WARN" | "CRITICAL";
@@ -104,4 +106,4 @@ export type BBAttentionStyle = "INFO" | "WARN" | "CRITICAL";
 
 export type BBAttentionSide = "BETWEEN" | "CENTER";
 
-export type BBAvatarSizeType = "SMALL" | "NORMAL" | "LARGE" | "HUGE";
+export type BBAvatarSizeType = "TINY" | "SMALL" | "NORMAL" | "LARGE" | "HUGE";

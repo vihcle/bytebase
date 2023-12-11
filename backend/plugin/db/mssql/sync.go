@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
@@ -30,7 +29,7 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 		}
 	}
 
-	var databases []*storepb.DatabaseMetadata
+	var databases []*storepb.DatabaseSchemaMetadata
 	rows, err := driver.db.QueryContext(ctx, "SELECT name, collation_name FROM master.sys.databases WHERE name NOT IN ('master', 'model', 'msdb', 'tempdb', 'rdscore')")
 	if err != nil {
 		return nil, err
@@ -38,7 +37,7 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 	defer rows.Close()
 
 	for rows.Next() {
-		database := &storepb.DatabaseMetadata{}
+		database := &storepb.DatabaseSchemaMetadata{}
 		var collation sql.NullString
 		if err := rows.Scan(&database.Name, &collation); err != nil {
 			return nil, err
@@ -59,7 +58,7 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 }
 
 // SyncDBSchema syncs a single database schema.
-func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetadata, error) {
+func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetadata, error) {
 	txn, err := driver.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -83,7 +82,7 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 		return nil, err
 	}
 
-	databaseMetadata := &storepb.DatabaseMetadata{
+	databaseMetadata := &storepb.DatabaseSchemaMetadata{
 		Name: driver.databaseName,
 	}
 	for _, schemaName := range schemaNames {
@@ -204,7 +203,8 @@ func getTableColumns(txn *sql.Tx) (map[db.TableKey][]*storepb.ColumnMetadata, er
 			column.Type = columnType
 		}
 		if defaultStr.Valid {
-			column.Default = &wrapperspb.StringValue{Value: defaultStr.String}
+			// TODO: use correct default type
+			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultStr.String}
 		}
 		isNullBool, err := util.ConvertYesNo(nullable)
 		if err != nil {
@@ -248,7 +248,7 @@ func getIndexes(txn *sql.Tx) (map[db.TableKey][]*storepb.IndexMetadata, error) {
 		INNER JOIN
 			sys.schemas s ON s.schema_id = t.schema_id
 		WHERE
-			t.is_ms_shipped = 0
+			t.is_ms_shipped = 0 AND ind.name IS NOT NULL
 		ORDER BY 
 			s.name, t.name, ind.name, ic.key_ordinal;`
 	rows, err := txn.Query(query)

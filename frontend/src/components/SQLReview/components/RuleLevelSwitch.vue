@@ -1,30 +1,25 @@
 <template>
   <div class="flex items-center" :class="[!editable && 'pointer-events-none']">
     <button
-      class="button error"
-      :class="[level === RuleLevel.ERROR && 'active']"
-      :disabled="disabled"
-      @click="$emit('level-change', RuleLevel.ERROR)"
+      v-for="item in availableLevel"
+      :key="item.level"
+      :disabled="disabled || !editable"
+      :class="['button', item.class, level === item.level && 'active']"
+      @click="$emit('level-change', item.level)"
     >
-      {{ $t("sql-review.level.error") }}
-    </button>
-    <button
-      class="button warning"
-      :class="[level === RuleLevel.WARNING && 'active']"
-      :disabled="disabled"
-      @click="$emit('level-change', RuleLevel.WARNING)"
-    >
-      {{ $t("sql-review.level.warning") }}
+      {{ item.title }}
     </button>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { RuleLevel } from "@/types";
+import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+import { SQLReviewRuleLevel } from "@/types/proto/v1/org_policy_service";
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
-    level: RuleLevel;
+    level: SQLReviewRuleLevel;
     disabled?: boolean;
     editable?: boolean;
   }>(),
@@ -35,8 +30,35 @@ withDefaults(
 );
 
 defineEmits<{
-  (event: "level-change", level: RuleLevel): void;
+  (event: "level-change", level: SQLReviewRuleLevel): void;
 }>();
+
+const { t } = useI18n();
+
+const availableLevel = computed(() => {
+  return [
+    {
+      level: SQLReviewRuleLevel.ERROR,
+      title: t("sql-review.level.error"),
+      class: "error",
+    },
+    {
+      level: SQLReviewRuleLevel.WARNING,
+      title: t("sql-review.level.warning"),
+      class: "warning",
+    },
+    {
+      level: SQLReviewRuleLevel.DISABLED,
+      title: t("sql-review.level.disabled"),
+      class: "",
+    },
+  ].filter((item) => {
+    if (props.editable) {
+      return item.level !== SQLReviewRuleLevel.DISABLED;
+    }
+    return props.level === item.level;
+  });
+});
 </script>
 
 <style lang="postcss" scoped>

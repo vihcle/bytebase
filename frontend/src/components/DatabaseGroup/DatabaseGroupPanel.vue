@@ -1,11 +1,10 @@
 <template>
-  <NDrawer
+  <Drawer
     :show="true"
     width="auto"
-    :auto-focus="false"
     @update:show="(show: boolean) => !show && $emit('close')"
   >
-    <NDrawerContent
+    <DrawerContent
       :title="title"
       :closable="true"
       class="w-[64rem] max-w-[100vw] relative"
@@ -36,35 +35,36 @@
           </div>
         </div>
       </template>
-    </NDrawerContent>
-  </NDrawer>
+    </DrawerContent>
+  </Drawer>
 </template>
 
 <script lang="ts" setup>
-import { NButton, NDrawer, NDrawerContent, useDialog } from "naive-ui";
+import { NButton, useDialog } from "naive-ui";
 import { ClientError } from "nice-grpc-common";
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import {
-  ComposedDatabaseGroup,
-  ComposedProject,
-  ComposedSchemaGroup,
-} from "@/types";
-import { DatabaseGroup, SchemaGroup } from "@/types/proto/v1/project_service";
-import { Expr } from "@/types/proto/google/type/expr";
-import { buildDatabaseGroupExpr } from "@/utils/databaseGroup/cel";
+import { useRouter } from "vue-router";
+import { Drawer, DrawerContent } from "@/components/v2";
+import { buildCELExpr } from "@/plugins/cel/logic";
 import {
   pushNotification,
   useDBGroupStore,
   useEnvironmentV1Store,
 } from "@/store";
-import { ResourceType } from "./common/ExprEditor/context";
-import DatabaseGroupForm from "./DatabaseGroupForm.vue";
-import { buildCELExpr } from "@/plugins/cel/logic";
-import { useRouter } from "vue-router";
-import { convertParsedExprToCELString, projectV1Slug } from "@/utils";
 import { getProjectNameAndDatabaseGroupNameAndSchemaGroupName } from "@/store/modules/v1/common";
+import {
+  ComposedDatabaseGroup,
+  ComposedProject,
+  ComposedSchemaGroup,
+} from "@/types";
 import { ParsedExpr } from "@/types/proto/google/api/expr/v1alpha1/syntax";
+import { Expr } from "@/types/proto/google/type/expr";
+import { DatabaseGroup, SchemaGroup } from "@/types/proto/v1/project_service";
+import { batchConvertParsedExprToCELString, projectV1Slug } from "@/utils";
+import { buildDatabaseGroupExpr } from "@/utils/databaseGroup/cel";
+import DatabaseGroupForm from "./DatabaseGroupForm.vue";
+import { ResourceType } from "./common/ExprEditor/context";
 
 const props = defineProps<{
   project: ComposedProject;
@@ -163,7 +163,8 @@ const doDelete = () => {
         const databaseGroup = props.databaseGroup as DatabaseGroup;
         await dbGroupStore.deleteDatabaseGroup(databaseGroup.name);
         if (
-          router.currentRoute.value.name === "workspace.database-group.detail"
+          router.currentRoute.value.name ===
+          "workspace.project.database-group.detail"
         ) {
           router.replace({
             name: "workspace.project.detail",
@@ -179,14 +180,16 @@ const doDelete = () => {
         await dbGroupStore.deleteSchemaGroup(schemaGroupName);
         if (
           router.currentRoute.value.name ===
-          "workspace.database-group.table-group.detail"
+          "workspace.project.database-group.table-group.detail"
         ) {
-          const [projectName, databaseGroupName] =
+          const [_, databaseGroupName] =
             getProjectNameAndDatabaseGroupNameAndSchemaGroupName(
               schemaGroupName
             );
           // TODO(steven): prevent `Cannot use 'in' operator to search for 'path' in undefined` error in vue-router.
-          window.location.href = `/projects/${projectName}/database-groups/${databaseGroupName}`;
+          window.location.href = `/project/${projectV1Slug(
+            props.project
+          )}/database-groups/${databaseGroupName}`;
         }
       }
       emit("close");
@@ -206,7 +209,7 @@ const doConfirm = async () => {
         const environment = environmentStore.getEnvironmentByUID(
           formState.environmentId || ""
         );
-        const celString = await convertParsedExprToCELString(
+        const celStrings = await batchConvertParsedExprToCELString([
           ParsedExpr.fromJSON({
             expr: buildCELExpr(
               buildDatabaseGroupExpr({
@@ -214,8 +217,8 @@ const doConfirm = async () => {
                 conditionGroupExpr: formState.expr,
               })
             ),
-          })
-        );
+          }),
+        ]);
         const resourceId = formState.resourceId;
         await dbGroupStore.createDatabaseGroup({
           projectName: props.project.name,
@@ -223,7 +226,7 @@ const doConfirm = async () => {
             name: `${props.project.name}/databaseGroups/${resourceId}`,
             databasePlaceholder: formState.placeholder,
             databaseExpr: Expr.fromJSON({
-              expression: celString || "true",
+              expression: celStrings[0] || "true",
             }),
           },
           databaseGroupId: resourceId,
@@ -232,7 +235,7 @@ const doConfirm = async () => {
         const environment = environmentStore.getEnvironmentByUID(
           formState.environmentId || ""
         );
-        const celString = await convertParsedExprToCELString(
+        const celStrings = await batchConvertParsedExprToCELString([
           ParsedExpr.fromJSON({
             expr: buildCELExpr(
               buildDatabaseGroupExpr({
@@ -240,13 +243,13 @@ const doConfirm = async () => {
                 conditionGroupExpr: formState.expr,
               })
             ),
-          })
-        );
+          }),
+        ]);
         await dbGroupStore.updateDatabaseGroup({
           ...props.databaseGroup!,
           databasePlaceholder: formState.placeholder,
           databaseExpr: Expr.fromJSON({
-            expression: celString,
+            expression: celStrings[0],
           }),
         });
       }
@@ -256,11 +259,16 @@ const doConfirm = async () => {
           return;
         }
 
-        const celString = await convertParsedExprToCELString(
-          ParsedExpr.fromJSON({
-            expr: buildCELExpr(formState.expr),
-          })
-        );
+        let tableExpression = "true";
+        if (buildCELExpr(formState.expr)) {
+          const celStrings = await batchConvertParsedExprToCELString([
+            ParsedExpr.fromJSON({
+              expr: buildCELExpr(formState.expr),
+            }),
+          ]);
+          tableExpression = celStrings[0] || "true";
+        }
+
         const resourceId = formState.resourceId;
         await dbGroupStore.createSchemaGroup({
           dbGroupName: formState.selectedDatabaseGroupId,
@@ -268,26 +276,42 @@ const doConfirm = async () => {
             name: `${formState.selectedDatabaseGroupId}/schemaGroups/${resourceId}`,
             tablePlaceholder: formState.placeholder,
             tableExpr: Expr.fromJSON({
-              expression: celString || "true",
+              expression: tableExpression,
             }),
           },
           schemaGroupId: resourceId,
         });
+        const dbGroup = dbGroupStore.getDBGroupByName(
+          formState.selectedDatabaseGroupId
+        );
+        if (dbGroup) {
+          router.push(
+            `/project/${projectV1Slug(dbGroup.project)}/database-groups/${
+              dbGroup.databaseGroupName
+            }`
+          );
+        }
       } else {
-        const celString = await convertParsedExprToCELString(
+        const celStrings = await batchConvertParsedExprToCELString([
           ParsedExpr.fromJSON({
             expr: buildCELExpr(formState.expr),
-          })
-        );
+          }),
+        ]);
         await dbGroupStore.updateSchemaGroup({
           ...props.databaseGroup!,
           tablePlaceholder: formState.placeholder,
           tableExpr: Expr.fromJSON({
-            expression: celString,
+            expression: celStrings[0],
           }),
         });
       }
     }
+    pushNotification({
+      module: "bytebase",
+      style: "SUCCESS",
+      title: isCreating.value ? t("common.created") : t("common.updated"),
+    });
+    emit("close");
   } catch (error) {
     console.error(error);
     pushNotification({
@@ -298,7 +322,5 @@ const doConfirm = async () => {
     });
     return;
   }
-
-  emit("close");
 };
 </script>

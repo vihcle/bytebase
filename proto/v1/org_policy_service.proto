@@ -8,6 +8,7 @@ import "google/api/field_behavior.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/field_mask.proto";
+import "google/type/expr.proto";
 import "v1/common.proto";
 import "v1/deployment.proto";
 import "v1/iam_policy.proto";
@@ -205,11 +206,15 @@ message Policy {
   oneof policy {
     IamPolicy workspace_iam_policy = 6;
     DeploymentApprovalPolicy deployment_approval_policy = 7;
+    RolloutPolicy rollout_policy = 19;
     BackupPlanPolicy backup_plan_policy = 8;
-    SensitiveDataPolicy sensitive_data_policy = 9;
+    MaskingPolicy masking_policy = 9;
     SQLReviewPolicy sql_review_policy = 11;
     SlowQueryPolicy slow_query_policy = 12;
     DisableCopyDataPolicy disable_copy_data_policy = 16;
+    MaskingRulePolicy masking_rule_policy = 17;
+    MaskingExceptionPolicy masking_exception_policy = 18;
+    RestrictIssueCreationForSQLReviewPolicy restrict_issue_creation_for_sql_review_policy = 20;
   }
 
   bool enforce = 13;
@@ -227,11 +232,15 @@ enum PolicyType {
   POLICY_TYPE_UNSPECIFIED = 0;
   WORKSPACE_IAM = 1;
   DEPLOYMENT_APPROVAL = 2;
+  ROLLOUT_POLICY = 11;
   BACKUP_PLAN = 3;
   SQL_REVIEW = 4;
-  SENSITIVE_DATA = 5;
+  MASKING = 5;
   SLOW_QUERY = 7;
   DISABLE_COPY_DATA = 8;
+  MASKING_RULE = 9;
+  MASKING_EXCEPTION = 10;
+  RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW = 12;
 }
 
 enum PolicyResourceType {
@@ -246,6 +255,15 @@ enum PolicyResourceType {
 message DeploymentApprovalPolicy {
   ApprovalStrategy default_strategy = 1;
   repeated DeploymentApprovalStrategy deployment_approval_strategies = 2;
+}
+
+message RolloutPolicy {
+  bool automatic = 1;
+  repeated string workspace_roles = 2;
+  repeated string project_roles = 3;
+  // roles/LAST_APPROVER
+  // roles/CREATOR
+  repeated string issue_roles = 4;
 }
 
 message DeploymentApprovalStrategy {
@@ -286,20 +304,17 @@ enum BackupPlanSchedule {
   WEEKLY = 3;
 }
 
-message SensitiveDataPolicy {
-  repeated SensitiveData sensitive_data = 1;
+message MaskingPolicy {
+  repeated MaskData mask_data = 1;
 }
 
-message SensitiveData {
+message MaskData {
   string schema = 1;
   string table = 2;
   string column = 3;
-  SensitiveDataMaskType mask_type = 4;
-}
-
-enum SensitiveDataMaskType {
-  MASK_TYPE_UNSPECIFIED = 0;
-  DEFAULT = 1;
+  MaskingLevel masking_level = 4;
+  string full_masking_algorithm_id = 5;
+  string partial_masking_algorithm_id = 6;
 }
 
 message SQLReviewPolicy {
@@ -320,4 +335,46 @@ enum SQLReviewRuleLevel {
   ERROR = 1;
   WARNING = 2;
   DISABLED = 3;
+}
+
+// MaskingExceptionPolicy is the allowlist of users who can access sensitive data.
+message MaskingExceptionPolicy {
+  message MaskingException {
+    enum Action {
+      ACTION_UNSPECIFIED = 0;
+      QUERY = 1;
+      EXPORT = 2;
+    }
+    // action is the action that the user can access sensitive data.
+    Action action = 1;
+
+    // Level is the masking level that the user can access sensitive data.
+    MaskingLevel masking_level = 2;
+
+    // Member is the principal who bind to this exception policy instance.
+    //
+    // * `user:{emailid}`: An email address that represents a specific Bytebase account. For example, `alice@example.com`.
+    string member = 3;
+
+    // The condition that is associated with this exception policy instance.
+    google.type.Expr condition = 4;
+  }
+
+  repeated MaskingException masking_exceptions = 1;
+}
+
+message MaskingRulePolicy {
+  message MaskingRule {
+    // A unique identifier for a node in UUID format.
+    string id = 1;
+
+    google.type.Expr condition = 2;
+
+    MaskingLevel masking_level = 3;
+  }
+  repeated MaskingRule rules = 1;
+}
+
+message RestrictIssueCreationForSQLReviewPolicy {
+  bool disallow = 1;
 }

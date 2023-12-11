@@ -1,11 +1,6 @@
 <template>
   <div class="relative h-screen overflow-hidden flex flex-col">
-    <BannersWrapper />
-    <nav class="bg-white border-b border-block-border">
-      <div class="max-w-full mx-auto px-4">
-        <EditorHeader />
-      </div>
-    </nav>
+    <BannersWrapper v-if="showBanners" />
     <!-- Suspense is experimental, be aware of the potential change -->
     <Suspense>
       <template #default>
@@ -13,36 +8,19 @@
           <router-view />
         </ProvideSQLEditorContext>
       </template>
-      <template #fallback>
-        <div class="flex flex-row justify-between p-4 space-x-2">
-          <span class="items-center flex">Loading...</span>
-          <button
-            class="items-center flex justify-center btn-normal"
-            @click.prevent="ping"
-          >
-            Ping
-          </button>
-        </div>
-      </template>
     </Suspense>
   </div>
 </template>
 
 <script lang="ts" setup>
-import ProvideSQLEditorContext from "@/components/ProvideSQLEditorContext.vue";
-import { pushNotification, useActuatorV1Store } from "@/store";
-import EditorHeader from "@/views/sql-editor/EditorHeader.vue";
+import { computed } from "vue";
 import BannersWrapper from "@/components/BannersWrapper.vue";
+import ProvideSQLEditorContext from "@/components/ProvideSQLEditorContext.vue";
+import { usePageMode } from "@/store";
 
-const actuatorStore = useActuatorV1Store();
+const pageMode = usePageMode();
 
-const ping = () => {
-  actuatorStore.fetchServerInfo().then((info) => {
-    pushNotification({
-      module: "bytebase",
-      style: "SUCCESS",
-      title: JSON.stringify(info),
-    });
-  });
-};
+const showBanners = computed(() => {
+  return pageMode.value === "BUNDLED";
+});
 </script>

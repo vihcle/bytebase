@@ -1,59 +1,56 @@
 <template>
-  <div v-if="visible" class="flex items-center space-x-2">
-    <slot name="title">
-      <span class="textlabel mr-1">Group by</span>
-    </slot>
-
-    <select class="btn-select py-[0.5rem]" :value="label" @change="onChange">
-      <option
-        v-for="key in labelKeyList"
-        :key="key"
-        :value="key"
-        class="capitalize"
-      >
-        {{ capitalize(hidePrefix(key)) }}
-      </option>
-    </select>
-  </div>
+  <NSelect
+    v-if="visible"
+    :options="options"
+    :value="label"
+    style="width: 9rem"
+    v-bind="$attrs"
+    @update-value="$emit('update:label', $event)"
+  />
 </template>
 
 <script lang="ts" setup>
+import { NSelect, SelectOption } from "naive-ui";
 import { computed, withDefaults } from "vue";
-import { capitalize } from "lodash-es";
-import { LabelKeyType } from "../../types";
+import { ComposedDatabase } from "@/types";
 import {
-  hidePrefix,
-  PRESET_LABEL_KEYS,
-  RESERVED_LABEL_KEYS,
-} from "../../utils";
+  displayDeploymentMatchSelectorKey,
+  getAvailableDeploymentConfigMatchSelectorKeyList,
+} from "@/utils";
 
 const props = withDefaults(
   defineProps<{
-    label: LabelKeyType;
-    excludedKeyList?: LabelKeyType[];
+    databaseList: ComposedDatabase[];
+    label: string;
+    excludedKeyList?: string[];
   }>(),
   {
     excludedKeyList: () => [],
   }
 );
 
-const LABEL_KEY_LIST = [...RESERVED_LABEL_KEYS, ...PRESET_LABEL_KEYS];
-
-const emit = defineEmits<{
-  (event: "update:label", label: LabelKeyType): void;
+defineEmits<{
+  (event: "update:label", label: string): void;
 }>();
 
 const labelKeyList = computed(() => {
-  return LABEL_KEY_LIST.filter((key) => !props.excludedKeyList.includes(key));
+  return getAvailableDeploymentConfigMatchSelectorKeyList(
+    props.databaseList,
+    true /* withVirtualLabelKeys */,
+    true /* sort */
+  ).filter((key) => !props.excludedKeyList.includes(key));
 });
 
 const visible = computed(() => {
   if (!props.label) return false;
   return labelKeyList.value.includes(props.label);
 });
-
-const onChange = (e: Event) => {
-  const target = e.target as HTMLSelectElement;
-  emit("update:label", target.value);
-};
+const options = computed(() => {
+  return labelKeyList.value.map<SelectOption>((key) => {
+    return {
+      value: key,
+      label: displayDeploymentMatchSelectorKey(key),
+    };
+  });
+});
 </script>

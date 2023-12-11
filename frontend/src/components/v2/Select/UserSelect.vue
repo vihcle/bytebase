@@ -1,42 +1,50 @@
 <template>
   <NSelect
+    :filterable="true"
+    :virtual-scroll="true"
     :multiple="multiple"
     :value="value"
     :options="options"
-    :filterable="true"
+    :show="showStatus"
+    :fallback-option="fallbackOption"
     :filter="filterByTitle"
-    :virtual-scroll="true"
     :render-label="renderLabel"
-    :fallback-option="false"
     :placeholder="$t('principal.select')"
     class="bb-user-select"
     style="width: 12rem"
+    @update:show="(show: boolean)=>{
+      if (show) showStatus = true
+    }"
     @update:value="handleValueUpdated"
   />
 </template>
 
 <script lang="ts" setup>
-import { computed, watch, watchEffect, h } from "vue";
-import { NSelect, SelectOption } from "naive-ui";
-import { useI18n } from "vue-i18n";
 import { intersection } from "lodash-es";
+import {
+  NSelect,
+  SelectGroupOption,
+  SelectOption,
+  SelectProps,
+} from "naive-ui";
+import { computed, watch, watchEffect, h, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import UserIcon from "~icons/heroicons-outline/user";
-
+import UserAvatar from "@/components/User/UserAvatar.vue";
 import { useProjectV1Store, useUserStore } from "@/store";
 import {
   PresetRoleType,
-  SYSTEM_BOT_ID,
   SYSTEM_BOT_USER_NAME,
   UNKNOWN_ID,
   UNKNOWN_USER_NAME,
+  allUsersUser,
   unknownUser,
 } from "@/types";
-import { extractUserUID, memberListInProjectV1 } from "@/utils";
 import { User, UserRole, UserType } from "@/types/proto/v1/auth_service";
 import { State } from "@/types/proto/v1/common";
-import UserAvatar from "@/components/User/UserAvatar.vue";
+import { extractUserUID, memberListInProjectV1 } from "@/utils";
 
-interface UserSelectOption extends SelectOption {
+export interface UserSelectOption extends SelectOption {
   value: string;
   user: User;
 }
@@ -48,6 +56,8 @@ const props = withDefaults(
     users?: string[];
     project?: string;
     includeAll?: boolean;
+    // allUsers is a special user that represents all users in the project.
+    includeAllUsers?: boolean;
     includeSystemBot?: boolean;
     includeServiceAccount?: boolean;
     includeArchived?: boolean;
@@ -55,6 +65,8 @@ const props = withDefaults(
     allowedProjectMemberRoleList?: string[];
     autoReset?: boolean;
     filter?: (user: User, index: number) => boolean;
+    mapOptions?: (users: User[]) => (UserSelectOption | SelectGroupOption)[];
+    fallbackOption?: SelectProps["fallbackOption"];
   }>(),
   {
     multiple: false,
@@ -62,6 +74,7 @@ const props = withDefaults(
     users: undefined,
     project: undefined,
     includeAll: false,
+    includeAllUsers: false,
     includeSystemBot: false,
     includeServiceAccount: false,
     includeArchived: false,
@@ -76,6 +89,8 @@ const props = withDefaults(
     ],
     autoReset: true,
     filter: undefined,
+    mapOptions: undefined,
+    fallbackOption: false,
   }
 );
 
@@ -87,6 +102,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const projectV1Store = useProjectV1Store();
 const userStore = useUserStore();
+const showStatus = ref(false);
 
 const value = computed(() => {
   if (props.multiple) {
@@ -176,7 +192,7 @@ const combinedUserList = computed(() => {
     list = list.filter(props.filter);
   }
 
-  if (props.user === String(SYSTEM_BOT_ID) || props.includeSystemBot) {
+  if (props.includeSystemBot) {
     const systemBotIndex = list.findIndex(
       (user) => user.name === SYSTEM_BOT_USER_NAME
     );
@@ -187,6 +203,9 @@ const combinedUserList = computed(() => {
     } else {
       list.unshift(userStore.getUserByName(SYSTEM_BOT_USER_NAME)!);
     }
+  }
+  if (props.includeAllUsers) {
+    list.unshift(allUsersUser());
   }
   if (props.user === String(UNKNOWN_ID) || props.includeAll) {
     const dummyAll = {
@@ -200,9 +219,18 @@ const combinedUserList = computed(() => {
 });
 
 const handleValueUpdated = (value: string | string[]) => {
+  showStatus.value = false;
   if (props.multiple) {
+    if (!value) {
+      // normalize value
+      value = [];
+    }
     emit("update:users", value as string[]);
   } else {
+    if (value === null) {
+      // normalize value
+      value = "";
+    }
     emit("update:user", value as string);
   }
 };
@@ -229,19 +257,41 @@ const renderAvatar = (user: User) => {
 };
 
 const renderLabel = (option: SelectOption) => {
+  if (option.type === "group") {
+    return option.label;
+  }
   const { user } = option as UserSelectOption;
   const avatar = renderAvatar(user);
-  const text = h("span", { class: "truncate" }, user.title);
+  const title =
+    user.name === SYSTEM_BOT_USER_NAME
+      ? t("settings.members.system-bot")
+      : user.title;
+  const children = [h("span", {}, title)];
+  if (user.name !== UNKNOWN_USER_NAME && user.name !== SYSTEM_BOT_USER_NAME) {
+    children.push(h("span", { class: "text-gray-400" }, `(${user.email})`));
+  }
   return h(
     "div",
     {
-      class: "flex items-center gap-x-2",
+      class: "w-full flex items-center gap-x-2",
     },
-    [avatar, text]
+    [
+      avatar,
+      h(
+        "div",
+        {
+          class: "flex flex-row justify-start items-center gap-x-0.5 truncate",
+        },
+        children
+      ),
+    ]
   );
 };
 
 const options = computed(() => {
+  if (props.mapOptions) {
+    return props.mapOptions(combinedUserList.value);
+  }
   return combinedUserList.value.map<UserSelectOption>((user) => {
     return {
       user,
@@ -284,8 +334,8 @@ watch(
 );
 </script>
 
-<style>
-.bb-user-select .n-base-selection--active .bb-user-select--avatar {
+<style lang="postcss" scoped>
+.bb-user-select :deep(.n-base-selection--active .bb-user-select--avatar) {
   opacity: 0.3;
 }
 </style>

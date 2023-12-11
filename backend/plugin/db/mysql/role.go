@@ -4,11 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
-
-	"go.uber.org/zap"
 
 	"github.com/pkg/errors"
 
@@ -16,7 +15,7 @@ import (
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
@@ -344,8 +343,8 @@ func convertToUserContent(upsert *db.DatabaseRoleUpsertMessage) (string, error) 
 	return strings.Join(contentList, " "), nil
 }
 
-func splitGrantStatement(stmts string) ([]parser.SingleSQL, error) {
-	list, err := parser.SplitMultiSQL(parser.MySQL, stmts)
+func splitGrantStatement(stmts string) ([]base.SingleSQL, error) {
+	list, err := base.SplitMultiSQL(storepb.Engine_MYSQL, stmts)
 	if err != nil {
 		return nil, common.Wrapf(err, common.Invalid, "failed to split grant statement")
 	}
@@ -389,10 +388,10 @@ func (driver *Driver) getInstanceRoles(ctx context.Context) ([]*storepb.Instance
 	var err error
 	users, err = driver.getUsersFromMySQLUser(ctx)
 	if err != nil {
-		log.Info("failed to get users", zap.Error(err))
+		slog.Info("failed to get users", log.BBError(err))
 		users, err = driver.getUsersFromUserAttributes(ctx)
 		if err != nil {
-			log.Info("failed to get users", zap.Error(err))
+			slog.Info("failed to get users", log.BBError(err))
 			return nil, nil
 		}
 	}
@@ -420,7 +419,7 @@ func (driver *Driver) getGrantFromUser(ctx context.Context, name string) ([]stri
 		grantQuery,
 	)
 	if err != nil {
-		log.Info("failed to get grants", zap.String("user", name), zap.Error(err))
+		slog.Info("failed to get grants", slog.String("user", name), log.BBError(err))
 		return nil, nil
 	}
 	defer grantRows.Close()

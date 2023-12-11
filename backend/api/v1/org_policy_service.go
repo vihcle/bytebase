@@ -3,43 +3,40 @@ package v1
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
-	"go.uber.org/zap"
+	"github.com/google/cel-go/cel"
+	"github.com/pkg/errors"
+	"google.golang.org/genproto/googleapis/type/expr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/google/cel-go/cel"
-	"github.com/pkg/errors"
-
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
-	enterpriseAPI "github.com/bytebase/bytebase/backend/enterprise/api"
+	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/store"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
-var (
-	// defaultWorkspaceResourceID is a placeholder for resource id in workspace level IAM policy.
-	defaultWorkspaceResourceID = 1
-)
+// defaultWorkspaceResourceID is a placeholder for resource id in workspace level IAM policy.
+var defaultWorkspaceResourceID = 1
 
 // OrgPolicyService implements the workspace policy service.
 type OrgPolicyService struct {
 	v1pb.UnimplementedOrgPolicyServiceServer
 	store          *store.Store
-	licenseService enterpriseAPI.LicenseService
+	licenseService enterprise.LicenseService
 }
 
 // NewOrgPolicyService creates a new OrgPolicyService.
-func NewOrgPolicyService(store *store.Store, licenseService enterpriseAPI.LicenseService) *OrgPolicyService {
+func NewOrgPolicyService(store *store.Store, licenseService enterprise.LicenseService) *OrgPolicyService {
 	return &OrgPolicyService{
 		store:          store,
 		licenseService: licenseService,
@@ -93,7 +90,7 @@ func (s *OrgPolicyService) ListPolicies(ctx context.Context, request *v1pb.ListP
 		if err != nil {
 			st := status.Convert(err)
 			if st.Code() == codes.NotFound {
-				log.Debug("failed to found resource for policy", zap.Error(err), zap.String("resource_type", string(policy.ResourceType)), zap.Int("resource_id", policy.ResourceUID))
+				slog.Debug("failed to found resource for policy", log.BBError(err), slog.String("resource_type", string(policy.ResourceType)), slog.Int("resource_id", policy.ResourceUID))
 				continue
 			}
 			return nil, err
@@ -113,7 +110,10 @@ func (s *OrgPolicyService) ListPolicies(ctx context.Context, request *v1pb.ListP
 
 // CreatePolicy creates a policy in a specific resource.
 func (s *OrgPolicyService) CreatePolicy(ctx context.Context, request *v1pb.CreatePolicyRequest) (*v1pb.Policy, error) {
-	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
 	if request.Policy == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "policy must be set")
 	}
@@ -128,7 +128,10 @@ func (s *OrgPolicyService) UpdatePolicy(ctx context.Context, request *v1pb.Updat
 		return nil, status.Errorf(codes.InvalidArgument, "policy must be set")
 	}
 
-	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
 	policy, parent, err := s.findPolicyMessage(ctx, request.Policy.Name)
 	if err != nil {
 		st := status.Convert(err)
@@ -153,6 +156,9 @@ func (s *OrgPolicyService) UpdatePolicy(ctx context.Context, request *v1pb.Updat
 		case "inherit_from_parent":
 			patch.InheritFromParent = &request.Policy.InheritFromParent
 		case "payload":
+			if err := validatePolicyPayload(policy.Type, request.Policy); err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "invalid policy: %v", err)
+			}
 			payloadStr, err := s.convertPolicyPayloadToString(request.Policy)
 			if err != nil {
 				return nil, err
@@ -192,7 +198,7 @@ func (s *OrgPolicyService) DeletePolicy(ctx context.Context, request *v1pb.Delet
 
 // findPolicyMessage finds the policy and the parent name by the policy name.
 func (s *OrgPolicyService) findPolicyMessage(ctx context.Context, policyName string) (*store.PolicyMessage, string, error) {
-	tokens := strings.Split(policyName, policyNamePrefix)
+	tokens := strings.Split(policyName, common.PolicyNamePrefix)
 	if len(tokens) != 2 {
 		return nil, "", status.Errorf(codes.InvalidArgument, "invalid request %s", policyName)
 	}
@@ -234,12 +240,14 @@ func (s *OrgPolicyService) getPolicyResourceTypeAndID(ctx context.Context, reque
 		return api.PolicyResourceTypeWorkspace, &defaultWorkspaceResourceID, nil
 	}
 
-	if strings.HasPrefix(requestName, projectNamePrefix) {
-		projectID, err := getProjectID(requestName)
+	if strings.HasPrefix(requestName, common.ProjectNamePrefix) {
+		projectID, err := common.GetProjectID(requestName)
 		if err != nil {
 			return api.PolicyResourceTypeUnknown, nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}
-
+		if projectID == "-" {
+			return api.PolicyResourceTypeProject, nil, nil
+		}
 		project, err := s.findActiveProject(ctx, &store.FindProjectMessage{
 			ResourceID: &projectID,
 		})
@@ -252,9 +260,9 @@ func (s *OrgPolicyService) getPolicyResourceTypeAndID(ctx context.Context, reque
 
 	sections := strings.Split(requestName, "/")
 
-	if strings.HasPrefix(requestName, environmentNamePrefix) && len(sections) == 2 {
+	if strings.HasPrefix(requestName, common.EnvironmentNamePrefix) && len(sections) == 2 {
 		// environment policy request name should be environments/{environment id}
-		environmentID, err := getEnvironmentID(requestName)
+		environmentID, err := common.GetEnvironmentID(requestName)
 		if err != nil {
 			return api.PolicyResourceTypeUnknown, nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}
@@ -271,9 +279,9 @@ func (s *OrgPolicyService) getPolicyResourceTypeAndID(ctx context.Context, reque
 		return api.PolicyResourceTypeEnvironment, &environment.UID, nil
 	}
 
-	if strings.HasPrefix(requestName, instanceNamePrefix) && len(sections) == 2 {
+	if strings.HasPrefix(requestName, common.InstanceNamePrefix) && len(sections) == 2 {
 		// instance policy request name should be instances/{instance id}
-		instanceID, err := getInstanceID(requestName)
+		instanceID, err := common.GetInstanceID(requestName)
 		if err != nil {
 			return api.PolicyResourceTypeUnknown, nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}
@@ -291,22 +299,30 @@ func (s *OrgPolicyService) getPolicyResourceTypeAndID(ctx context.Context, reque
 		return api.PolicyResourceTypeInstance, &instance.UID, nil
 	}
 
-	if strings.HasPrefix(requestName, instanceNamePrefix) && len(sections) == 4 {
+	if strings.HasPrefix(requestName, common.InstanceNamePrefix) && len(sections) == 4 {
 		// database policy request name should be instances/{instance id}/databases/{db name}
 
-		instanceID, databaseName, err := getInstanceDatabaseID(requestName)
+		instanceID, databaseName, err := common.GetInstanceDatabaseID(requestName)
 		if err != nil {
 			return api.PolicyResourceTypeUnknown, nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}
 		if databaseName == "-" {
 			return api.PolicyResourceTypeDatabase, nil, nil
 		}
+		instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{ResourceID: &instanceID})
+		if err != nil {
+			return api.PolicyResourceTypeUnknown, nil, status.Errorf(codes.Internal, err.Error())
+		}
 		database, err := s.findActiveDatabase(ctx, &store.FindDatabaseMessage{
-			InstanceID:   &instanceID,
-			DatabaseName: &databaseName,
+			InstanceID:          &instanceID,
+			DatabaseName:        &databaseName,
+			IgnoreCaseSensitive: store.IgnoreDatabaseAndTableCaseSensitive(instance),
 		})
 		if err != nil {
 			return api.PolicyResourceTypeUnknown, nil, status.Errorf(codes.Internal, err.Error())
+		}
+		if database == nil {
+			return api.PolicyResourceTypeUnknown, nil, status.Errorf(codes.NotFound, "database %q not found", databaseName)
 		}
 
 		return api.PolicyResourceTypeDatabase, &database.UID, nil
@@ -381,6 +397,10 @@ func (s *OrgPolicyService) createPolicyMessage(ctx context.Context, creatorID in
 		return nil, err
 	}
 
+	if err := validatePolicyPayload(policyType, policy); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid policy: %v", err)
+	}
+
 	payloadStr, err := s.convertPolicyPayloadToString(policy)
 	if err != nil {
 		return nil, err
@@ -416,7 +436,7 @@ func (s *OrgPolicyService) getPolicyParentPath(ctx context.Context, policyMessag
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s%s", environmentNamePrefix, env.ResourceID), nil
+		return fmt.Sprintf("%s%s", common.EnvironmentNamePrefix, env.ResourceID), nil
 	case api.PolicyResourceTypeProject:
 		proj, err := s.findActiveProject(ctx, &store.FindProjectMessage{
 			UID: &policyMessage.ResourceUID,
@@ -424,7 +444,7 @@ func (s *OrgPolicyService) getPolicyParentPath(ctx context.Context, policyMessag
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s%s", projectNamePrefix, proj.ResourceID), nil
+		return fmt.Sprintf("%s%s", common.ProjectNamePrefix, proj.ResourceID), nil
 	case api.PolicyResourceTypeInstance:
 		ins, err := s.findActiveInstance(ctx, &store.FindInstanceMessage{
 			UID: &policyMessage.ResourceUID,
@@ -432,7 +452,7 @@ func (s *OrgPolicyService) getPolicyParentPath(ctx context.Context, policyMessag
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s%s", instanceNamePrefix, ins.ResourceID), nil
+		return fmt.Sprintf("%s%s", common.InstanceNamePrefix, ins.ResourceID), nil
 	case api.PolicyResourceTypeDatabase:
 		db, err := s.findActiveDatabase(ctx, &store.FindDatabaseMessage{
 			UID: &policyMessage.ResourceUID,
@@ -440,7 +460,7 @@ func (s *OrgPolicyService) getPolicyParentPath(ctx context.Context, policyMessag
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s%s/%s%s", instanceNamePrefix, db.InstanceID, databaseIDPrefix, db.DatabaseName), nil
+		return fmt.Sprintf("%s%s/%s%s", common.InstanceNamePrefix, db.InstanceID, common.DatabaseIDPrefix, db.DatabaseName), nil
 	default:
 		return "", nil
 	}
@@ -455,6 +475,67 @@ func validatePolicyType(policyType api.PolicyType, policyResourceType api.Policy
 	return status.Errorf(codes.InvalidArgument, "policy %v is not allowed in resource %v", policyType, policyResourceType)
 }
 
+func validatePolicyPayload(policyType api.PolicyType, policy *v1pb.Policy) error {
+	switch policyType {
+	case api.PolicyTypeMasking:
+		maskingPolicy, ok := policy.Policy.(*v1pb.Policy_MaskingPolicy)
+		if !ok {
+			return status.Errorf(codes.InvalidArgument, "unmatched policy type %v and policy %v", policyType, policy.Policy)
+		}
+		if maskingPolicy.MaskingPolicy == nil {
+			return status.Errorf(codes.InvalidArgument, "masking policy must be set")
+		}
+		for _, maskData := range maskingPolicy.MaskingPolicy.MaskData {
+			if maskData.Column == "" || maskData.Table == "" {
+				return status.Errorf(codes.InvalidArgument, "masking column and table must be set")
+			}
+		}
+	case api.PolicyTypeMaskingRule:
+		maskingRulePolicy, ok := policy.Policy.(*v1pb.Policy_MaskingRulePolicy)
+		if !ok {
+			return status.Errorf(codes.InvalidArgument, "unmatched policy type %v and policy %v", policyType, policy.Policy)
+		}
+		if maskingRulePolicy.MaskingRulePolicy == nil {
+			return status.Errorf(codes.InvalidArgument, "masking rule policy must be set")
+		}
+		for _, rule := range maskingRulePolicy.MaskingRulePolicy.Rules {
+			if rule.Id == "" {
+				return status.Errorf(codes.InvalidArgument, "masking rule must have ID set")
+			}
+			if _, err := common.ValidateMaskingRuleCELExpr(rule.Condition.Expression); err != nil {
+				return status.Errorf(codes.InvalidArgument, "invalid masking rule expression: %v", err)
+			}
+		}
+	case api.PolicyTypeMaskingException:
+		maskingExceptionPolicy, ok := policy.Policy.(*v1pb.Policy_MaskingExceptionPolicy)
+		if !ok {
+			return status.Errorf(codes.InvalidArgument, "unmatched policy type %v and policy %v", policyType, policy.Policy)
+		}
+		if maskingExceptionPolicy.MaskingExceptionPolicy == nil {
+			return status.Errorf(codes.InvalidArgument, "masking exception policy must be set")
+		}
+		for _, exception := range maskingExceptionPolicy.MaskingExceptionPolicy.MaskingExceptions {
+			if exception.Action == v1pb.MaskingExceptionPolicy_MaskingException_ACTION_UNSPECIFIED {
+				return status.Errorf(codes.InvalidArgument, "masking exception must have action set")
+			}
+			if exception.MaskingLevel == v1pb.MaskingLevel_FULL {
+				return status.Errorf(codes.InvalidArgument, "masking exception cannot have full masking level")
+			}
+			if exception.MaskingLevel == v1pb.MaskingLevel_MASKING_LEVEL_UNSPECIFIED {
+				return status.Errorf(codes.InvalidArgument, "masking exception must have masking level set")
+			}
+			if _, err := common.ValidateMaskingExceptionCELExpr(exception.Condition.Expression); err != nil {
+				return status.Error(codes.InvalidArgument, fmt.Sprintf("invalid masking exception expression: %v", err))
+			}
+			if !strings.HasPrefix(exception.Member, "user:") {
+				return status.Errorf(codes.InvalidArgument, "masking exception member must start with user:")
+			}
+		}
+	default:
+	}
+	return nil
+}
+
 func (s *OrgPolicyService) convertPolicyPayloadToString(policy *v1pb.Policy) (string, error) {
 	switch policy.Type {
 	case v1pb.PolicyType_WORKSPACE_IAM:
@@ -462,6 +543,13 @@ func (s *OrgPolicyService) convertPolicyPayloadToString(policy *v1pb.Policy) (st
 		payloadBytes, err := protojson.Marshal(iamPolicy)
 		if err != nil {
 			return "", errors.Wrap(err, "failed to marshal workspace iam policy")
+		}
+		return string(payloadBytes), nil
+	case v1pb.PolicyType_ROLLOUT_POLICY:
+		rolloutPolicy := convertToStorePBRolloutPolicy(policy.GetRolloutPolicy())
+		payloadBytes, err := protojson.Marshal(rolloutPolicy)
+		if err != nil {
+			return "", errors.Wrap(err, "failed to marshal rollout policy")
 		}
 		return string(payloadBytes), nil
 	case v1pb.PolicyType_DEPLOYMENT_APPROVAL:
@@ -479,9 +567,10 @@ func (s *OrgPolicyService) convertPolicyPayloadToString(policy *v1pb.Policy) (st
 		}
 		issueTypeSeen := make(map[api.IssueType]bool)
 		for _, group := range payload.AssigneeGroupList {
-			if group.IssueType != api.IssueDatabaseSchemaUpdate &&
-				group.IssueType != api.IssueDatabaseSchemaUpdateGhost &&
-				group.IssueType != api.IssueDatabaseDataUpdate {
+			if group.IssueType != issueDatabaseSchemaUpdate &&
+				group.IssueType != issueDatabaseSchemaUpdateGhost &&
+				group.IssueType != issueDatabaseDataUpdate &&
+				group.IssueType != api.IssueDatabaseGeneral {
 				return "", status.Errorf(codes.InvalidArgument, "invalid assignee group issue type %q", group.IssueType)
 			}
 			if issueTypeSeen[group.IssueType] {
@@ -508,31 +597,32 @@ func (s *OrgPolicyService) convertPolicyPayloadToString(policy *v1pb.Policy) (st
 		if err := s.licenseService.IsFeatureEnabled(api.FeatureSQLReview); err != nil {
 			return "", status.Errorf(codes.PermissionDenied, err.Error())
 		}
-		payload, err := convertToSQLReviewPolicyPayload(policy.GetSqlReviewPolicy())
+		v1SqlReviewPolicy := policy.GetSqlReviewPolicy()
+		if err := validateSQLReviewPolicy(v1SqlReviewPolicy); err != nil {
+			return "", status.Errorf(codes.InvalidArgument, err.Error())
+		}
+		payload, err := convertToSQLReviewPolicyPayload(v1SqlReviewPolicy)
 		if err != nil {
 			return "", status.Errorf(codes.InvalidArgument, err.Error())
 		}
-		if err := payload.Validate(); err != nil {
-			return "", status.Errorf(codes.InvalidArgument, err.Error())
+		payloadBytes, err := protojson.Marshal(payload)
+		if err != nil {
+			return "", status.Errorf(codes.Internal, "failed to marshal sql review policy with error: %v", err)
 		}
-		return payload.String()
-	case v1pb.PolicyType_SENSITIVE_DATA:
+		return string(payloadBytes), nil
+	case v1pb.PolicyType_MASKING:
 		if err := s.licenseService.IsFeatureEnabled(api.FeatureSensitiveData); err != nil {
 			return "", status.Errorf(codes.PermissionDenied, err.Error())
 		}
-		payload, err := convertToSensitiveDataPolicyPayload(policy.GetSensitiveDataPolicy())
+		payload, err := convertToStorePBMaskingPolicyPayload(policy.GetMaskingPolicy())
 		if err != nil {
 			return "", status.Errorf(codes.InvalidArgument, err.Error())
 		}
-		for _, v := range payload.SensitiveDataList {
-			if v.Table == "" || v.Column == "" {
-				return "", status.Errorf(codes.InvalidArgument, "sensitive data policy rule cannot have empty table or column name")
-			}
-			if v.Type != api.SensitiveDataMaskTypeDefault {
-				return "", status.Errorf(codes.InvalidArgument, "sensitive data policy rule must have mask type %q", api.SensitiveDataMaskTypeDefault)
-			}
+		payloadBytes, err := protojson.Marshal(payload)
+		if err != nil {
+			return "", errors.Wrap(err, "failed to marshal masking policy")
 		}
-		return payload.String()
+		return string(payloadBytes), nil
 	case v1pb.PolicyType_SLOW_QUERY:
 		payload, err := convertToSlowQueryPolicyPayload(policy.GetSlowQueryPolicy())
 		if err != nil {
@@ -544,6 +634,41 @@ func (s *OrgPolicyService) convertPolicyPayloadToString(policy *v1pb.Policy) (st
 			return "", status.Errorf(codes.PermissionDenied, err.Error())
 		}
 		payload, err := convertToDisableCopyDataPolicyPayload(policy.GetDisableCopyDataPolicy())
+		if err != nil {
+			return "", status.Errorf(codes.InvalidArgument, err.Error())
+		}
+		return payload.String()
+	case v1pb.PolicyType_MASKING_RULE:
+		if err := s.licenseService.IsFeatureEnabled(api.FeatureSensitiveData); err != nil {
+			return "", status.Errorf(codes.PermissionDenied, err.Error())
+		}
+		payload, err := convertToStorePBMskingRulePolicy(policy.GetMaskingRulePolicy())
+		if err != nil {
+			return "", status.Errorf(codes.InvalidArgument, err.Error())
+		}
+		payloadBytes, err := protojson.Marshal(payload)
+		if err != nil {
+			return "", errors.Wrap(err, "failed to marshal masking rule policy")
+		}
+		return string(payloadBytes), nil
+	case v1pb.PolicyType_MASKING_EXCEPTION:
+		if err := s.licenseService.IsFeatureEnabled(api.FeatureSensitiveData); err != nil {
+			return "", status.Errorf(codes.PermissionDenied, err.Error())
+		}
+		payload, err := convertToStorePBMaskingExceptionPolicyPayload(policy.GetMaskingExceptionPolicy())
+		if err != nil {
+			return "", status.Errorf(codes.InvalidArgument, err.Error())
+		}
+		payloadBytes, err := protojson.Marshal(payload)
+		if err != nil {
+			return "", errors.Wrap(err, "failed to marshal masking exception policy")
+		}
+		return string(payloadBytes), nil
+	case v1pb.PolicyType_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW:
+		if err := s.licenseService.IsFeatureEnabled(api.FeatureAccessControl); err != nil {
+			return "", status.Errorf(codes.PermissionDenied, err.Error())
+		}
+		payload, err := convertToRestrictIssueCreationForSQLReviewPayload(policy.GetRestrictIssueCreationForSqlReviewPolicy())
 		if err != nil {
 			return "", status.Errorf(codes.InvalidArgument, err.Error())
 		}
@@ -589,6 +714,13 @@ func convertToPolicy(parentPath string, policyMessage *store.PolicyMessage) (*v1
 			return nil, errors.Wrap(err, "failed to convert workspace IAM policy")
 		}
 		policy.Policy = payload
+	case api.PolicyTypeRollout:
+		pType = v1pb.PolicyType_ROLLOUT_POLICY
+		payload, err := convertToV1RolloutPolicyPayload(policyMessage.Payload)
+		if err != nil {
+			return nil, err
+		}
+		policy.Policy = payload
 	case api.PolicyTypePipelineApproval:
 		pType = v1pb.PolicyType_DEPLOYMENT_APPROVAL
 		payload, err := convertToV1PBDeploymentApprovalPolicy(policyMessage.Payload)
@@ -610,9 +742,9 @@ func convertToPolicy(parentPath string, policyMessage *store.PolicyMessage) (*v1
 			return nil, err
 		}
 		policy.Policy = payload
-	case api.PolicyTypeSensitiveData:
-		pType = v1pb.PolicyType_SENSITIVE_DATA
-		payload, err := convertToV1PBSensitiveDataPolicy(policyMessage.Payload)
+	case api.PolicyTypeMasking:
+		pType = v1pb.PolicyType_MASKING
+		payload, err := convertToV1PBMaskingPolicy(policyMessage.Payload)
 		if err != nil {
 			return nil, err
 		}
@@ -631,10 +763,43 @@ func convertToPolicy(parentPath string, policyMessage *store.PolicyMessage) (*v1
 			return nil, err
 		}
 		policy.Policy = payload
+	case api.PolicyTypeMaskingRule:
+		pType = v1pb.PolicyType_MASKING_RULE
+		maskingRulePolicy := &storepb.MaskingRulePolicy{}
+		if err := protojson.Unmarshal([]byte(policyMessage.Payload), maskingRulePolicy); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal masking rule policy")
+		}
+		payload, err := convertToV1PBMaskingRulePolicy(maskingRulePolicy)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to convert masking rule policy")
+		}
+		policy.Policy = &v1pb.Policy_MaskingRulePolicy{
+			MaskingRulePolicy: payload,
+		}
+	case api.PolicyTypeMaskingException:
+		pType = v1pb.PolicyType_MASKING_EXCEPTION
+		maskingRulePolicy := &storepb.MaskingExceptionPolicy{}
+		if err := protojson.Unmarshal([]byte(policyMessage.Payload), maskingRulePolicy); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal masking exception policy")
+		}
+		payload, err := convertToV1PBMaskingExceptionPolicyPayload(maskingRulePolicy)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to convert masking exception policy")
+		}
+		policy.Policy = &v1pb.Policy_MaskingExceptionPolicy{
+			MaskingExceptionPolicy: payload,
+		}
+	case api.PolicyTypeRestrictIssueCreationForSQLReview:
+		pType = v1pb.PolicyType_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW
+		payload, err := convertToV1PBRestrictIssueCreationForSQLReviewPolicy(policyMessage.Payload)
+		if err != nil {
+			return nil, err
+		}
+		policy.Policy = payload
 	}
 
 	policy.Type = pType
-	policy.Name = fmt.Sprintf("%s%s", policyNamePrefix, strings.ToLower(pType.String()))
+	policy.Name = fmt.Sprintf("%s%s", common.PolicyNamePrefix, strings.ToLower(pType.String()))
 	if parentPath != "" {
 		policy.Name = fmt.Sprintf("%s/%s", parentPath, policy.Name)
 	}
@@ -691,22 +856,20 @@ func convertToStorePBWorkspaceIAMPolicy(policy *v1pb.IamPolicy) *storepb.IamPoli
 }
 
 func convertToV1PBSQLReviewPolicy(payloadStr string) (*v1pb.Policy_SqlReviewPolicy, error) {
-	payload, err := api.UnmarshalSQLReviewPolicy(
-		api.MergeSQLReviewRulesWithoutEngine(payloadStr),
-	)
-	if err != nil {
+	p := new(storepb.SQLReviewPolicy)
+	if err := protojson.Unmarshal([]byte(payloadStr), p); err != nil {
 		return nil, err
 	}
 
 	var rules []*v1pb.SQLReviewRule
-	for _, rule := range payload.RuleList {
+	for _, rule := range p.RuleList {
 		level := v1pb.SQLReviewRuleLevel_LEVEL_UNSPECIFIED
 		switch rule.Level {
-		case advisor.SchemaRuleLevelError:
+		case storepb.SQLReviewRuleLevel_ERROR:
 			level = v1pb.SQLReviewRuleLevel_ERROR
-		case advisor.SchemaRuleLevelWarning:
+		case storepb.SQLReviewRuleLevel_WARNING:
 			level = v1pb.SQLReviewRuleLevel_WARNING
-		case advisor.SchemaRuleLevelDisabled:
+		case storepb.SQLReviewRuleLevel_DISABLED:
 			level = v1pb.SQLReviewRuleLevel_DISABLED
 		}
 		rules = append(rules, &v1pb.SQLReviewRule{
@@ -714,90 +877,139 @@ func convertToV1PBSQLReviewPolicy(payloadStr string) (*v1pb.Policy_SqlReviewPoli
 			Type:    string(rule.Type),
 			Payload: rule.Payload,
 			Comment: rule.Comment,
-			Engine:  convertToEngine(db.Type(rule.Engine)),
+			Engine:  convertToEngine(rule.Engine),
 		})
 	}
 
 	return &v1pb.Policy_SqlReviewPolicy{
 		SqlReviewPolicy: &v1pb.SQLReviewPolicy{
-			Name:  payload.Name,
+			Name:  p.Name,
 			Rules: rules,
 		},
 	}, nil
 }
 
-func convertToSQLReviewPolicyPayload(policy *v1pb.SQLReviewPolicy) (*advisor.SQLReviewPolicy, error) {
-	var ruleList []*advisor.SQLReviewRule
+func convertToSQLReviewPolicyPayload(policy *v1pb.SQLReviewPolicy) (*storepb.SQLReviewPolicy, error) {
+	var ruleList []*storepb.SQLReviewRule
 	for _, rule := range policy.Rules {
-		var level advisor.SQLReviewRuleLevel
+		var level storepb.SQLReviewRuleLevel
 		switch rule.Level {
 		case v1pb.SQLReviewRuleLevel_ERROR:
-			level = advisor.SchemaRuleLevelError
+			level = storepb.SQLReviewRuleLevel_ERROR
 		case v1pb.SQLReviewRuleLevel_WARNING:
-			level = advisor.SchemaRuleLevelWarning
+			level = storepb.SQLReviewRuleLevel_WARNING
 		case v1pb.SQLReviewRuleLevel_DISABLED:
-			level = advisor.SchemaRuleLevelDisabled
+			level = storepb.SQLReviewRuleLevel_DISABLED
 		default:
 			return nil, errors.Errorf("invalid rule level %v", rule.Level)
 		}
-		ruleList = append(ruleList, &advisor.SQLReviewRule{
+		ruleList = append(ruleList, &storepb.SQLReviewRule{
 			Level:   level,
 			Payload: rule.Payload,
-			Type:    advisor.SQLReviewRuleType(rule.Type),
+			Type:    rule.Type,
 			Comment: rule.Comment,
-			// DONOT assign the engine, we will use FlattenSQLReviewRulesWithEngine to map available engine with the rule.
+			Engine:  convertEngine(rule.Engine),
 		})
 	}
 
-	return api.FlattenSQLReviewRulesWithEngine(&advisor.SQLReviewPolicy{
+	return &storepb.SQLReviewPolicy{
 		Name:     policy.Name,
 		RuleList: ruleList,
-	}), nil
+	}, nil
 }
 
-func convertToV1PBSensitiveDataPolicy(payloadStr string) (*v1pb.Policy_SensitiveDataPolicy, error) {
-	payload, err := api.UnmarshalSensitiveDataPolicy(payloadStr)
-	if err != nil {
-		return nil, err
+func convertToV1PBMaskingPolicy(payloadStr string) (*v1pb.Policy_MaskingPolicy, error) {
+	var maskingPolicy storepb.MaskingPolicy
+	if err := protojson.Unmarshal([]byte(payloadStr), &maskingPolicy); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal masking policy")
 	}
 
-	var sensitiveDataList []*v1pb.SensitiveData
-	for _, data := range payload.SensitiveDataList {
-		maskType := v1pb.SensitiveDataMaskType_MASK_TYPE_UNSPECIFIED
-		if data.Type == api.SensitiveDataMaskTypeDefault {
-			maskType = v1pb.SensitiveDataMaskType_DEFAULT
-		}
-		sensitiveDataList = append(sensitiveDataList, &v1pb.SensitiveData{
-			Schema:   data.Schema,
-			Table:    data.Table,
-			Column:   data.Column,
-			MaskType: maskType,
+	var maskDataList []*v1pb.MaskData
+	for _, data := range maskingPolicy.MaskData {
+		maskDataList = append(maskDataList, &v1pb.MaskData{
+			Schema:       data.Schema,
+			Table:        data.Table,
+			Column:       data.Column,
+			MaskingLevel: convertToV1PBMaskingLevel(data.MaskingLevel),
 		})
 	}
 
-	return &v1pb.Policy_SensitiveDataPolicy{
-		SensitiveDataPolicy: &v1pb.SensitiveDataPolicy{
-			SensitiveData: sensitiveDataList,
+	return &v1pb.Policy_MaskingPolicy{
+		MaskingPolicy: &v1pb.MaskingPolicy{
+			MaskData: maskDataList,
 		},
 	}, nil
 }
 
-func convertToSensitiveDataPolicyPayload(policy *v1pb.SensitiveDataPolicy) (*api.SensitiveDataPolicy, error) {
-	var sensitiveDataList []api.SensitiveData
-	for _, data := range policy.SensitiveData {
-		if data.MaskType != v1pb.SensitiveDataMaskType_DEFAULT {
-			return nil, errors.Errorf("invalid sensitive data mask type %v", data.MaskType)
-		}
-		sensitiveDataList = append(sensitiveDataList, api.SensitiveData{
-			Schema: data.Schema,
-			Table:  data.Table,
-			Column: data.Column,
-			Type:   api.SensitiveDataMaskTypeDefault,
+func convertToStorePBMaskingPolicyPayload(policy *v1pb.MaskingPolicy) (*storepb.MaskingPolicy, error) {
+	var maskData []*storepb.MaskData
+
+	for _, data := range policy.MaskData {
+		maskData = append(maskData, &storepb.MaskData{
+			Schema:       data.Schema,
+			Table:        data.Table,
+			Column:       data.Column,
+			MaskingLevel: convertToStorePBMaskingLevel(data.MaskingLevel),
 		})
 	}
-	return &api.SensitiveDataPolicy{
-		SensitiveDataList: sensitiveDataList,
+
+	return &storepb.MaskingPolicy{
+		MaskData: maskData,
 	}, nil
+}
+
+func convertToV1PBAction(action storepb.MaskingExceptionPolicy_MaskingException_Action) v1pb.MaskingExceptionPolicy_MaskingException_Action {
+	switch action {
+	case storepb.MaskingExceptionPolicy_MaskingException_ACTION_UNSPECIFIED:
+		return v1pb.MaskingExceptionPolicy_MaskingException_ACTION_UNSPECIFIED
+	case storepb.MaskingExceptionPolicy_MaskingException_QUERY:
+		return v1pb.MaskingExceptionPolicy_MaskingException_QUERY
+	case storepb.MaskingExceptionPolicy_MaskingException_EXPORT:
+		return v1pb.MaskingExceptionPolicy_MaskingException_EXPORT
+	}
+	return v1pb.MaskingExceptionPolicy_MaskingException_ACTION_UNSPECIFIED
+}
+
+func convertToStorePBAction(action v1pb.MaskingExceptionPolicy_MaskingException_Action) storepb.MaskingExceptionPolicy_MaskingException_Action {
+	switch action {
+	case v1pb.MaskingExceptionPolicy_MaskingException_ACTION_UNSPECIFIED:
+		return storepb.MaskingExceptionPolicy_MaskingException_ACTION_UNSPECIFIED
+	case v1pb.MaskingExceptionPolicy_MaskingException_QUERY:
+		return storepb.MaskingExceptionPolicy_MaskingException_QUERY
+	case v1pb.MaskingExceptionPolicy_MaskingException_EXPORT:
+		return storepb.MaskingExceptionPolicy_MaskingException_EXPORT
+	}
+	return storepb.MaskingExceptionPolicy_MaskingException_ACTION_UNSPECIFIED
+}
+
+func convertToV1PBMaskingLevel(level storepb.MaskingLevel) v1pb.MaskingLevel {
+	switch level {
+	case storepb.MaskingLevel_MASKING_LEVEL_UNSPECIFIED:
+		return v1pb.MaskingLevel_MASKING_LEVEL_UNSPECIFIED
+	case storepb.MaskingLevel_NONE:
+		return v1pb.MaskingLevel_NONE
+	case storepb.MaskingLevel_PARTIAL:
+		return v1pb.MaskingLevel_PARTIAL
+	case storepb.MaskingLevel_FULL:
+		return v1pb.MaskingLevel_FULL
+	default:
+		return v1pb.MaskingLevel_MASKING_LEVEL_UNSPECIFIED
+	}
+}
+
+func convertToStorePBMaskingLevel(level v1pb.MaskingLevel) storepb.MaskingLevel {
+	switch level {
+	case v1pb.MaskingLevel_MASKING_LEVEL_UNSPECIFIED:
+		return storepb.MaskingLevel_MASKING_LEVEL_UNSPECIFIED
+	case v1pb.MaskingLevel_NONE:
+		return storepb.MaskingLevel_NONE
+	case v1pb.MaskingLevel_PARTIAL:
+		return storepb.MaskingLevel_PARTIAL
+	case v1pb.MaskingLevel_FULL:
+		return storepb.MaskingLevel_FULL
+	default:
+		return storepb.MaskingLevel_MASKING_LEVEL_UNSPECIFIED
+	}
 }
 
 func convertToV1PBBackupPlanPolicy(payloadStr string) (*v1pb.Policy_BackupPlanPolicy, error) {
@@ -848,6 +1060,16 @@ func convertToBackupPlanPolicyPayload(policy *v1pb.BackupPlanPolicy) (*api.Backu
 	}, nil
 }
 
+func convertToV1RolloutPolicyPayload(payloadStr string) (*v1pb.Policy_RolloutPolicy, error) {
+	p := &v1pb.RolloutPolicy{}
+	if err := protojson.Unmarshal([]byte(payloadStr), p); err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal rollout policy payload")
+	}
+	return &v1pb.Policy_RolloutPolicy{
+		RolloutPolicy: p,
+	}, nil
+}
+
 func convertToV1PBDeploymentApprovalPolicy(payloadStr string) (*v1pb.Policy_DeploymentApprovalPolicy, error) {
 	payload, err := api.UnmarshalPipelineApprovalPolicy(payloadStr)
 	if err != nil {
@@ -862,8 +1084,13 @@ func convertToV1PBDeploymentApprovalPolicy(payloadStr string) (*v1pb.Policy_Depl
 		approvalStrategy = v1pb.ApprovalStrategy_AUTOMATIC
 	}
 
-	approvalStrategies := make([]*v1pb.DeploymentApprovalStrategy, 0)
+	var approvalStrategies []*v1pb.DeploymentApprovalStrategy
 	for _, group := range payload.AssigneeGroupList {
+		// HACK(p0ny): skip if type is IssueDatabaseGeneral
+		if group.IssueType == api.IssueDatabaseGeneral {
+			continue
+		}
+
 		assigneeGroupValue := v1pb.ApprovalGroup_ASSIGNEE_GROUP_UNSPECIFIED
 		switch group.Value {
 		case api.AssigneeGroupValueProjectOwner:
@@ -888,6 +1115,15 @@ func convertToV1PBDeploymentApprovalPolicy(payloadStr string) (*v1pb.Policy_Depl
 	}, nil
 }
 
+func convertToStorePBRolloutPolicy(policy *v1pb.RolloutPolicy) *storepb.RolloutPolicy {
+	return &storepb.RolloutPolicy{
+		Automatic:      policy.Automatic,
+		WorkspaceRoles: policy.WorkspaceRoles,
+		ProjectRoles:   policy.ProjectRoles,
+		IssueRoles:     policy.IssueRoles,
+	}
+}
+
 func convertToPipelineApprovalPolicyPayload(policy *v1pb.DeploymentApprovalPolicy) (*api.PipelineApprovalPolicy, error) {
 	var strategy api.PipelineApprovalValue
 	switch policy.DefaultStrategy {
@@ -899,12 +1135,16 @@ func convertToPipelineApprovalPolicyPayload(policy *v1pb.DeploymentApprovalPolic
 		return nil, errors.Errorf("invalid default strategy %v", policy.DefaultStrategy)
 	}
 
+	// HACK(p0ny): always append issue type database general, the group value is set according to seenProjectOwnerGroupValue.
+	seenProjectOwnerGroupValue := false
+
 	var assigneeGroupList []api.AssigneeGroup
 	for _, group := range policy.DeploymentApprovalStrategies {
 		var assigneeGroup api.AssigneeGroupValue
 		switch group.ApprovalGroup {
 		case v1pb.ApprovalGroup_APPROVAL_GROUP_PROJECT_OWNER:
 			assigneeGroup = api.AssigneeGroupValueProjectOwner
+			seenProjectOwnerGroupValue = true
 		case v1pb.ApprovalGroup_APPROVAL_GROUP_DBA:
 			assigneeGroup = api.AssigneeGroupValueWorkspaceOwnerOrDBA
 		default:
@@ -914,15 +1154,15 @@ func convertToPipelineApprovalPolicyPayload(policy *v1pb.DeploymentApprovalPolic
 		var issueType api.IssueType
 		switch group.DeploymentType {
 		case v1pb.DeploymentType_DATABASE_CREATE:
-			issueType = api.IssueDatabaseCreate
+			issueType = issueDatabaseCreate
 		case v1pb.DeploymentType_DATABASE_DDL:
-			issueType = api.IssueDatabaseSchemaUpdate
+			issueType = issueDatabaseSchemaUpdate
 		case v1pb.DeploymentType_DATABASE_DDL_GHOST:
-			issueType = api.IssueDatabaseSchemaUpdateGhost
+			issueType = issueDatabaseSchemaUpdateGhost
 		case v1pb.DeploymentType_DATABASE_DML:
-			issueType = api.IssueDatabaseDataUpdate
+			issueType = issueDatabaseDataUpdate
 		case v1pb.DeploymentType_DATABASE_RESTORE_PITR:
-			issueType = api.IssueDatabaseRestorePITR
+			issueType = issueDatabaseRestorePITR
 		default:
 			return nil, errors.Errorf("invalid deployment type %v", group.DeploymentType)
 		}
@@ -930,6 +1170,19 @@ func convertToPipelineApprovalPolicyPayload(policy *v1pb.DeploymentApprovalPolic
 		assigneeGroupList = append(assigneeGroupList, api.AssigneeGroup{
 			Value:     assigneeGroup,
 			IssueType: issueType,
+		})
+	}
+
+	// HACK(p0ny): always append issue type database general.
+	if seenProjectOwnerGroupValue {
+		assigneeGroupList = append(assigneeGroupList, api.AssigneeGroup{
+			Value:     api.AssigneeGroupValueProjectOwner,
+			IssueType: api.IssueDatabaseGeneral,
+		})
+	} else {
+		assigneeGroupList = append(assigneeGroupList, api.AssigneeGroup{
+			Value:     api.AssigneeGroupValueWorkspaceOwnerOrDBA,
+			IssueType: api.IssueDatabaseGeneral,
 		})
 	}
 
@@ -975,18 +1228,133 @@ func convertToDisableCopyDataPolicyPayload(policy *v1pb.DisableCopyDataPolicy) (
 	}, nil
 }
 
+func convertToStorePBMskingRulePolicy(policy *v1pb.MaskingRulePolicy) (*storepb.MaskingRulePolicy, error) {
+	var rules []*storepb.MaskingRulePolicy_MaskingRule
+	for _, rule := range policy.Rules {
+		rules = append(rules, &storepb.MaskingRulePolicy_MaskingRule{
+			Id: rule.Id,
+			Condition: &expr.Expr{
+				Title:       rule.Condition.Title,
+				Expression:  rule.Condition.Expression,
+				Description: rule.Condition.Description,
+				Location:    rule.Condition.Location,
+			},
+			MaskingLevel: convertToStorePBMaskingLevel(rule.MaskingLevel),
+		})
+	}
+
+	return &storepb.MaskingRulePolicy{
+		Rules: rules,
+	}, nil
+}
+
+func convertToV1PBMaskingRulePolicy(policy *storepb.MaskingRulePolicy) (*v1pb.MaskingRulePolicy, error) {
+	var rules []*v1pb.MaskingRulePolicy_MaskingRule
+	for _, rule := range policy.Rules {
+		rules = append(rules, &v1pb.MaskingRulePolicy_MaskingRule{
+			Id: rule.Id,
+			Condition: &expr.Expr{
+				Title:       rule.Condition.Title,
+				Expression:  rule.Condition.Expression,
+				Description: rule.Condition.Description,
+				Location:    rule.Condition.Location,
+			},
+			MaskingLevel: convertToV1PBMaskingLevel(rule.MaskingLevel),
+		})
+	}
+
+	return &v1pb.MaskingRulePolicy{
+		Rules: rules,
+	}, nil
+}
+
+func convertToStorePBMaskingExceptionPolicyPayload(policy *v1pb.MaskingExceptionPolicy) (*storepb.MaskingExceptionPolicy, error) {
+	var exceptions []*storepb.MaskingExceptionPolicy_MaskingException
+	for _, exception := range policy.MaskingExceptions {
+		exceptions = append(exceptions, &storepb.MaskingExceptionPolicy_MaskingException{
+			Action:       convertToStorePBAction(exception.Action),
+			MaskingLevel: convertToStorePBMaskingLevel(exception.MaskingLevel),
+			Member:       strings.TrimPrefix(exception.Member, "user:"),
+			Condition: &expr.Expr{
+				Title:       exception.Condition.Title,
+				Expression:  exception.Condition.Expression,
+				Description: exception.Condition.Description,
+				Location:    exception.Condition.Location,
+			},
+		})
+	}
+
+	return &storepb.MaskingExceptionPolicy{
+		MaskingExceptions: exceptions,
+	}, nil
+}
+
+func convertToV1PBMaskingExceptionPolicyPayload(policy *storepb.MaskingExceptionPolicy) (*v1pb.MaskingExceptionPolicy, error) {
+	var exceptions []*v1pb.MaskingExceptionPolicy_MaskingException
+	for _, exception := range policy.MaskingExceptions {
+		exceptions = append(exceptions, &v1pb.MaskingExceptionPolicy_MaskingException{
+			Action:       convertToV1PBAction(exception.Action),
+			MaskingLevel: convertToV1PBMaskingLevel(exception.MaskingLevel),
+			Member:       fmt.Sprintf("user:%s", exception.Member),
+			Condition: &expr.Expr{
+				Title:       exception.Condition.Title,
+				Expression:  exception.Condition.Expression,
+				Description: exception.Condition.Description,
+				Location:    exception.Condition.Location,
+			},
+		})
+	}
+
+	return &v1pb.MaskingExceptionPolicy{
+		MaskingExceptions: exceptions,
+	}, nil
+}
+
+func convertToV1PBRestrictIssueCreationForSQLReviewPolicy(payloadStr string) (*v1pb.Policy_RestrictIssueCreationForSqlReviewPolicy, error) {
+	payload, err := api.UnmarshalRestrictIssueCreationForSQLReviewPolicy(payloadStr)
+	if err != nil {
+		return nil, err
+	}
+	return &v1pb.Policy_RestrictIssueCreationForSqlReviewPolicy{
+		RestrictIssueCreationForSqlReviewPolicy: &v1pb.RestrictIssueCreationForSQLReviewPolicy{
+			Disallow: payload.Disallow,
+		},
+	}, nil
+}
+
+func convertToRestrictIssueCreationForSQLReviewPayload(policy *v1pb.RestrictIssueCreationForSQLReviewPolicy) (*api.RestrictIssueCreationForSQLReviewPolicy, error) {
+	return &api.RestrictIssueCreationForSQLReviewPolicy{
+		Disallow: policy.Disallow,
+	}, nil
+}
+
+// This is to be deprecated.
+const (
+	// IssueDatabaseCreate is the issue type for creating databases.
+	issueDatabaseCreate api.IssueType = "bb.issue.database.create"
+	// IssueDatabaseSchemaUpdate is the issue type for updating database schemas (DDL).
+	issueDatabaseSchemaUpdate api.IssueType = "bb.issue.database.schema.update"
+	// IssueDatabaseSchemaUpdateGhost is the issue type for updating database schemas using gh-ost.
+	issueDatabaseSchemaUpdateGhost api.IssueType = "bb.issue.database.schema.update.ghost"
+	// IssueDatabaseDataUpdate is the issue type for updating database data (DML).
+	issueDatabaseDataUpdate api.IssueType = "bb.issue.database.data.update"
+	// IssueDatabaseRestorePITR is the issue type for performing a Point-in-time Recovery.
+	issueDatabaseRestorePITR api.IssueType = "bb.issue.database.restore.pitr"
+)
+
+// TODO(p0ny): fix bb.issue.database.general.
 func convertIssueTypeToDeplymentType(issueType api.IssueType) v1pb.DeploymentType {
 	res := v1pb.DeploymentType_DEPLOYMENT_TYPE_UNSPECIFIED
 	switch issueType {
-	case api.IssueDatabaseCreate:
+	case issueDatabaseCreate:
 		res = v1pb.DeploymentType_DATABASE_CREATE
-	case api.IssueDatabaseSchemaUpdate:
+	case issueDatabaseSchemaUpdate:
 		res = v1pb.DeploymentType_DATABASE_DDL
-	case api.IssueDatabaseSchemaUpdateGhost:
+	case issueDatabaseSchemaUpdateGhost:
 		res = v1pb.DeploymentType_DATABASE_DDL_GHOST
-	case api.IssueDatabaseDataUpdate:
+	case issueDatabaseDataUpdate:
 		res = v1pb.DeploymentType_DATABASE_DML
-	case api.IssueDatabaseRestorePITR:
+	case issueDatabaseRestorePITR:
 		res = v1pb.DeploymentType_DATABASE_RESTORE_PITR
 	}
 
@@ -1000,16 +1368,67 @@ func convertPolicyType(pType string) (api.PolicyType, error) {
 		return api.PolicyTypeWorkspaceIAM, nil
 	case v1pb.PolicyType_DEPLOYMENT_APPROVAL.String():
 		return api.PolicyTypePipelineApproval, nil
+	case v1pb.PolicyType_ROLLOUT_POLICY.String():
+		return api.PolicyTypeRollout, nil
 	case v1pb.PolicyType_BACKUP_PLAN.String():
 		return api.PolicyTypeBackupPlan, nil
 	case v1pb.PolicyType_SQL_REVIEW.String():
 		return api.PolicyTypeSQLReview, nil
-	case v1pb.PolicyType_SENSITIVE_DATA.String():
-		return api.PolicyTypeSensitiveData, nil
+	case v1pb.PolicyType_MASKING.String():
+		return api.PolicyTypeMasking, nil
+	case v1pb.PolicyType_MASKING_RULE.String():
+		return api.PolicyTypeMaskingRule, nil
+	case v1pb.PolicyType_MASKING_EXCEPTION.String():
+		return api.PolicyTypeMaskingException, nil
 	case v1pb.PolicyType_SLOW_QUERY.String():
 		return api.PolicyTypeSlowQuery, nil
 	case v1pb.PolicyType_DISABLE_COPY_DATA.String():
 		return api.PolicyTypeDisableCopyData, nil
+	case v1pb.PolicyType_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW.String():
+		return api.PolicyTypeRestrictIssueCreationForSQLReview, nil
 	}
 	return policyType, errors.Errorf("invalid policy type %v", pType)
+}
+
+// validateSQLReviewPolicy validates the SQL review rule.
+func validateSQLReviewPolicy(policy *v1pb.SQLReviewPolicy) error {
+	if policy.Name == "" || len(policy.Rules) == 0 {
+		return errors.Errorf("invalid payload, name or rule list cannot be empty")
+	}
+	for _, rule := range policy.Rules {
+		ruleType := advisor.SQLReviewRuleType(rule.Type)
+		// TODO(rebelice): add other SQL review rule validation.
+		switch ruleType {
+		case advisor.SchemaRuleTableNaming, advisor.SchemaRuleColumnNaming, advisor.SchemaRuleAutoIncrementColumnNaming:
+			if _, _, err := advisor.UnmarshalNamingRulePayloadAsRegexp(rule.Payload); err != nil {
+				return err
+			}
+		case advisor.SchemaRuleFKNaming, advisor.SchemaRuleIDXNaming, advisor.SchemaRuleUKNaming:
+			if _, _, _, err := advisor.UnmarshalNamingRulePayloadAsTemplate(ruleType, rule.Payload); err != nil {
+				return err
+			}
+		case advisor.SchemaRuleRequiredColumn:
+			if _, err := advisor.UnmarshalRequiredColumnList(rule.Payload); err != nil {
+				return err
+			}
+		case advisor.SchemaRuleColumnCommentConvention, advisor.SchemaRuleTableCommentConvention:
+			if _, err := advisor.UnmarshalCommentConventionRulePayload(rule.Payload); err != nil {
+				return err
+			}
+		case advisor.SchemaRuleIndexKeyNumberLimit, advisor.SchemaRuleStatementInsertRowLimit, advisor.SchemaRuleIndexTotalNumberLimit,
+			advisor.SchemaRuleColumnMaximumCharacterLength, advisor.SchemaRuleColumnMaximumVarcharLength, advisor.SchemaRuleColumnAutoIncrementInitialValue, advisor.SchemaRuleStatementAffectedRowLimit:
+			if _, err := advisor.UnmarshalNumberTypeRulePayload(rule.Payload); err != nil {
+				return err
+			}
+		case advisor.SchemaRuleColumnTypeDisallowList, advisor.SchemaRuleCharsetAllowlist, advisor.SchemaRuleCollationAllowlist, advisor.SchemaRuleIndexPrimaryKeyTypeAllowlist:
+			if _, err := advisor.UnmarshalStringArrayTypeRulePayload(rule.Payload); err != nil {
+				return err
+			}
+		case advisor.SchemaRuleIdentifierCase:
+			if _, err := advisor.UnmarshalNamingCaseRulePayload(rule.Payload); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -14,13 +15,13 @@ import (
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/multierr"
-	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
@@ -29,7 +30,7 @@ var (
 )
 
 func init() {
-	db.Register(db.Redis, newDriver)
+	db.Register(storepb.Engine_REDIS, newDriver)
 }
 
 // Driver is the redis driver.
@@ -44,7 +45,7 @@ func newDriver(_ db.DriverConfig) db.Driver {
 }
 
 // Open opens the redis driver.
-func (d *Driver) Open(ctx context.Context, _ db.Type, config db.ConnectionConfig, _ db.ConnectionContext) (db.Driver, error) {
+func (d *Driver) Open(ctx context.Context, _ storepb.Engine, config db.ConnectionConfig, _ db.ConnectionContext) (db.Driver, error) {
 	addr := fmt.Sprintf("%s:%s", config.Host, config.Port)
 	tlsConfig, err := config.TLSConfig.GetSslConfig()
 	if err != nil {
@@ -95,7 +96,7 @@ func (d *Driver) Open(ctx context.Context, _ db.Type, config db.ConnectionConfig
 	// switch to cluster if cluster is enabled.
 	if clusterEnabled {
 		if err := d.rdb.Close(); err != nil {
-			log.Warn("failed to close redis driver when switching to redis cluster driver", zap.Error(err))
+			slog.Warn("failed to close redis driver when switching to redis cluster driver", log.BBError(err))
 		}
 		d.rdb = redis.NewClusterClient(&redis.ClusterOptions{
 			Addrs:     []string{addr},
@@ -131,8 +132,8 @@ func (d *Driver) Ping(ctx context.Context) error {
 }
 
 // GetType returns redis.
-func (*Driver) GetType() db.Type {
-	return db.Redis
+func (*Driver) GetType() storepb.Engine {
+	return storepb.Engine_REDIS
 }
 
 // GetDB gets the database.
@@ -171,51 +172,6 @@ func (d *Driver) Execute(ctx context.Context, statement string, createDatabase b
 	return 0, nil
 }
 
-// QueryConn executes the statement, returns the results.
-func (d *Driver) QueryConn(ctx context.Context, _ *sql.Conn, statement string, _ *db.QueryContext) ([]any, error) {
-	lines := strings.Split(statement, "\n")
-	for i := range lines {
-		lines[i] = strings.Trim(lines[i], " \n\t\r")
-	}
-
-	var data []any
-	var cmds []*redis.Cmd
-
-	if _, err := d.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
-		for _, line := range lines {
-			if line == "" {
-				continue
-			}
-			var input []any
-			for _, s := range strings.Split(line, " ") {
-				input = append(input, s)
-			}
-			cmd := p.Do(ctx, input...)
-			cmds = append(cmds, cmd)
-		}
-		return nil
-	}); err != nil && err != redis.Nil {
-		return nil, err
-	}
-
-	for _, cmd := range cmds {
-		if cmd.Err() == redis.Nil {
-			data = append(data, []any{"redis: nil"})
-			continue
-		}
-
-		val := cmd.Val()
-		if _, ok := val.(map[any]any); ok {
-			// json.Marshal cannot handle map[any]any
-			val = cmd.String()
-		}
-
-		data = append(data, []any{val})
-	}
-
-	return []any{[]string{"result"}, []string{"TEXT"}, data}, nil
-}
-
 // Dump and restore
 // Dump the database, if dbName is empty, then dump all databases.
 // Redis is schemaless, we don't support dump Redis data currently.
@@ -231,8 +187,8 @@ func (*Driver) Restore(context.Context, io.Reader) error {
 	return errors.New("redis: not supported")
 }
 
-// QueryConn2 queries a SQL statement in a given connection.
-func (d *Driver) QueryConn2(ctx context.Context, _ *sql.Conn, statement string, _ *db.QueryContext) ([]*v1pb.QueryResult, error) {
+// QueryConn queries a SQL statement in a given connection.
+func (d *Driver) QueryConn(ctx context.Context, _ *sql.Conn, statement string, _ *db.QueryContext) ([]*v1pb.QueryResult, error) {
 	startTime := time.Now()
 	lines := strings.Split(statement, "\n")
 	for i := range lines {
@@ -281,5 +237,5 @@ func (d *Driver) QueryConn2(ctx context.Context, _ *sql.Conn, statement string, 
 
 // RunStatement runs a SQL statement in a given connection.
 func (d *Driver) RunStatement(ctx context.Context, _ *sql.Conn, statement string) ([]*v1pb.QueryResult, error) {
-	return d.QueryConn2(ctx, nil, statement, nil)
+	return d.QueryConn(ctx, nil, statement, nil)
 }

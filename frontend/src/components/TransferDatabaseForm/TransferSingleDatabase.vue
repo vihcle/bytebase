@@ -9,18 +9,11 @@
         <ProjectSelect
           style="width: 100%"
           :project="targetProject.uid"
-          :allowed-project-role-list="
-            hasWorkspaceManageProjectPermission ? [] : [PresetRoleType.OWNER]
-          "
+          :allowed-project-role-list="[PresetRoleType.OWNER]"
           :include-default-project="allowTransferToDefaultProject"
           @update:project="handleSelectProject"
         />
       </div>
-      <SelectDatabaseLabel
-        v-model:labels="editingLabels"
-        :database="database"
-        :target-project-id="targetProject.uid"
-      />
     </div>
     <div>
       <div
@@ -49,18 +42,10 @@
 </template>
 
 <script setup lang="ts">
+import { cloneDeep } from "lodash-es";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { cloneDeep } from "lodash-es";
-
-import {
-  ComposedDatabase,
-  DEFAULT_PROJECT_V1_NAME,
-  PresetRoleType,
-  UNKNOWN_ID,
-} from "@/types";
 import { ProjectSelect } from "@/components/v2";
-import { hasWorkspacePermissionV1 } from "@/utils";
 import {
   pushNotification,
   useCurrentUserV1,
@@ -68,8 +53,13 @@ import {
   useGracefulRequest,
   useProjectV1Store,
 } from "@/store";
-import SelectDatabaseLabel from "./SelectDatabaseLabel.vue";
-import { TenantMode } from "@/types/proto/v1/project_service";
+import {
+  ComposedDatabase,
+  DEFAULT_PROJECT_V1_NAME,
+  PresetRoleType,
+  UNKNOWN_ID,
+} from "@/types";
+import { hasWorkspacePermissionV1 } from "@/utils";
 
 const props = defineProps<{
   database: ComposedDatabase;
@@ -85,7 +75,6 @@ const currentUserV1 = useCurrentUserV1();
 const transferring = ref(false);
 const sourceProject = computed(() => props.database.projectEntity);
 const targetProject = ref(sourceProject.value);
-const editingLabels = ref({ ...props.database.labels });
 
 const allowTransfer = computed(() => {
   return sourceProject.value.name !== targetProject.value.name;
@@ -124,10 +113,6 @@ const doTransfer = async () => {
       const databasePatch = cloneDeep(props.database);
       databasePatch.project = target.name;
       const updateMask = ["project"];
-      if (target.tenantMode === TenantMode.TENANT_MODE_ENABLED) {
-        databasePatch.labels = { ...editingLabels.value };
-        updateMask.push("labels");
-      }
       const updated = await useDatabaseV1Store().updateDatabase({
         database: databasePatch,
         updateMask,
@@ -149,17 +134,6 @@ const doTransfer = async () => {
   }
 };
 
-watch(
-  () => props.database.labels,
-  (labels) => (editingLabels.value = { ...labels }),
-  { deep: true }
-);
-watch(targetProject, (tar) => {
-  if (tar.tenantMode !== TenantMode.TENANT_MODE_ENABLED) {
-    // Restore dirty value if need not to edit labels any more.
-    editingLabels.value = { ...props.database.labels };
-  }
-});
 watch(sourceProject, (src) => {
   targetProject.value = src;
 });

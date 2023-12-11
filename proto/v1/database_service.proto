@@ -9,7 +9,6 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/wrappers.proto";
 import "v1/common.proto";
 import "v1/vcs.proto";
 
@@ -22,13 +21,10 @@ service DatabaseService {
   }
 
   rpc ListDatabases(ListDatabasesRequest) returns (ListDatabasesResponse) {
-    option (google.api.http) = {get: "/v1/{parent=instances/*}/databases"};
-    option (google.api.method_signature) = "";
-  }
-
-  // Search for databases that the caller has both projects.get permission on, and also satisfy the specified query.
-  rpc SearchDatabases(SearchDatabasesRequest) returns (SearchDatabasesResponse) {
-    option (google.api.http) = {get: "/v1/{parent=instances/*}/databases:search"};
+    option (google.api.http) = {
+      get: "/v1/{parent=instances/*}/databases"
+      additional_bindings {get: "/v1/{parent=projects/*}/databases"}
+    };
     option (google.api.method_signature) = "";
   }
 
@@ -58,8 +54,23 @@ service DatabaseService {
     option (google.api.http) = {get: "/v1/{name=instances/*/databases/*/metadata}"};
   }
 
+  rpc UpdateDatabaseMetadata(UpdateDatabaseMetadataRequest) returns (DatabaseMetadata) {
+    option (google.api.http) = {
+      patch: "/v1/{database_metadata.name=instances/*/databases/*/metadata}"
+      body: "database_metadata"
+    };
+  }
+
   rpc GetDatabaseSchema(GetDatabaseSchemaRequest) returns (DatabaseSchema) {
     option (google.api.http) = {get: "/v1/{name=instances/*/databases/*/schema}"};
+  }
+
+  rpc DiffSchema(DiffSchemaRequest) returns (DiffSchemaResponse) {
+    option (google.api.http) = {
+      post: "/v1/{name=instances/*/databases/*}:diffSchema"
+      additional_bindings {post: "/v1/{name=instances/*/databases/*/changeHistories/*}:diffSchema"}
+      body: "*"
+    };
   }
 
   rpc GetBackupSetting(GetBackupSettingRequest) returns (BackupSetting) {
@@ -129,8 +140,8 @@ message GetDatabaseRequest {
 
 message ListDatabasesRequest {
   // The parent, which owns this collection of databases.
-  // Format: instances/{instance}
-  // Use "instances/-" to list all databases.
+  // - instances/{instance}: list all databases for an instance. Use "instances/-" to list all databases.
+  // - projects/{project}: list all databases in a project.
   string parent = 1 [(google.api.field_behavior) = REQUIRED];
 
   // The maximum number of databases to return. The service may return fewer than
@@ -148,6 +159,7 @@ message ListDatabasesRequest {
 
   // Filter is used to filter databases returned in the list.
   // For example, "project = projects/{project}" can be used to list databases in a project.
+  // Note: the project filter will be moved to parent.
   string filter = 4;
 }
 
@@ -229,10 +241,41 @@ message SyncDatabaseRequest {
 
 message SyncDatabaseResponse {}
 
+enum DatabaseMetadataView {
+  // The default and unset value.
+  // The API will default to the BASIC view.
+  DATABASE_METADATA_VIEW_UNSPECIFIED = 0;
+
+  // Include basic information of schema object names such as schema, table, view, function names.
+  DATABASE_METADATA_VIEW_BASIC = 1;
+
+  // Include everything such as columns and column masking level.
+  DATABASE_METADATA_VIEW_FULL = 2;
+}
+
 message GetDatabaseMetadataRequest {
   // The name of the database to retrieve metadata.
   // Format: instances/{instance}/databases/{database}/metadata
   string name = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The view to return. Defaults to DATABASE_METADATA_VIEW_BASIC.
+  DatabaseMetadataView view = 2;
+
+  // The filter used for a specific schema object such as
+  // "schemas/schema-a/tables/table-a".
+  // The column masking level will only be returned when a table filter is used.
+  string filter = 3;
+}
+
+message UpdateDatabaseMetadataRequest {
+  // The database metadata to update.
+  //
+  // The database_metadata's `name` field is used to identify the database metadata to update.
+  // Format: instances/{instance}/databases/{database}/metadata
+  DatabaseMetadata database_metadata = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // The list of fields to update.
+  google.protobuf.FieldMask update_mask = 2;
 }
 
 message GetDatabaseSchemaRequest {
@@ -242,6 +285,30 @@ message GetDatabaseSchemaRequest {
 
   // Format the schema dump into SDL format.
   bool sdl_format = 2;
+}
+
+message DiffSchemaRequest {
+  // The name of the database or change history.
+  // Format:
+  // database: instances/{instance}/databases/{database}
+  // change history: instances/{instance}/databases/{database}/changeHistories/{changeHistory}
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+
+  oneof target {
+    // The target schema.
+    string schema = 2;
+
+    // The resource name of the change history
+    // Format: instances/{instance}/databases/{database}/changeHistories/{changeHistory}
+    string change_history = 3;
+  }
+
+  // Format the schema dump into SDL format.
+  bool sdl_format = 4;
+}
+
+message DiffSchemaResponse {
+  string diff = 1;
 }
 
 message GetBackupSettingRequest {
@@ -329,6 +396,9 @@ message Database {
 
 // DatabaseMetadata is the metadata for databases.
 message DatabaseMetadata {
+  // The database metadata name.
+  //
+  // Format: instances/{instance}/databases/{database}/metadata
   string name = 1;
 
   // The schemas is the list of schemas in a database.
@@ -342,6 +412,9 @@ message DatabaseMetadata {
 
   // The extensions is the list of extensions in a database.
   repeated ExtensionMetadata extensions = 5;
+
+  // The schema_configs is the list of configs for schemas in a database.
+  repeated SchemaConfig schema_configs = 6;
 }
 
 // SchemaMetadata is the metadata for schemas.
@@ -400,10 +473,42 @@ message TableMetadata {
   string create_options = 10;
 
   // The comment is the comment of a table.
+  // classification and user_comment is parsed from the comment.
   string comment = 11;
+
+  // The classification is the classification of a table parsed from the comment.
+  string classification = 13;
+
+  // The user_comment is the user comment of a table parsed from the comment.
+  string user_comment = 14;
 
   // The foreign_keys is the list of foreign keys in a table.
   repeated ForeignKeyMetadata foreign_keys = 12;
+
+  // The partitions is the list of partitions in a table.
+  repeated TablePartitionMetadata partitions = 15;
+}
+
+// TablePartitionMetadata is the metadata for table partitions.
+message TablePartitionMetadata {
+  // The name is the name of a table partition.
+  string name = 1;
+
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    RANGE = 1;
+    LIST = 2;
+    HASH = 3;
+  }
+
+  // The type of a table partition.
+  Type type = 2;
+
+  // The expression is the expression of a table partition.
+  string expression = 3;
+
+  // The subpartitions is the list of subpartitions in a table partition.
+  repeated TablePartitionMetadata subpartitions = 4;
 }
 
 // ColumnMetadata is the metadata for columns.
@@ -414,23 +519,40 @@ message ColumnMetadata {
   // The position is the position in columns.
   int32 position = 2;
 
-  // The default is the default of a column. Use google.protobuf.StringValue to distinguish between an empty string default value or no default.
-  google.protobuf.StringValue default = 3;
+  bool has_default = 3;
+
+  // The default is the default value of a column.
+  oneof default {
+    bool default_null = 4;
+    string default_string = 5;
+    string default_expression = 6;
+  }
 
   // The nullable is the nullable of a column.
-  bool nullable = 4;
+  bool nullable = 7;
 
   // The type is the type of a column.
-  string type = 5;
+  string type = 8;
 
   // The character_set is the character_set of a column.
-  string character_set = 6;
+  string character_set = 9;
 
   // The collation is the collation of a column.
-  string collation = 7;
+  string collation = 10;
 
   // The comment is the comment of a column.
-  string comment = 8;
+  // classification and user_comment is parsed from the comment.
+  string comment = 11;
+
+  // The classification is the classification of a column parsed from the comment.
+  string classification = 12;
+
+  // The user_comment is the user comment of a column parsed from the comment.
+  string user_comment = 13;
+
+  // The effective_masking_level is the effective masking level of the column, evaluate from the
+  // column masking data and global masking rules.
+  MaskingLevel effective_masking_level = 14;
 }
 
 // ViewMetadata is the metadata for views.
@@ -613,7 +735,41 @@ message ForeignKeyMetadata {
   string match_type = 8;
 }
 
-// DatabaseMetadata is the metadata for databases.
+message DatabaseConfig {
+  string name = 1;
+
+  // The schema_configs is the list of configs for schemas in a database.
+  repeated SchemaConfig schema_configs = 2;
+}
+
+message SchemaConfig {
+  // The name is the schema name.
+  // It is an empty string for databases without such concept such as MySQL.
+  string name = 1;
+
+  // The table_configs is the list of configs for tables in a schema.
+  repeated TableConfig table_configs = 2;
+}
+
+message TableConfig {
+  // The name is the name of a table.
+  string name = 1;
+
+  // The column_configs is the ordered list of configs for columns in a table.
+  repeated ColumnConfig column_configs = 2;
+}
+
+message ColumnConfig {
+  // The name is the name of a column.
+  string name = 1;
+
+  string semantic_type_id = 2;
+
+  // The user labels for a column.
+  map<string, string> labels = 3;
+}
+
+// DatabaseSchema is the metadata for databases.
 message DatabaseSchema {
   // The schema dump from database.
   string schema = 1;
@@ -748,7 +904,7 @@ message SlowQueryStatistics {
   string sql_fingerprint = 1;
 
   // The count of the slow query log.
-  int64 count = 2;
+  int32 count = 2;
 
   // The latest log time of the slow query log.
   google.protobuf.Timestamp latest_log_time = 3;
@@ -760,16 +916,16 @@ message SlowQueryStatistics {
   google.protobuf.Duration maximum_query_time = 5;
 
   // The average rows sent of the slow query log.
-  int64 average_rows_sent = 6;
+  int32 average_rows_sent = 6;
 
   // The maximum rows sent of the slow query log.
-  int64 maximum_rows_sent = 7;
+  int32 maximum_rows_sent = 7;
 
   // The average rows examined of the slow query log.
-  int64 average_rows_examined = 8;
+  int32 average_rows_examined = 8;
 
   // The maximum rows examined of the slow query log.
-  int64 maximum_rows_examined = 9;
+  int32 maximum_rows_examined = 9;
 
   // The percentage of the query time.
   double query_time_percent = 10;
@@ -793,10 +949,10 @@ message SlowQueryDetails {
   google.protobuf.Duration lock_time = 3;
 
   // The rows sent of the slow query log.
-  int64 rows_sent = 4;
+  int32 rows_sent = 4;
 
   // The rows examined of the slow query log.
-  int64 rows_examined = 5;
+  int32 rows_examined = 5;
 
   // The sql text of the slow query log.
   string sql_text = 6;
@@ -934,7 +1090,11 @@ message ChangeHistory {
   string version = 11;
 
   string description = 12;
+  // The statement is used for preview purpose.
   string statement = 13;
+  // The name of the sheet resource.
+  // Format: projects/{project}/sheets/{sheet}
+  string statement_sheet = 20;
   string schema = 14;
   string prev_schema = 15;
   google.protobuf.Duration execution_duration = 16;
@@ -942,6 +1102,28 @@ message ChangeHistory {
   string issue = 17;
 
   PushEvent push_event = 18;
+
+  ChangedResources changed_resources = 19;
+}
+
+message ChangedResources {
+  repeated ChangedResourceDatabase databases = 1;
+}
+
+message ChangedResourceDatabase {
+  string name = 1;
+
+  repeated ChangedResourceSchema schemas = 2;
+}
+
+message ChangedResourceSchema {
+  string name = 1;
+
+  repeated ChangedResourceTable tables = 2;
+}
+
+message ChangedResourceTable {
+  string name = 1;
 }
 
 enum ChangeHistoryView {
@@ -970,6 +1152,28 @@ message ListChangeHistoriesRequest {
   string page_token = 3;
 
   ChangeHistoryView view = 4;
+
+  // The filter of the change histories.
+  // Follow the CEL syntax.
+  // currently, we have one function for CEL:
+  // - tableExists(database, schema, table): return true if the table exists in changed resources.
+  //
+  // examples:
+  // Use
+  //   tableExists("db", "public", "table1")
+  // to filter the change histories which have the table "table1" in the schema "public" of the database "db".
+  // For MySQL, the schema is always "", such as tableExists("db", "", "table1").
+  //
+  // Combine multiple functions with "&&" and "||", we MUST use the Disjunctive Normal Form(DNF).
+  // In other words, the CEL expression consists of several parts connected by OR operators.
+  // For example, the following expression is valid:
+  // (
+  //  tableExists("db", "public", "table1") &&
+  //  tableExists("db", "public", "table2")
+  // ) || (
+  //  tableExists("db", "public", "table3")
+  // )
+  string filter = 5;
 }
 
 message ListChangeHistoriesResponse {

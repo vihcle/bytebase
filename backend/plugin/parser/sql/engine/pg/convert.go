@@ -5,23 +5,24 @@ import (
 	"strconv"
 	"strings"
 
-	pgquery "github.com/pganalyze/pg_query_go/v2"
+	pgquery "github.com/pganalyze/pg_query_go/v4"
 	"github.com/pkg/errors"
 
-	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	"github.com/bytebase/bytebase/backend/plugin/parser/tokenizer"
 
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
 )
 
 // convert converts the pg_query.Node to ast.Node.
-func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err error) {
+func convert(node *pgquery.Node, statement base.SingleSQL) (res ast.Node, err error) {
 	defer func() {
 		if err == nil && res != nil {
 			res.SetText(strings.TrimSpace(statement.Text))
 			res.SetLastLine(statement.LastLine)
 			switch n := res.(type) {
 			case *ast.CreateTableStmt:
-				err = parser.SetLineForCreateTableStmt(parser.Postgres, n)
+				err = setLineForCreateTableStmt(n)
 			case *ast.AlterTableStmt:
 				for _, item := range n.AlterItemList {
 					item.SetLastLine(n.LastLine())
@@ -31,6 +32,10 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 	}()
 	switch in := node.Node.(type) {
 	case *pgquery.Node_AlterTableStmt:
+		if in.AlterTableStmt.Objtype != pgquery.ObjectType_OBJECT_TABLE {
+			// We only support ALTER TABLE.
+			return nil, nil
+		}
 		alterTable := &ast.AlterTableStmt{
 			Table:         convertRangeVarToTableName(in.AlterTableStmt.Relation, ast.TableTypeBaseTable),
 			AlterItemList: []ast.Node{},
@@ -43,7 +48,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 				case pgquery.AlterTableType_AT_AddColumn:
 					def, ok := alterCmd.Def.Node.(*pgquery.Node_ColumnDef)
 					if !ok {
-						return nil, parser.NewConvertErrorf("expected ColumnDef but found %t", alterCmd.Def.Node)
+						return nil, NewConvertErrorf("expected ColumnDef but found %t", alterCmd.Def.Node)
 					}
 
 					column, err := convertColumnDef(def)
@@ -69,7 +74,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 				case pgquery.AlterTableType_AT_AddConstraint:
 					def, ok := alterCmd.Def.Node.(*pgquery.Node_Constraint)
 					if !ok {
-						return nil, parser.NewConvertErrorf("expected Constraint but found %t", alterCmd.Def.Node)
+						return nil, NewConvertErrorf("expected Constraint but found %t", alterCmd.Def.Node)
 					}
 					constraint, err := convertConstraint(def)
 					if err != nil {
@@ -107,7 +112,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 				case pgquery.AlterTableType_AT_AlterColumnType:
 					column, ok := alterCmd.Def.Node.(*pgquery.Node_ColumnDef)
 					if !ok {
-						return nil, parser.NewConvertErrorf("expected ColumnDef but found %t", alterCmd.Def.Node)
+						return nil, NewConvertErrorf("expected ColumnDef but found %t", alterCmd.Def.Node)
 					}
 					dataType, err := convertDataType(column.ColumnDef.TypeName)
 					if err != nil {
@@ -154,9 +159,15 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 						alterTable.AlterItemList = append(alterTable.AlterItemList, setDefault)
 					}
 				case pgquery.AlterTableType_AT_AttachPartition:
-					alterTable.AlterItemList = append(alterTable.AlterItemList, &ast.AttachPartitionStmt{
+					attachPartition := &ast.AttachPartitionStmt{
 						Table: alterTable.Table,
-					})
+					}
+					if alterCmd.Def != nil {
+						if partitionCmd, ok := alterCmd.Def.Node.(*pgquery.Node_PartitionCmd); ok {
+							attachPartition.Partition = convertRangeVarToTableName(partitionCmd.PartitionCmd.Name, ast.TableTypeBaseTable)
+						}
+					}
+					alterTable.AlterItemList = append(alterTable.AlterItemList, attachPartition)
 				}
 			}
 		}
@@ -243,7 +254,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 		for _, key := range in.IndexStmt.IndexParams {
 			index, ok := key.Node.(*pgquery.Node_IndexElem)
 			if !ok {
-				return nil, parser.NewConvertErrorf("expected IndexElem but found %t", key.Node)
+				return nil, NewConvertErrorf("expected IndexElem but found %t", key.Node)
 			}
 			indexKey := &ast.IndexKeyDef{}
 			if index.IndexElem.Name != "" {
@@ -284,7 +295,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 			for _, object := range in.DropStmt.Objects {
 				list, ok := object.Node.(*pgquery.Node_List)
 				if !ok {
-					return nil, parser.NewConvertErrorf("expected List but found %t", object.Node)
+					return nil, NewConvertErrorf("expected List but found %t", object.Node)
 				}
 				indexDef, err := convertListToIndexDef(list, ast.TableTypeUnknown)
 				if err != nil {
@@ -301,7 +312,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 			for _, object := range in.DropStmt.Objects {
 				list, ok := object.Node.(*pgquery.Node_List)
 				if !ok {
-					return nil, parser.NewConvertErrorf("expected List but found %t", object.Node)
+					return nil, NewConvertErrorf("expected List but found %t", object.Node)
 				}
 				tableDef, err := convertListToTableDef(list, ast.TableTypeBaseTable)
 				if err != nil {
@@ -318,7 +329,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 			for _, object := range in.DropStmt.Objects {
 				list, ok := object.Node.(*pgquery.Node_List)
 				if !ok {
-					return nil, parser.NewConvertErrorf("expected List but found %t", object.Node)
+					return nil, NewConvertErrorf("expected List but found %t", object.Node)
 				}
 				viewDef, err := convertListToTableDef(list, ast.TableTypeView)
 				if err != nil {
@@ -335,9 +346,9 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 			for _, object := range in.DropStmt.Objects {
 				strNode, ok := object.Node.(*pgquery.Node_String_)
 				if !ok {
-					return nil, parser.NewConvertErrorf("expected String but found %t", object.Node)
+					return nil, NewConvertErrorf("expected String but found %t", object.Node)
 				}
-				dropSchema.SchemaList = append(dropSchema.SchemaList, strNode.String_.Str)
+				dropSchema.SchemaList = append(dropSchema.SchemaList, strNode.String_.Sval)
 			}
 			return dropSchema, nil
 		case pgquery.ObjectType_OBJECT_SEQUENCE:
@@ -348,7 +359,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 			for _, sequence := range in.DropStmt.Objects {
 				list, ok := sequence.Node.(*pgquery.Node_List)
 				if !ok {
-					return nil, parser.NewConvertErrorf("expected List but found %t", sequence.Node)
+					return nil, NewConvertErrorf("expected List but found %t", sequence.Node)
 				}
 				sequenceDef, err := convertListToSequenceNameDef(list)
 				if err != nil {
@@ -365,9 +376,9 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 			for _, extension := range in.DropStmt.Objects {
 				extensionName, ok := extension.Node.(*pgquery.Node_String_)
 				if !ok {
-					return nil, parser.NewConvertErrorf("expected String but found %t", extension.Node)
+					return nil, NewConvertErrorf("expected String but found %t", extension.Node)
 				}
-				dropExtension.NameList = append(dropExtension.NameList, extensionName.String_.Str)
+				dropExtension.NameList = append(dropExtension.NameList, extensionName.String_.Sval)
 			}
 			return dropExtension, nil
 		case pgquery.ObjectType_OBJECT_FUNCTION:
@@ -378,7 +389,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 			for _, function := range in.DropStmt.Objects {
 				functionNode, ok := function.Node.(*pgquery.Node_ObjectWithArgs)
 				if !ok {
-					return nil, parser.NewConvertErrorf("expected ObjectWithArgs but found %t", function.Node)
+					return nil, NewConvertErrorf("expected ObjectWithArgs but found %t", function.Node)
 				}
 				functionDef := &ast.FunctionDef{}
 				var err error
@@ -402,11 +413,11 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 			}
 
 			if len(in.DropStmt.Objects) != 1 {
-				return nil, parser.NewConvertErrorf("expected one trigger but found %d", len(in.DropStmt.Objects))
+				return nil, NewConvertErrorf("expected one trigger but found %d", len(in.DropStmt.Objects))
 			}
 			listNode, ok := in.DropStmt.Objects[0].Node.(*pgquery.Node_List)
 			if !ok {
-				return nil, parser.NewConvertErrorf("expected List but found %d", in.DropStmt.Objects[0].Node)
+				return nil, NewConvertErrorf("expected List but found %d", in.DropStmt.Objects[0].Node)
 			}
 
 			list, err := convertListToStringList(listNode)
@@ -433,7 +444,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 					},
 				}
 			default:
-				return nil, parser.NewConvertErrorf("expected one or two but found %d", len(list))
+				return nil, NewConvertErrorf("expected one or two but found %d", len(list))
 			}
 
 			return dropTriggerStmt, nil
@@ -446,7 +457,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 			for _, object := range in.DropStmt.Objects {
 				typeName, ok := object.Node.(*pgquery.Node_TypeName)
 				if !ok {
-					return nil, parser.NewConvertErrorf("expected TypeName but found %t", object.Node)
+					return nil, NewConvertErrorf("expected TypeName but found %t", object.Node)
 				}
 				schema, name, err := convertObjectName(typeName.TypeName.Names)
 				if err != nil {
@@ -510,13 +521,13 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 		}
 		if in.CreateSeqStmt.Sequence == nil {
 			// Unexpected case.
-			return nil, parser.NewConvertErrorf("CreateSeqStmt.Sequence is nil")
+			return nil, NewConvertErrorf("CreateSeqStmt.Sequence is nil")
 		}
 		createSeqStmt.SequenceDef.SequenceName = convertRangeVarToSeqName(in.CreateSeqStmt.Sequence)
 		for _, option := range in.CreateSeqStmt.Options {
 			defElemNode, ok := option.Node.(*pgquery.Node_DefElem)
 			if !ok {
-				return nil, parser.NewConvertErrorf("expected DefElem but found %t", option.Node)
+				return nil, NewConvertErrorf("expected DefElem but found %t", option.Node)
 			}
 			switch defElemNode.DefElem.Defname {
 			case "as":
@@ -552,7 +563,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 					return nil, err
 				}
 			default:
-				return nil, parser.NewConvertErrorf("unsupported option %s", defElemNode.DefElem.Defname)
+				return nil, NewConvertErrorf("unsupported option %s", defElemNode.DefElem.Defname)
 			}
 		}
 		return createSeqStmt, nil
@@ -600,7 +611,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 			if column, ok := columnNode.Node.(*pgquery.Node_ResTarget); ok {
 				insertStmt.ColumnList = append(insertStmt.ColumnList, column.ResTarget.Name)
 			} else {
-				return nil, parser.NewConvertErrorf("expected ResTarget but found %t", columnNode.Node)
+				return nil, NewConvertErrorf("expected ResTarget but found %t", columnNode.Node)
 			}
 		}
 
@@ -616,7 +627,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 						var valueList []ast.ExpressionNode
 						listNode, ok := list.Node.(*pgquery.Node_List)
 						if !ok {
-							return nil, parser.NewConvertErrorf("expected Node_List but found %t", list.Node)
+							return nil, NewConvertErrorf("expected Node_List but found %t", list.Node)
 						}
 						for _, item := range listNode.List.Items {
 							value, _, _, err := convertExpressionNode(item)
@@ -629,7 +640,7 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 					}
 				}
 			} else {
-				return nil, parser.NewConvertErrorf("expected SelectStmt but found %t", in.InsertStmt.SelectStmt.Node)
+				return nil, NewConvertErrorf("expected SelectStmt but found %t", in.InsertStmt.SelectStmt.Node)
 			}
 		}
 		return insertStmt, nil
@@ -642,7 +653,35 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 		return &copyStmt, nil
 	case *pgquery.Node_CommentStmt:
 		commentStmt := ast.CommentStmt{
-			Comment: in.CommentStmt.Comment,
+			// unescape single quote
+			Comment: strings.ReplaceAll(in.CommentStmt.Comment, "''", "'"),
+		}
+
+		switch in.CommentStmt.Objtype {
+		case pgquery.ObjectType_OBJECT_COLUMN:
+			commentStmt.Type = ast.ObjectTypeColumn
+			switch node := in.CommentStmt.Object.Node.(type) {
+			case *pgquery.Node_List:
+				columnDef, err := ConvertNodeListToColumnNameDef(node.List.Items)
+				if err != nil {
+					return nil, err
+				}
+				commentStmt.Object = columnDef
+			default:
+				return nil, errors.Errorf("expect to get a list node but got %T", node)
+			}
+		case pgquery.ObjectType_OBJECT_TABLE:
+			commentStmt.Type = ast.ObjectTypeTable
+			switch node := in.CommentStmt.Object.Node.(type) {
+			case *pgquery.Node_List:
+				tableDef, err := convertNodeListToTableDef(node.List.Items)
+				if err != nil {
+					return nil, err
+				}
+				commentStmt.Object = tableDef
+			default:
+				return nil, errors.Errorf("expect to get a list node but got %T", node)
+			}
 		}
 
 		return &commentStmt, nil
@@ -654,11 +693,11 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 			if item, ok := option.Node.(*pgquery.Node_DefElem); ok && item.DefElem.Defname == "encoding" {
 				value, ok := item.DefElem.Arg.Node.(*pgquery.Node_String_)
 				if !ok {
-					return nil, parser.NewConvertErrorf("expected String but found %t", item.DefElem.Arg.Node)
+					return nil, NewConvertErrorf("expected String but found %t", item.DefElem.Arg.Node)
 				}
 				createDatabaseStmt.OptionList = append(createDatabaseStmt.OptionList, &ast.DatabaseOptionDef{
 					Type:  ast.DatabaseOptionEncoding,
-					Value: value.String_.Str,
+					Value: value.String_.Sval,
 				})
 			}
 		}
@@ -700,9 +739,9 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 				if item.DefElem.Defname == "schema" {
 					schemaName, ok := item.DefElem.Arg.Node.(*pgquery.Node_String_)
 					if !ok {
-						return nil, parser.NewConvertErrorf("expected String but found %t", item.DefElem.Arg.Node)
+						return nil, NewConvertErrorf("expected String but found %t", item.DefElem.Arg.Node)
 					}
-					createExtensionStmt.Schema = schemaName.String_.Str
+					createExtensionStmt.Schema = schemaName.String_.Sval
 				}
 			}
 		}
@@ -788,14 +827,21 @@ func convert(node *pgquery.Node, statement parser.SingleSQL) (res ast.Node, err 
 	return nil, nil
 }
 
+// setLineForCreateTableStmt sets the line for columns and table constraints in CREATE TABLE statements.
+func setLineForCreateTableStmt(node *ast.CreateTableStmt) error {
+	t := tokenizer.NewTokenizer(node.Text())
+	firstLine := node.LastLine() - strings.Count(node.Text(), "\n")
+	return t.SetLineForPGCreateTableStmt(node, firstLine)
+}
+
 func convertEnumLabelList(list []*pgquery.Node) ([]string, error) {
 	var result []string
 	for _, node := range list {
 		stringNode, ok := node.Node.(*pgquery.Node_String_)
 		if !ok {
-			return nil, parser.NewConvertErrorf("expected String but found %t", node.Node)
+			return nil, NewConvertErrorf("expected String but found %t", node.Node)
 		}
-		result = append(result, stringNode.String_.Str)
+		result = append(result, stringNode.String_.Sval)
 	}
 	return result, nil
 }
@@ -823,7 +869,7 @@ func convertFunctionParameterList(parameterList []*pgquery.Node) ([]*ast.Functio
 			}
 			result = append(result, parameterDef)
 		default:
-			return nil, parser.NewConvertErrorf("expected FunctionParameter or TypeName but found %t", node.Node)
+			return nil, NewConvertErrorf("expected FunctionParameter or TypeName but found %t", node.Node)
 		}
 	}
 	return result, nil
@@ -839,6 +885,10 @@ func convertParameterMode(mode pgquery.FunctionParameterMode) ast.FunctionParame
 		return ast.FunctionParameterModeInOut
 	case pgquery.FunctionParameterMode_FUNC_PARAM_VARIADIC:
 		return ast.FunctionParameterModeVariadic
+	case pgquery.FunctionParameterMode_FUNC_PARAM_TABLE:
+		return ast.FunctionParameterModeTable
+	case pgquery.FunctionParameterMode_FUNC_PARAM_DEFAULT:
+		return ast.FunctionParameterModeDefault
 	default:
 		return ast.FunctionParameterModeUndefined
 	}
@@ -864,16 +914,16 @@ func convertObjectName(list []*pgquery.Node) (string, string, error) {
 		}
 		return "", name, nil
 	default:
-		return "", "", parser.NewConvertErrorf("expected 1 or 2 items but found %d", len(list))
+		return "", "", NewConvertErrorf("expected 1 or 2 items but found %d", len(list))
 	}
 }
 
 func convertToString(in *pgquery.Node) (string, error) {
 	stringNode, ok := in.Node.(*pgquery.Node_String_)
 	if !ok {
-		return "", parser.NewConvertErrorf("expected String but found %t", in.Node)
+		return "", NewConvertErrorf("expected String but found %t", in.Node)
 	}
-	return stringNode.String_.Str, nil
+	return stringNode.String_.Sval, nil
 }
 
 func convertAlterSequence(in *pgquery.AlterSeqStmt) (*ast.AlterSequenceStmt, error) {
@@ -882,7 +932,7 @@ func convertAlterSequence(in *pgquery.AlterSeqStmt) (*ast.AlterSequenceStmt, err
 	}
 
 	if in.Sequence == nil {
-		return nil, parser.NewConvertErrorf("AlterSeqStmt.Sequence is nil")
+		return nil, NewConvertErrorf("AlterSeqStmt.Sequence is nil")
 	}
 
 	alterSequenceStmt.Name = convertRangeVarToSeqName(in.Sequence)
@@ -890,7 +940,7 @@ func convertAlterSequence(in *pgquery.AlterSeqStmt) (*ast.AlterSequenceStmt, err
 	for _, option := range in.Options {
 		defElemNode, ok := option.Node.(*pgquery.Node_DefElem)
 		if !ok {
-			return nil, parser.NewConvertErrorf("expected DefElem but found %t", option.Node)
+			return nil, NewConvertErrorf("expected DefElem but found %t", option.Node)
 		}
 		var err error
 		switch defElemNode.DefElem.Defname {
@@ -948,7 +998,7 @@ func convertAlterSequence(in *pgquery.AlterSeqStmt) (*ast.AlterSequenceStmt, err
 				alterSequenceStmt.OwnedBy = owner
 			}
 		default:
-			return nil, parser.NewConvertErrorf("unsupported option %s", defElemNode.DefElem.Defname)
+			return nil, NewConvertErrorf("unsupported option %s", defElemNode.DefElem.Defname)
 		}
 	}
 
@@ -992,7 +1042,7 @@ func convertRoleSpec(in *pgquery.RoleSpec) (*ast.RoleSpec, error) {
 			Value: "",
 		}, nil
 	}
-	return nil, parser.NewConvertErrorf("unexpected role spec type: %q", in.Roletype.String())
+	return nil, NewConvertErrorf("unexpected role spec type: %q", in.Roletype.String())
 }
 
 func convertNullOrder(order pgquery.SortByNulls) (ast.NullOrderType, error) {
@@ -1004,7 +1054,7 @@ func convertNullOrder(order pgquery.SortByNulls) (ast.NullOrderType, error) {
 	case pgquery.SortByNulls_SORTBY_NULLS_LAST:
 		return ast.NullOrderTypeLast, nil
 	default:
-		return ast.NullOrderTypeDefault, parser.NewConvertErrorf("unsupported null sort order: %d", order)
+		return ast.NullOrderTypeDefault, NewConvertErrorf("unsupported null sort order: %d", order)
 	}
 }
 
@@ -1017,7 +1067,7 @@ func convertSortOrder(order pgquery.SortByDir) (ast.SortOrderType, error) {
 	case pgquery.SortByDir_SORTBY_DESC:
 		return ast.SortOrderTypeDescending, nil
 	default:
-		return ast.NullOrderTypeDefault, parser.NewConvertErrorf("unsupported sort order: %d", order)
+		return ast.NullOrderTypeDefault, NewConvertErrorf("unsupported sort order: %d", order)
 	}
 }
 
@@ -1049,9 +1099,14 @@ func convertExpressionNode(node *pgquery.Node) (ast.ExpressionNode, []*ast.Patte
 	}
 	switch in := node.Node.(type) {
 	case *pgquery.Node_AConst:
-		return convertExpressionNode(in.AConst.Val)
+		switch val := in.AConst.Val.(type) {
+		case *pgquery.A_Const_Sval:
+			return &ast.StringDef{Value: val.Sval.Sval}, nil, nil, nil
+		default:
+			return &ast.UnconvertedExpressionDef{}, nil, nil, nil
+		}
 	case *pgquery.Node_String_:
-		return &ast.StringDef{Value: in.String_.Str}, nil, nil, nil
+		return &ast.StringDef{Value: in.String_.Sval}, nil, nil, nil
 	case *pgquery.Node_ResTarget:
 		return convertExpressionNode(in.ResTarget.Val)
 	case *pgquery.Node_TypeCast:
@@ -1097,13 +1152,13 @@ func convertExpressionNode(node *pgquery.Node) (ast.ExpressionNode, []*ast.Patte
 		if len(in.AExpr.Name) == 1 {
 			name, ok := in.AExpr.Name[0].Node.(*pgquery.Node_String_)
 			if !ok {
-				return nil, nil, nil, parser.NewConvertErrorf("expected String but found %t", in.AExpr.Name[0].Node)
+				return nil, nil, nil, NewConvertErrorf("expected String but found %t", in.AExpr.Name[0].Node)
 			}
-			switch name.String_.Str {
+			switch name.String_.Sval {
 			// LIKE
 			case operatorLike, operatorNotLike:
 				like := &ast.PatternLikeDef{
-					Not:        (name.String_.Str == operatorNotLike),
+					Not:        (name.String_.Sval == operatorNotLike),
 					Expression: lExpr,
 					Pattern:    rExpr,
 				}
@@ -1162,8 +1217,30 @@ func convertCreateStmt(in *pgquery.CreateStmt) (*ast.CreateTableStmt, error) {
 	}
 
 	if in.Partspec != nil {
-		// TODO(rebelice): convert the partition definition.
-		table.PartitionDef = &ast.UnconvertedStmt{}
+		table.PartitionDef = &ast.PartitionDef{
+			Strategy: in.Partspec.Strategy,
+		}
+		for _, item := range in.Partspec.PartParams {
+			partElem, ok := item.Node.(*pgquery.Node_PartitionElem)
+			if !ok {
+				return nil, NewConvertErrorf("expected PartitionElem but found %t", item.Node)
+			}
+			if partElem.PartitionElem.Name != "" {
+				table.PartitionDef.KeyList = append(table.PartitionDef.KeyList, &ast.PartitionKeyDef{
+					Type: ast.PartitionKeyTypeColumn,
+					Key:  partElem.PartitionElem.Name,
+				})
+			} else if partElem.PartitionElem.Expr != nil {
+				expr, err := pgquery.DeparseNode(pgquery.DeparseTypeExpr, partElem.PartitionElem.Expr)
+				if err != nil {
+					return nil, err
+				}
+				table.PartitionDef.KeyList = append(table.PartitionDef.KeyList, &ast.PartitionKeyDef{
+					Type: ast.PartitionKeyTypeExpression,
+					Key:  expr,
+				})
+			}
+		}
 	}
 	return table, nil
 }
@@ -1225,7 +1302,7 @@ func convertSelectStmt(in *pgquery.SelectStmt) (*ast.SelectStmt, error) {
 	for _, itemNode := range in.SortClause {
 		item, ok := itemNode.Node.(*pgquery.Node_SortBy)
 		if !ok {
-			return nil, parser.NewConvertErrorf("expected SortBy but found %t", itemNode.Node)
+			return nil, NewConvertErrorf("expected SortBy but found %t", itemNode.Node)
 		}
 		expression, _, _, err := convertExpressionNode(item.SortBy.Node)
 		if err != nil {
@@ -1246,7 +1323,7 @@ func convertSelectStmt(in *pgquery.SelectStmt) (*ast.SelectStmt, error) {
 func convertRangeSubselect(node *pgquery.RangeSubselect) (*ast.SubqueryDef, error) {
 	subselect, ok := node.Subquery.Node.(*pgquery.Node_SelectStmt)
 	if !ok {
-		return nil, parser.NewConvertErrorf("expected SELECT but found %t", node.Subquery.Node)
+		return nil, NewConvertErrorf("expected SELECT but found %t", node.Subquery.Node)
 	}
 	res, err := convertSelectStmt(subselect.SelectStmt)
 	if err != nil {
@@ -1286,7 +1363,7 @@ func convertListToSequenceNameDef(in *pgquery.Node_List) (*ast.SequenceNameDef, 
 			Name: stringList[0],
 		}, nil
 	default:
-		return &ast.SequenceNameDef{}, parser.NewConvertErrorf("expected length is 1 or 2, but found %d", len(in.List.Items))
+		return &ast.SequenceNameDef{}, NewConvertErrorf("expected length is 1 or 2, but found %d", len(in.List.Items))
 	}
 }
 
@@ -1308,7 +1385,7 @@ func convertListToTableDef(in *pgquery.Node_List, tableType ast.TableType) (*ast
 			Name: stringList[0],
 		}, nil
 	default:
-		return nil, parser.NewConvertErrorf("expected length is 1 or 2, but found %d", len(in.List.Items))
+		return nil, NewConvertErrorf("expected length is 1 or 2, but found %d", len(in.List.Items))
 	}
 }
 
@@ -1328,7 +1405,7 @@ func convertListToIndexDef(in *pgquery.Node_List, tableType ast.TableType) (*ast
 	case 1:
 		indexDef.Name = stringList[0]
 	default:
-		return nil, parser.NewConvertErrorf("expected length is 1 or 2, but found %d", len(in.List.Items))
+		return nil, NewConvertErrorf("expected length is 1 or 2, but found %d", len(in.List.Items))
 	}
 	return indexDef, nil
 }
@@ -1338,9 +1415,9 @@ func convertListToStringList(in *pgquery.Node_List) ([]string, error) {
 	for _, item := range in.List.Items {
 		s, ok := item.Node.(*pgquery.Node_String_)
 		if !ok {
-			return nil, parser.NewConvertErrorf("expected String but found %t", item.Node)
+			return nil, NewConvertErrorf("expected String but found %t", item.Node)
 		}
-		res = append(res, s.String_.Str)
+		res = append(res, s.String_.Sval)
 	}
 	return res, nil
 }
@@ -1382,16 +1459,16 @@ func convertConstraint(in *pgquery.Node_Constraint) (*ast.ConstraintDef, error) 
 		for _, key := range in.Constraint.Keys {
 			name, ok := key.Node.(*pgquery.Node_String_)
 			if !ok {
-				return nil, parser.NewConvertErrorf("expected String but found %t", key.Node)
+				return nil, NewConvertErrorf("expected String but found %t", key.Node)
 			}
-			cons.KeyList = append(cons.KeyList, name.String_.Str)
+			cons.KeyList = append(cons.KeyList, name.String_.Sval)
 		}
 		for _, col := range in.Constraint.Including {
 			name, ok := col.Node.(*pgquery.Node_String_)
 			if !ok {
-				return nil, parser.NewConvertErrorf("expected String but found %t", col.Node)
+				return nil, NewConvertErrorf("expected String but found %t", col.Node)
 			}
-			cons.Including = append(cons.Including, name.String_.Str)
+			cons.Including = append(cons.Including, name.String_.Sval)
 		}
 		cons.IndexTableSpace = in.Constraint.Indexspace
 	case ast.ConstraintTypeForeign:
@@ -1413,21 +1490,21 @@ func convertConstraint(in *pgquery.Node_Constraint) (*ast.ConstraintDef, error) 
 		for _, item := range in.Constraint.PkAttrs {
 			name, ok := item.Node.(*pgquery.Node_String_)
 			if !ok {
-				return nil, parser.NewConvertErrorf("expected String but found %t", item.Node)
+				return nil, NewConvertErrorf("expected String but found %t", item.Node)
 			}
-			cons.Foreign.ColumnList = append(cons.Foreign.ColumnList, name.String_.Str)
+			cons.Foreign.ColumnList = append(cons.Foreign.ColumnList, name.String_.Sval)
 		}
 
 		for _, item := range in.Constraint.FkAttrs {
 			name, ok := item.Node.(*pgquery.Node_String_)
 			if !ok {
-				return nil, parser.NewConvertErrorf("expected String but found %t", item.Node)
+				return nil, NewConvertErrorf("expected String but found %t", item.Node)
 			}
-			cons.KeyList = append(cons.KeyList, name.String_.Str)
+			cons.KeyList = append(cons.KeyList, name.String_.Sval)
 		}
 	case ast.ConstraintTypePrimaryUsingIndex, ast.ConstraintTypeUniqueUsingIndex:
 		cons.IndexName = in.Constraint.Indexname
-	case ast.ConstraintTypeCheck, ast.ConstraintTypeDefault:
+	case ast.ConstraintTypeCheck, ast.ConstraintTypeDefault, ast.ConstraintTypeGenerated:
 		expression, _, _, err := convertExpressionNode(in.Constraint.RawExpr)
 		if err != nil {
 			return nil, err
@@ -1471,7 +1548,7 @@ func convertForeignMatchType(tp string) (ast.ForeignMatchType, error) {
 	case "p":
 		return ast.ForeignMatchTypePartial, nil
 	default:
-		return ast.ForeignMatchTypeSimple, parser.NewConvertErrorf("unsupported foreign match type: %s", tp)
+		return ast.ForeignMatchTypeSimple, NewConvertErrorf("unsupported foreign match type: %s", tp)
 	}
 }
 
@@ -1488,7 +1565,7 @@ func convertReferentialAction(action string) (*ast.ReferentialActionDef, error) 
 	case "d":
 		return &ast.ReferentialActionDef{Type: ast.ReferentialActionTypeSetDefault}, nil
 	default:
-		return nil, parser.NewConvertErrorf("unsupported referential action: %s", action)
+		return nil, NewConvertErrorf("unsupported referential action: %s", action)
 	}
 }
 
@@ -1517,6 +1594,10 @@ func convertConstraintType(in pgquery.ConstrType, usingIndex bool) ast.Constrain
 		return ast.ConstraintTypeDefault
 	case pgquery.ConstrType_CONSTR_EXCLUSION:
 		return ast.ConstraintTypeExclusion
+	case pgquery.ConstrType_CONSTR_GENERATED:
+		return ast.ConstraintTypeGenerated
+	case pgquery.ConstrType_CONSTR_NULL:
+		return ast.ConstraintTypeNull
 	}
 	return ast.ConstraintTypeUndefined
 }
@@ -1534,7 +1615,7 @@ func convertColumnDef(in *pgquery.Node_ColumnDef) (*ast.ColumnDef, error) {
 	for _, cons := range in.ColumnDef.Constraints {
 		constraint, ok := cons.Node.(*pgquery.Node_Constraint)
 		if !ok {
-			return nil, parser.NewConvertErrorf("expected Constraint but found %t", cons.Node)
+			return nil, NewConvertErrorf("expected Constraint but found %t", cons.Node)
 		}
 		columnCons, err := convertConstraint(constraint)
 		if err != nil {
@@ -1574,7 +1655,7 @@ func convertCollationName(collation *pgquery.CollateClause) (*ast.CollationNameD
 			return nil, err
 		}
 	default:
-		return nil, parser.NewConvertErrorf("expected one or two length but found %d", len(collation.Collname))
+		return nil, NewConvertErrorf("expected one or two length but found %d", len(collation.Collname))
 	}
 	return result, nil
 }
@@ -1586,14 +1667,14 @@ func convertToTableType(relationType pgquery.ObjectType) (ast.TableType, error) 
 	case pgquery.ObjectType_OBJECT_VIEW:
 		return ast.TableTypeView, nil
 	default:
-		return ast.TableTypeUnknown, parser.NewConvertErrorf("expected TABLE or VIEW but found %s", relationType)
+		return ast.TableTypeUnknown, NewConvertErrorf("expected TABLE or VIEW but found %s", relationType)
 	}
 }
 
 func stripPgCatalogPrefix(tp *pgquery.TypeName) *pgquery.TypeName {
 	// The built-in data type may have the "pg_catalog" prefix.
 	if len(tp.Names) > 0 {
-		if first, ok := tp.Names[0].Node.(*pgquery.Node_String_); ok && first.String_.Str == "pg_catalog" {
+		if first, ok := tp.Names[0].Node.(*pgquery.Node_String_); ok && first.String_.Sval == "pg_catalog" {
 			tp.Names = tp.Names[1:]
 		}
 	}
@@ -1613,7 +1694,7 @@ func convertDataType(tp *pgquery.TypeName) (ast.DataType, error) {
 			if !ok {
 				return &ast.UnconvertedDataType{}
 			}
-			s := name.String_.Str
+			s := name.String_.Sval
 			switch {
 			case strings.HasPrefix(s, "int"):
 				size, err := strconv.Atoi(s[3:])
@@ -1666,7 +1747,7 @@ func convertToUnconvertedDataType(tp *pgquery.TypeName) ast.DataType {
 		if !ok {
 			return &ast.UnconvertedDataType{}
 		}
-		res.Name = append(res.Name, s.String_.Str)
+		res.Name = append(res.Name, s.String_.Sval)
 	}
 	return res
 }
@@ -1722,17 +1803,17 @@ func convertToInteger(in *pgquery.Node) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	integer, ok := aConst.AConst.Val.Node.(*pgquery.Node_Integer)
+	integer, ok := aConst.AConst.Val.(*pgquery.A_Const_Ival)
 	if !ok {
 		return 0, false
 	}
-	return int(integer.Integer.Ival), true
+	return int(integer.Ival.Ival), true
 }
 
 func convertDefElemNodeListToColumnNameDef(defElem *pgquery.DefElem) (*ast.ColumnNameDef, error) {
 	listNode, ok := defElem.Arg.Node.(*pgquery.Node_List)
 	if !ok {
-		return nil, parser.NewConvertErrorf("expected List but found %T", defElem.Arg.Node)
+		return nil, NewConvertErrorf("expected List but found %T", defElem.Arg.Node)
 	}
 	return ConvertNodeListToColumnNameDef(listNode.List.Items)
 }
@@ -1741,11 +1822,14 @@ func convertDefElemNodeIntegerToBool(defElem *pgquery.DefElem) (bool, error) {
 	if defElem.Arg == nil {
 		return false, nil
 	}
-	interger, ok := defElem.Arg.Node.(*pgquery.Node_Integer)
-	if !ok {
-		return false, parser.NewConvertErrorf("expected integer but found %T", defElem.Arg.Node)
+	switch node := defElem.Arg.Node.(type) {
+	case *pgquery.Node_Integer:
+		return node.Integer.Ival == 1, nil
+	case *pgquery.Node_Boolean:
+		return node.Boolean.Boolval, nil
+	default:
+		return false, NewConvertErrorf("expected integer or boolean but found %T", defElem.Arg.Node)
 	}
-	return interger.Integer.Ival == 1, nil
 }
 
 func convertDefElemNodeIntegerToInt32(defElem *pgquery.DefElem) (*int32, error) {
@@ -1754,7 +1838,7 @@ func convertDefElemNodeIntegerToInt32(defElem *pgquery.DefElem) (*int32, error) 
 	}
 	interger, ok := defElem.Arg.Node.(*pgquery.Node_Integer)
 	if !ok {
-		return nil, parser.NewConvertErrorf("expected integer but found %T", defElem.Arg.Node)
+		return nil, NewConvertErrorf("expected integer but found %T", defElem.Arg.Node)
 	}
 	val := interger.Integer.Ival
 	return &val, nil
@@ -1763,10 +1847,10 @@ func convertDefElemNodeIntegerToInt32(defElem *pgquery.DefElem) (*int32, error) 
 func convertDefElemToSeqType(defElem *pgquery.DefElem) (*ast.Integer, error) {
 	typeNameNode, ok := defElem.Arg.Node.(*pgquery.Node_TypeName)
 	if !ok {
-		return nil, parser.NewConvertErrorf("expected TypeName but found %T", defElem.Arg.Node)
+		return nil, NewConvertErrorf("expected TypeName but found %T", defElem.Arg.Node)
 	}
 	if len(typeNameNode.TypeName.Names) != 2 {
-		return nil, parser.NewConvertErrorf("expected TypeName with 2 names but found %d", len(typeNameNode.TypeName.Names))
+		return nil, NewConvertErrorf("expected TypeName with 2 names but found %d", len(typeNameNode.TypeName.Names))
 	}
 	dataType, err := convertDataType(typeNameNode.TypeName)
 	if err != nil {
@@ -1775,10 +1859,10 @@ func convertDefElemToSeqType(defElem *pgquery.DefElem) (*ast.Integer, error) {
 	// Sequence type should be int2(smallint), int4(integer), or int8(bigint)
 	intType, ok := dataType.(*ast.Integer)
 	if !ok {
-		return nil, parser.NewConvertErrorf("expected Integer but found %T", dataType)
+		return nil, NewConvertErrorf("expected Integer but found %T", dataType)
 	}
 	if intType.Size != 2 && intType.Size != 4 && intType.Size != 8 {
-		return nil, parser.NewConvertErrorf("expected Integer with size 2, 4, or 8 but found %d", intType.Size)
+		return nil, NewConvertErrorf("expected Integer with size 2, 4, or 8 but found %d", intType.Size)
 	}
 	return intType, nil
 }
@@ -1786,20 +1870,31 @@ func convertDefElemToSeqType(defElem *pgquery.DefElem) (*ast.Integer, error) {
 // ConvertNodeListToColumnNameDef converts the node list to ColumnNameDef.
 func ConvertNodeListToColumnNameDef(in []*pgquery.Node) (*ast.ColumnNameDef, error) {
 	columnName := &ast.ColumnNameDef{Table: &ast.TableDef{}}
-	// There are three cases for column name:
+	// There are four cases for column name:
+	//   0. dbName.schemaName.tableName.columnName
 	//   1. schemaName.tableName.columnName
 	//   2. tableName.columnName
 	//   3. columnName
 	// The pg parser will split them by ".", and use a list to define it.
 	// So we need to consider this three cases.
 	switch len(in) {
-	// schemaName.tableName.columName
+	// dbName.schemaName.tableName.columnName
+	case 4:
+		dbName, ok := in[0].Node.(*pgquery.Node_String_)
+		if !ok {
+			return nil, NewConvertErrorf("expected String but found %T", in[0].Node)
+		}
+		columnName.Table.Database = dbName.String_.Sval
+		// need to convert schemaName.tableName.columnName
+		in = in[1:]
+		fallthrough
+	// schemaName.tableName.columnName
 	case 3:
 		schema, ok := in[0].Node.(*pgquery.Node_String_)
 		if !ok {
-			return nil, parser.NewConvertErrorf("expected String but found %t", in[2].Node)
+			return nil, NewConvertErrorf("expected String but found %T", in[0].Node)
 		}
-		columnName.Table.Schema = schema.String_.Str
+		columnName.Table.Schema = schema.String_.Sval
 		// need to convert tableName.columnName
 		in = in[1:]
 		fallthrough
@@ -1807,9 +1902,9 @@ func ConvertNodeListToColumnNameDef(in []*pgquery.Node) (*ast.ColumnNameDef, err
 	case 2:
 		table, ok := in[0].Node.(*pgquery.Node_String_)
 		if !ok {
-			return nil, parser.NewConvertErrorf("expected String but found %t", in[1].Node)
+			return nil, NewConvertErrorf("expected String but found %T", in[0].Node)
 		}
-		columnName.Table.Name = table.String_.Str
+		columnName.Table.Name = table.String_.Sval
 		// need to convert columnName
 		in = in[1:]
 		fallthrough
@@ -1818,15 +1913,40 @@ func ConvertNodeListToColumnNameDef(in []*pgquery.Node) (*ast.ColumnNameDef, err
 		switch column := in[0].Node.(type) {
 		// column name
 		case *pgquery.Node_String_:
-			columnName.ColumnName = column.String_.Str
+			columnName.ColumnName = column.String_.Sval
 		// e.g. SELECT * FROM t;
 		case *pgquery.Node_AStar:
 			columnName.ColumnName = "*"
 		default:
-			return nil, parser.NewConvertErrorf("expected String or AStar but found %t", in[0].Node)
+			return nil, NewConvertErrorf("expected String or AStar but found %T", in[0].Node)
 		}
 	default:
-		return nil, parser.NewConvertErrorf("failed to convert ColumnRef, column name contains unexpected components: %v", in)
+		return nil, NewConvertErrorf("failed to convert ColumnRef, column name contains unexpected components: %v", in)
 	}
 	return columnName, nil
+}
+
+func convertNodeListToTableDef(in []*pgquery.Node) (*ast.TableDef, error) {
+	tableDef := &ast.TableDef{
+		Type: ast.TableTypeUnknown,
+	}
+	switch len(in) {
+	case 2:
+		schema, ok := in[0].Node.(*pgquery.Node_String_)
+		if !ok {
+			return nil, NewConvertErrorf("expected String but found %t", in[0].Node)
+		}
+		tableDef.Schema = schema.String_.Sval
+		in = in[1:]
+		fallthrough
+	case 1:
+		table, ok := in[0].Node.(*pgquery.Node_String_)
+		if !ok {
+			return nil, NewConvertErrorf("expected String but found %t", in[0].Node)
+		}
+		tableDef.Name = table.String_.Sval
+	default:
+		return nil, NewConvertErrorf("failed to convert RangeVar, table name contains unexpected components: %v", in)
+	}
+	return tableDef, nil
 }

@@ -13,14 +13,14 @@
         :column-list="columnList"
         :data-source="category.ruleList"
         :row-clickable="false"
-        class="border"
+        class="border hidden lg:grid"
       >
         <template #item="{ item: rule }: { item: RuleTemplate }">
           <div class="bb-grid-cell justify-center">
             <BBSwitch
               :class="[!editable && 'pointer-events-none']"
               :disabled="!isRuleAvailable(rule)"
-              :value="rule.level !== RuleLevel.DISABLED"
+              :value="rule.level !== SQLReviewRuleLevel.DISABLED"
               size="small"
               @toggle="toggleActivity(rule, $event)"
             />
@@ -80,15 +80,90 @@
             </button>
           </div>
           <div
-            v-if="getRuleLocalization(rule.type).description"
+            v-if="rule.comment || getRuleLocalization(rule.type).description"
             class="bb-grid-cell col-span-full pl-24 border-t-0"
           >
             <p class="w-full text-left pl-2 text-gray-500 -mt-2 mb-1">
-              {{ getRuleLocalization(rule.type).description }}
+              {{ rule.comment || getRuleLocalization(rule.type).description }}
             </p>
           </div>
         </template>
       </BBGrid>
+      <div
+        class="flex flex-col lg:hidden border px-2 pb-4 divide-y space-y-4 divide-block-border"
+      >
+        <div
+          v-for="rule in category.ruleList"
+          :key="rule.type"
+          class="pt-4 space-y-3"
+        >
+          <div class="flex justify-between items-center gap-x-2">
+            <div class="flex items-center gap-x-1">
+              <NTooltip
+                v-if="!isRuleAvailable(rule)"
+                trigger="hover"
+                :show-arrow="false"
+              >
+                <template #trigger>
+                  <div class="flex justify-center">
+                    <heroicons-outline:exclamation
+                      class="h-5 w-5 text-yellow-600"
+                    />
+                  </div>
+                </template>
+                <span class="whitespace-nowrap">
+                  {{
+                    $t("sql-review.not-available-for-free", {
+                      plan: $t(
+                        `subscription.plan.${planTypeToString(
+                          currentPlan
+                        )}.title`
+                      ),
+                    })
+                  }}
+                </span>
+              </NTooltip>
+              <span>
+                {{ getRuleLocalization(rule.type).title }}
+                <a
+                  :href="`https://www.bytebase.com/docs/sql-review/review-rules#${rule.type}`"
+                  target="_blank"
+                  class="inline-block"
+                >
+                  <ExternalLinkIcon class="w-4 h-4" />
+                </a>
+              </span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <PencilIcon
+                v-if="editable"
+                class="w-4 h-4"
+                @click="setActiveRule(rule)"
+              />
+              <BBSwitch
+                :class="[!editable && 'pointer-events-none']"
+                :disabled="!isRuleAvailable(rule)"
+                :value="rule.level !== SQLReviewRuleLevel.DISABLED"
+                size="small"
+                @toggle="toggleActivity(rule, $event)"
+              />
+            </div>
+          </div>
+          <div class="flex gap-x-2 items-center">
+            <RuleEngineIcons :rule="rule" />
+          </div>
+          <RuleLevelSwitch
+            class="text-xs"
+            :level="rule.level"
+            :disabled="!isRuleAvailable(rule)"
+            :editable="editable"
+            @level-change="$emit('level-change', rule, $event)"
+          />
+          <p class="textinfolabel">
+            {{ getRuleLocalization(rule.type).description }}
+          </p>
+        </div>
+      </div>
     </template>
 
     <SQLRuleEditDialog
@@ -96,7 +171,6 @@
       :editable="editable"
       :rule="state.activeRule"
       :disabled="!isRuleAvailable(state.activeRule)"
-      :payload="state.activePayload"
       @cancel="state.activeRule = undefined"
       @update:payload="updatePayload(state.activeRule!, $event)"
       @update:level="updateLevel(state.activeRule!, $event)"
@@ -106,26 +180,25 @@
 </template>
 
 <script lang="ts" setup>
+import { ExternalLinkIcon, PencilIcon } from "lucide-vue-next";
 import { computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
-
 import { BBSwitch, BBGrid, type BBGridColumn } from "@/bbkit";
-import RuleLevelSwitch from "./RuleLevelSwitch.vue";
-import SQLRuleEditDialog from "./SQLRuleEditDialog.vue";
+import { useCurrentPlan } from "@/store";
 import {
   convertToCategoryList,
   getRuleLocalization,
   ruleIsAvailableInSubscription,
   planTypeToString,
-  RuleLevel,
   RuleTemplate,
 } from "@/types";
-import { PayloadValueType } from "./RuleConfigComponents";
-import { useCurrentPlan } from "@/store";
+import { SQLReviewRuleLevel } from "@/types/proto/v1/org_policy_service";
+import { PayloadForEngine } from "./RuleConfigComponents";
+import RuleLevelSwitch from "./RuleLevelSwitch.vue";
+import SQLRuleEditDialog from "./SQLRuleEditDialog.vue";
 
 type LocalState = {
   activeRule: RuleTemplate | undefined;
-  activePayload: PayloadValueType[];
 };
 
 const props = withDefaults(
@@ -143,9 +216,9 @@ const emit = defineEmits<{
   (
     event: "payload-change",
     rule: RuleTemplate,
-    payload: PayloadValueType[]
+    payload: PayloadForEngine
   ): void;
-  (event: "level-change", rule: RuleTemplate, level: RuleLevel): void;
+  (event: "level-change", rule: RuleTemplate, level: SQLReviewRuleLevel): void;
   (event: "comment-change", rule: RuleTemplate, comment: string): void;
 }>();
 
@@ -153,7 +226,6 @@ const { t } = useI18n();
 const currentPlan = useCurrentPlan();
 const state = reactive<LocalState>({
   activeRule: undefined,
-  activePayload: [],
 });
 
 const categoryList = computed(() => {
@@ -184,26 +256,21 @@ const isRuleAvailable = (rule: RuleTemplate) => {
 };
 
 const setActiveRule = (rule: RuleTemplate) => {
-  const { componentList } = rule;
-  const payload = componentList.reduce<PayloadValueType[]>(
-    (list, component) => {
-      list.push(component.payload.value ?? component.payload.default);
-      return list;
-    },
-    []
-  );
-  state.activePayload = payload;
   state.activeRule = rule;
 };
 
 const toggleActivity = (rule: RuleTemplate, on: boolean) => {
-  emit("level-change", rule, on ? RuleLevel.WARNING : RuleLevel.DISABLED);
+  emit(
+    "level-change",
+    rule,
+    on ? SQLReviewRuleLevel.WARNING : SQLReviewRuleLevel.DISABLED
+  );
 };
 
-const updatePayload = (rule: RuleTemplate, payload: PayloadValueType[]) => {
+const updatePayload = (rule: RuleTemplate, payload: PayloadForEngine) => {
   emit("payload-change", rule, payload);
 };
-const updateLevel = (rule: RuleTemplate, level: RuleLevel) => {
+const updateLevel = (rule: RuleTemplate, level: SQLReviewRuleLevel) => {
   emit("level-change", rule, level);
 };
 const updateComment = (rule: RuleTemplate, comment: string) => {

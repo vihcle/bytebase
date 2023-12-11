@@ -4,15 +4,14 @@ import (
 	"testing"
 
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
-
-	// Register pingcap parser driver.
-	_ "github.com/pingcap/tidb/types/parser_driver"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 func TestMySQLRules(t *testing.T) {
 	mysqlRules := []advisor.SQLReviewRuleType{
+		// advisor.SchemaRuleMySQLEngine enforce the innodb engine.
 		advisor.SchemaRuleMySQLEngine,
+
 		// advisor.SchemaRuleTableNaming enforce the table name format.
 		advisor.SchemaRuleTableNaming,
 		// advisor.SchemaRuleColumnNaming enforce the column name format.
@@ -74,6 +73,8 @@ func TestMySQLRules(t *testing.T) {
 		advisor.SchemaRuleColumnDisallowChange,
 		// advisor.SchemaRuleColumnDisallowChangingOrder disallow changing column order.
 		advisor.SchemaRuleColumnDisallowChangingOrder,
+		// advisor.SchemaRuleColumnDisallowDropIndex disallow drop index column.
+		advisor.SchemaRuleColumnDisallowDropInIndex,
 		// advisor.SchemaRuleColumnCommentConvention enforce the column comment convention.
 		advisor.SchemaRuleColumnCommentConvention,
 		// advisor.SchemaRuleColumnAutoIncrementMustInteger require the auto-increment column to be integer.
@@ -88,15 +89,15 @@ func TestMySQLRules(t *testing.T) {
 		advisor.SchemaRuleColumnAutoIncrementInitialValue,
 		// advisor.SchemaRuleColumnAutoIncrementMustUnsigned enforce the auto-increment column to be unsigned.
 		advisor.SchemaRuleColumnAutoIncrementMustUnsigned,
-		// advisor.SchemaRuleCurrentTimeColumnCountLimit enforce the current column count limit.
-		advisor.SchemaRuleCurrentTimeColumnCountLimit,
 		// advisor.SchemaRuleColumnRequireDefault enforce the column default.
 		advisor.SchemaRuleColumnRequireDefault,
 
 		// advisor.SchemaRuleSchemaBackwardCompatibility enforce the MySQL and TiDB support check whether the schema change is backward compatible.
 		advisor.SchemaRuleSchemaBackwardCompatibility,
+		// advisor.SchemaRuleCurrentTimeColumnCountLimit enforce the current column count limit.
+		advisor.SchemaRuleCurrentTimeColumnCountLimit,
 
-		// advisor.SchemaRuleDropEmptyDatabase enforce the MySQL and TiDB support check if the database is empty before users drop it.
+		// advisor.SchemaRuleDropEmptyDatabase enforce the MySQL support check if the database is empty before users drop it.
 		advisor.SchemaRuleDropEmptyDatabase,
 
 		// advisor.SchemaRuleIndexNoDuplicateColumn require the index no duplicate column.
@@ -119,6 +120,6 @@ func TestMySQLRules(t *testing.T) {
 	}
 
 	for _, rule := range mysqlRules {
-		advisor.RunSQLReviewRuleTest(t, rule, db.MySQL, false /* record */)
+		advisor.RunSQLReviewRuleTest(t, rule, storepb.Engine_MYSQL, false /* record */)
 	}
 }

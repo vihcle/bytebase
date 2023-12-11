@@ -33,7 +33,6 @@ type CreatePayload struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	Project     string    `json:"project"`
-	Assignee    string    `json:"assignee"`
 	Statement   string    `json:"statement"`
 	CreateTime  time.Time `json:"createTime"`
 }
@@ -68,6 +67,7 @@ func (c *Client) Create(relayEndpoint string, payload *CreatePayload) (string, e
 	if err != nil {
 		return "", err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return "", errors.Errorf("failed to create external approval with status %v", resp.Status)
 	}
@@ -99,6 +99,7 @@ func (c *Client) UpdateApproval(relayEndpoint string, id string, payload *Update
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return errors.Errorf("failed to create external approval with status %v", resp.Status)
 	}
@@ -115,6 +116,7 @@ func (c *Client) GetApproval(relayEndpoint string, id string) (*ResponsePayload,
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.Errorf("failed to get external approval status with status %v", resp.Status)
 	}

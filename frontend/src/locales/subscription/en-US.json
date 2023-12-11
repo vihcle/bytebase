@@ -1,7 +1,7 @@
 {
   "current": "Current plan",
   "unlimited": "Unlimited",
-  "instance-count": "Instance count",
+  "max-instance-count": "Max instance count",
   "user-count": "User count",
   "expires-at": "Expires at",
   "start-free-trial": "Start free trial",
@@ -16,8 +16,8 @@
   "billed-annually": "Billed annually",
   "billed-monthly": "Billed monthly",
   "per-instance": "Per instance",
-  "free-price-intro": "Unlimited users and environments",
-  "team-price-intro": "Up to 20 instances",
+  "free-price-intro": "Up to 20 users and 10 instances",
+  "team-price-intro": "Purchase up to 20 instances",
   "enterprise-price-intro": "Customized, billed annually",
   "deploy": "Deploy",
   "contact-us": "Contact us",
@@ -30,22 +30,22 @@
   "trialing": "trialing",
   "expired": "expired",
   "plan": {
-    "title": "Plan",
+    "title": "Community",
     "try": "Start free trial",
     "free": {
-      "title": "Free Plan",
+      "title": "Community",
       "label": "",
-      "desc": "Team essentials to centralize database lifecycle management"
+      "desc": "Team essentials to manage database development lifecycle."
     },
     "team": {
-      "title": "Pro Plan",
+      "title": "Pro",
       "label": "",
-      "desc": "More collaboration and control policies for advanced database lifecycle management"
+      "desc": "More policies to standardize and facilitate collaboration across teams."
     },
     "enterprise": {
-      "title": "Enterprise Plan",
+      "title": "Enterprise",
       "label": "",
-      "desc": "Large organization, has dedicated DBA group to manage database fleet with custom requirements"
+      "desc": "Extra security, compliance, and permission features. Dedicated support with SLA."
     }
   },
   "feature-sections": {
@@ -57,11 +57,12 @@
         "user-unlimited": "Unlimited",
         "instance-count": "Instance count",
         "instance-customized": "Customized",
+        "instance-maximum-10": "Up to 10",
+        "instance-maximum-10-tooltip": "Maximum 10. Talk to us for pricing if your instances go over the limit.",
         "instance-maximum-20": "Up to 20",
         "instance-maximum-20-tooltip": "Maximum 20. Talk to us for pricing if your instances go over the limit.",
         "instance-unlimited": "Unlimited",
-        "environment-count": "Environment count",
-        "environment-unlimited": "Unlimited",
+        "instance-unlimited-tooltip": "Allow unlimited instances. Purchase instance license to enable advanced instance features.",
         "state-based-change": "State-based change",
         "migration-based-change": "Migration-based change",
         "batch-change": "Batch change",
@@ -89,7 +90,11 @@
         "sync-schema-advanced": "Advanced",
         "sync-schema-advanced-tooltip": "Sync from arbitrary schema version",
         "terraform-provider": "Terraform Integration",
-        "custom-approval": "Custom approval"
+        "custom-approval": "Custom approval",
+        "issue-advanced-search": "Issue advanced search",
+        "issue-advanced-search-basic": "30-day limit",
+        "issue-advanced-search-basic-tooltip": "Issues older than 30 days are hidden",
+        "issue-advanced-search-advanced": "Unlimited"
       }
     },
     "sql-editor": {
@@ -126,14 +131,14 @@
       "title": "Data Security & Governance",
       "features": {
         "audit-log": "Audit log",
-        "rbac": "RBAC (Owner, DBA, Developer role)",
+        "rbac": "RBAC",
         "slow-query": "Slow query",
         "watermark": "Watermark",
         "sso": "Single Sign-On (SSO)",
         "2fa": "Two-Factor Authentication (2FA)",
         "ssh-tunnel": "SSH Tunnel",
         "dba-workflow": "DBA workflow",
-        "dba-workflow-tooltip": "Only allow DBA and Owner to create or transfer database",
+        "dba-workflow-tooltip": "Only allow Admin and DBA to create or transfer database",
         "environment-tier": "Environment tier",
         "backup-policy": "Backup policy",
         "sensitive-data": "Sensitive data masking",
@@ -144,7 +149,9 @@
         "anomaly-detection-advanced": "Advanced",
         "anomaly-detection-advanced-tooltip": "Basic + Schema drift detection",
         "archiving": "Archiving",
-        "disallow-signup": "Disallow signup"
+        "disallow-signup": "Disallow signup",
+        "announcement-banner": "Announcement banner",
+        "external-secret-manager": "External secret manager"
       }
     },
     "bespoke": {
@@ -169,8 +176,8 @@
     "database-backup-restore": "Database backup / restore",
     "webhook-integration": "IM integration (Slack, Discord, etc)",
     "email-support": "Email support",
-    "everything-in-free-plan": "Everything in free plan",
-    "rbac": "Owner, DBA and Developer roles",
+    "everything-in-free-plan": "Everything in community plan",
+    "rbac": "RBAC",
     "gitlab-login": "GitLab login",
     "online-schema-migration": "Large table online schema migration",
     "sql-check-anomaly-detection": "Advanced SQL check and anomaly detection",

@@ -1,10 +1,12 @@
-import { SQLDialect } from "@/plugins/sql-lsp/types";
+import type { SQLDialect } from "@/types";
 
 export enum SortText {
   DATABASE = "0",
   TABLE = "1",
+  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
   SUBQUERY = "1", // Same as TABLE
   COLUMN = "2",
+  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
   ALIAS = "2", // Same as COLUMN
   KEYWORD = "3",
 }

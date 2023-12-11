@@ -14,6 +14,7 @@
       :consistent-menu-width="false"
       :disabled="disabled || !allowAdmin"
       :filterable="true"
+      class="bb-rule-select"
       v-bind="selectAttrs"
     />
     <NButton
@@ -30,15 +31,14 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, useAttrs } from "vue";
-import { NButton, type SelectProps, SelectOption } from "naive-ui";
 import { omit } from "lodash-es";
+import { NButton, type SelectProps, SelectOption } from "naive-ui";
+import { computed, useAttrs } from "vue";
 import { useI18n } from "vue-i18n";
-
-import { VueClass, VueStyle } from "@/utils";
-import { useCustomApprovalContext } from "../context";
 import { useWorkspaceApprovalSettingStore } from "@/store";
+import { VueClass, VueStyle } from "@/utils";
 import { SpinnerSelect } from "../../common";
+import { useCustomApprovalContext } from "../context";
 
 export interface ApprovalTemplateSelectorProps extends SelectProps {
   label?: string;

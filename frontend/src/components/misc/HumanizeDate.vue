@@ -1,5 +1,8 @@
 <template>
-  <NTooltip trigger="hover">
+  <slot v-if="!date || date.getTime() === 0" name="placeholder">
+    <span v-bind="$attrs">-</span>
+  </slot>
+  <NTooltip v-else trigger="hover">
     <template #trigger>
       <span v-bind="$attrs">{{ humanized }}</span>
     </template>
@@ -9,10 +12,9 @@
 </template>
 
 <script lang="ts" setup>
-import { PropType, computed } from "vue";
 import dayjs from "dayjs";
 import { NTooltip } from "naive-ui";
-
+import { PropType, computed } from "vue";
 import { humanizeDate } from "@/utils";
 
 const props = defineProps({

@@ -119,8 +119,17 @@ type LabelSelectorRequirement struct {
 
 // GetDeploymentConfigV2 returns the deployment config.
 func (s *Store) GetDeploymentConfigV2(ctx context.Context, projectUID int) (*DeploymentConfigMessage, error) {
-	if deploymentConfig, ok := s.projectIDDeploymentConfigCache.Load(projectUID); ok {
-		return deploymentConfig.(*DeploymentConfigMessage), nil
+	// Return the default deployment config if a project is not in tenant mode any more.
+	project, err := s.GetProjectV2(ctx, &FindProjectMessage{UID: &projectUID})
+	if err != nil {
+		return nil, err
+	}
+	if project.TenantMode != api.TenantModeTenant {
+		return s.getDefaultDeploymentConfigV2(ctx)
+	}
+
+	if v, ok := s.projectDeploymentCache.Get(projectUID); ok {
+		return v, nil
 	}
 	where, args := []string{"TRUE"}, []any{}
 	where, args = append(where, fmt.Sprintf("project_id = $%d", len(args)+1)), append(args, projectUID)
@@ -160,7 +169,7 @@ func (s *Store) GetDeploymentConfigV2(ctx context.Context, projectUID int) (*Dep
 	}
 	deploymentConfig.Schedule = &schedule
 
-	s.projectIDDeploymentConfigCache.Store(projectUID, &deploymentConfig)
+	s.projectDeploymentCache.Add(projectUID, &deploymentConfig)
 	return &deploymentConfig, nil
 }
 
@@ -214,7 +223,7 @@ func (s *Store) UpsertDeploymentConfigV2(ctx context.Context, projectUID, princi
 		return nil, err
 	}
 
-	s.projectIDDeploymentConfigCache.Store(projectUID, &deploymentConfig)
+	s.projectDeploymentCache.Add(projectUID, &deploymentConfig)
 	return &deploymentConfig, nil
 }
 
@@ -230,7 +239,7 @@ func (s *Store) getDefaultDeploymentConfigV2(ctx context.Context) (*DeploymentCo
 			Spec: &DeploymentSpec{
 				Selector: &LabelSelector{
 					MatchExpressions: []*LabelSelectorRequirement{
-						{Key: "bb.environment", Operator: InOperatorType, Values: []string{environment.ResourceID}},
+						{Key: "environment", Operator: InOperatorType, Values: []string{environment.ResourceID}},
 					},
 				},
 			},

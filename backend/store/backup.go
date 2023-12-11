@@ -5,13 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/pkg/errors"
-	"go.uber.org/zap/zapcore"
 
 	"github.com/bytebase/bytebase/backend/common"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
+	"github.com/bytebase/bytebase/backend/store/model"
 )
 
 // BackupSettingsMatchMessage is the message to find backup settings matching the conditions.
@@ -133,7 +134,7 @@ type BackupMessage struct {
 	// Storage Backend is the storage backend of the backup.
 	StorageBackend api.BackupStorageBackend
 	// MigrationHistoryVersion is the migration history version of the database.
-	MigrationHistoryVersion string
+	MigrationHistoryVersion model.Version
 	// Path is the path of the backup file.
 	Path string
 
@@ -153,19 +154,21 @@ type BackupMessage struct {
 	Payload api.BackupPayload
 }
 
-// ZapBackupArray is a helper to format zap.Array.
-type ZapBackupArray []*BackupMessage
+// SLogBackupArray is a helper to format []*BackupMessage.
+type SLogBackupArray []*BackupMessage
 
-// MarshalLogArray implements the zapcore.ArrayMarshaler interface.
-func (backups ZapBackupArray) MarshalLogArray(arr zapcore.ArrayEncoder) error {
+// LogValue implements the LogValuer interface.
+func (backups SLogBackupArray) LogValue() slog.Value {
+	backupList := []string{}
 	for _, backup := range backups {
 		payload, err := json.Marshal(backup.Payload)
 		if err != nil {
-			return err
+			backupList = append(backupList, err.Error())
+			continue
 		}
-		arr.AppendString(fmt.Sprintf("{name:%s, id:%d, payload:%s}", backup.Name, backup.UID, payload))
+		backupList = append(backupList, fmt.Sprintf("{name:%s, id:%d, payload:%s}", backup.Name, backup.UID, payload))
 	}
-	return nil
+	return slog.StringValue(strings.Join(backupList, ","))
 }
 
 // FindBackupMessage is the message for finding backup.
@@ -336,6 +339,10 @@ func (s *Store) ListBackupSettingV2(ctx context.Context, find *FindBackupSetting
 
 // CreateBackupV2 creates a backup for the given database.
 func (s *Store) CreateBackupV2(ctx context.Context, create *BackupMessage, databaseUID int, principalUID int) (*BackupMessage, error) {
+	storedVersion, err := create.MigrationHistoryVersion.Marshal()
+	if err != nil {
+		return nil, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to begin transaction")
@@ -355,7 +362,7 @@ func (s *Store) CreateBackupV2(ctx context.Context, create *BackupMessage, datab
 			comment
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING id, row_status, name, storage_backend, migration_history_version, path, created_ts, updated_ts, status, type, comment, database_id
+		RETURNING id, row_status, name, storage_backend, path, created_ts, updated_ts, status, type, comment, database_id
 	`
 	var backup BackupMessage
 	if err := tx.QueryRowContext(ctx, query,
@@ -366,7 +373,7 @@ func (s *Store) CreateBackupV2(ctx context.Context, create *BackupMessage, datab
 		create.Status,
 		create.BackupType,
 		create.StorageBackend,
-		create.MigrationHistoryVersion,
+		storedVersion,
 		create.Path,
 		create.Comment,
 	).Scan(
@@ -374,7 +381,6 @@ func (s *Store) CreateBackupV2(ctx context.Context, create *BackupMessage, datab
 		&backup.RowStatus,
 		&backup.Name,
 		&backup.StorageBackend,
-		&backup.MigrationHistoryVersion,
 		&backup.Path,
 		&backup.CreatedTs,
 		&backup.UpdatedTs,
@@ -497,6 +503,7 @@ func (s *Store) UpdateBackupV2(ctx context.Context, patch *UpdateBackupMessage) 
 
 	var backup BackupMessage
 	var payload []byte
+	var storedVersion string
 	// Execute update query with RETURNING.
 	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
 			UPDATE backup
@@ -515,7 +522,7 @@ func (s *Store) UpdateBackupV2(ctx context.Context, patch *UpdateBackupMessage) 
 		&backup.Status,
 		&backup.BackupType,
 		&backup.StorageBackend,
-		&backup.MigrationHistoryVersion,
+		&storedVersion,
 		&backup.Path,
 		&backup.Comment,
 		&payload,
@@ -529,6 +536,11 @@ func (s *Store) UpdateBackupV2(ctx context.Context, patch *UpdateBackupMessage) 
 	if err := tx.Commit(); err != nil {
 		return nil, errors.Wrapf(err, "failed to commit transaction")
 	}
+	version, err := model.NewVersion(storedVersion)
+	if err != nil {
+		return nil, err
+	}
+	backup.MigrationHistoryVersion = version
 
 	if err := json.Unmarshal(payload, &backup.Payload); err != nil {
 		return nil, err
@@ -580,13 +592,13 @@ func (*Store) listBackupImplV2(ctx context.Context, tx *Tx, find *FindBackupMess
 	var backupList []*BackupMessage
 	for rows.Next() {
 		var backup BackupMessage
-		var payload string
+		var storedVersion, payload string
 		if err := rows.Scan(
 			&backup.UID,
 			&backup.RowStatus,
 			&backup.Name,
 			&backup.StorageBackend,
-			&backup.MigrationHistoryVersion,
+			&storedVersion,
 			&backup.Path,
 			&backup.CreatedTs,
 			&backup.UpdatedTs,
@@ -601,6 +613,12 @@ func (*Store) listBackupImplV2(ctx context.Context, tx *Tx, find *FindBackupMess
 		if err := json.Unmarshal([]byte(payload), &backup.Payload); err != nil {
 			return nil, err
 		}
+		version, err := model.NewVersion(storedVersion)
+		if err != nil {
+			return nil, err
+		}
+		backup.MigrationHistoryVersion = version
+
 		backupList = append(backupList, &backup)
 	}
 	if err := rows.Err(); err != nil {

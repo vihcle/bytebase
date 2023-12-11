@@ -7,10 +7,11 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/bytebase/bytebase/backend/common"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
-	"github.com/bytebase/bytebase/backend/plugin/advisor"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // GetBackupPlanPolicyByEnvID will get the backup plan policy for an environment.
@@ -33,29 +34,33 @@ func (s *Store) GetBackupPlanPolicyByEnvID(ctx context.Context, environmentID in
 	return api.UnmarshalBackupPlanPolicy(policy.Payload)
 }
 
-// GetPipelineApprovalPolicy will get the pipeline approval policy for an environment.
-func (s *Store) GetPipelineApprovalPolicy(ctx context.Context, environmentID int) (*api.PipelineApprovalPolicy, error) {
+func (s *Store) GetRolloutPolicy(ctx context.Context, environmentID int) (*storepb.RolloutPolicy, error) {
 	resourceType := api.PolicyResourceTypeEnvironment
-	pType := api.PolicyTypePipelineApproval
+	pType := api.PolicyTypeRollout
 	policy, err := s.GetPolicyV2(ctx, &FindPolicyMessage{
 		ResourceType: &resourceType,
 		ResourceUID:  &environmentID,
 		Type:         &pType,
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to get policy")
 	}
 	if policy == nil {
-		return &api.PipelineApprovalPolicy{
-			Value: api.PipelineApprovalValueManualAlways,
+		return &storepb.RolloutPolicy{
+			Automatic: true,
 		}, nil
 	}
 
-	return api.UnmarshalPipelineApprovalPolicy(policy.Payload)
+	p := &storepb.RolloutPolicy{}
+	if err := protojson.Unmarshal([]byte(policy.Payload), p); err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal rollout policy")
+	}
+
+	return p, nil
 }
 
 // GetSQLReviewPolicy will get the SQL review policy for an environment.
-func (s *Store) GetSQLReviewPolicy(ctx context.Context, environmentID int) (*advisor.SQLReviewPolicy, error) {
+func (s *Store) GetSQLReviewPolicy(ctx context.Context, environmentID int) (*storepb.SQLReviewPolicy, error) {
 	resourceType := api.PolicyResourceTypeEnvironment
 	pType := api.PolicyTypeSQLReview
 	policy, err := s.GetPolicyV2(ctx, &FindPolicyMessage{
@@ -72,26 +77,13 @@ func (s *Store) GetSQLReviewPolicy(ctx context.Context, environmentID int) (*adv
 	if !policy.Enforce {
 		return nil, &common.Error{Code: common.NotFound, Err: errors.Errorf("SQL review policy is not enforced for environment %d", environmentID)}
 	}
-	return api.UnmarshalSQLReviewPolicy(policy.Payload)
-}
 
-// GetSensitiveDataPolicy will get the sensitive data policy for database ID.
-func (s *Store) GetSensitiveDataPolicy(ctx context.Context, databaseID int) (*api.SensitiveDataPolicy, error) {
-	resourceType := api.PolicyResourceTypeDatabase
-	pType := api.PolicyTypeSensitiveData
-	policy, err := s.GetPolicyV2(ctx, &FindPolicyMessage{
-		ResourceType: &resourceType,
-		ResourceUID:  &databaseID,
-		Type:         &pType,
-	})
-	if err != nil {
+	p := new(storepb.SQLReviewPolicy)
+	if err := protojson.Unmarshal([]byte(policy.Payload), p); err != nil {
 		return nil, err
 	}
-	if policy == nil {
-		return &api.SensitiveDataPolicy{}, nil
-	}
 
-	return api.UnmarshalSensitiveDataPolicy(policy.Payload)
+	return p, nil
 }
 
 // GetSlowQueryPolicy will get the slow query policy for instance ID.
@@ -111,6 +103,78 @@ func (s *Store) GetSlowQueryPolicy(ctx context.Context, resourceType api.PolicyR
 	}
 
 	return api.UnmarshalSlowQueryPolicy(policy.Payload)
+}
+
+// GetMaskingRulePolicy will get the masking rule policy.
+func (s *Store) GetMaskingRulePolicy(ctx context.Context) (*storepb.MaskingRulePolicy, error) {
+	pType := api.PolicyTypeMaskingRule
+	policy, err := s.GetPolicyV2(ctx, &FindPolicyMessage{
+		Type: &pType,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if policy == nil {
+		return &storepb.MaskingRulePolicy{}, nil
+	}
+
+	p := new(storepb.MaskingRulePolicy)
+	if err := protojson.Unmarshal([]byte(policy.Payload), p); err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
+// GetMaskingPolicyByDatabaseUID gets the masking policy for a database.
+func (s *Store) GetMaskingPolicyByDatabaseUID(ctx context.Context, databaseUID int) (*storepb.MaskingPolicy, error) {
+	resourceType := api.PolicyResourceTypeDatabase
+	pType := api.PolicyTypeMasking
+	policy, err := s.GetPolicyV2(ctx, &FindPolicyMessage{
+		ResourceType: &resourceType,
+		ResourceUID:  &databaseUID,
+		Type:         &pType,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if policy == nil {
+		return &storepb.MaskingPolicy{}, nil
+	}
+
+	p := new(storepb.MaskingPolicy)
+	if err := protojson.Unmarshal([]byte(policy.Payload), p); err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
+// GetMaskingExceptionPolicyByProjectUID gets the masking exception policy for a project.
+func (s *Store) GetMaskingExceptionPolicyByProjectUID(ctx context.Context, projectUID int) (*storepb.MaskingExceptionPolicy, error) {
+	resourceType := api.PolicyResourceTypeProject
+	pType := api.PolicyTypeMaskingException
+	policy, err := s.GetPolicyV2(ctx, &FindPolicyMessage{
+		ResourceType: &resourceType,
+		ResourceUID:  &projectUID,
+		Type:         &pType,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if policy == nil {
+		return &storepb.MaskingExceptionPolicy{}, nil
+	}
+
+	p := new(storepb.MaskingExceptionPolicy)
+	if err := protojson.Unmarshal([]byte(policy.Payload), p); err != nil {
+		return nil, err
+	}
+
+	return p, nil
 }
 
 // PolicyMessage is the mssage for policy.
@@ -149,11 +213,8 @@ type UpdatePolicyMessage struct {
 // GetPolicyV2 gets a policy.
 func (s *Store) GetPolicyV2(ctx context.Context, find *FindPolicyMessage) (*PolicyMessage, error) {
 	if find.ResourceType != nil && find.ResourceUID != nil && find.Type != nil {
-		if policy, ok := s.policyCache.Load(getPolicyCacheKey(*find.ResourceType, *find.ResourceUID, *find.Type)); ok {
-			if policy == nil {
-				return nil, nil
-			}
-			return policy.(*PolicyMessage), nil
+		if v, ok := s.policyCache.Get(getPolicyCacheKey(*find.ResourceType, *find.ResourceUID, *find.Type)); ok {
+			return v, nil
 		}
 	}
 
@@ -172,7 +233,7 @@ func (s *Store) GetPolicyV2(ctx context.Context, find *FindPolicyMessage) (*Poli
 	if len(policies) == 0 {
 		// Cache the policy for not found as well to reduce the look up latency.
 		if find.ResourceType != nil && find.ResourceUID != nil && find.Type != nil {
-			s.policyCache.Store(getPolicyCacheKey(*find.ResourceType, *find.ResourceUID, *find.Type), nil)
+			s.policyCache.Add(getPolicyCacheKey(*find.ResourceType, *find.ResourceUID, *find.Type), nil)
 		}
 		return nil, nil
 	}
@@ -185,7 +246,7 @@ func (s *Store) GetPolicyV2(ctx context.Context, find *FindPolicyMessage) (*Poli
 		return nil, err
 	}
 
-	s.policyCache.Store(getPolicyCacheKey(policy.ResourceType, policy.ResourceUID, policy.Type), policy)
+	s.policyCache.Add(getPolicyCacheKey(policy.ResourceType, policy.ResourceUID, policy.Type), policy)
 
 	return policy, nil
 }
@@ -208,7 +269,7 @@ func (s *Store) ListPoliciesV2(ctx context.Context, find *FindPolicyMessage) ([]
 	}
 
 	for _, policy := range policies {
-		s.policyCache.Store(getPolicyCacheKey(policy.ResourceType, policy.ResourceUID, policy.Type), policy)
+		s.policyCache.Add(getPolicyCacheKey(policy.ResourceType, policy.ResourceUID, policy.Type), policy)
 	}
 
 	return policies, nil
@@ -231,7 +292,7 @@ func (s *Store) CreatePolicyV2(ctx context.Context, create *PolicyMessage, creat
 		return nil, err
 	}
 
-	s.policyCache.Store(getPolicyCacheKey(policy.ResourceType, policy.ResourceUID, policy.Type), policy)
+	s.policyCache.Add(getPolicyCacheKey(policy.ResourceType, policy.ResourceUID, policy.Type), policy)
 
 	return policy, nil
 }
@@ -294,7 +355,7 @@ func (s *Store) UpdatePolicyV2(ctx context.Context, patch *UpdatePolicyMessage) 
 		return nil, err
 	}
 
-	s.policyCache.Store(getPolicyCacheKey(policy.ResourceType, policy.ResourceUID, policy.Type), policy)
+	s.policyCache.Add(getPolicyCacheKey(policy.ResourceType, policy.ResourceUID, policy.Type), policy)
 
 	return policy, nil
 }
@@ -320,7 +381,7 @@ func (s *Store) DeletePolicyV2(ctx context.Context, policy *PolicyMessage) error
 		return err
 	}
 
-	s.policyCache.Delete(getPolicyCacheKey(policy.ResourceType, policy.ResourceUID, policy.Type))
+	s.policyCache.Remove(getPolicyCacheKey(policy.ResourceType, policy.ResourceUID, policy.Type))
 	return nil
 }
 

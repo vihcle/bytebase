@@ -20,7 +20,7 @@
             >
               <template v-if="showCreator(inbox.activity)">
                 <router-link
-                  :to="`/u/${getUserId(inbox.activity)}`"
+                  :to="`/users/${getUserEmail(inbox.activity)}`"
                   class="mr-1 font-medium text-main hover:underline"
                   @click.stop
                   >{{ getUser(inbox.activity)?.title }}</router-link
@@ -59,7 +59,21 @@
 </template>
 
 <script lang="ts" setup>
+import dayjs from "dayjs";
+import { isEmpty } from "lodash-es";
 import { PropType } from "vue";
+import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
+import { useInboxV1Store, useActivityV1Store } from "@/store";
+import { useUserStore } from "@/store";
+import { InboxMessage_Status } from "@/types/proto/v1/inbox_service";
+import { InboxMessage } from "@/types/proto/v1/inbox_service";
+import {
+  LogEntity,
+  LogEntity_Action,
+  LogEntity_Level,
+} from "@/types/proto/v1/logging_service";
+import { extractUserResourceName } from "@/utils";
 import PrincipalAvatar from "../components/PrincipalAvatar.vue";
 import {
   ActivityIssueCommentCreatePayload,
@@ -70,21 +84,7 @@ import {
   ActivityTaskStatementUpdatePayload,
   ActivityTaskEarliestAllowedTimeUpdatePayload,
 } from "../types";
-import { useRouter } from "vue-router";
-import { isEmpty } from "lodash-es";
 import { issueActivityActionSentence } from "../utils";
-import { useI18n } from "vue-i18n";
-import dayjs from "dayjs";
-import { useInboxV1Store, useActivityV1Store } from "@/store";
-import {
-  LogEntity,
-  LogEntity_Action,
-  LogEntity_Level,
-} from "@/types/proto/v1/logging_service";
-import { extractUserResourceName, extractUserUID } from "@/utils";
-import { useUserStore } from "@/store";
-import { InboxMessage_Status } from "@/types/proto/v1/inbox_service";
-import { InboxMessage } from "@/types/proto/v1/inbox_service";
 
 defineProps({
   inboxList: {
@@ -98,14 +98,13 @@ const inboxV1Store = useInboxV1Store();
 const activityV1Store = useActivityV1Store();
 const router = useRouter();
 
-const getUser = (activity: LogEntity | undefined) => {
-  const email = extractUserResourceName(activity?.creator ?? "");
-  return useUserStore().getUserByEmail(email);
+const getUserEmail = (activity: LogEntity | undefined) => {
+  return extractUserResourceName(activity?.creator ?? "");
 };
 
-const getUserId = (activity: LogEntity | undefined) => {
-  const username = getUser(activity)?.name ?? "";
-  return extractUserUID(username);
+const getUser = (activity: LogEntity | undefined) => {
+  const email = getUserEmail(activity);
+  return useUserStore().getUserByEmail(email);
 };
 
 const actionLink = (activity: LogEntity | undefined): string => {

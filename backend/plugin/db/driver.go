@@ -15,47 +15,13 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/bytebase/bytebase/backend/plugin/vcs"
+	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	"github.com/bytebase/bytebase/backend/store/model"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
-// Type is the type of a database.
-// nolint
-type Type string
-
 const (
-	// ClickHouse is the database type for CLICKHOUSE.
-	ClickHouse Type = "CLICKHOUSE"
-	// MySQL is the database type for MYSQL.
-	MySQL Type = "MYSQL"
-	// OceanBase is the database type for OCEANBASE.
-	OceanBase Type = "OCEANBASE"
-	// Postgres is the database type for POSTGRES.
-	Postgres Type = "POSTGRES"
-	// Snowflake is the database type for SNOWFLAKE.
-	Snowflake Type = "SNOWFLAKE"
-	// SQLite is the database type for SQLite.
-	SQLite Type = "SQLITE"
-	// TiDB is the database type for TiDB.
-	TiDB Type = "TIDB"
-	// MongoDB is the database type for MongoDB.
-	MongoDB Type = "MONGODB"
-	// Spanner is the database type for Spanner.
-	Spanner Type = "SPANNER"
-	// Redis is the database type for Redis.
-	Redis Type = "REDIS"
-	// Oracle is the database type for Oracle.
-	Oracle Type = "ORACLE"
-	// MSSQL is the database type for MS SQL Server.
-	MSSQL Type = "MSSQL"
-	// Redshift is the database type for Redshift.
-	Redshift Type = "REDSHIFT"
-	// MariaDB is the database type for MariaDB.
-	MariaDB Type = "MARIADB"
-	// UnknownType is the database type for UNKNOWN.
-	UnknownType Type = "UNKNOWN"
-
 	// SlowQueryMaxLen is the max length of slow query.
 	SlowQueryMaxLen = 2048
 	// SlowQueryMaxSamplePerFingerprint is the max number of slow query samples per fingerprint.
@@ -75,7 +41,8 @@ type InstanceMetadata struct {
 	Version       string
 	InstanceRoles []*storepb.InstanceRoleMetadata
 	// Simplified database metadata.
-	Databases []*storepb.DatabaseMetadata
+	Databases []*storepb.DatabaseSchemaMetadata
+	Metadata  *storepb.InstanceMetadata
 }
 
 // TableKey is the map key for table metadata.
@@ -93,7 +60,7 @@ type IndexKey struct {
 
 var (
 	driversMu sync.RWMutex
-	drivers   = make(map[Type]driverFunc)
+	drivers   = make(map[storepb.Engine]driverFunc)
 )
 
 // DriverConfig is the driver configuration.
@@ -170,22 +137,17 @@ const (
 	Failed MigrationStatus = "FAILED"
 )
 
-// MigrationInfoPayload is the API message for migration info payload.
-type MigrationInfoPayload struct {
-	VCSPushEvent *vcs.PushEvent `json:"pushEvent,omitempty"`
-}
-
 // MigrationInfo is the API message for migration info.
 type MigrationInfo struct {
 	// fields for instance change history
 	// InstanceID nil is metadata database.
 	InstanceID *int
 	DatabaseID *int
-	IssueIDInt *int
+	IssueUID   *int
 	CreatorID  int
 
 	ReleaseVersion string
-	Version        string
+	Version        model.Version
 	Namespace      string
 	Database       string
 	Environment    string
@@ -194,21 +156,8 @@ type MigrationInfo struct {
 	Status         MigrationStatus
 	Description    string
 	Creator        string
-	IssueID        string
 	// Payload contains JSON-encoded string of VCS push event if the migration is triggered by a VCS push event.
 	Payload *storepb.InstanceChangeHistoryPayload
-	// UseSemanticVersion is whether version is a semantic version.
-	// When UseSemanticVersion is set, version should be set to the format specified in Semantic Versioning 2.0.0 (https://semver.org/).
-	// For example, for setting non-semantic version "hello", the values should be Version = "hello", UseSemanticVersion = false, SemanticVersionSuffix = "".
-	// For setting semantic version "1.2.0", the values should be Version = "1.2.0", UseSemanticVersion = true, SemanticVersionSuffix = "20060102150405" (common.DefaultMigrationVersion).
-	UseSemanticVersion bool
-	// SemanticVersionSuffix should be set to timestamp format of "20060102150405" (common.DefaultMigrationVersion) if UseSemanticVersion is set.
-	// Since stored version should be unique, we have to append a suffix if we allow users to baseline to the same semantic version for fixing schema drift.
-	SemanticVersionSuffix string
-	// Force is used to execute migration disregarding any migration history with PENDING or FAILED status.
-	// This applies to BASELINE and MIGRATE types of migrations because most of these migrations are retry-able.
-	// We don't use force option for DATA type of migrations yet till there's customer needs.
-	Force bool
 }
 
 // placeholderRegexp is the regexp for placeholder.
@@ -267,7 +216,7 @@ func ParseMigrationInfo(filePath, filePathTemplate string, allowOmitDatabaseName
 			case "ENV_ID":
 				mi.Environment = matchList[index]
 			case "VERSION":
-				mi.Version = matchList[index]
+				mi.Version = model.Version{Version: matchList[index]}
 			case "DB_NAME":
 				mi.Namespace = matchList[index]
 				mi.Database = matchList[index]
@@ -290,7 +239,7 @@ func ParseMigrationInfo(filePath, filePathTemplate string, allowOmitDatabaseName
 		}
 	}
 
-	if mi.Version == "" {
+	if mi.Version.Version == "" {
 		return nil, errors.Errorf("file path %q does not contain {{VERSION}}, configured file path template %q", filePath, filePathTemplate)
 	}
 	if mi.Namespace == "" && !allowOmitDatabaseName {
@@ -361,51 +310,6 @@ func ParseSchemaFileInfo(baseDirectory, schemaPathTemplate, file string) (*Migra
 	}, nil
 }
 
-// MigrationHistory is the API message for migration history.
-// TODO(p0ny): migrate to instance change history.
-type MigrationHistory struct {
-	ID string
-
-	Creator   string
-	CreatedTs int64
-	Updater   string
-	UpdatedTs int64
-
-	ReleaseVersion        string
-	Namespace             string
-	Sequence              int
-	Source                MigrationSource
-	Type                  MigrationType
-	Status                MigrationStatus
-	Version               string
-	Description           string
-	Statement             string
-	SheetID               *int
-	Schema                string
-	SchemaPrev            string
-	ExecutionDurationNs   int64
-	IssueID               string
-	Payload               string
-	UseSemanticVersion    bool
-	SemanticVersionSuffix string
-}
-
-// MigrationHistoryFind is the API message for finding migration histories.
-type MigrationHistoryFind struct {
-	ID *string
-
-	Database *string
-	Source   *MigrationSource
-	Version  *string
-	// If specified, then it will only fetch "Limit" most recent migration histories
-	Limit  *int
-	Offset *int
-
-	// Fields below should be set if fetching from metaDB instance_change_history table.
-	DatabaseID *int
-	InstanceID *int
-}
-
 // ConnectionConfig is the configuration for connections.
 type ConnectionConfig struct {
 	Host     string
@@ -419,8 +323,6 @@ type ConnectionConfig struct {
 	TLSConfig          TLSConfig
 	// ReadOnly is only supported for Postgres at the moment.
 	ReadOnly bool
-	// StrictUseDb will only set as true if the user gives only a database instead of a whole instance to access.
-	StrictUseDb bool
 	// SRV is only supported for MongoDB now.
 	SRV bool
 	// AuthenticationDatabase is only supported for MongoDB now.
@@ -448,15 +350,15 @@ type SSHConfig struct {
 type ConnectionContext struct {
 	EnvironmentID string
 	InstanceID    string
+	EngineVersion string
 }
 
 // QueryContext is the context to query.
 type QueryContext struct {
 	// Limit is the maximum row count returned. No limit enforced if limit <= 0
-	Limit                 int
-	ReadOnly              bool
-	SensitiveDataMaskType SensitiveDataMaskType
-	SensitiveSchemaInfo   *SensitiveSchemaInfo
+	Limit               int
+	ReadOnly            bool
+	SensitiveSchemaInfo *base.SensitiveSchemaInfo
 	// EnableSensitive will set to be true if the database instance has license.
 	EnableSensitive bool
 
@@ -497,19 +399,16 @@ type Driver interface {
 	// General execution
 	// A driver might support multiple engines (e.g. MySQL driver can support both MySQL and TiDB),
 	// So we pass the dbType to tell the exact engine.
-	Open(ctx context.Context, dbType Type, config ConnectionConfig, connCtx ConnectionContext) (Driver, error)
+	Open(ctx context.Context, dbType storepb.Engine, config ConnectionConfig, connCtx ConnectionContext) (Driver, error)
 	// Remember to call Close to avoid connection leak
 	Close(ctx context.Context) error
 	Ping(ctx context.Context) error
-	GetType() Type
+	GetType() storepb.Engine
 	GetDB() *sql.DB
 	// Execute will execute the statement.
 	Execute(ctx context.Context, statement string, createDatabase bool, opts ExecuteOptions) (int64, error)
 	// Used for execute readonly SELECT statement
-	QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *QueryContext) ([]any, error)
-	// Used for execute readonly SELECT statement
-	// TODO(rebelice): remove QueryConn and rename QueryConn2 to QueryConn when legacy code is removed.
-	QueryConn2(ctx context.Context, conn *sql.Conn, statement string, queryContext *QueryContext) ([]*v1pb.QueryResult, error)
+	QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *QueryContext) ([]*v1pb.QueryResult, error)
 	// RunStatement will execute the statement and return the result, for both SELECT and non-SELECT statements.
 	RunStatement(ctx context.Context, conn *sql.Conn, statement string) ([]*v1pb.QueryResult, error)
 
@@ -517,7 +416,7 @@ type Driver interface {
 	// SyncInstance syncs the instance metadata.
 	SyncInstance(ctx context.Context) (*InstanceMetadata, error)
 	// SyncDBSchema syncs a single database schema.
-	SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetadata, error)
+	SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetadata, error)
 
 	// Sync slow query logs
 	// SyncSlowQuery syncs the slow query logs.
@@ -550,20 +449,20 @@ type Driver interface {
 // Register makes a database driver available by the provided type.
 // If Register is called twice with the same name or if driver is nil,
 // it panics.
-func Register(dbType Type, f driverFunc) {
+func Register(dbType storepb.Engine, f driverFunc) {
 	driversMu.Lock()
 	defer driversMu.Unlock()
 	if f == nil {
 		panic("db: Register driver is nil")
 	}
 	if _, dup := drivers[dbType]; dup {
-		panic("db: Register called twice for driver " + dbType)
+		panic(fmt.Sprintf("db: Register called twice for driver %s", dbType))
 	}
 	drivers[dbType] = f
 }
 
 // Open opens a database specified by its database driver type and connection config without verifying the connection.
-func Open(ctx context.Context, dbType Type, driverConfig DriverConfig, connectionConfig ConnectionConfig, connCtx ConnectionContext) (Driver, error) {
+func Open(ctx context.Context, dbType storepb.Engine, driverConfig DriverConfig, connectionConfig ConnectionConfig, connCtx ConnectionContext) (Driver, error) {
 	driversMu.RLock()
 	f, ok := drivers[dbType]
 	driversMu.RUnlock()
@@ -583,80 +482,20 @@ func Open(ctx context.Context, dbType Type, driverConfig DriverConfig, connectio
 type ExecuteOptions struct {
 	BeginFunc          func(ctx context.Context, conn *sql.Conn) error
 	EndTransactionFunc func(tx *sql.Tx) error
+	// ChunkedSubmission is the flag to indicate if we should use chunked submission for the statement.
+	// If true, we will submit each statement chunk, otherwise we will submit all statements in a batch.
+	// For both cases, we will use one transaction to wrap the statements.
+	ChunkedSubmission     bool
+	UpdateExecutionStatus func(*v1pb.TaskRun_ExecutionDetail)
 }
 
-// FormatParamNameInQuestionMark formats the param name in question mark.
-// For example, it will be WHERE hello = ? AND world = ?.
-func FormatParamNameInQuestionMark(paramNames []string) string {
-	if len(paramNames) == 0 {
-		return ""
-	}
-	for i, param := range paramNames {
-		if !strings.Contains(param, "?") {
-			paramNames[i] = param + " = ?"
-		}
-	}
-	return fmt.Sprintf("WHERE %s ", strings.Join(paramNames, " AND "))
+// ErrorWithPosition is the error with the position information.
+type ErrorWithPosition struct {
+	Err   error
+	Start *storepb.TaskRunResult_Position
+	End   *storepb.TaskRunResult_Position
 }
 
-// FormatParamNameInNumberedPosition formats the param name in numbered positions.
-func FormatParamNameInNumberedPosition(paramNames []string) string {
-	if len(paramNames) == 0 {
-		return ""
-	}
-	var parts []string
-	for i, param := range paramNames {
-		idx := fmt.Sprintf("$%d", i+1)
-		param = param + "=" + idx
-		parts = append(parts, param)
-	}
-	return fmt.Sprintf("WHERE %s ", strings.Join(parts, " AND "))
-}
-
-// SensitiveDataMaskType is the mask type for sensitive data.
-type SensitiveDataMaskType string
-
-const (
-	// SensitiveDataMaskTypeDefault is the sensitive data type to hide data with a default method.
-	// The default method is subject to change.
-	SensitiveDataMaskTypeDefault SensitiveDataMaskType = "DEFAULT"
-)
-
-// SensitiveSchemaInfo is the schema info using to extract sensitive fields.
-type SensitiveSchemaInfo struct {
-	DatabaseList []DatabaseSchema
-}
-
-// DatabaseSchema is the database schema using to extract sensitive fields.
-type DatabaseSchema struct {
-	Name       string
-	SchemaList []SchemaSchema
-
-	// !!DEPRECATED!!, should use SchemaList instead.
-	// TODO(rebelice/zp): Migrate MySQL/PostgreSQL/Oracle to SchemaList.
-	TableList []TableSchema
-}
-
-// SchemaSchema is the schema of the schema using to extract sensitive fields.
-type SchemaSchema struct {
-	Name      string
-	TableList []TableSchema
-}
-
-// TableSchema is the table schema using to extract sensitive fields.
-type TableSchema struct {
-	Name       string
-	ColumnList []ColumnInfo
-}
-
-// ColumnInfo is the column info using to extract sensitive fields.
-type ColumnInfo struct {
-	Name      string
-	Sensitive bool
-}
-
-// SensitiveField is the struct about SELECT fields.
-type SensitiveField struct {
-	Name      string
-	Sensitive bool
+func (e *ErrorWithPosition) Error() string {
+	return e.Err.Error()
 }

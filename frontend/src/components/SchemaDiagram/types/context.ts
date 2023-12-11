@@ -1,15 +1,14 @@
-import type { Ref } from "vue";
 import type Emittery from "emittery";
-
-import type {
+import type { Ref } from "vue";
+import type { ComposedDatabase } from "@/types";
+import {
+  ColumnMetadata,
   DatabaseMetadata,
   SchemaMetadata,
   TableMetadata,
-  ColumnMetadata,
-} from "@/types/proto/store/database";
-import type { ComposedDatabase } from "@/types";
-import type { Geometry, Point, Rect } from "./geometry";
+} from "@/types/proto/v1/database_service";
 import type { EditStatus } from "./edit";
+import type { Geometry, Point, Rect } from "./geometry";
 import type { ForeignKey } from "./schema";
 
 // This is an abstract Schema Diagram context including states, methods and

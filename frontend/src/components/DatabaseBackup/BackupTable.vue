@@ -139,37 +139,38 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, PropType, reactive, ref } from "vue";
-import { useRouter } from "vue-router";
-import { useI18n } from "vue-i18n";
 import { NButton } from "naive-ui";
-
+import { v4 as uuidv4 } from "uuid";
+import { computed, PropType, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
 import { BBGrid, BBGridColumn, BBGridRow } from "@/bbkit";
-import {
-  ComposedDatabase,
-  IssueCreate,
-  PITRContext,
-  SYSTEM_BOT_ID,
-} from "@/types";
-import { issueSlug, extractBackupResourceName } from "@/utils";
-import { useSubscriptionV1Store, useIssueStore } from "@/store";
-import { Drawer, DrawerContent } from "@/components/v2";
 import {
   CreateDatabasePrepForm,
   CreateDatabasePrepButtonGroup,
 } from "@/components/CreateDatabasePrepForm";
-import HumanizeDate from "@/components/misc/HumanizeDate.vue";
-import EllipsisText from "@/components/EllipsisText.vue";
 import {
   default as RestoreTargetForm,
   RestoreTarget,
 } from "@/components/DatabaseBackup/RestoreTargetForm.vue";
+import EllipsisText from "@/components/EllipsisText.vue";
+import HumanizeDate from "@/components/misc/HumanizeDate.vue";
+import { Drawer, DrawerContent } from "@/components/v2";
+import {
+  experimentalCreateIssueByPlan,
+  useCurrentUserV1,
+  useSubscriptionV1Store,
+} from "@/store";
+import { ComposedDatabase } from "@/types";
 import { Engine } from "@/types/proto/v1/common";
 import {
   Backup,
   Backup_BackupState,
   Backup_BackupType,
 } from "@/types/proto/v1/database_service";
+import { Issue, Issue_Type } from "@/types/proto/v1/issue_service";
+import { Plan, Plan_Spec } from "@/types/proto/v1/rollout_service";
+import { extractBackupResourceName } from "@/utils";
 
 export type BackupRow = BBGridRow<Backup>;
 
@@ -214,6 +215,7 @@ const state = reactive<LocalState>({
   creatingRestoreIssue: false,
   showFeatureModal: false,
 });
+const me = useCurrentUserV1();
 
 const allowRestoreInPlace = computed((): boolean => {
   return props.database.instanceEntity.engine === Engine.POSTGRES;
@@ -317,7 +319,7 @@ const showRestoreDialog = (backup: Backup) => {
   };
 };
 
-const doRestoreInPlace = async () => {
+const doRestoreInPlaceV1 = async () => {
   const { restoreBackupContext } = state;
   if (!restoreBackupContext) {
     return;
@@ -341,29 +343,34 @@ const doRestoreInPlace = async () => {
       )}]`,
     ];
 
-    const issueStore = useIssueStore();
-    const createContext: PITRContext = {
-      databaseId: Number(database.uid),
-      backupId: Number(backup.uid),
-    };
-    const issueCreate: IssueCreate = {
-      name: issueNameParts.join(" "),
-      type: "bb.issue.database.restore.pitr",
-      description: "",
-      assigneeId: SYSTEM_BOT_ID,
-      projectId: Number(database.projectEntity.uid),
-      payload: {},
-      createContext,
-    };
+    const restoreDatabaseSpec = Plan_Spec.fromPartial({
+      id: uuidv4(),
+      restoreDatabaseConfig: {
+        backup: backup.name,
+        target: database.name, // in-place
+      },
+    });
+    const planCreate = Plan.fromPartial({
+      steps: [{ specs: [restoreDatabaseSpec] }],
+    });
+    const issueCreate = Issue.fromPartial({
+      title: issueNameParts.join(" "),
+      type: Issue_Type.DATABASE_CHANGE,
+      creator: `users/${me.value.email}`,
+    });
+    const { createdIssue } = await experimentalCreateIssueByPlan(
+      database.projectEntity,
+      issueCreate,
+      planCreate
+    );
 
-    await issueStore.validateIssue(issueCreate);
-
-    const issue = await issueStore.createIssue(issueCreate);
-
-    const slug = issueSlug(issue.name, issue.id);
-    router.push(`/issue/${slug}`);
+    router.push(`/issue/${createdIssue.uid}`);
   } catch {
     state.creatingRestoreIssue = false;
   }
+};
+
+const doRestoreInPlace = async () => {
+  await doRestoreInPlaceV1();
 };
 </script>

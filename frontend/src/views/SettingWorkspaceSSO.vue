@@ -1,5 +1,5 @@
 <template>
-  <div class="w-full mt-4 space-y-4">
+  <div class="w-full space-y-4">
     <div class="w-full flex flex-row justify-between items-center">
       <div class="textinfolabel mr-4">
         {{ $t("settings.sso.description") }}
@@ -15,6 +15,7 @@
       <div>
         <button
           v-if="identityProviderList.length > 0"
+          type="button"
           class="btn-primary"
           @click="handleCreateSSO"
         >
@@ -23,29 +24,17 @@
         </button>
       </div>
     </div>
-    <hr />
-    <div
-      v-if="identityProviderList.length === 0"
-      class="w-full flex flex-col justify-center items-center"
-    >
-      <div
-        class="w-full border-4 border-dashed border-gray-200 rounded-lg h-96 flex justify-center items-center"
-      >
-        <div class="text-center flex flex-col justify-center items-center">
-          <img src="@/assets/illustration/no-data.webp" class="w-52" />
-          <div class="mt-6">
-            <button
-              type="button"
-              class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-              @click="handleCreateSSO"
-            >
-              {{ $t("settings.sso.create") }}
-              <FeatureBadge :feature="'bb.feature.sso'" custom-class="ml-2" />
-            </button>
-          </div>
-        </div>
+    <NoDataPlaceholder v-if="identityProviderList.length === 0">
+      <div>
+        <NButton type="primary" @click="handleCreateSSO">
+          {{ $t("settings.sso.create") }}
+          <FeatureBadge
+            :feature="'bb.feature.sso'"
+            custom-class="ml-2 !text-white"
+          />
+        </NButton>
       </div>
-    </div>
+    </NoDataPlaceholder>
     <template v-else>
       <div class="w-full flex flex-col justify-start items-start space-y-4">
         <div
@@ -94,10 +83,10 @@
 <script lang="ts" setup>
 import { computed, onMounted, reactive } from "vue";
 import { useRouter } from "vue-router";
+import { featureToRef } from "@/store";
 import { useIdentityProviderStore } from "@/store/modules/idp";
 import { IdentityProvider } from "@/types/proto/v1/idp_service";
 import { identityProviderTypeToString } from "@/utils";
-import { featureToRef } from "@/store";
 
 interface LocalState {
   showFeatureModal: boolean;

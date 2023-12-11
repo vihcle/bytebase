@@ -10,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	"github.com/bytebase/bytebase/backend/plugin/advisor/db"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -18,7 +18,9 @@ var (
 )
 
 func init() {
-	advisor.Register(db.Oracle, advisor.OracleRequireColumnDefault, &ColumnRequireDefaultAdvisor{})
+	advisor.Register(storepb.Engine_ORACLE, advisor.OracleRequireColumnDefault, &ColumnRequireDefaultAdvisor{})
+	advisor.Register(storepb.Engine_DM, advisor.OracleRequireColumnDefault, &ColumnRequireDefaultAdvisor{})
+	advisor.Register(storepb.Engine_OCEANBASE_ORACLE, advisor.OracleRequireColumnDefault, &ColumnRequireDefaultAdvisor{})
 }
 
 // ColumnRequireDefaultAdvisor is the advisor checking for column default requirement.

@@ -1,17 +1,16 @@
-import { defineStore } from "pinia";
 import dayjs from "dayjs";
-import { reactive } from "vue";
 import utc from "dayjs/plugin/utc";
-
+import { defineStore } from "pinia";
+import { reactive } from "vue";
 import { loggingServiceClient } from "@/grpcweb";
 import {
   IdType,
   FindActivityMessage,
-  Issue,
   UNKNOWN_ID,
   EMPTY_ID,
+  ComposedIssue,
 } from "@/types";
-import { userNamePrefix, getLogId, logNamePrefix } from "./common";
+import { ExportFormat } from "@/types/proto/v1/common";
 import {
   LogEntity,
   LogEntity_Action,
@@ -19,9 +18,10 @@ import {
   logEntity_ActionToJSON,
   logEntity_LevelToJSON,
 } from "@/types/proto/v1/logging_service";
-import { isDatabaseRelatedIssueType } from "@/utils";
-import { useIssueStore } from "../issue";
+import { isDatabaseRelatedIssue, extractRolloutUID } from "@/utils";
 import { useCurrentUserV1 } from "../auth";
+import { userNamePrefix, getLogId, logNamePrefix } from "./common";
+import { experimentalFetchIssueByUID } from "./experimental-issue";
 
 dayjs.extend(utc);
 
@@ -59,7 +59,7 @@ const buildFilter = (find: FindActivityMessage): string => {
 };
 
 export const useActivityV1Store = defineStore("activity_v1", () => {
-  const activityListByIssue = reactive(new Map<IdType, LogEntity[]>());
+  const activityListByIssueV1 = reactive(new Map<string, LogEntity[]>());
 
   const fetchActivityList = async (find: FindActivityMessage) => {
     const resp = await loggingServiceClient.listLogs({
@@ -72,24 +72,24 @@ export const useActivityV1Store = defineStore("activity_v1", () => {
     return resp;
   };
 
-  const getActivityListByIssue = (issueId: IdType): LogEntity[] => {
-    return activityListByIssue.get(issueId) || [];
+  const getActivityListByIssueV1 = (uid: string): LogEntity[] => {
+    return activityListByIssueV1.get(uid) || [];
   };
-
-  const fetchActivityListForIssue = async (issue: Issue) => {
+  const fetchActivityListForIssueV1 = async (issue: ComposedIssue) => {
     const requests = [
       fetchActivityList({
-        resource: `issues/${issue.id}`,
+        resource: `issues/${issue.uid}`,
         order: "asc",
-        pageSize: 1000,
+        pageSize: 1000, // Pagination is complex, and not high priority
       }).then((resp) => resp.logEntities),
     ];
-    if (isDatabaseRelatedIssueType(issue.type) && issue.pipeline) {
+    if (isDatabaseRelatedIssue(issue) && issue.rollout) {
+      const pipelineUID = extractRolloutUID(issue.rollout);
       requests.push(
         fetchActivityList({
-          resource: `pipelines/${issue.pipeline.id}`,
+          resource: `pipelines/${pipelineUID}`,
           order: "asc",
-          pageSize: 1000,
+          pageSize: 1000, // Pagination is complex, and not high priority
         }).then((resp) => resp.logEntities)
       );
     } else {
@@ -99,23 +99,16 @@ export const useActivityV1Store = defineStore("activity_v1", () => {
     const [listForIssue, listForPipeline] = await Promise.all(requests);
     const mergedList = [...listForIssue, ...listForPipeline];
     mergedList.sort((a, b) => {
-      if (a.createTime !== b.createTime) {
-        return (a.createTime?.getTime() ?? 0) - (b.createTime?.getTime() ?? 0);
-      }
-
       return getLogId(a.name) - getLogId(b.name);
     });
 
-    activityListByIssue.set(issue.id, mergedList);
+    activityListByIssueV1.set(issue.uid, mergedList);
     return mergedList;
   };
 
-  const fetchActivityListByIssueId = async (issueId: IdType) => {
-    const issue = useIssueStore().getIssueById(issueId);
-    if (issue.id === UNKNOWN_ID) {
-      return;
-    }
-    return fetchActivityListForIssue(issue);
+  const fetchActivityListByIssueUID = async (uid: string) => {
+    const issue = await experimentalFetchIssueByUID(uid);
+    return fetchActivityListForIssueV1(issue);
   };
 
   const fetchActivityListForQueryHistory = async ({
@@ -150,13 +143,29 @@ export const useActivityV1Store = defineStore("activity_v1", () => {
     return activity.resource.split("/").slice(-1)[0];
   };
 
+  const exportData = async ({
+    find,
+    format,
+  }: {
+    find: FindActivityMessage;
+    format: ExportFormat;
+  }) => {
+    const resp = await loggingServiceClient.exportLogs({
+      orderBy: find.order ? `create_time ${find.order}` : "",
+      filter: buildFilter(find),
+      format,
+    });
+    return resp.content;
+  };
+
   return {
     fetchActivityList,
-    fetchActivityListForIssue,
-    fetchActivityListByIssueId,
+    fetchActivityListForIssueV1,
+    fetchActivityListByIssueUID,
     fetchActivityListForQueryHistory,
     fetchActivityByUID,
-    getActivityListByIssue,
+    getActivityListByIssueV1,
     getResourceId,
+    exportData,
   };
 });

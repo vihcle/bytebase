@@ -5,10 +5,10 @@
     tabindex="0"
     v-bind="$attrs"
   >
-    <main class="flex-1 relative overflow-y-auto">
+    <main class="flex-1 relative overflow-y-auto space-y-4">
       <!-- Highlight Panel -->
       <div
-        class="px-4 space-y-2 lg:space-y-0 lg:flex lg:items-center lg:justify-between"
+        class="space-y-2 lg:space-y-0 lg:flex lg:items-center lg:justify-between"
       >
         <div class="flex-1 min-w-0 shrink-0">
           <!-- Summary -->
@@ -59,16 +59,15 @@
         </div>
       </div>
 
-      <hr class="my-4" />
+      <hr />
 
       <FeatureAttentionForInstanceLicense
         v-if="existMatchedUnactivateInstance"
-        custom-class="m-5"
         :style="`WARN`"
         feature="bb.feature.database-grouping"
       />
 
-      <div class="w-full px-3 max-w-5xl grid grid-cols-5 gap-x-6">
+      <div class="w-full max-w-5xl grid grid-cols-5 gap-x-6">
         <div class="col-span-3">
           <p class="pl-1 text-lg mb-2">
             {{ $t("database-group.condition.self") }}
@@ -100,8 +99,13 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive, computed, watch, ref } from "vue";
 import { useDebounceFn } from "@vueuse/core";
+import { reactive, computed, watch, ref } from "vue";
+import DatabaseGroupPanel from "@/components/DatabaseGroup/DatabaseGroupPanel.vue";
+import MatchedTableView from "@/components/DatabaseGroup/MatchedTableView.vue";
+import ExprEditor from "@/components/DatabaseGroup/common/ExprEditor";
+import DatabaseGroupName from "@/components/v2/Model/DatabaseGroupName.vue";
+import { ConditionGroupExpr } from "@/plugins/cel";
 import {
   useDBGroupStore,
   useProjectV1Store,
@@ -109,16 +113,11 @@ import {
 } from "@/store";
 import {
   databaseGroupNamePrefix,
-  projectNamePrefix,
   schemaGroupNamePrefix,
 } from "@/store/modules/v1/common";
-import { convertCELStringToExpr } from "@/utils/databaseGroup/cel";
-import { ConditionGroupExpr } from "@/plugins/cel";
-import DatabaseGroupPanel from "@/components/DatabaseGroup/DatabaseGroupPanel.vue";
-import ExprEditor from "@/components/DatabaseGroup/common/ExprEditor";
-import MatchedTableView from "@/components/DatabaseGroup/MatchedTableView.vue";
-import DatabaseGroupName from "@/components/v2/Model/DatabaseGroupName.vue";
 import { ComposedSchemaGroupTable } from "@/types";
+import { idFromSlug } from "@/utils";
+import { convertCELStringToExpr } from "@/utils/databaseGroup/cel";
 
 interface LocalState {
   isLoaded: boolean;
@@ -127,7 +126,7 @@ interface LocalState {
 }
 
 const props = defineProps({
-  projectName: {
+  projectSlug: {
     required: true,
     type: String,
   },
@@ -150,13 +149,11 @@ const state = reactive<LocalState>({
   showConfigurePanel: false,
 });
 const project = computed(() => {
-  return projectStore.getProjectByName(
-    `${projectNamePrefix}${props.projectName}`
-  );
+  return projectStore.getProjectByUID(String(idFromSlug(props.projectSlug)));
 });
 const schemaGroup = computed(() => {
   return dbGroupStore.getSchemaGroupByName(
-    `${projectNamePrefix}${props.projectName}/${databaseGroupNamePrefix}${props.databaseGroupName}/${schemaGroupNamePrefix}${props.schemaGroupName}`
+    `${project.value.name}/${databaseGroupNamePrefix}${props.databaseGroupName}/${schemaGroupNamePrefix}${props.schemaGroupName}`
   );
 });
 
@@ -164,7 +161,7 @@ watch(
   () => [props, schemaGroup.value],
   async () => {
     const schemaGroup = await dbGroupStore.getOrFetchSchemaGroupByName(
-      `${projectNamePrefix}${props.projectName}/${databaseGroupNamePrefix}${props.databaseGroupName}/${schemaGroupNamePrefix}${props.schemaGroupName}`
+      `${project.value.name}/${databaseGroupNamePrefix}${props.databaseGroupName}/${schemaGroupNamePrefix}${props.schemaGroupName}`
     );
 
     const expression = schemaGroup.tableExpr?.expression ?? "";

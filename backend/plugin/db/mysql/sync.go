@@ -4,24 +4,31 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	"github.com/blang/semver/v4"
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+)
+
+const (
+	autoIncrementSymbol = "AUTO_INCREMENT"
 )
 
 var (
@@ -43,9 +50,20 @@ var (
 
 // SyncInstance syncs the instance.
 func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, error) {
-	version, err := driver.getVersion(ctx)
+	version, _, err := driver.getVersion(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	lowerCaseTableNames := 0
+	lowerCaseTableNamesText, err := driver.getServerVariable(ctx, "lower_case_table_names")
+	if err != nil {
+		slog.Debug("failed to get lower_case_table_names variable", log.BBError(err))
+	} else {
+		lowerCaseTableNames, err = strconv.Atoi(lowerCaseTableNamesText)
+		if err != nil {
+			slog.Debug("failed to parse lower_case_table_names variable", log.BBError(err))
+		}
 	}
 
 	users, err := driver.getInstanceRoles(ctx)
@@ -77,9 +95,9 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 	}
 	defer rows.Close()
 
-	var databases []*storepb.DatabaseMetadata
+	var databases []*storepb.DatabaseSchemaMetadata
 	for rows.Next() {
-		database := &storepb.DatabaseMetadata{}
+		database := &storepb.DatabaseSchemaMetadata{}
 		if err := rows.Scan(
 			&database.Name,
 			&database.CharacterSet,
@@ -97,21 +115,28 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 		Version:       version,
 		InstanceRoles: users,
 		Databases:     databases,
+		Metadata: &storepb.InstanceMetadata{
+			MysqlLowerCaseTableNames: int32(lowerCaseTableNames),
+		},
 	}, nil
 }
 
 // SyncDBSchema syncs a single database schema.
-func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetadata, error) {
+func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetadata, error) {
 	schemaMetadata := &storepb.SchemaMetadata{
 		Name: "",
 	}
 
 	// Query MySQL version
-	version, err := driver.getVersion(ctx)
+	version, rest, err := driver.getVersion(ctx)
 	if err != nil {
 		return nil, err
 	}
-	isMySQL8 := strings.HasPrefix(version, "8.0")
+	semVersion, err := semver.Make(version)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to parse MySQL version %s to semantic version", version)
+	}
+	atLeast8_0_13 := semVersion.GE(semver.MustParse("8.0.13"))
 
 	// Query index info.
 	indexMap := make(map[db.TableKey]map[string]*storepb.IndexMetadata)
@@ -129,7 +154,11 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 		FROM information_schema.STATISTICS
 		WHERE TABLE_SCHEMA = ?
 		ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX`
-	if isMySQL8 {
+	// MySQL 8.0.13 introduced the EXPRESSION column in the INFORMATION_SCHEMA.STATISTICS table.
+	// https://dev.mysql.com/doc/refman/8.0/en/information-schema-statistics-table.html
+	// MariaDB doesn't have the EXPRESSION column.
+	// https://mariadb.com/docs/server/ref/mdb/information-schema/STATISTICS
+	if atLeast8_0_13 && !strings.Contains(rest, "MariaDB") {
 		indexQuery = `
 			SELECT
 				TABLE_NAME,
@@ -207,7 +236,8 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 			COLUMN_TYPE,
 			IFNULL(CHARACTER_SET_NAME, ''),
 			IFNULL(COLLATION_NAME, ''),
-			COLUMN_COMMENT
+			COLUMN_COMMENT,
+			EXTRA
 		FROM information_schema.COLUMNS
 		WHERE TABLE_SCHEMA = ?
 		ORDER BY TABLE_NAME, ORDINAL_POSITION`
@@ -218,7 +248,7 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 	defer columnRows.Close()
 	for columnRows.Next() {
 		column := &storepb.ColumnMetadata{}
-		var tableName, nullable string
+		var tableName, nullable, extra string
 		var defaultStr sql.NullString
 		if err := columnRows.Scan(
 			&tableName,
@@ -230,11 +260,22 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 			&column.CharacterSet,
 			&column.Collation,
 			&column.Comment,
+			&extra,
 		); err != nil {
 			return nil, err
 		}
 		if defaultStr.Valid {
-			column.Default = &wrapperspb.StringValue{Value: defaultStr.String}
+			if strings.Contains(extra, "DEFAULT_GENERATED") {
+				column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: fmt.Sprintf("(%s)", defaultStr.String)}
+			} else {
+				column.DefaultValue = &storepb.ColumnMetadata_Default{Default: &wrapperspb.StringValue{Value: defaultStr.String}}
+			}
+		} else {
+			// TODO(zp): refactor column default value.
+			if strings.Contains(strings.ToUpper(extra), autoIncrementSymbol) {
+				// Use the upper case to consistent with MySQL Dump.
+				column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: autoIncrementSymbol}
+			}
 		}
 		isNullBool, err := util.ConvertYesNo(nullable)
 		if err != nil {
@@ -366,7 +407,7 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseMetada
 		return nil, util.FormatErrorWithQuery(err, tableQuery)
 	}
 
-	databaseMetadata := &storepb.DatabaseMetadata{
+	databaseMetadata := &storepb.DatabaseSchemaMetadata{
 		Name:    driver.databaseName,
 		Schemas: []*storepb.SchemaMetadata{schemaMetadata},
 	}
@@ -407,7 +448,7 @@ func (driver *Driver) getForeignKeyList(ctx context.Context, databaseName string
 			ON fks.CONSTRAINT_SCHEMA = kcu.TABLE_SCHEMA
 				AND fks.TABLE_NAME = kcu.TABLE_NAME
 				AND fks.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
-		WHERE LOWER(fks.CONSTRAINT_SCHEMA) = ?
+		WHERE kcu.POSITION_IN_UNIQUE_CONSTRAINT IS NOT NULL AND LOWER(fks.CONSTRAINT_SCHEMA) = ?
 		ORDER BY fks.TABLE_NAME, fks.CONSTRAINT_NAME, kcu.ORDINAL_POSITION;
 	`
 
@@ -498,6 +539,16 @@ func (driver *Driver) SyncSlowQuery(ctx context.Context, logDateTs time.Time) (m
 		return nil, util.FormatErrorWithQuery(err, timeZoneQuery)
 	}
 
+	location, err := time.LoadLocation(timeZone)
+	if err != nil {
+		slog.Debug("failed to load time zone", slog.String("timeZone", timeZone), log.BBError(err))
+		location, err = time.LoadLocation("Local")
+		if err != nil {
+			// This should never happen
+			slog.Debug("failed to load time zone", slog.String("timeZone", "Local"), log.BBError(err))
+		}
+	}
+
 	logs := make([]*slowLog, 0, db.SlowQueryMaxSamplePerDay)
 	query := `
 		SELECT
@@ -537,10 +588,6 @@ func (driver *Driver) SyncSlowQuery(ctx context.Context, logDateTs time.Time) (m
 			return nil, err
 		}
 
-		location, err := time.LoadLocation(timeZone)
-		if err != nil {
-			return nil, err
-		}
 		startTimeTs, err := time.ParseInLocation("2006-01-02 15:04:05.999999", startTime, location)
 		if err != nil {
 			return nil, err
@@ -573,7 +620,7 @@ func (driver *Driver) SyncSlowQuery(ctx context.Context, logDateTs time.Time) (m
 		return nil, util.FormatErrorWithQuery(err, query)
 	}
 
-	return analyzeSlowLog(logs)
+	return analyzeSlowLog(driver.dbType, logs)
 }
 
 func parseDuration(s string) (time.Duration, error) {
@@ -588,20 +635,20 @@ func parseDuration(s string) (time.Duration, error) {
 	return time.ParseDuration(duration)
 }
 
-func analyzeSlowLog(logs []*slowLog) (map[string]*storepb.SlowQueryStatistics, error) {
+func analyzeSlowLog(engine storepb.Engine, logs []*slowLog) (map[string]*storepb.SlowQueryStatistics, error) {
 	logMap := make(map[string]map[string]*storepb.SlowQueryStatisticsItem)
 
 	for _, log := range logs {
-		databaseList := extractDatabase(log.database, log.details.SqlText)
-		fingerprint, err := parser.GetSQLFingerprint(parser.MySQL, log.details.SqlText)
+		databaseList := extractDatabase(engine, log.database, log.details.SqlText)
+		fingerprint, err := mysqlparser.GetFingerprint(log.details.SqlText)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get sql fingerprint failed, sql: %s", log.details.SqlText)
 		}
 		if len(fingerprint) > db.SlowQueryMaxLen {
-			fingerprint = fingerprint[:db.SlowQueryMaxLen]
+			fingerprint, _ = common.TruncateString(fingerprint, db.SlowQueryMaxLen)
 		}
 		if len(log.details.SqlText) > db.SlowQueryMaxLen {
-			log.details.SqlText = log.details.SqlText[:db.SlowQueryMaxLen]
+			log.details.SqlText, _ = common.TruncateString(log.details.SqlText, db.SlowQueryMaxLen)
 		}
 
 		for _, db := range databaseList {
@@ -669,26 +716,25 @@ func mergeSlowLog(fingerprint string, statistics *storepb.SlowQueryStatisticsIte
 	return statistics
 }
 
-func extractDatabase(defaultDB string, sql string) []string {
-	list, err := parser.ExtractDatabaseList(parser.MySQL, sql, "")
+func extractDatabase(engne storepb.Engine, defaultDB string, sql string) []string {
+	resources, err := base.ExtractResourceList(engne, defaultDB /* currentDatabase */, "" /* currentSchema */, sql)
 	if err != nil {
 		// If we can't extract the database, we just use the default database.
-		log.Debug("extract database failed", zap.Error(err), zap.String("sql", sql))
+		slog.Debug("extract database failed", log.BBError(err), slog.String("sql", sql))
 		return []string{defaultDB}
 	}
-
-	var result []string
-	for _, db := range list {
-		if db == "" {
-			result = append(result, defaultDB)
-		} else {
-			result = append(result, db)
-		}
+	databaseMap := make(map[string]bool)
+	for _, resource := range resources {
+		databaseMap[resource.Database] = true
 	}
-	if len(result) == 0 {
-		result = append(result, defaultDB)
+	var databases []string
+	for database := range databaseMap {
+		databases = append(databases, database)
 	}
-	return result
+	if len(databases) == 0 {
+		databases = append(databases, defaultDB)
+	}
+	return databases
 }
 
 // CheckSlowQueryLogEnabled checks whether the slow query log is enabled.

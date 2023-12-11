@@ -4,6 +4,10 @@
     :show="show"
     :auto-focus="false"
     :trap-focus="false"
+    :close-on-esc="false"
+    :data-overlay-stack-id="id"
+    :data-overlay-stack-upmost="upmost"
+    v-bind="$attrs"
     @update:show="onUpdateShow"
   >
     <slot />
@@ -11,14 +15,19 @@
 </template>
 
 <script setup lang="ts">
+import { toRef } from "@vueuse/core";
 import { NDrawer } from "naive-ui";
+import { useOverlayStack } from "@/components/misc/OverlayStackManager.vue";
+import { useEmitteryEventListener } from "@/composables/useEmitteryEventListener";
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     show?: boolean;
+    closeOnEsc?: boolean;
   }>(),
   {
     show: true,
+    closeOnEsc: true,
   }
 );
 const emit = defineEmits<{
@@ -33,4 +42,13 @@ const onUpdateShow = (show: boolean) => {
     emit("close");
   }
 };
+
+const { id, upmost, events } = useOverlayStack(toRef(props, "show"));
+
+useEmitteryEventListener(events, "esc", (e) => {
+  if (upmost.value && props.closeOnEsc) {
+    emit("update:show", false);
+    emit("close");
+  }
+});
 </script>

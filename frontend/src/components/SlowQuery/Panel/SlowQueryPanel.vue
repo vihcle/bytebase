@@ -1,27 +1,27 @@
 <template>
-  <div>
-    <div v-if="filterTypes.length > 0">
-      <LogFilter
-        :params="filter"
-        :filter-types="filterTypes"
-        :loading="loading"
-        @update:params="$emit('update:filter', $event)"
-      >
-        <template #suffix>
-          <NButton v-if="allowAdmin" type="default" @click="goConfig">
-            {{ $t("common.configure") }}
-          </NButton>
-          <NButton
-            type="default"
-            :disabled="!allowSync"
-            :loading="syncing"
-            @click="syncNow"
-          >
-            {{ $t("common.sync-now") }}
-          </NButton>
-        </template>
-      </LogFilter>
-    </div>
+  <div class="space-y-4">
+    <LogFilter
+      v-model:params="state.params"
+      :from-time="state.timeRange.fromTime"
+      :to-time="state.timeRange.toTime"
+      :loading="loading"
+      :support-option-id-list="supportOptionIdList"
+      @update:time="state.timeRange = $event"
+    >
+      <template #suffix>
+        <NButton v-if="allowAdmin" type="default" @click="goConfig">
+          {{ $t("common.configure") }}
+        </NButton>
+        <NButton
+          type="primary"
+          :disabled="!allowSync"
+          :loading="syncing"
+          @click="syncNow"
+        >
+          {{ $t("common.sync-now") }}
+        </NButton>
+      </template>
+    </LogFilter>
     <div class="relative min-h-[8rem]">
       <LogTable
         :slow-query-log-list="slowQueryLogList"
@@ -49,11 +49,11 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, shallowRef, watch } from "vue";
+import dayjs from "dayjs";
 import { NButton } from "naive-ui";
+import { computed, shallowRef, watch, reactive } from "vue";
 import { useI18n } from "vue-i18n";
-
-import { ComposedSlowQueryLog } from "@/types";
+import { useRouter } from "vue-router";
 import {
   pushNotification,
   useCurrentUserV1,
@@ -62,29 +62,36 @@ import {
   useSlowQueryPolicyStore,
   useSlowQueryStore,
 } from "@/store";
+import { ComposedSlowQueryLog } from "@/types";
 import {
-  type FilterType,
-  type SlowQueryFilterParams,
-  FilterTypeList,
-  buildListSlowQueriesRequest,
-} from "./types";
+  SearchScope,
+  SearchParams,
+  SearchScopeId,
+  hasWorkspacePermissionV1,
+  extractInstanceResourceName,
+} from "@/utils";
+import DetailPanel from "./DetailPanel.vue";
 import LogFilter from "./LogFilter.vue";
 import LogTable from "./LogTable.vue";
-import DetailPanel from "./DetailPanel.vue";
-import { extractInstanceResourceName, hasWorkspacePermissionV1 } from "@/utils";
-import { useRouter } from "vue-router";
+import { buildListSlowQueriesRequest } from "./types";
 
 const props = withDefaults(
   defineProps<{
-    filter: SlowQueryFilterParams;
-    filterTypes?: readonly FilterType[];
+    supportOptionIdList?: SearchScopeId[];
+    readonlySearchScopes?: SearchScope[];
     showProjectColumn?: boolean;
     showEnvironmentColumn?: boolean;
     showInstanceColumn?: boolean;
     showDatabaseColumn?: boolean;
   }>(),
   {
-    filterTypes: () => FilterTypeList,
+    supportOptionIdList: () => [
+      "environment",
+      "project",
+      "instance",
+      "database",
+    ],
+    readonlySearchScopes: () => [],
     showProjectColumn: true,
     showEnvironmentColumn: true,
     showInstanceColumn: true,
@@ -92,9 +99,35 @@ const props = withDefaults(
   }
 );
 
-defineEmits<{
-  (event: "update:filter", filter: SlowQueryFilterParams): void;
+const emit = defineEmits<{
+  (event: "update:scopes", scopes: SearchScope[]): void;
 }>();
+
+interface LocalState {
+  timeRange: {
+    fromTime: number | undefined;
+    toTime: number | undefined;
+  };
+  params: SearchParams;
+}
+
+const defaultSlowQueryTimeRange = () => {
+  const now = dayjs();
+  const aWeekAgo = now.subtract(7, "days").startOf("day").valueOf();
+  const tonight = now.endOf("day").valueOf();
+  return {
+    fromTime: aWeekAgo,
+    toTime: tonight,
+  };
+};
+
+const state = reactive<LocalState>({
+  timeRange: defaultSlowQueryTimeRange(),
+  params: {
+    query: "",
+    scopes: [],
+  },
+});
 
 const { t } = useI18n();
 const router = useRouter();
@@ -105,8 +138,29 @@ const slowQueryLogList = shallowRef<ComposedSlowQueryLog[]>([]);
 const selectedSlowQueryLog = shallowRef<ComposedSlowQueryLog>();
 const syncing = shallowRef(false);
 
+const searchScopes = computed(() => {
+  return [...props.readonlySearchScopes, ...state.params.scopes];
+});
+
+watch(
+  () => searchScopes.value,
+  (scopes) => emit("update:scopes", scopes)
+);
+
+const selectedInstanceName = computed(() => {
+  return searchScopes.value.find((s) => s.id === "instance")?.value;
+});
+
+const selectedProjectName = computed(() => {
+  return searchScopes.value.find((s) => s.id === "project")?.value;
+});
+
 const params = computed(() => {
-  return buildListSlowQueriesRequest(props.filter);
+  const query = buildListSlowQueriesRequest(
+    searchScopes.value,
+    state.timeRange
+  );
+  return query;
 });
 
 const allowAdmin = computed(() => {
@@ -143,17 +197,28 @@ const syncNow = async () => {
   syncing.value = true;
   try {
     await useGracefulRequest(async () => {
-      const policyList = await useSlowQueryPolicyStore().fetchPolicyList();
-      const requestList = policyList
-        .filter((policy) => {
-          return policy.slowQueryPolicy?.active;
-        })
-        .map(async (policy) => {
-          return slowQueryStore.syncSlowQueriesByInstance(
-            `instances/${extractInstanceResourceName(policy.name)}`
-          );
-        });
-      await Promise.all(requestList);
+      if (selectedInstanceName.value) {
+        await slowQueryStore.syncSlowQueries(
+          `instances/${selectedInstanceName.value}`
+        );
+      } else if (selectedProjectName.value) {
+        await slowQueryStore.syncSlowQueries(
+          `projects/${selectedProjectName.value}`
+        );
+      } else {
+        const policyList = await useSlowQueryPolicyStore().fetchPolicyList();
+        const requestList = policyList
+          .filter((policy) => {
+            return policy.slowQueryPolicy?.active;
+          })
+          .map(async (policy) => {
+            return slowQueryStore.syncSlowQueries(
+              `instances/${extractInstanceResourceName(policy.name)}`
+            );
+          });
+        await Promise.all(requestList);
+      }
+
       pushNotification({
         module: "bytebase",
         style: "SUCCESS",

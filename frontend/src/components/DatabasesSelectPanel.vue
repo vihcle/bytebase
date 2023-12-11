@@ -1,11 +1,10 @@
 <template>
-  <NDrawer
+  <Drawer
     :show="true"
     width="auto"
-    :auto-focus="false"
-    @update:show="(show) => !show && $emit('close')"
+    @update:show="(show: boolean) => !show && $emit('close')"
   >
-    <NDrawerContent
+    <DrawerContent
       :title="$t('common.database')"
       :closable="true"
       class="w-[30rem] max-w-[100vw] relative"
@@ -13,7 +12,7 @@
       <div class="flex items-center justify-end mx-2 mb-2">
         <BBTableSearch
           class="m-px"
-          :placeholder="$t('database.search-database')"
+          :placeholder="$t('database.filter-database')"
           @change-text="(text: string) => (state.searchText = text)"
         />
       </div>
@@ -118,28 +117,22 @@
           </NButton>
         </div>
       </template>
-    </NDrawerContent>
-  </NDrawer>
+    </DrawerContent>
+  </Drawer>
 </template>
 
 <script setup lang="ts">
-import {
-  NCollapse,
-  NCollapseItem,
-  NButton,
-  NDrawer,
-  NDrawerContent,
-} from "naive-ui";
+import { NCollapse, NCollapseItem, NButton } from "naive-ui";
 import { computed, reactive, PropType } from "vue";
+import { Drawer, DrawerContent, InstanceV1Name } from "@/components/v2";
 import {
   useDatabaseV1Store,
   useEnvironmentV1Store,
   useProjectV1Store,
 } from "@/store";
 import { ComposedDatabase } from "@/types";
-import { Environment } from "@/types/proto/v1/environment_service";
 import { State } from "@/types/proto/v1/common";
-import { InstanceV1Name } from "./v2";
+import { Environment } from "@/types/proto/v1/environment_service";
 
 type LocalState = {
   searchText: string;
@@ -178,7 +171,7 @@ const databaseListGroupByEnvironment = computed(() => {
     .filter((db) => db.databaseName.includes(state.searchText));
   const listByEnv = environmentV1Store.environmentList.map((environment) => {
     const list = databaseList.filter(
-      (db) => db.instanceEntity.environment === environment.name
+      (db) => db.effectiveEnvironment === environment.name
     );
     return {
       environment,
@@ -217,7 +210,7 @@ const toggleAllDatabasesSelectionForEnvironment = (
   on: boolean
 ) => {
   databaseList
-    .filter((db) => db.instanceEntity.environment === environment.name)
+    .filter((db) => db.effectiveEnvironment === environment.name)
     .forEach((db) => toggleDatabaseSelected(db.uid, on));
 };
 
@@ -227,10 +220,12 @@ const getAllSelectionStateForEnvironment = (
 ): { checked: boolean; indeterminate: boolean } => {
   const set = new Set(
     state.selectedDatabaseList
-      .filter((db) => db.instanceEntity.environment === environment.name)
+      .filter((db) => db.effectiveEnvironment === environment.name)
       .map((db) => db.uid)
   );
-  const checked = databaseList.every((db) => set.has(db.uid));
+  const checked =
+    state.selectedDatabaseList.length > 0 &&
+    databaseList.every((db) => set.has(db.uid));
   const indeterminate = !checked && databaseList.some((db) => set.has(db.uid));
 
   return {
@@ -245,7 +240,7 @@ const getSelectionStateSummaryForEnvironment = (
 ) => {
   const set = new Set(
     state.selectedDatabaseList
-      .filter((db) => db.instanceEntity.environment === environment.uid)
+      .filter((db) => db.effectiveEnvironment === environment.name)
       .map((db) => db.uid)
   );
   const selected = databaseList.filter((db) => set.has(db.uid)).length;

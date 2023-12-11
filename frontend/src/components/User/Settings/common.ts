@@ -1,8 +1,7 @@
 import { t } from "@/plugins/i18n";
-import { toClipboard } from "@soerenmartius/vue3-clipboard";
-
-import { User } from "@/types/proto/v1/auth_service";
 import { pushNotification } from "@/store";
+import { User } from "@/types/proto/v1/auth_service";
+import { toClipboard } from "@/utils";
 
 export const copyServiceKeyToClipboardIfNeeded = (user: User) => {
   if (!user.serviceKey) return;

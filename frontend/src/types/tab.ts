@@ -1,4 +1,3 @@
-import { SQLResultSet } from "../types";
 import { SQLResultSetV1 } from "./v1/sql";
 
 export type ExecuteConfig = {
@@ -12,6 +11,7 @@ export type ExecuteOption = {
 export type Connection = {
   instanceId: string;
   databaseId: string;
+  dataSourceId?: string;
 };
 
 export enum TabMode {
@@ -19,7 +19,23 @@ export enum TabMode {
   Admin = 2,
 }
 
+export type TabSheetType =
+  | "TEMP" // Unsaved local sheet
+  | "CLEAN" // Saved and untouched sheet
+  | "DIRTY"; // Saved remotely, touched and unsaved locally
+
 export type EditMode = "SQL-EDITOR" | "CHAT-TO-SQL";
+
+export interface BatchQueryContext {
+  // selectedDatabaseNames is used to store the selected database names.
+  // Format: instances/{instance}/databases/{database}
+  selectedDatabaseNames: string[];
+}
+
+export type QueryContext = {
+  beginTimestampMS: number;
+  abortController: AbortController;
+};
 
 export interface TabInfo {
   id: string;
@@ -37,9 +53,16 @@ export interface TabInfo {
     option?: Partial<ExecuteOption>;
   };
   isExecutingSQL: boolean;
-  queryResult?: SQLResultSet;
   sheetName?: string;
-  sqlResultSet?: SQLResultSetV1;
+  isFreshNew?: boolean;
+  // batchQueryContext saves the context of batch query, including the selected labels.
+  batchQueryContext?: BatchQueryContext;
+  // queryContext saves the context of a query, including beginTimestampMS and abortController
+  queryContext?: QueryContext;
+  // databaseQueryResultMap is used to store the query result of each database.
+  // It's used for the case that the user selects multiple databases to query.
+  // The key is the databaseName. Format: instances/{instance}/databases/{database}
+  databaseQueryResultMap?: Map<string, SQLResultSetV1>;
 }
 
 export type CoreTabInfo = Pick<TabInfo, "connection" | "sheetName" | "mode">;

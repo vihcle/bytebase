@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
 	"regexp"
@@ -14,7 +15,6 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/bytebase/bytebase/backend/plugin/db"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
@@ -22,44 +22,6 @@ import (
 type operatorType string
 
 const (
-	projectNamePrefix            = "projects/"
-	environmentNamePrefix        = "environments/"
-	instanceNamePrefix           = "instances/"
-	policyNamePrefix             = "policies/"
-	databaseIDPrefix             = "databases/"
-	instanceRolePrefix           = "roles/"
-	userNamePrefix               = "users/"
-	identityProviderNamePrefix   = "idps/"
-	settingNamePrefix            = "settings/"
-	backupPrefix                 = "backups/"
-	bookmarkPrefix               = "bookmarks/"
-	externalVersionControlPrefix = "externalVersionControls/"
-	riskPrefix                   = "risks/"
-	issuePrefix                  = "issues/"
-	rolloutPrefix                = "rollouts/"
-	stagePrefix                  = "stages/"
-	taskPrefix                   = "tasks/"
-	taskRunPrefix                = "taskRuns/"
-	planPrefix                   = "plans/"
-	rolePrefix                   = "roles/"
-	secretNamePrefix             = "secrets/"
-	webhookIDPrefix              = "webhooks/"
-	sheetIDPrefix                = "sheets/"
-	databaseGroupNamePrefix      = "databaseGroups/"
-	schemaGroupNamePrefix        = "schemaGroups/"
-	changeHistoryPrefix          = "changeHistories/"
-	issueNamePrefix              = "issues/"
-	pipelineNamePrefix           = "pipelines/"
-	logNamePrefix                = "logs/"
-	inboxNamePrefix              = "inbox/"
-	schemaDesignPrefix           = "schemaDesigns/"
-
-	deploymentConfigSuffix = "/deploymentConfig"
-	backupSettingSuffix    = "/backupSetting"
-	schemaSuffix           = "/schema"
-	metadataSuffix         = "/metadata"
-	gitOpsInfoSuffix       = "/gitOpsInfo"
-
 	setupExternalURLError = "external URL isn't setup yet, see https://www.bytebase.com/docs/get-started/install/external-url"
 
 	comparatorTypeEqual        operatorType = "="
@@ -72,8 +34,10 @@ const (
 
 var (
 	resourceIDMatcher = regexp.MustCompile("^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$")
-	deletePatch       = true
-	undeletePatch     = false
+	// https://datatracker.ietf.org/doc/html/rfc4122#section-4.1
+	uuidMatcher   = regexp.MustCompile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+	deletePatch   = true
+	undeletePatch = false
 )
 
 func isNumber(v string) (int, bool) {
@@ -82,341 +46,6 @@ func isNumber(v string) (int, bool) {
 		return int(n), true
 	}
 	return 0, false
-}
-
-func getProjectID(name string) (string, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix)
-	if err != nil {
-		return "", err
-	}
-	return tokens[0], nil
-}
-
-func getProjectIDDatabaseGroupID(name string) (string, string, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, databaseGroupNamePrefix)
-	if err != nil {
-		return "", "", err
-	}
-	return tokens[0], tokens[1], nil
-}
-
-func getProjectIDDatabaseGroupIDSchemaGroupID(name string) (string, string, string, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, databaseGroupNamePrefix, schemaGroupNamePrefix)
-	if err != nil {
-		return "", "", "", err
-	}
-	return tokens[0], tokens[1], tokens[2], nil
-}
-
-func getProjectIDWebhookID(name string) (string, string, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, webhookIDPrefix)
-	if err != nil {
-		return "", "", err
-	}
-	return tokens[0], tokens[1], nil
-}
-
-func getUIDFromName(name, prefix string) (int, error) {
-	tokens, err := getNameParentTokens(name, prefix)
-	if err != nil {
-		return 0, err
-	}
-	uid, err := strconv.Atoi(tokens[0])
-	if err != nil {
-		return 0, errors.Errorf("invalid ID %q", tokens[0])
-	}
-	return uid, nil
-}
-
-func trimSuffixAndGetProjectID(name string, suffix string) (string, error) {
-	trimmed, err := trimSuffix(name, suffix)
-	if err != nil {
-		return "", err
-	}
-	return getProjectID(trimmed)
-}
-
-func trimSuffixAndGetInstanceDatabaseID(name string, suffix string) (string, string, error) {
-	trimmed, err := trimSuffix(name, suffix)
-	if err != nil {
-		return "", "", err
-	}
-	return getInstanceDatabaseID(trimmed)
-}
-
-func getEnvironmentID(name string) (string, error) {
-	tokens, err := getNameParentTokens(name, environmentNamePrefix)
-	if err != nil {
-		return "", err
-	}
-	return tokens[0], nil
-}
-
-func getInstanceID(name string) (string, error) {
-	// the instance request should be instances/{instance-id}
-	tokens, err := getNameParentTokens(name, instanceNamePrefix)
-	if err != nil {
-		return "", err
-	}
-	return tokens[0], nil
-}
-
-func getInstanceRoleID(name string) (string, string, error) {
-	// the instance request should be instances/{instance-id}/roles/{role-name}
-	tokens, err := getNameParentTokens(name, instanceNamePrefix, instanceRolePrefix)
-	if err != nil {
-		return "", "", err
-	}
-	return tokens[0], tokens[1], nil
-}
-
-func getInstanceDatabaseID(name string) (string, string, error) {
-	// the instance request should be instances/{instance-id}/databases/{database-id}
-	tokens, err := getNameParentTokens(name, instanceNamePrefix, databaseIDPrefix)
-	if err != nil {
-		return "", "", err
-	}
-	return tokens[0], tokens[1], nil
-}
-
-func getInstanceDatabaseIDChangeHistory(name string) (string, string, string, error) {
-	// the name should be instances/{instance-id}/databases/{database-id}/changeHistories/{changeHistory-id}
-	tokens, err := getNameParentTokens(name, instanceNamePrefix, databaseIDPrefix, changeHistoryPrefix)
-	if err != nil {
-		return "", "", "", err
-	}
-	return tokens[0], tokens[1], tokens[2], nil
-}
-
-func getInstanceDatabaseIDSecretName(name string) (string, string, string, error) {
-	// the instance request should be instances/{instance-id}/databases/{database-id}/secrets/{secret-name}
-	tokens, err := getNameParentTokens(name, instanceNamePrefix, databaseIDPrefix, secretNamePrefix)
-	if err != nil {
-		return "", "", "", err
-	}
-	return tokens[0], tokens[1], tokens[2], nil
-}
-
-func getInstanceDatabaseIDBackupName(name string) (string, string, string, error) {
-	tokens, err := getNameParentTokens(name, instanceNamePrefix, databaseIDPrefix, backupPrefix)
-	if err != nil {
-		return "", "", "", err
-	}
-	return tokens[0], tokens[1], tokens[2], nil
-}
-
-func getUserID(name string) (int, error) {
-	return getUIDFromName(name, userNamePrefix)
-}
-
-func getUserEmail(name string) (string, error) {
-	tokens, err := getNameParentTokens(name, userNamePrefix)
-	if err != nil {
-		return "", err
-	}
-	return tokens[0], nil
-}
-
-func getSettingName(name string) (string, error) {
-	token, err := getNameParentTokens(name, settingNamePrefix)
-	if err != nil {
-		return "", err
-	}
-	return token[0], nil
-}
-
-func getIdentityProviderID(name string) (string, error) {
-	tokens, err := getNameParentTokens(name, identityProviderNamePrefix)
-	if err != nil {
-		return "", err
-	}
-	return tokens[0], nil
-}
-
-func getBookmarkID(name string) (int, error) {
-	return getUIDFromName(name, bookmarkPrefix)
-}
-
-func getExternalVersionControlID(name string) (int, error) {
-	return getUIDFromName(name, externalVersionControlPrefix)
-}
-
-func getRiskID(name string) (int64, error) {
-	tokens, err := getNameParentTokens(name, riskPrefix)
-	if err != nil {
-		return 0, err
-	}
-	riskID, err := strconv.ParseInt(tokens[0], 10, 64)
-	if err != nil {
-		return 0, errors.Errorf("invalid risk ID %q", tokens[0])
-	}
-	return riskID, nil
-}
-
-func getIssueID(name string) (int, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, issuePrefix)
-	if err != nil {
-		return 0, err
-	}
-	issueID, err := strconv.Atoi(tokens[1])
-	if err != nil {
-		return 0, errors.Errorf("invalid issue ID %q", tokens[1])
-	}
-	return issueID, nil
-}
-
-func getTaskID(name string) (int, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, rolloutPrefix, stagePrefix, taskPrefix)
-	if err != nil {
-		return 0, err
-	}
-	taskID, err := strconv.Atoi(tokens[3])
-	if err != nil {
-		return 0, errors.Errorf("invalid task ID %q", tokens[1])
-	}
-	return taskID, nil
-}
-
-func getPlanID(name string) (int64, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, planPrefix)
-	if err != nil {
-		return 0, err
-	}
-	planID, err := strconv.ParseInt(tokens[1], 10, 64)
-	if err != nil {
-		return 0, errors.Errorf("invalid plan ID %q", tokens[1])
-	}
-	return planID, nil
-}
-
-func getProjectIDRolloutID(name string) (string, int, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, rolloutPrefix)
-	if err != nil {
-		return "", 0, err
-	}
-	rolloutID, err := strconv.Atoi(tokens[1])
-	if err != nil {
-		return "", 0, errors.Errorf("invalid rollout ID %q", tokens[1])
-	}
-	return tokens[0], rolloutID, nil
-}
-
-func getProjectIDRolloutIDMaybeStageID(name string) (string, int, *int, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, rolloutPrefix, stagePrefix)
-	if err != nil {
-		return "", 0, nil, err
-	}
-	rolloutID, err := strconv.Atoi(tokens[1])
-	if err != nil {
-		return "", 0, nil, errors.Errorf("invalid rollout ID %q", tokens[1])
-	}
-	var maybeStageID *int
-	if tokens[2] != "-" {
-		stageID, err := strconv.Atoi(tokens[2])
-		if err != nil {
-			return "", 0, nil, errors.Errorf("invalid stage ID %q", tokens[2])
-		}
-		maybeStageID = &stageID
-	}
-	return tokens[0], rolloutID, maybeStageID, nil
-}
-
-func getProjectIDRolloutIDMaybeStageIDMaybeTaskID(name string) (string, int, *int, *int, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, rolloutPrefix, stagePrefix, taskPrefix)
-	if err != nil {
-		return "", 0, nil, nil, err
-	}
-	rolloutID, err := strconv.Atoi(tokens[1])
-	if err != nil {
-		return "", 0, nil, nil, errors.Errorf("invalid rollout ID %q", tokens[1])
-	}
-	var maybeStageID, maybeTaskID *int
-	if tokens[2] != "-" {
-		stageID, err := strconv.Atoi(tokens[2])
-		if err != nil {
-			return "", 0, nil, nil, errors.Errorf("invalid stage ID %q", tokens[2])
-		}
-		maybeStageID = &stageID
-	}
-	if tokens[3] != "-" {
-		taskID, err := strconv.Atoi(tokens[3])
-		if err != nil {
-			return "", 0, nil, nil, errors.Errorf("invalid task ID %q", tokens[3])
-		}
-		maybeTaskID = &taskID
-	}
-	return tokens[0], rolloutID, maybeStageID, maybeTaskID, nil
-}
-
-func getProjectIDRolloutIDStageIDTaskID(name string) (string, int, int, int, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, rolloutPrefix, stagePrefix, taskPrefix)
-	if err != nil {
-		return "", 0, 0, 0, err
-	}
-	rolloutID, err := strconv.Atoi(tokens[1])
-	if err != nil {
-		return "", 0, 0, 0, errors.Errorf("invalid rollout ID %q", tokens[1])
-	}
-	stageID, err := strconv.Atoi(tokens[2])
-	if err != nil {
-		return "", 0, 0, 0, errors.Errorf("invalid stage ID %q", tokens[2])
-	}
-
-	taskID, err := strconv.Atoi(tokens[3])
-	if err != nil {
-		return "", 0, 0, 0, errors.Errorf("invalid task ID %q", tokens[3])
-	}
-	return tokens[0], rolloutID, stageID, taskID, nil
-}
-
-func getRoleID(name string) (string, error) {
-	tokens, err := getNameParentTokens(name, rolePrefix)
-	if err != nil {
-		return "", err
-	}
-	return tokens[0], nil
-}
-
-func getProjectResourceIDSheetID(name string) (string, string, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, sheetIDPrefix)
-	if err != nil {
-		return "", "", err
-	}
-	return tokens[0], tokens[1], nil
-}
-
-func getProjectResourceIDAndSchemaDesignSheetID(name string) (string, string, error) {
-	tokens, err := getNameParentTokens(name, projectNamePrefix, schemaDesignPrefix)
-	if err != nil {
-		return "", "", err
-	}
-	return tokens[0], tokens[1], nil
-}
-
-func trimSuffix(name, suffix string) (string, error) {
-	if !strings.HasSuffix(name, suffix) {
-		return "", errors.Errorf("invalid request %q with suffix %q", name, suffix)
-	}
-	return strings.TrimSuffix(name, suffix), nil
-}
-
-func getNameParentTokens(name string, tokenPrefixes ...string) ([]string, error) {
-	parts := strings.Split(name, "/")
-	if len(parts) != 2*len(tokenPrefixes) {
-		return nil, errors.Errorf("invalid request %q", name)
-	}
-
-	var tokens []string
-	for i, tokenPrefix := range tokenPrefixes {
-		if fmt.Sprintf("%s/", parts[2*i]) != tokenPrefix {
-			return nil, errors.Errorf("invalid prefix %q in request %q", tokenPrefix, name)
-		}
-		if parts[2*i+1] == "" {
-			return nil, errors.Errorf("invalid request %q with empty prefix %q", name, tokenPrefix)
-		}
-		tokens = append(tokens, parts[2*i+1])
-	}
-	return tokens, nil
 }
 
 func convertDeletedToState(deleted bool) v1pb.State {
@@ -443,10 +72,11 @@ func getProjectFilter(filter string) (string, error) {
 	if issues != nil {
 		return "", status.Errorf(codes.InvalidArgument, issues.String())
 	}
-	expr := ast.Expr()
-	if expr == nil {
+	parsedExpr, err := cel.AstToParsedExpr(ast)
+	if err != nil {
 		return "", retErr
 	}
+	expr := parsedExpr.Expr
 	callExpr := expr.GetCallExpr()
 	if callExpr == nil {
 		return "", retErr
@@ -675,72 +305,84 @@ func normalizeFilter(filter string) (string, []string, error) {
 	return normalizedFilter, quotedStrings, nil
 }
 
-func convertToEngine(engine db.Type) v1pb.Engine {
+func convertToEngine(engine storepb.Engine) v1pb.Engine {
 	switch engine {
-	case db.ClickHouse:
+	case storepb.Engine_CLICKHOUSE:
 		return v1pb.Engine_CLICKHOUSE
-	case db.MySQL:
+	case storepb.Engine_MYSQL:
 		return v1pb.Engine_MYSQL
-	case db.Postgres:
+	case storepb.Engine_POSTGRES:
 		return v1pb.Engine_POSTGRES
-	case db.Snowflake:
+	case storepb.Engine_SNOWFLAKE:
 		return v1pb.Engine_SNOWFLAKE
-	case db.SQLite:
+	case storepb.Engine_SQLITE:
 		return v1pb.Engine_SQLITE
-	case db.TiDB:
+	case storepb.Engine_TIDB:
 		return v1pb.Engine_TIDB
-	case db.MongoDB:
+	case storepb.Engine_MONGODB:
 		return v1pb.Engine_MONGODB
-	case db.Redis:
+	case storepb.Engine_REDIS:
 		return v1pb.Engine_REDIS
-	case db.Oracle:
+	case storepb.Engine_ORACLE:
 		return v1pb.Engine_ORACLE
-	case db.Spanner:
+	case storepb.Engine_SPANNER:
 		return v1pb.Engine_SPANNER
-	case db.MSSQL:
+	case storepb.Engine_MSSQL:
 		return v1pb.Engine_MSSQL
-	case db.Redshift:
+	case storepb.Engine_REDSHIFT:
 		return v1pb.Engine_REDSHIFT
-	case db.MariaDB:
+	case storepb.Engine_MARIADB:
 		return v1pb.Engine_MARIADB
-	case db.OceanBase:
+	case storepb.Engine_OCEANBASE:
 		return v1pb.Engine_OCEANBASE
+	case storepb.Engine_OCEANBASE_ORACLE:
+		return v1pb.Engine_OCEANBASE_ORACLE
+	case storepb.Engine_RISINGWAVE:
+		return v1pb.Engine_RISINGWAVE
+	case storepb.Engine_DM:
+		return v1pb.Engine_DM
 	}
 	return v1pb.Engine_ENGINE_UNSPECIFIED
 }
 
-func convertEngine(engine v1pb.Engine) db.Type {
+func convertEngine(engine v1pb.Engine) storepb.Engine {
 	switch engine {
 	case v1pb.Engine_CLICKHOUSE:
-		return db.ClickHouse
+		return storepb.Engine_CLICKHOUSE
 	case v1pb.Engine_MYSQL:
-		return db.MySQL
+		return storepb.Engine_MYSQL
 	case v1pb.Engine_POSTGRES:
-		return db.Postgres
+		return storepb.Engine_POSTGRES
 	case v1pb.Engine_SNOWFLAKE:
-		return db.Snowflake
+		return storepb.Engine_SNOWFLAKE
 	case v1pb.Engine_SQLITE:
-		return db.SQLite
+		return storepb.Engine_SQLITE
 	case v1pb.Engine_TIDB:
-		return db.TiDB
+		return storepb.Engine_TIDB
 	case v1pb.Engine_MONGODB:
-		return db.MongoDB
+		return storepb.Engine_MONGODB
 	case v1pb.Engine_REDIS:
-		return db.Redis
+		return storepb.Engine_REDIS
 	case v1pb.Engine_ORACLE:
-		return db.Oracle
+		return storepb.Engine_ORACLE
 	case v1pb.Engine_SPANNER:
-		return db.Spanner
+		return storepb.Engine_SPANNER
 	case v1pb.Engine_MSSQL:
-		return db.MSSQL
+		return storepb.Engine_MSSQL
 	case v1pb.Engine_REDSHIFT:
-		return db.Redshift
+		return storepb.Engine_REDSHIFT
 	case v1pb.Engine_MARIADB:
-		return db.MariaDB
+		return storepb.Engine_MARIADB
 	case v1pb.Engine_OCEANBASE:
-		return db.OceanBase
+		return storepb.Engine_OCEANBASE
+	case v1pb.Engine_OCEANBASE_ORACLE:
+		return storepb.Engine_OCEANBASE_ORACLE
+	case v1pb.Engine_DM:
+		return storepb.Engine_DM
+	case v1pb.Engine_RISINGWAVE:
+		return storepb.Engine_RISINGWAVE
 	}
-	return db.UnknownType
+	return storepb.Engine_ENGINE_UNSPECIFIED
 }
 
 func getPageToken(limit int, offset int) (string, error) {
@@ -767,4 +409,17 @@ func unmarshalPageToken(s string, pageToken *storepb.PageToken) error {
 		return errors.Wrapf(err, "failed to unmarshal page token")
 	}
 	return nil
+}
+
+// isValidUUID validates that the id is the valid UUID format.
+// https://datatracker.ietf.org/doc/html/rfc4122#section-4.1
+func isValidUUID(id string) bool {
+	return uuidMatcher.MatchString(id)
+}
+
+// generateEtag generates etag for the given body.
+func generateEtag(body []byte) string {
+	hash := sha1.Sum(body)
+	etag := fmt.Sprintf("%x", hash)
+	return etag
 }

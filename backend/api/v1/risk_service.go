@@ -9,7 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/bytebase/bytebase/backend/common"
-	enterpriseAPI "github.com/bytebase/bytebase/backend/enterprise/api"
+	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
@@ -19,11 +19,11 @@ import (
 type RiskService struct {
 	v1pb.UnimplementedRiskServiceServer
 	store          *store.Store
-	licenseService enterpriseAPI.LicenseService
+	licenseService enterprise.LicenseService
 }
 
 // NewRiskService creates a new RiskService.
-func NewRiskService(store *store.Store, licenseService enterpriseAPI.LicenseService) *RiskService {
+func NewRiskService(store *store.Store, licenseService enterprise.LicenseService) *RiskService {
 	return &RiskService{
 		store:          store,
 		licenseService: licenseService,
@@ -32,7 +32,7 @@ func NewRiskService(store *store.Store, licenseService enterpriseAPI.LicenseServ
 
 func convertToRisk(risk *store.RiskMessage) (*v1pb.Risk, error) {
 	return &v1pb.Risk{
-		Name:      fmt.Sprintf("%s%v", riskPrefix, risk.ID),
+		Name:      fmt.Sprintf("%s%v", common.RiskPrefix, risk.ID),
 		Uid:       fmt.Sprintf("%v", risk.ID),
 		Source:    convertToSource(risk.Source),
 		Title:     risk.Name,
@@ -68,7 +68,10 @@ func (s *RiskService) CreateRisk(ctx context.Context, request *v1pb.CreateRiskRe
 	if _, err := common.ConvertUnparsedRisk(request.Risk.Condition); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to validate risk expression, error: %v", err)
 	}
-	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
 
 	risk, err := s.store.CreateRisk(ctx, &store.RiskMessage{
 		Source:     convertSource(request.Risk.Source),
@@ -88,11 +91,14 @@ func (s *RiskService) UpdateRisk(ctx context.Context, request *v1pb.UpdateRiskRe
 	if err := s.licenseService.IsFeatureEnabled(api.FeatureCustomApproval); err != nil {
 		return nil, status.Errorf(codes.PermissionDenied, err.Error())
 	}
-	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
 	if request.UpdateMask == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "update_mask must be set")
 	}
-	riskID, err := getRiskID(request.Risk.Name)
+	riskID, err := common.GetRiskID(request.Risk.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -134,8 +140,11 @@ func (s *RiskService) UpdateRisk(ctx context.Context, request *v1pb.UpdateRiskRe
 
 // DeleteRisk deletes a risk.
 func (s *RiskService) DeleteRisk(ctx context.Context, request *v1pb.DeleteRiskRequest) (*emptypb.Empty, error) {
-	principalID := ctx.Value(common.PrincipalIDContextKey).(int)
-	riskID, err := getRiskID(request.Name)
+	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "principal ID not found")
+	}
+	riskID, err := common.GetRiskID(request.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}

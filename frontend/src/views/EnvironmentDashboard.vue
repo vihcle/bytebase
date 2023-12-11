@@ -22,22 +22,17 @@
         :active="index == state.selectedIndex"
         class="flex-1 overflow-y-scroll"
       >
-        <div v-if="state.reorder" class="flex justify-center pt-5">
-          <button
-            type="button"
-            class="btn-normal py-2 px-4"
-            @click.prevent="discardReorder"
-          >
+        <div v-if="state.reorder" class="flex justify-center pt-5 gap-x-3">
+          <NButton @click.prevent="discardReorder">
             {{ $t("common.cancel") }}
-          </button>
-          <button
-            type="submit"
-            class="btn-primary ml-3 inline-flex justify-center py-2 px-4"
+          </NButton>
+          <NButton
+            type="primary"
             :disabled="!orderChanged"
             @click.prevent="doReorder"
           >
             {{ $t("common.apply") }}
-          </button>
+          </NButton>
         </div>
         <EnvironmentDetail
           v-else
@@ -53,8 +48,8 @@
       :create="true"
       :drawer="true"
       :environment="getEnvironmentCreate()"
-      :approval-policy="(DEFAULT_NEW_APPROVAL_POLICY as any)"
-      :backup-policy="(DEFAULT_NEW_BACKUP_PLAN_POLICY as any)"
+      :rollout-policy="DEFAULT_NEW_ROLLOUT_POLICY"
+      :backup-policy="DEFAULT_NEW_BACKUP_PLAN_POLICY"
       :environment-tier="defaultEnvironmentTier"
       @create="doCreate"
       @cancel="state.showCreateModal = false"
@@ -71,10 +66,7 @@
 <script lang="ts" setup>
 import { onMounted, computed, reactive, watch } from "vue";
 import { useRouter } from "vue-router";
-import { arraySwap, environmentV1Slug } from "../utils";
-import EnvironmentDetail from "../views/EnvironmentDetail.vue";
-import EnvironmentForm from "../components/EnvironmentForm.vue";
-import type { BBTabItem } from "../bbkit/types";
+import { Drawer, ProductionEnvironmentV1Icon } from "@/components/v2";
 import {
   useRegisterCommand,
   useUIStateStore,
@@ -83,26 +75,27 @@ import {
   defaultEnvironmentTier,
   useEnvironmentV1List,
 } from "@/store";
-import { Drawer, ProductionEnvironmentV1Icon } from "@/components/v2";
+import {
+  usePolicyV1Store,
+  defaultBackupSchedule,
+  getDefaultBackupPlanPolicy,
+  getEmptyRolloutPolicy,
+} from "@/store/modules/v1/policy";
+import { VirtualRoleType, emptyEnvironment } from "@/types";
 import {
   Environment,
   EnvironmentTier,
 } from "@/types/proto/v1/environment_service";
 import {
-  usePolicyV1Store,
-  defaultBackupSchedule,
-  defaultApprovalStrategy,
-  getDefaultBackupPlanPolicy,
-  getDefaultDeploymentApprovalPolicy,
-} from "@/store/modules/v1/policy";
-import {
   Policy,
   PolicyResourceType,
 } from "@/types/proto/v1/org_policy_service";
-import { emptyEnvironment } from "@/types";
+import type { BBTabItem } from "../bbkit/types";
+import EnvironmentForm from "../components/EnvironmentForm.vue";
+import { arraySwap, environmentV1Slug } from "../utils";
+import EnvironmentDetail from "../views/EnvironmentDetail.vue";
 
-// The default value should be consistent with the GetDefaultPolicy from the backend.
-const DEFAULT_NEW_APPROVAL_POLICY: Policy = getDefaultDeploymentApprovalPolicy(
+const DEFAULT_NEW_ROLLOUT_POLICY: Policy = getEmptyRolloutPolicy(
   "",
   PolicyResourceType.ENVIRONMENT
 );
@@ -120,6 +113,7 @@ interface LocalState {
   reorder: boolean;
   missingRequiredFeature?:
     | "bb.feature.approval-policy"
+    | "bb.feature.custom-approval"
     | "bb.feature.backup-policy"
     | "bb.feature.environment-tier-policy";
 }
@@ -216,17 +210,22 @@ const createEnvironment = () => {
 
 const doCreate = async (
   newEnvironment: Environment,
-  approvalPolicy: Policy,
+  rolloutPolicy: Policy,
   backupPolicy: Policy,
   environmentTier: EnvironmentTier
 ) => {
-  if (
-    approvalPolicy.deploymentApprovalPolicy?.defaultStrategy !==
-      defaultApprovalStrategy &&
-    !hasFeature("bb.feature.approval-policy")
-  ) {
-    state.missingRequiredFeature = "bb.feature.approval-policy";
-    return;
+  const rp = rolloutPolicy.rolloutPolicy;
+  if (rp?.automatic === false) {
+    if (rp.issueRoles.includes(VirtualRoleType.LAST_APPROVER)) {
+      if (!hasFeature("bb.feature.custom-approval")) {
+        state.missingRequiredFeature = "bb.feature.custom-approval";
+        return;
+      }
+    }
+    if (!hasFeature("bb.feature.approval-policy")) {
+      state.missingRequiredFeature = "bb.feature.approval-policy";
+      return;
+    }
   }
   if (
     backupPolicy.backupPlanPolicy?.schedule !== defaultBackupSchedule &&
@@ -255,7 +254,7 @@ const doCreate = async (
     policyV1Store.upsertPolicy({
       parentPath: environment.name,
       updateMask: ["payload"],
-      policy: approvalPolicy,
+      policy: rolloutPolicy,
     }),
     policyV1Store.upsertPolicy({
       parentPath: environment.name,

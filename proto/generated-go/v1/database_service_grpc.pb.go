@@ -20,25 +20,26 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	DatabaseService_GetDatabase_FullMethodName          = "/bytebase.v1.DatabaseService/GetDatabase"
-	DatabaseService_ListDatabases_FullMethodName        = "/bytebase.v1.DatabaseService/ListDatabases"
-	DatabaseService_SearchDatabases_FullMethodName      = "/bytebase.v1.DatabaseService/SearchDatabases"
-	DatabaseService_UpdateDatabase_FullMethodName       = "/bytebase.v1.DatabaseService/UpdateDatabase"
-	DatabaseService_BatchUpdateDatabases_FullMethodName = "/bytebase.v1.DatabaseService/BatchUpdateDatabases"
-	DatabaseService_SyncDatabase_FullMethodName         = "/bytebase.v1.DatabaseService/SyncDatabase"
-	DatabaseService_GetDatabaseMetadata_FullMethodName  = "/bytebase.v1.DatabaseService/GetDatabaseMetadata"
-	DatabaseService_GetDatabaseSchema_FullMethodName    = "/bytebase.v1.DatabaseService/GetDatabaseSchema"
-	DatabaseService_GetBackupSetting_FullMethodName     = "/bytebase.v1.DatabaseService/GetBackupSetting"
-	DatabaseService_UpdateBackupSetting_FullMethodName  = "/bytebase.v1.DatabaseService/UpdateBackupSetting"
-	DatabaseService_CreateBackup_FullMethodName         = "/bytebase.v1.DatabaseService/CreateBackup"
-	DatabaseService_ListBackups_FullMethodName          = "/bytebase.v1.DatabaseService/ListBackups"
-	DatabaseService_ListSlowQueries_FullMethodName      = "/bytebase.v1.DatabaseService/ListSlowQueries"
-	DatabaseService_ListSecrets_FullMethodName          = "/bytebase.v1.DatabaseService/ListSecrets"
-	DatabaseService_UpdateSecret_FullMethodName         = "/bytebase.v1.DatabaseService/UpdateSecret"
-	DatabaseService_DeleteSecret_FullMethodName         = "/bytebase.v1.DatabaseService/DeleteSecret"
-	DatabaseService_AdviseIndex_FullMethodName          = "/bytebase.v1.DatabaseService/AdviseIndex"
-	DatabaseService_ListChangeHistories_FullMethodName  = "/bytebase.v1.DatabaseService/ListChangeHistories"
-	DatabaseService_GetChangeHistory_FullMethodName     = "/bytebase.v1.DatabaseService/GetChangeHistory"
+	DatabaseService_GetDatabase_FullMethodName            = "/bytebase.v1.DatabaseService/GetDatabase"
+	DatabaseService_ListDatabases_FullMethodName          = "/bytebase.v1.DatabaseService/ListDatabases"
+	DatabaseService_UpdateDatabase_FullMethodName         = "/bytebase.v1.DatabaseService/UpdateDatabase"
+	DatabaseService_BatchUpdateDatabases_FullMethodName   = "/bytebase.v1.DatabaseService/BatchUpdateDatabases"
+	DatabaseService_SyncDatabase_FullMethodName           = "/bytebase.v1.DatabaseService/SyncDatabase"
+	DatabaseService_GetDatabaseMetadata_FullMethodName    = "/bytebase.v1.DatabaseService/GetDatabaseMetadata"
+	DatabaseService_UpdateDatabaseMetadata_FullMethodName = "/bytebase.v1.DatabaseService/UpdateDatabaseMetadata"
+	DatabaseService_GetDatabaseSchema_FullMethodName      = "/bytebase.v1.DatabaseService/GetDatabaseSchema"
+	DatabaseService_DiffSchema_FullMethodName             = "/bytebase.v1.DatabaseService/DiffSchema"
+	DatabaseService_GetBackupSetting_FullMethodName       = "/bytebase.v1.DatabaseService/GetBackupSetting"
+	DatabaseService_UpdateBackupSetting_FullMethodName    = "/bytebase.v1.DatabaseService/UpdateBackupSetting"
+	DatabaseService_CreateBackup_FullMethodName           = "/bytebase.v1.DatabaseService/CreateBackup"
+	DatabaseService_ListBackups_FullMethodName            = "/bytebase.v1.DatabaseService/ListBackups"
+	DatabaseService_ListSlowQueries_FullMethodName        = "/bytebase.v1.DatabaseService/ListSlowQueries"
+	DatabaseService_ListSecrets_FullMethodName            = "/bytebase.v1.DatabaseService/ListSecrets"
+	DatabaseService_UpdateSecret_FullMethodName           = "/bytebase.v1.DatabaseService/UpdateSecret"
+	DatabaseService_DeleteSecret_FullMethodName           = "/bytebase.v1.DatabaseService/DeleteSecret"
+	DatabaseService_AdviseIndex_FullMethodName            = "/bytebase.v1.DatabaseService/AdviseIndex"
+	DatabaseService_ListChangeHistories_FullMethodName    = "/bytebase.v1.DatabaseService/ListChangeHistories"
+	DatabaseService_GetChangeHistory_FullMethodName       = "/bytebase.v1.DatabaseService/GetChangeHistory"
 )
 
 // DatabaseServiceClient is the client API for DatabaseService service.
@@ -47,13 +48,13 @@ const (
 type DatabaseServiceClient interface {
 	GetDatabase(ctx context.Context, in *GetDatabaseRequest, opts ...grpc.CallOption) (*Database, error)
 	ListDatabases(ctx context.Context, in *ListDatabasesRequest, opts ...grpc.CallOption) (*ListDatabasesResponse, error)
-	// Search for databases that the caller has both projects.get permission on, and also satisfy the specified query.
-	SearchDatabases(ctx context.Context, in *SearchDatabasesRequest, opts ...grpc.CallOption) (*SearchDatabasesResponse, error)
 	UpdateDatabase(ctx context.Context, in *UpdateDatabaseRequest, opts ...grpc.CallOption) (*Database, error)
 	BatchUpdateDatabases(ctx context.Context, in *BatchUpdateDatabasesRequest, opts ...grpc.CallOption) (*BatchUpdateDatabasesResponse, error)
 	SyncDatabase(ctx context.Context, in *SyncDatabaseRequest, opts ...grpc.CallOption) (*SyncDatabaseResponse, error)
 	GetDatabaseMetadata(ctx context.Context, in *GetDatabaseMetadataRequest, opts ...grpc.CallOption) (*DatabaseMetadata, error)
+	UpdateDatabaseMetadata(ctx context.Context, in *UpdateDatabaseMetadataRequest, opts ...grpc.CallOption) (*DatabaseMetadata, error)
 	GetDatabaseSchema(ctx context.Context, in *GetDatabaseSchemaRequest, opts ...grpc.CallOption) (*DatabaseSchema, error)
+	DiffSchema(ctx context.Context, in *DiffSchemaRequest, opts ...grpc.CallOption) (*DiffSchemaResponse, error)
 	GetBackupSetting(ctx context.Context, in *GetBackupSettingRequest, opts ...grpc.CallOption) (*BackupSetting, error)
 	UpdateBackupSetting(ctx context.Context, in *UpdateBackupSettingRequest, opts ...grpc.CallOption) (*BackupSetting, error)
 	CreateBackup(ctx context.Context, in *CreateBackupRequest, opts ...grpc.CallOption) (*Backup, error)
@@ -87,15 +88,6 @@ func (c *databaseServiceClient) GetDatabase(ctx context.Context, in *GetDatabase
 func (c *databaseServiceClient) ListDatabases(ctx context.Context, in *ListDatabasesRequest, opts ...grpc.CallOption) (*ListDatabasesResponse, error) {
 	out := new(ListDatabasesResponse)
 	err := c.cc.Invoke(ctx, DatabaseService_ListDatabases_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *databaseServiceClient) SearchDatabases(ctx context.Context, in *SearchDatabasesRequest, opts ...grpc.CallOption) (*SearchDatabasesResponse, error) {
-	out := new(SearchDatabasesResponse)
-	err := c.cc.Invoke(ctx, DatabaseService_SearchDatabases_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -138,9 +130,27 @@ func (c *databaseServiceClient) GetDatabaseMetadata(ctx context.Context, in *Get
 	return out, nil
 }
 
+func (c *databaseServiceClient) UpdateDatabaseMetadata(ctx context.Context, in *UpdateDatabaseMetadataRequest, opts ...grpc.CallOption) (*DatabaseMetadata, error) {
+	out := new(DatabaseMetadata)
+	err := c.cc.Invoke(ctx, DatabaseService_UpdateDatabaseMetadata_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *databaseServiceClient) GetDatabaseSchema(ctx context.Context, in *GetDatabaseSchemaRequest, opts ...grpc.CallOption) (*DatabaseSchema, error) {
 	out := new(DatabaseSchema)
 	err := c.cc.Invoke(ctx, DatabaseService_GetDatabaseSchema_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *databaseServiceClient) DiffSchema(ctx context.Context, in *DiffSchemaRequest, opts ...grpc.CallOption) (*DiffSchemaResponse, error) {
+	out := new(DiffSchemaResponse)
+	err := c.cc.Invoke(ctx, DatabaseService_DiffSchema_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -252,13 +262,13 @@ func (c *databaseServiceClient) GetChangeHistory(ctx context.Context, in *GetCha
 type DatabaseServiceServer interface {
 	GetDatabase(context.Context, *GetDatabaseRequest) (*Database, error)
 	ListDatabases(context.Context, *ListDatabasesRequest) (*ListDatabasesResponse, error)
-	// Search for databases that the caller has both projects.get permission on, and also satisfy the specified query.
-	SearchDatabases(context.Context, *SearchDatabasesRequest) (*SearchDatabasesResponse, error)
 	UpdateDatabase(context.Context, *UpdateDatabaseRequest) (*Database, error)
 	BatchUpdateDatabases(context.Context, *BatchUpdateDatabasesRequest) (*BatchUpdateDatabasesResponse, error)
 	SyncDatabase(context.Context, *SyncDatabaseRequest) (*SyncDatabaseResponse, error)
 	GetDatabaseMetadata(context.Context, *GetDatabaseMetadataRequest) (*DatabaseMetadata, error)
+	UpdateDatabaseMetadata(context.Context, *UpdateDatabaseMetadataRequest) (*DatabaseMetadata, error)
 	GetDatabaseSchema(context.Context, *GetDatabaseSchemaRequest) (*DatabaseSchema, error)
+	DiffSchema(context.Context, *DiffSchemaRequest) (*DiffSchemaResponse, error)
 	GetBackupSetting(context.Context, *GetBackupSettingRequest) (*BackupSetting, error)
 	UpdateBackupSetting(context.Context, *UpdateBackupSettingRequest) (*BackupSetting, error)
 	CreateBackup(context.Context, *CreateBackupRequest) (*Backup, error)
@@ -283,9 +293,6 @@ func (UnimplementedDatabaseServiceServer) GetDatabase(context.Context, *GetDatab
 func (UnimplementedDatabaseServiceServer) ListDatabases(context.Context, *ListDatabasesRequest) (*ListDatabasesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListDatabases not implemented")
 }
-func (UnimplementedDatabaseServiceServer) SearchDatabases(context.Context, *SearchDatabasesRequest) (*SearchDatabasesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SearchDatabases not implemented")
-}
 func (UnimplementedDatabaseServiceServer) UpdateDatabase(context.Context, *UpdateDatabaseRequest) (*Database, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateDatabase not implemented")
 }
@@ -298,8 +305,14 @@ func (UnimplementedDatabaseServiceServer) SyncDatabase(context.Context, *SyncDat
 func (UnimplementedDatabaseServiceServer) GetDatabaseMetadata(context.Context, *GetDatabaseMetadataRequest) (*DatabaseMetadata, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDatabaseMetadata not implemented")
 }
+func (UnimplementedDatabaseServiceServer) UpdateDatabaseMetadata(context.Context, *UpdateDatabaseMetadataRequest) (*DatabaseMetadata, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateDatabaseMetadata not implemented")
+}
 func (UnimplementedDatabaseServiceServer) GetDatabaseSchema(context.Context, *GetDatabaseSchemaRequest) (*DatabaseSchema, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDatabaseSchema not implemented")
+}
+func (UnimplementedDatabaseServiceServer) DiffSchema(context.Context, *DiffSchemaRequest) (*DiffSchemaResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DiffSchema not implemented")
 }
 func (UnimplementedDatabaseServiceServer) GetBackupSetting(context.Context, *GetBackupSettingRequest) (*BackupSetting, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackupSetting not implemented")
@@ -383,24 +396,6 @@ func _DatabaseService_ListDatabases_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DatabaseService_SearchDatabases_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SearchDatabasesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DatabaseServiceServer).SearchDatabases(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: DatabaseService_SearchDatabases_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DatabaseServiceServer).SearchDatabases(ctx, req.(*SearchDatabasesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _DatabaseService_UpdateDatabase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpdateDatabaseRequest)
 	if err := dec(in); err != nil {
@@ -473,6 +468,24 @@ func _DatabaseService_GetDatabaseMetadata_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DatabaseService_UpdateDatabaseMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateDatabaseMetadataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DatabaseServiceServer).UpdateDatabaseMetadata(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DatabaseService_UpdateDatabaseMetadata_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DatabaseServiceServer).UpdateDatabaseMetadata(ctx, req.(*UpdateDatabaseMetadataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DatabaseService_GetDatabaseSchema_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetDatabaseSchemaRequest)
 	if err := dec(in); err != nil {
@@ -487,6 +500,24 @@ func _DatabaseService_GetDatabaseSchema_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DatabaseServiceServer).GetDatabaseSchema(ctx, req.(*GetDatabaseSchemaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DatabaseService_DiffSchema_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DiffSchemaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DatabaseServiceServer).DiffSchema(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DatabaseService_DiffSchema_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DatabaseServiceServer).DiffSchema(ctx, req.(*DiffSchemaRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -705,10 +736,6 @@ var DatabaseService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DatabaseService_ListDatabases_Handler,
 		},
 		{
-			MethodName: "SearchDatabases",
-			Handler:    _DatabaseService_SearchDatabases_Handler,
-		},
-		{
 			MethodName: "UpdateDatabase",
 			Handler:    _DatabaseService_UpdateDatabase_Handler,
 		},
@@ -725,8 +752,16 @@ var DatabaseService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DatabaseService_GetDatabaseMetadata_Handler,
 		},
 		{
+			MethodName: "UpdateDatabaseMetadata",
+			Handler:    _DatabaseService_UpdateDatabaseMetadata_Handler,
+		},
+		{
 			MethodName: "GetDatabaseSchema",
 			Handler:    _DatabaseService_GetDatabaseSchema_Handler,
+		},
+		{
+			MethodName: "DiffSchema",
+			Handler:    _DatabaseService_DiffSchema_Handler,
 		},
 		{
 			MethodName: "GetBackupSetting",

@@ -1,29 +1,36 @@
 <template>
   <ChatPanel v-if="openAIKey" />
-  <MockInputPlaceholder v-else />
 </template>
 
 <script lang="ts" setup>
-import { computed, reactive, toRef } from "vue";
-import Emittery from "emittery";
 import { useLocalStorage } from "@vueuse/core";
-
-import type { AIContextEvents } from "../types";
-import { useChatByTab, provideAIContext } from "../logic";
+import Emittery from "emittery";
+import { computed, reactive, toRef } from "vue";
 import {
   useCurrentTab,
   useInstanceV1ByUID,
   useDatabaseV1ByUID,
   useMetadata,
 } from "@/store";
-import ChatPanel from "./ChatPanel.vue";
-import MockInputPlaceholder from "./MockInputPlaceholder.vue";
-import { Connection } from "@/types";
 import { useSettingV1Store } from "@/store/modules/v1/setting";
+import { Connection } from "@/types";
+import type { AIContextEvents } from "../types";
+
+const [{ useChatByTab, provideAIContext }, { default: ChatPanel }] =
+  await Promise.all([import("../logic"), import("./ChatPanel.vue")]);
 
 type LocalState = {
   showHistoryDialog: boolean;
 };
+
+withDefaults(
+  defineProps<{
+    allowConfig?: boolean;
+  }>(),
+  {
+    allowConfig: true,
+  }
+);
 
 const emit = defineEmits<{
   (

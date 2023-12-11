@@ -32,7 +32,10 @@
             class="mt-2 text-sm"
             :class="`text-${color}-700`"
           >
-            <p class="whitespace-pre-wrap">{{ $t(description) }}</p>
+            <p class="whitespace-pre-wrap">
+              {{ $te(description) ? $t(description) : description }}
+              <LearnMoreLink v-if="link" :url="link" class="ml-1 text-sm" />
+            </p>
           </div>
         </slot>
       </div>
@@ -56,14 +59,15 @@
 
 <script lang="ts" setup>
 import { computed, withDefaults } from "vue";
-import { BBAttentionSide, BBAttentionStyle } from "./types";
 import { useI18n } from "vue-i18n";
+import { BBAttentionSide, BBAttentionStyle } from "./types";
 
 const props = withDefaults(
   defineProps<{
     style?: BBAttentionStyle;
     title?: string;
     description?: string;
+    link?: string;
     actionText?: string;
     side?: BBAttentionSide;
   }>(),
@@ -71,6 +75,7 @@ const props = withDefaults(
     style: "INFO",
     title: "bbkit.attention.default",
     description: "",
+    link: undefined,
     actionText: "",
     side: "BETWEEN",
   }

@@ -1,257 +1,216 @@
 <template>
-  <!-- Navigation -->
-  <nav class="flex-1 flex flex-col overflow-y-hidden">
-    <BytebaseLogo class="w-full px-4 shrink-0" />
-    <div class="space-y-1 flex-1 overflow-y-auto px-2 pb-4">
-      <button
-        class="group shrink-0 flex items-center px-2 py-2 text-base leading-5 font-normal rounded-md text-gray-700 hover:opacity-80 focus:outline-none"
-        @click.prevent="goBack"
-      >
-        <heroicons-outline:chevron-left
-          class="mr-1 w-5 h-auto text-gray-500 group-hover:text-gray-500 group-focus:text-gray-600"
-        />
-        {{ $t("common.back") }}
-      </button>
-      <div>
-        <div
-          class="group flex items-center px-2 py-2 text-sm leading-5 font-medium rounded-md text-gray-700"
-        >
-          <heroicons-solid:user-circle class="mr-3 w-5 h-5" />
-          {{ $t("settings.sidebar.account") }}
-        </div>
-        <div class="space-y-1">
-          <router-link
-            to="/setting/profile"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2"
-            >{{ $t("settings.sidebar.profile") }}</router-link
-          >
-        </div>
-      </div>
-      <div>
-        <div
-          class="group flex items-center px-2 py-2 text-sm leading-5 font-medium rounded-md text-gray-700"
-        >
-          <heroicons-solid:office-building class="mr-3 w-5 h-5" />
-          {{ $t("settings.sidebar.workspace") }}
-        </div>
-        <div class="space-y-1">
-          <router-link
-            to="/setting/general"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2"
-          >
-            {{ $t("settings.sidebar.general") }}
-          </router-link>
-          <router-link
-            to="/setting/member"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2"
-            :class="[
-              route.name === 'workspace.profile' &&
-                'router-link-active bg-link-hover',
-            ]"
-            >{{ $t("settings.sidebar.members") }}</router-link
-          >
-          <router-link
-            to="/setting/role"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2"
-            >{{ $t("settings.sidebar.custom-roles") }}</router-link
-          >
-          <router-link
-            v-if="showProjectItem"
-            to="/setting/project"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2"
-            >{{ $t("common.projects") }}</router-link
-          >
-          <router-link
-            to="/setting/subscription"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2"
-            >{{ $t("settings.sidebar.subscription") }}</router-link
-          >
-          <router-link
-            v-if="showDebugLogItem"
-            to="/setting/debug-log"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2"
-            >{{ $t("settings.sidebar.debug-log") }}</router-link
-          >
-        </div>
-      </div>
-      <div>
-        <div
-          class="group flex items-center px-2 py-2 text-sm leading-5 font-medium rounded-md text-gray-700"
-        >
-          <heroicons-solid:shield-check class="mr-3 w-5 h-5" />
-          {{ $t("settings.sidebar.security-and-policy") }}
-        </div>
-        <div class="space-y-1">
-          <router-link
-            to="/setting/sql-review"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2"
-            >{{ $t("sql-review.title") }}</router-link
-          >
-          <router-link
-            to="/setting/slow-query"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2 capitalize"
-            >{{ $t("slow-query.self") }}</router-link
-          >
-          <router-link
-            to="/setting/schema-template"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2 capitalize"
-            >{{ $t("schema-template.self") }}</router-link
-          >
-          <router-link
-            to="/setting/risk-center"
-            class="outline-item group w-full flex items-center truncate pl-11 pr-2 py-2"
-          >
-            {{ $t("custom-approval.risk.risk-center") }}
-          </router-link>
-          <router-link
-            to="/setting/custom-approval"
-            class="outline-item group w-full flex items-center truncate pl-11 pr-2 py-2"
-          >
-            {{ $t("custom-approval.self") }}
-          </router-link>
-          <router-link
-            v-if="showSensitiveDataItem"
-            to="/setting/sensitive-data"
-            class="outline-item group w-full flex items-center truncate pl-11 pr-2 py-2"
-          >
-            {{ $t("settings.sidebar.sensitive-data") }}
-          </router-link>
-          <router-link
-            v-if="showAccessControlItem"
-            to="/setting/access-control"
-            class="outline-item group w-full flex items-center truncate pl-11 pr-2 py-2"
-          >
-            {{ $t("settings.sidebar.access-control") }}
-          </router-link>
-          <router-link
-            v-if="showAuditLogItem"
-            to="/setting/audit-log"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2"
-            >{{ $t("settings.sidebar.audit-log") }}</router-link
-          >
-        </div>
-      </div>
-      <div v-if="showIntegrationSection">
-        <div
-          class="group flex items-center px-2 py-2 text-sm leading-5 font-medium rounded-md text-gray-700"
-        >
-          <heroicons-solid:link class="mr-3 w-5 h-5" />
-          {{ $t("settings.sidebar.integration") }}
-        </div>
-        <div class="space-y-1">
-          <router-link
-            v-if="showVCSItem"
-            to="/setting/gitops"
-            class="outline-item group w-full flex items-center pl-11 pr-2 py-2"
-            >{{ $t("settings.sidebar.gitops") }}</router-link
-          >
-          <router-link
-            v-if="showSSOItem"
-            to="/setting/sso"
-            class="outline-item group w-full flex items-center truncate pl-11 pr-2 py-2"
-          >
-            {{ $t("settings.sidebar.sso") }}
-          </router-link>
-          <router-link
-            v-if="showIMIntegrationItem"
-            to="/setting/im-integration"
-            class="outline-item group w-full flex items-center truncate pl-11 pr-2 py-2"
-          >
-            {{ $t("settings.sidebar.im-integration") }}
-          </router-link>
-          <router-link
-            v-if="showMailDeliveryItem"
-            to="/setting/mail-delivery"
-            class="outline-item group w-full flex items-center truncate pl-11 pr-2 py-2"
-          >
-            {{ $t("settings.sidebar.mail-delivery") }}
-          </router-link>
-        </div>
-      </div>
-    </div>
-  </nav>
+  <CommonSidebar
+    :key="'setting'"
+    :item-list="(settingSidebarItemList as SidebarItem[])"
+    :get-item-class="getItemClass"
+  />
 </template>
 
 <script lang="ts" setup>
-import { computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
-import { hasWorkspacePermissionV1 } from "../utils";
-import { useCurrentUserV1, useRouterStore } from "@/store";
-import BytebaseLogo from "@/components/BytebaseLogo.vue";
+import {
+  UserCircle,
+  Building,
+  ShieldCheck,
+  Link,
+  Archive,
+} from "lucide-vue-next";
+import { computed, h } from "vue";
+import { useI18n } from "vue-i18n";
+import { useRoute } from "vue-router";
+import { SidebarItem } from "@/components/CommonSidebar.vue";
+import { useCurrentUserV1 } from "@/store";
+import { hasSettingPagePermission } from "../utils";
 
-const routerStore = useRouterStore();
+const { t } = useI18n();
 const route = useRoute();
-const router = useRouter();
 const currentUserV1 = useCurrentUserV1();
 
-const showProjectItem = computed((): boolean => {
-  return hasWorkspacePermissionV1(
-    "bb.permission.workspace.manage-project",
-    currentUserV1.value.userRole
-  );
-});
-
-const showSensitiveDataItem = computed((): boolean => {
-  return hasWorkspacePermissionV1(
-    "bb.permission.workspace.manage-sensitive-data",
-    currentUserV1.value.userRole
-  );
-});
-
-const showAccessControlItem = computed((): boolean => {
-  return hasWorkspacePermissionV1(
-    "bb.permission.workspace.manage-access-control",
-    currentUserV1.value.userRole
-  );
-});
-
-const showIMIntegrationItem = computed((): boolean => {
-  return hasWorkspacePermissionV1(
-    "bb.permission.workspace.manage-im-integration",
-    currentUserV1.value.userRole
-  );
-});
-
-const showSSOItem = computed((): boolean => {
-  return hasWorkspacePermissionV1(
-    "bb.permission.workspace.manage-sso",
-    currentUserV1.value.userRole
-  );
-});
-
-const showVCSItem = computed((): boolean => {
-  return hasWorkspacePermissionV1(
-    "bb.permission.workspace.manage-vcs-provider",
-    currentUserV1.value.userRole
-  );
-});
-
-const showIntegrationSection = computed(() => {
-  return showVCSItem.value || showIMIntegrationItem.value || showSSOItem.value;
-});
-
-const showDebugLogItem = computed((): boolean => {
-  return hasWorkspacePermissionV1(
-    "bb.permission.workspace.debug-log",
-    currentUserV1.value.userRole
-  );
-});
-
-const showAuditLogItem = computed((): boolean => {
-  return hasWorkspacePermissionV1(
-    "bb.permission.workspace.audit-log",
-    currentUserV1.value.userRole
-  );
-});
-
-const showMailDeliveryItem = computed((): boolean => {
-  return hasWorkspacePermissionV1(
-    "bb.permission.workspace.manage-mail-delivery",
-    currentUserV1.value.userRole
-  );
-});
-
-const goBack = () => {
-  router.push(routerStore.backPath());
+const getItemClass = (path: string | undefined) => {
+  const list = [];
+  switch (route.name) {
+    case "setting.workspace.sso.detail":
+    case "setting.workspace.sso.create":
+      if (path === "/setting/sso") {
+        list.push("router-link-active", "bg-link-hover");
+      }
+      break;
+    case "workspace.profile":
+      if (path === "/setting/member") {
+        list.push("router-link-active", "bg-link-hover");
+      }
+      break;
+    case "setting.workspace.sql-review.create":
+    case "setting.workspace.sql-review.detail":
+      if (path === "/setting/sql-review") {
+        list.push("router-link-active", "bg-link-hover");
+      }
+      break;
+  }
+  return list;
 };
+
+const settingSidebarItemList = computed((): SidebarItem[] => {
+  return [
+    {
+      title: t("settings.sidebar.account"),
+      icon: h(UserCircle),
+      type: "div",
+      children: [
+        {
+          title: t("settings.sidebar.profile"),
+          path: "/setting/profile",
+          type: "route",
+        },
+      ],
+    },
+    {
+      title: t("settings.sidebar.workspace"),
+      icon: h(Building),
+      type: "div",
+      children: [
+        {
+          title: t("settings.sidebar.general"),
+          path: "/setting/general",
+          type: "route",
+        },
+        {
+          title: t("settings.sidebar.members"),
+          path: "/setting/member",
+          hide: !hasSettingPagePermission(
+            "setting.workspace.member",
+            currentUserV1.value.userRole
+          ),
+          type: "route",
+        },
+        {
+          title: t("settings.sidebar.custom-roles"),
+          path: "/setting/role",
+          type: "route",
+        },
+        {
+          title: t("common.projects"),
+          path: "/setting/project",
+          hide: !hasSettingPagePermission(
+            "setting.workspace.project",
+            currentUserV1.value.userRole
+          ),
+          type: "route",
+        },
+        {
+          title: t("settings.sidebar.subscription"),
+          path: "/setting/subscription",
+          type: "route",
+        },
+        {
+          title: t("settings.sidebar.debug-log"),
+          path: "/setting/debug-log",
+          hide: !hasSettingPagePermission(
+            "setting.workspace.debug-log",
+            currentUserV1.value.userRole
+          ),
+          type: "route",
+        },
+      ],
+    },
+    {
+      title: t("settings.sidebar.security-and-policy"),
+      icon: h(ShieldCheck),
+      type: "div",
+      children: [
+        {
+          title: t("sql-review.title"),
+          path: "/setting/sql-review",
+          type: "route",
+        },
+        {
+          title: t("slow-query.self"),
+          path: "/setting/slow-query",
+          type: "route",
+        },
+        {
+          title: t("schema-template.self"),
+          path: "/setting/schema-template",
+          type: "route",
+        },
+        {
+          title: t("custom-approval.risk.risk-center"),
+          path: "/setting/risk-center",
+          type: "route",
+        },
+        {
+          title: t("custom-approval.self"),
+          path: "/setting/custom-approval",
+          type: "route",
+        },
+        {
+          title: t("settings.sidebar.sensitive-data"),
+          path: "/setting/sensitive-data",
+          hide: !hasSettingPagePermission(
+            "setting.workspace.sensitive-data",
+            currentUserV1.value.userRole
+          ),
+          type: "route",
+        },
+        {
+          title: t("settings.sidebar.access-control"),
+          path: "/setting/access-control",
+          hide: !hasSettingPagePermission(
+            "setting.workspace.access-control",
+            currentUserV1.value.userRole
+          ),
+          type: "route",
+        },
+        {
+          title: t("settings.sidebar.audit-log"),
+          path: "/setting/audit-log",
+          hide: !hasSettingPagePermission(
+            "setting.workspace.audit-log",
+            currentUserV1.value.userRole
+          ),
+          type: "route",
+        },
+      ],
+    },
+    {
+      title: t("settings.sidebar.integration"),
+      icon: h(Link),
+      type: "div",
+      children: [
+        {
+          title: t("settings.sidebar.gitops"),
+          path: "/setting/gitops",
+          hide: !hasSettingPagePermission(
+            "setting.workspace.gitops",
+            currentUserV1.value.userRole
+          ),
+          type: "route",
+        },
+        {
+          title: t("settings.sidebar.sso"),
+          path: "/setting/sso",
+          hide: !hasSettingPagePermission(
+            "setting.workspace.sso",
+            currentUserV1.value.userRole
+          ),
+          type: "route",
+        },
+        {
+          title: t("settings.sidebar.mail-delivery"),
+          path: "/setting/mail-delivery",
+          hide: !hasSettingPagePermission(
+            "setting.workspace.mail-delivery",
+            currentUserV1.value.userRole
+          ),
+          type: "route",
+        },
+      ],
+    },
+    {
+      title: t("common.archived"),
+      icon: h(Archive),
+      path: "/setting/archive",
+      type: "route",
+    },
+  ];
+});
 </script>

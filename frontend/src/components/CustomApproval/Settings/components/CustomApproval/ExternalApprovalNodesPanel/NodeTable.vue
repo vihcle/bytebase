@@ -1,5 +1,6 @@
 <template>
   <BBGrid
+    class="border w-full"
     :column-list="COLUMN_LIST"
     :data-source="nodeList"
     :row-clickable="false"
@@ -37,19 +38,18 @@
 </template>
 
 <script lang="ts" setup>
+import { cloneDeep, pullAt } from "lodash-es";
+import { NButton } from "naive-ui";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { NButton } from "naive-ui";
-
 import { BBGrid, type BBGridColumn } from "@/bbkit";
-import { SpinnerButton } from "../../common";
 import { pushNotification, useSettingV1Store } from "@/store";
-import { useCustomApprovalContext } from "../context";
 import {
   ExternalApprovalSetting,
   ExternalApprovalSetting_Node,
 } from "@/types/proto/v1/setting_service";
-import { cloneDeep, pullAt } from "lodash-es";
+import { SpinnerButton } from "../../common";
+import { useCustomApprovalContext } from "../context";
 
 const { t } = useI18n();
 const context = useCustomApprovalContext();

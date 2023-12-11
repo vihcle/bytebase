@@ -5,8 +5,10 @@ package bytebase.v1;
 import "google/api/annotations.proto";
 import "google/api/client.proto";
 import "google/api/field_behavior.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
+import "google/type/expr.proto";
 
 option go_package = "generated-go/v1";
 
@@ -53,9 +55,9 @@ service IssueService {
     option (google.api.method_signature) = "parent,issue_comment,update_mask";
   }
 
-  rpc BatchUpdateIssues(BatchUpdateIssuesRequest) returns (BatchUpdateIssuesResponse) {
+  rpc BatchUpdateIssuesStatus(BatchUpdateIssuesStatusRequest) returns (BatchUpdateIssuesStatusResponse) {
     option (google.api.http) = {
-      post: "/v1/{parent=projects/*}/issues:batchUpdate"
+      post: "/v1/{parent=projects/*}/issues:batchUpdateStatus"
       body: "*"
     };
   }
@@ -117,6 +119,12 @@ message ListIssuesRequest {
   // When paginating, all other parameters provided to `ListIssues` must match
   // the call that provided the page token.
   string page_token = 3;
+
+  // Filter is used to filter issues returned in the list.
+  string filter = 4;
+
+  // Query is the query statement.
+  string query = 5;
 }
 
 message ListIssuesResponse {
@@ -139,22 +147,24 @@ message UpdateIssueRequest {
   google.protobuf.FieldMask update_mask = 2 [(google.api.field_behavior) = REQUIRED];
 }
 
-message BatchUpdateIssuesRequest {
+message BatchUpdateIssuesStatusRequest {
   // The parent resource shared by all issues being updated.
   // Format: projects/{project}
   // If the operation spans parents, a dash (-) may be accepted as a wildcard.
   // We only support updating the status of databases for now.
   string parent = 1;
 
-  // The request message specifying the resources to update.
-  // A maximum of 1000 databases can be modified in a batch.
-  repeated UpdateIssueRequest requests = 2 [(google.api.field_behavior) = REQUIRED];
+  // The list of issues to update.
+  // Format: projects/{project}/issues/{issue}
+  repeated string issues = 2;
+
+  // The new status.
+  IssueStatus status = 3;
+
+  string reason = 4;
 }
 
-message BatchUpdateIssuesResponse {
-  // Issues updated.
-  repeated Issue issues = 1;
-}
+message BatchUpdateIssuesStatusResponse {}
 
 message ApproveIssueRequest {
   // The name of the issue to add an approver.
@@ -244,9 +254,32 @@ message Issue {
   // The rollout associated with the issue.
   // Can be empty.
   // Format: projects/{project}/rollouts/{rollout}
-  string rollout = 18 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string rollout = 18;
 
-  // TODO(d): add issue payload for requesting grant.
+  // Used if the issue type is GRANT_REQUEST.
+  GrantRequest grant_request = 19;
+
+  // The releasers of the pending stage of the issue rollout, judging
+  // from the rollout policy.
+  // If the policy is auto rollout, the releasers are the project owners and the issue creator.
+  // Format:
+  // - roles/workspaceOwner
+  // - roles/workspaceDBA
+  // - roles/projectOwner
+  // - roles/projectReleaser
+  // - users/{email}
+  repeated string releasers = 20;
+}
+
+message GrantRequest {
+  // The requested role.
+  // Format: roles/EXPORTER.
+  string role = 1;
+  // The user to be granted.
+  // Format: users/{email}.
+  string user = 2;
+  google.type.Expr condition = 3;
+  google.protobuf.Duration expiration = 4;
 }
 
 enum IssueStatus {

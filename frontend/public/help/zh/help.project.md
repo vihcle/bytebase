@@ -2,14 +2,14 @@
 title: 什么是「项目」 ?
 ---
 
-- 在 Bytebase 中，项目的概念与其他常见的的开发工具类似，比如 GitLab，Jira。
+- Bytebase 项目与其他流行的开发工具如 GitLab 和 Jira 中找到的项目概念有相似之处。
 
-- 一个项目会有属于他的协作成员，并且每一个数据库和工单总是归属于某一个项目。
+- 每个项目都有自己的成员组。每个工单和数据库始终与单个项目关联。
 
-- 同时，一个项目可以关联一个代码仓库，并以此来开启 GitOps 工作流。
+- 一个项目还可以配置关联一个代码仓库，以启用 GitOps 工作流。
 
 #### 了解更多
 
-- [建立一个项目](https://www.bytebase.com/docs/get-started/work-with-a-project/create-a-project)
-- [运行 UI 工作流](https://www.bytebase.com/docs/get-started/step-by-step/change-schema)
-- [运行 GitOps 工作流](https://www.bytebase.com/docs/vcs-integration/enable-gitops-workflow)
+- [建立一个项目](https://www.bytebase.com/docs/get-started/step-by-step/create-a-project)
+- [UI 工作流](https://www.bytebase.com/docs/change-database/change-workflow)
+- [GitOps 工作流](https://www.bytebase.com/docs/vcs-integration/enable-gitops-workflow)

@@ -1,5 +1,6 @@
 /* eslint-disable */
-import * as _m0 from "protobufjs/minimal";
+import Long from "long";
+import _m0 from "protobufjs/minimal";
 
 export const protobufPackage = "bytebase.store";
 
@@ -19,6 +20,9 @@ export enum Engine {
   REDSHIFT = 12,
   MARIADB = 13,
   OCEANBASE = 14,
+  DM = 15,
+  RISINGWAVE = 16,
+  OCEANBASE_ORACLE = 17,
   UNRECOGNIZED = -1,
 }
 
@@ -69,6 +73,15 @@ export function engineFromJSON(object: any): Engine {
     case 14:
     case "OCEANBASE":
       return Engine.OCEANBASE;
+    case 15:
+    case "DM":
+      return Engine.DM;
+    case 16:
+    case "RISINGWAVE":
+      return Engine.RISINGWAVE;
+    case 17:
+    case "OCEANBASE_ORACLE":
+      return Engine.OCEANBASE_ORACLE;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -108,7 +121,103 @@ export function engineToJSON(object: Engine): string {
       return "MARIADB";
     case Engine.OCEANBASE:
       return "OCEANBASE";
+    case Engine.DM:
+      return "DM";
+    case Engine.RISINGWAVE:
+      return "RISINGWAVE";
+    case Engine.OCEANBASE_ORACLE:
+      return "OCEANBASE_ORACLE";
     case Engine.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
+export enum VcsType {
+  VCS_TYPE_UNSPECIFIED = 0,
+  GITLAB = 1,
+  GITHUB = 2,
+  BITBUCKET = 3,
+  UNRECOGNIZED = -1,
+}
+
+export function vcsTypeFromJSON(object: any): VcsType {
+  switch (object) {
+    case 0:
+    case "VCS_TYPE_UNSPECIFIED":
+      return VcsType.VCS_TYPE_UNSPECIFIED;
+    case 1:
+    case "GITLAB":
+      return VcsType.GITLAB;
+    case 2:
+    case "GITHUB":
+      return VcsType.GITHUB;
+    case 3:
+    case "BITBUCKET":
+      return VcsType.BITBUCKET;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return VcsType.UNRECOGNIZED;
+  }
+}
+
+export function vcsTypeToJSON(object: VcsType): string {
+  switch (object) {
+    case VcsType.VCS_TYPE_UNSPECIFIED:
+      return "VCS_TYPE_UNSPECIFIED";
+    case VcsType.GITLAB:
+      return "GITLAB";
+    case VcsType.GITHUB:
+      return "GITHUB";
+    case VcsType.BITBUCKET:
+      return "BITBUCKET";
+    case VcsType.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
+export enum MaskingLevel {
+  MASKING_LEVEL_UNSPECIFIED = 0,
+  NONE = 1,
+  PARTIAL = 2,
+  FULL = 3,
+  UNRECOGNIZED = -1,
+}
+
+export function maskingLevelFromJSON(object: any): MaskingLevel {
+  switch (object) {
+    case 0:
+    case "MASKING_LEVEL_UNSPECIFIED":
+      return MaskingLevel.MASKING_LEVEL_UNSPECIFIED;
+    case 1:
+    case "NONE":
+      return MaskingLevel.NONE;
+    case 2:
+    case "PARTIAL":
+      return MaskingLevel.PARTIAL;
+    case 3:
+    case "FULL":
+      return MaskingLevel.FULL;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return MaskingLevel.UNRECOGNIZED;
+  }
+}
+
+export function maskingLevelToJSON(object: MaskingLevel): string {
+  switch (object) {
+    case MaskingLevel.MASKING_LEVEL_UNSPECIFIED:
+      return "MASKING_LEVEL_UNSPECIFIED";
+    case MaskingLevel.NONE:
+      return "NONE";
+    case MaskingLevel.PARTIAL:
+      return "PARTIAL";
+    case MaskingLevel.FULL:
+      return "FULL";
+    case MaskingLevel.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
   }
@@ -167,22 +276,25 @@ export const PageToken = {
 
   fromJSON(object: any): PageToken {
     return {
-      limit: isSet(object.limit) ? Number(object.limit) : 0,
-      offset: isSet(object.offset) ? Number(object.offset) : 0,
+      limit: isSet(object.limit) ? globalThis.Number(object.limit) : 0,
+      offset: isSet(object.offset) ? globalThis.Number(object.offset) : 0,
     };
   },
 
   toJSON(message: PageToken): unknown {
     const obj: any = {};
-    message.limit !== undefined && (obj.limit = Math.round(message.limit));
-    message.offset !== undefined && (obj.offset = Math.round(message.offset));
+    if (message.limit !== 0) {
+      obj.limit = Math.round(message.limit);
+    }
+    if (message.offset !== 0) {
+      obj.offset = Math.round(message.offset);
+    }
     return obj;
   },
 
   create(base?: DeepPartial<PageToken>): PageToken {
     return PageToken.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<PageToken>): PageToken {
     const message = createBasePageToken();
     message.limit = object.limit ?? 0;
@@ -194,9 +306,15 @@ export const PageToken = {
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
 export type DeepPartial<T> = T extends Builtin ? T
-  : T extends Array<infer U> ? Array<DeepPartial<U>> : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
+  : T extends Long ? string | number | Long : T extends globalThis.Array<infer U> ? globalThis.Array<DeepPartial<U>>
+  : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
+
+if (_m0.util.Long !== Long) {
+  _m0.util.Long = Long as any;
+  _m0.configure();
+}
 
 function isSet(value: any): boolean {
   return value !== null && value !== undefined;

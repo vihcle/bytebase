@@ -3,7 +3,7 @@
     style="width: 8rem"
     :value="value"
     :options="options"
-    :placeholder="$t('custom-approval.security-rule.risk.select')"
+    :placeholder="$t('custom-approval.risk-rule.risk.select')"
     :consistent-menu-width="false"
     :disabled="disabled || !allowAdmin"
     @update:value="$emit('update:value', $event)"
@@ -11,12 +11,11 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from "vue";
 import { NSelect, SelectOption, type SelectProps } from "naive-ui";
-
+import { computed } from "vue";
 import { PresetRiskLevelList } from "@/types";
-import { useRiskCenterContext } from "../context";
 import { levelText } from "../../common";
+import { useRiskCenterContext } from "../context";
 
 export interface RiskLevelSelectorProps extends SelectProps {
   value: number;

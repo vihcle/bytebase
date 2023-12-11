@@ -13,7 +13,7 @@
           :disabled="pitrButtonDisabled"
           @pointerenter="showTooltip"
           @pointerleave="hideTooltip"
-          @click="(action: PITRButtonAction) => onClickPITRButton(action)"
+          @click="(action) => onClickPITRButton(action)"
         >
           <template #default="{ action }">
             <span>{{ action.text }}</span>
@@ -144,24 +144,33 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, PropType, reactive, ref, toRef } from "vue";
-import { useRouter } from "vue-router";
-import { NButton, NDatePicker } from "naive-ui";
 import dayjs from "dayjs";
+import { NButton, NDatePicker } from "naive-ui";
+import { v4 as uuidv4 } from "uuid";
+import { computed, PropType, reactive, ref, toRef } from "vue";
 import { useI18n } from "vue-i18n";
-
-import { CreateDatabaseContext, ComposedDatabase } from "@/types";
-import { usePITRLogic } from "@/plugins";
-import { issueSlug } from "@/utils";
-import { useSubscriptionV1Store } from "@/store";
-import { Drawer, DrawerContent } from "@/components/v2";
-import CreatePITRDatabaseForm from "./CreatePITRDatabaseForm.vue";
-import RestoreTargetForm from "../DatabaseBackup/RestoreTargetForm.vue";
-import { CreatePITRDatabaseContext } from "./utils";
+import { useRouter } from "vue-router";
 import BBContextMenuButton, {
   type ButtonAction,
 } from "@/bbkit/BBContextMenuButton.vue";
+import { Drawer, DrawerContent } from "@/components/v2";
+import { usePITRLogic } from "@/plugins";
+import {
+  experimentalCreateIssueByPlan,
+  useCurrentUserV1,
+  useSubscriptionV1Store,
+} from "@/store";
+import { ComposedDatabase } from "@/types";
+import { Issue, Issue_Type } from "@/types/proto/v1/issue_service";
+import {
+  Plan,
+  Plan_RestoreDatabaseConfig,
+  Plan_Spec,
+} from "@/types/proto/v1/rollout_service";
+import RestoreTargetForm from "../DatabaseBackup/RestoreTargetForm.vue";
 import ChangeHistoryBrief from "./ChangeHistoryBrief.vue";
+import CreatePITRDatabaseForm from "./CreatePITRDatabaseForm.vue";
+import { CreatePITRDatabaseContext } from "./utils";
 
 type PITRTarget = "IN-PLACE" | "NEW";
 
@@ -204,6 +213,7 @@ const state = reactive<LocalState>({
   loading: false,
   showFeatureModal: false,
 });
+const me = useCurrentUserV1();
 
 const createDatabaseForm = ref<InstanceType<typeof CreatePITRDatabaseForm>>();
 
@@ -216,8 +226,9 @@ const hasPITRFeature = computed(() => {
 
 const timezone = computed(() => "UTC" + dayjs().format("ZZ"));
 
-const { pitrAvailable, doneBackupList, lastChangeHistory, createPITRIssue } =
-  usePITRLogic(toRef(props, "database"));
+const { pitrAvailable, doneBackupList, lastChangeHistory } = usePITRLogic(
+  toRef(props, "database")
+);
 
 const pitrButtonDisabled = computed((): boolean => {
   return !props.allowAdmin || !pitrAvailable.value.result;
@@ -240,11 +251,11 @@ const buttonActionList = computed((): PITRButtonAction[] => {
   ];
 });
 
-const onClickPITRButton = (action: PITRButtonAction) => {
+const onClickPITRButton = (action: ButtonAction) => {
   if (!hasPITRFeature.value) {
     return;
   }
-  const { step, mode } = action.params;
+  const { step, mode } = (action as PITRButtonAction).params;
   openDialog(step, mode);
 };
 
@@ -325,7 +336,7 @@ const initLastChangeParams = () => {
   state.step = "PITR_FORM";
 };
 
-const onConfirm = async () => {
+const onConfirmV1 = async () => {
   if (!hasPITRFeature.value) {
     state.showFeatureModal = true;
     return;
@@ -338,29 +349,36 @@ const onConfirm = async () => {
   state.loading = true;
 
   try {
-    let createDatabaseContext: CreateDatabaseContext | undefined = undefined;
     const { target, createContext: context } = state;
+    const { database } = props;
+    const restoreDatabaseConfig: Plan_RestoreDatabaseConfig = {
+      target: database.name,
+      pointInTime: dayjs
+        .unix(Math.floor(state.pitrTimestampMS / 1000))
+        .toDate(),
+    };
     if (target === "NEW" && context) {
-      createDatabaseContext = {
-        projectId: Number(context.projectId),
-        environmentId: Number(context.environmentId),
-        instanceId: Number(context.instanceId),
-        databaseName: context.databaseName,
-        tableName: "",
+      restoreDatabaseConfig.createDatabaseConfig = {
+        target: database.instance,
+        database: context.databaseName,
+        environment: database.environment,
+        table: "",
+        backup: "",
         characterSet: context.characterSet,
         collation: context.collation,
         owner: "",
         cluster: "",
-      } as CreateDatabaseContext;
-      // Do not submit non-selected optional labels
-      const labels = Object.keys(context.labels)
-        .map((key) => {
-          const value = context.labels[key];
-          return { key, value };
-        })
-        .filter((kv) => !!kv.value);
-      createDatabaseContext.labels = JSON.stringify(labels);
+        labels: { ...database.labels },
+      };
     }
+    const spec = Plan_Spec.fromPartial({
+      id: uuidv4(),
+      restoreDatabaseConfig,
+    });
+
+    const planCreate = Plan.fromPartial({
+      steps: [{ specs: [spec] }],
+    });
 
     const issueNameParts: string[] = [
       `Restore database [${props.database.databaseName}]`,
@@ -375,19 +393,26 @@ const onConfirm = async () => {
         `before migration version [${lastChangeHistory.value!.version}]`
       );
     }
-    const issue = await createPITRIssue(
-      Math.floor(state.pitrTimestampMS / 1000),
-      createDatabaseContext,
-      {
-        name: issueNameParts.join(" "),
-      }
+    const issueCreate = Issue.fromPartial({
+      title: issueNameParts.join(" "),
+      type: Issue_Type.DATABASE_CHANGE,
+      creator: `users/${me.value.email}`,
+    });
+    const { createdIssue } = await experimentalCreateIssueByPlan(
+      database.projectEntity,
+      issueCreate,
+      planCreate
     );
-    const slug = issueSlug(issue.name, issue.id);
-    router.push(`/issue/${slug}`);
+
+    router.push(`/issue/${createdIssue.uid}`);
   } catch (ex) {
     // TODO: error handling
   } finally {
     resetUI();
   }
+};
+
+const onConfirm = async () => {
+  await onConfirmV1();
 };
 </script>

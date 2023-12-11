@@ -7,8 +7,8 @@ import (
 
 	"github.com/pkg/errors"
 
-	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
+	pgrawparser "github.com/bytebase/bytebase/backend/plugin/parser/sql/engine/pg"
 )
 
 const (
@@ -177,7 +177,7 @@ func (d *DatabaseState) pgDropTable(tableDef *ast.TableDef, ifExists bool, _ ast
 		return err
 	}
 
-	table, err := schema.getTable(tableDef.Name)
+	table, err := schema.pgGetTable(tableDef.Name)
 	if err != nil {
 		if ifExists {
 			return nil
@@ -283,7 +283,7 @@ func (d *DatabaseState) pgAlterTable(node *ast.AlterTableStmt) *WalkThroughError
 	if err != nil {
 		return err
 	}
-	table, err := schema.getTable(node.Table.Name)
+	table, err := schema.pgGetTable(node.Table.Name)
 	if err != nil {
 		return err
 	}
@@ -419,7 +419,7 @@ func (d *DatabaseState) pgAlterColumnType(schema *SchemaState, t *TableState, no
 		}
 	}
 
-	typeString, deparseErr := parser.Deparse(parser.Postgres, parser.DeparseContext{}, node.Type)
+	typeString, deparseErr := pgrawparser.Deparse(pgrawparser.DeparseContext{}, node.Type)
 	if deparseErr != nil {
 		return &WalkThroughError{
 			Type:    ErrorTypeDeparseError,
@@ -624,7 +624,7 @@ func (d *DatabaseState) pgCreateTable(node *ast.CreateTableStmt) *WalkThroughErr
 	table := &TableState{
 		name:      node.Name.Name,
 		columnSet: make(columnStateMap),
-		indexSet:  make(indexStateMap),
+		indexSet:  make(IndexStateMap),
 	}
 	schema.tableSet[table.name] = table
 
@@ -695,7 +695,7 @@ func (s *SchemaState) pgCreateColumn(t *TableState, column *ast.ColumnDef, ifNot
 	}
 
 	pos := len(t.columnSet) + 1
-	typeString, err := parser.Deparse(parser.Postgres, parser.DeparseContext{}, column.Type)
+	typeString, err := pgrawparser.Deparse(pgrawparser.DeparseContext{}, column.Type)
 	if err != nil {
 		return &WalkThroughError{
 			Type:    ErrorTypeDeparseError,
@@ -1027,7 +1027,7 @@ func (d *DatabaseState) getSchema(schemaName string) (*SchemaState, *WalkThrough
 	return schema, nil
 }
 
-func (s *SchemaState) getTable(tableName string) (*TableState, *WalkThroughError) {
+func (s *SchemaState) pgGetTable(tableName string) (*TableState, *WalkThroughError) {
 	table, exists := s.tableSet[tableName]
 	if !exists {
 		return nil, &WalkThroughError{
@@ -1063,7 +1063,7 @@ func (t *TableState) getColumn(columnName string) (*ColumnState, *WalkThroughErr
 }
 
 func pgParse(stmt string) ([]ast.Node, error) {
-	return parser.Parse(parser.Postgres, parser.ParseContext{}, stmt)
+	return pgrawparser.Parse(pgrawparser.ParseContext{}, stmt)
 }
 
 func normalizeCollation(collation *ast.CollationNameDef) string {

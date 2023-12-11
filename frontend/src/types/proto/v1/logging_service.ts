@@ -1,7 +1,8 @@
 /* eslint-disable */
-import type { CallContext, CallOptions } from "nice-grpc-common";
-import * as _m0 from "protobufjs/minimal";
+import Long from "long";
+import _m0 from "protobufjs/minimal";
 import { Timestamp } from "../google/protobuf/timestamp";
+import { ExportFormat, exportFormatFromJSON, exportFormatToJSON } from "./common";
 
 export const protobufPackage = "bytebase.v1";
 
@@ -67,6 +68,44 @@ export interface GetLogRequest {
   name: string;
 }
 
+export interface ExportLogsRequest {
+  /**
+   * Consistent with filter and order by in ListLogs.
+   * filter is the filter to apply on the list logs request,
+   * follow the [ebnf](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form) syntax.
+   * The field only support in filter:
+   * - creator, example:
+   *    - creator = "users/{email}"
+   * - resource, example:
+   *    - resource = "projects/{project resource id}"
+   * - level, example:
+   *    - level = "INFO"
+   *    - level = "ERROR | WARN"
+   * - action, example:
+   *    - action = "ACTION_MEMBER_CREATE" | "ACTION_ISSUE_CREATE"
+   * - create_time, example:
+   *    - create_time <= "2022-01-01T12:00:00.000Z"
+   *    - create_time >= "2022-01-01T12:00:00.000Z"
+   * For example:
+   * List the logs of type 'ACTION_ISSUE_COMMENT_CREATE' in issue/123: 'action="ACTION_ISSUE_COMMENT_CREATE", resource="issue/123"'
+   */
+  filter: string;
+  /**
+   * The order by of the log.
+   * Only support order by create_time.
+   * For example:
+   *  - order_by = "create_time asc"
+   *  - order_by = "create_time desc"
+   */
+  orderBy: string;
+  /** The export format. */
+  format: ExportFormat;
+}
+
+export interface ExportLogsResponse {
+  content: Uint8Array;
+}
+
 export interface LogEntity {
   /**
    * The name of the log.
@@ -78,8 +117,8 @@ export interface LogEntity {
    * Format: users/{email}
    */
   creator: string;
-  createTime?: Date | undefined;
-  updateTime?: Date | undefined;
+  createTime: Date | undefined;
+  updateTime: Date | undefined;
   action: LogEntity_Action;
   level: LogEntity_Level;
   /**
@@ -141,6 +180,8 @@ export enum LogEntity_Action {
   ACTION_PIPELINE_TASK_STATEMENT_UPDATE = 34,
   /** ACTION_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE - ACTION_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE represents the manual update of the task earliest allowed time. */
   ACTION_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE = 35,
+  /** ACTION_PIPELINE_TASK_RUN_STATUS_UPDATE - ACTION_PIPELINE_TASK_RUN_STATUS_UPDATE represents the pipeline task run status change, including PENDING, RUNNING, SUCCESS, FAILURE, CANCELED for now. */
+  ACTION_PIPELINE_TASK_RUN_STATUS_UPDATE = 36,
   /**
    * ACTION_PROJECT_REPOSITORY_PUSH - Project related activity types.
    * Enum value 41 - 60
@@ -152,12 +193,10 @@ export enum LogEntity_Action {
   ACTION_PROJECT_MEMBER_CREATE = 42,
   /** ACTION_PROJECT_MEMBER_DELETE - ACTION_PROJECT_MEMBER_DELETE represents removing a member from the project. */
   ACTION_PROJECT_MEMBER_DELETE = 43,
-  /** ACTION_PROJECT_MEMBER_ROLE_UPDATE - ACTION_PROJECT_MEMBER_ROLE_UPDATE represents updating the member role, for example, from ADMIN to MEMBER. */
-  ACTION_PROJECT_MEMBER_ROLE_UPDATE = 44,
   /** ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE - ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE is the type for database PITR recovery done. */
-  ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE = 45,
+  ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE = 44,
   /** ACTION_PROJECT_DATABASE_TRANSFER - ACTION_PROJECT_DATABASE_TRANSFER represents transfering the database from one project to another. */
-  ACTION_PROJECT_DATABASE_TRANSFER = 46,
+  ACTION_PROJECT_DATABASE_TRANSFER = 45,
   /**
    * ACTION_DATABASE_SQL_EDITOR_QUERY - Database related activity types.
    * Enum value 61 - 80
@@ -217,6 +256,9 @@ export function logEntity_ActionFromJSON(object: any): LogEntity_Action {
     case 35:
     case "ACTION_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE":
       return LogEntity_Action.ACTION_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE;
+    case 36:
+    case "ACTION_PIPELINE_TASK_RUN_STATUS_UPDATE":
+      return LogEntity_Action.ACTION_PIPELINE_TASK_RUN_STATUS_UPDATE;
     case 41:
     case "ACTION_PROJECT_REPOSITORY_PUSH":
       return LogEntity_Action.ACTION_PROJECT_REPOSITORY_PUSH;
@@ -227,12 +269,9 @@ export function logEntity_ActionFromJSON(object: any): LogEntity_Action {
     case "ACTION_PROJECT_MEMBER_DELETE":
       return LogEntity_Action.ACTION_PROJECT_MEMBER_DELETE;
     case 44:
-    case "ACTION_PROJECT_MEMBER_ROLE_UPDATE":
-      return LogEntity_Action.ACTION_PROJECT_MEMBER_ROLE_UPDATE;
-    case 45:
     case "ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE":
       return LogEntity_Action.ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE;
-    case 46:
+    case 45:
     case "ACTION_PROJECT_DATABASE_TRANSFER":
       return LogEntity_Action.ACTION_PROJECT_DATABASE_TRANSFER;
     case 61:
@@ -280,14 +319,14 @@ export function logEntity_ActionToJSON(object: LogEntity_Action): string {
       return "ACTION_PIPELINE_TASK_STATEMENT_UPDATE";
     case LogEntity_Action.ACTION_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE:
       return "ACTION_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE";
+    case LogEntity_Action.ACTION_PIPELINE_TASK_RUN_STATUS_UPDATE:
+      return "ACTION_PIPELINE_TASK_RUN_STATUS_UPDATE";
     case LogEntity_Action.ACTION_PROJECT_REPOSITORY_PUSH:
       return "ACTION_PROJECT_REPOSITORY_PUSH";
     case LogEntity_Action.ACTION_PROJECT_MEMBER_CREATE:
       return "ACTION_PROJECT_MEMBER_CREATE";
     case LogEntity_Action.ACTION_PROJECT_MEMBER_DELETE:
       return "ACTION_PROJECT_MEMBER_DELETE";
-    case LogEntity_Action.ACTION_PROJECT_MEMBER_ROLE_UPDATE:
-      return "ACTION_PROJECT_MEMBER_ROLE_UPDATE";
     case LogEntity_Action.ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE:
       return "ACTION_PROJECT_DATABASE_RECOVERY_PITR_DONE";
     case LogEntity_Action.ACTION_PROJECT_DATABASE_TRANSFER:
@@ -417,26 +456,33 @@ export const ListLogsRequest = {
 
   fromJSON(object: any): ListLogsRequest {
     return {
-      filter: isSet(object.filter) ? String(object.filter) : "",
-      orderBy: isSet(object.orderBy) ? String(object.orderBy) : "",
-      pageSize: isSet(object.pageSize) ? Number(object.pageSize) : 0,
-      pageToken: isSet(object.pageToken) ? String(object.pageToken) : "",
+      filter: isSet(object.filter) ? globalThis.String(object.filter) : "",
+      orderBy: isSet(object.orderBy) ? globalThis.String(object.orderBy) : "",
+      pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
+      pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
     };
   },
 
   toJSON(message: ListLogsRequest): unknown {
     const obj: any = {};
-    message.filter !== undefined && (obj.filter = message.filter);
-    message.orderBy !== undefined && (obj.orderBy = message.orderBy);
-    message.pageSize !== undefined && (obj.pageSize = Math.round(message.pageSize));
-    message.pageToken !== undefined && (obj.pageToken = message.pageToken);
+    if (message.filter !== "") {
+      obj.filter = message.filter;
+    }
+    if (message.orderBy !== "") {
+      obj.orderBy = message.orderBy;
+    }
+    if (message.pageSize !== 0) {
+      obj.pageSize = Math.round(message.pageSize);
+    }
+    if (message.pageToken !== "") {
+      obj.pageToken = message.pageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListLogsRequest>): ListLogsRequest {
     return ListLogsRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListLogsRequest>): ListLogsRequest {
     const message = createBaseListLogsRequest();
     message.filter = object.filter ?? "";
@@ -494,26 +540,27 @@ export const ListLogsResponse = {
 
   fromJSON(object: any): ListLogsResponse {
     return {
-      logEntities: Array.isArray(object?.logEntities) ? object.logEntities.map((e: any) => LogEntity.fromJSON(e)) : [],
-      nextPageToken: isSet(object.nextPageToken) ? String(object.nextPageToken) : "",
+      logEntities: globalThis.Array.isArray(object?.logEntities)
+        ? object.logEntities.map((e: any) => LogEntity.fromJSON(e))
+        : [],
+      nextPageToken: isSet(object.nextPageToken) ? globalThis.String(object.nextPageToken) : "",
     };
   },
 
   toJSON(message: ListLogsResponse): unknown {
     const obj: any = {};
-    if (message.logEntities) {
-      obj.logEntities = message.logEntities.map((e) => e ? LogEntity.toJSON(e) : undefined);
-    } else {
-      obj.logEntities = [];
+    if (message.logEntities?.length) {
+      obj.logEntities = message.logEntities.map((e) => LogEntity.toJSON(e));
     }
-    message.nextPageToken !== undefined && (obj.nextPageToken = message.nextPageToken);
+    if (message.nextPageToken !== "") {
+      obj.nextPageToken = message.nextPageToken;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<ListLogsResponse>): ListLogsResponse {
     return ListLogsResponse.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<ListLogsResponse>): ListLogsResponse {
     const message = createBaseListLogsResponse();
     message.logEntities = object.logEntities?.map((e) => LogEntity.fromPartial(e)) || [];
@@ -558,22 +605,169 @@ export const GetLogRequest = {
   },
 
   fromJSON(object: any): GetLogRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
   },
 
   toJSON(message: GetLogRequest): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<GetLogRequest>): GetLogRequest {
     return GetLogRequest.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<GetLogRequest>): GetLogRequest {
     const message = createBaseGetLogRequest();
     message.name = object.name ?? "";
+    return message;
+  },
+};
+
+function createBaseExportLogsRequest(): ExportLogsRequest {
+  return { filter: "", orderBy: "", format: 0 };
+}
+
+export const ExportLogsRequest = {
+  encode(message: ExportLogsRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.filter !== "") {
+      writer.uint32(10).string(message.filter);
+    }
+    if (message.orderBy !== "") {
+      writer.uint32(18).string(message.orderBy);
+    }
+    if (message.format !== 0) {
+      writer.uint32(40).int32(message.format);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ExportLogsRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseExportLogsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.filter = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.orderBy = reader.string();
+          continue;
+        case 5:
+          if (tag !== 40) {
+            break;
+          }
+
+          message.format = reader.int32() as any;
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ExportLogsRequest {
+    return {
+      filter: isSet(object.filter) ? globalThis.String(object.filter) : "",
+      orderBy: isSet(object.orderBy) ? globalThis.String(object.orderBy) : "",
+      format: isSet(object.format) ? exportFormatFromJSON(object.format) : 0,
+    };
+  },
+
+  toJSON(message: ExportLogsRequest): unknown {
+    const obj: any = {};
+    if (message.filter !== "") {
+      obj.filter = message.filter;
+    }
+    if (message.orderBy !== "") {
+      obj.orderBy = message.orderBy;
+    }
+    if (message.format !== 0) {
+      obj.format = exportFormatToJSON(message.format);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ExportLogsRequest>): ExportLogsRequest {
+    return ExportLogsRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ExportLogsRequest>): ExportLogsRequest {
+    const message = createBaseExportLogsRequest();
+    message.filter = object.filter ?? "";
+    message.orderBy = object.orderBy ?? "";
+    message.format = object.format ?? 0;
+    return message;
+  },
+};
+
+function createBaseExportLogsResponse(): ExportLogsResponse {
+  return { content: new Uint8Array(0) };
+}
+
+export const ExportLogsResponse = {
+  encode(message: ExportLogsResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.content.length !== 0) {
+      writer.uint32(10).bytes(message.content);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ExportLogsResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseExportLogsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.content = reader.bytes();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ExportLogsResponse {
+    return { content: isSet(object.content) ? bytesFromBase64(object.content) : new Uint8Array(0) };
+  },
+
+  toJSON(message: ExportLogsResponse): unknown {
+    const obj: any = {};
+    if (message.content.length !== 0) {
+      obj.content = base64FromBytes(message.content);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<ExportLogsResponse>): ExportLogsResponse {
+    return ExportLogsResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<ExportLogsResponse>): ExportLogsResponse {
+    const message = createBaseExportLogsResponse();
+    message.content = object.content ?? new Uint8Array(0);
     return message;
   },
 };
@@ -705,36 +899,53 @@ export const LogEntity = {
 
   fromJSON(object: any): LogEntity {
     return {
-      name: isSet(object.name) ? String(object.name) : "",
-      creator: isSet(object.creator) ? String(object.creator) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      creator: isSet(object.creator) ? globalThis.String(object.creator) : "",
       createTime: isSet(object.createTime) ? fromJsonTimestamp(object.createTime) : undefined,
       updateTime: isSet(object.updateTime) ? fromJsonTimestamp(object.updateTime) : undefined,
       action: isSet(object.action) ? logEntity_ActionFromJSON(object.action) : 0,
       level: isSet(object.level) ? logEntity_LevelFromJSON(object.level) : 0,
-      resource: isSet(object.resource) ? String(object.resource) : "",
-      payload: isSet(object.payload) ? String(object.payload) : "",
-      comment: isSet(object.comment) ? String(object.comment) : "",
+      resource: isSet(object.resource) ? globalThis.String(object.resource) : "",
+      payload: isSet(object.payload) ? globalThis.String(object.payload) : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
     };
   },
 
   toJSON(message: LogEntity): unknown {
     const obj: any = {};
-    message.name !== undefined && (obj.name = message.name);
-    message.creator !== undefined && (obj.creator = message.creator);
-    message.createTime !== undefined && (obj.createTime = message.createTime.toISOString());
-    message.updateTime !== undefined && (obj.updateTime = message.updateTime.toISOString());
-    message.action !== undefined && (obj.action = logEntity_ActionToJSON(message.action));
-    message.level !== undefined && (obj.level = logEntity_LevelToJSON(message.level));
-    message.resource !== undefined && (obj.resource = message.resource);
-    message.payload !== undefined && (obj.payload = message.payload);
-    message.comment !== undefined && (obj.comment = message.comment);
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.creator !== "") {
+      obj.creator = message.creator;
+    }
+    if (message.createTime !== undefined) {
+      obj.createTime = message.createTime.toISOString();
+    }
+    if (message.updateTime !== undefined) {
+      obj.updateTime = message.updateTime.toISOString();
+    }
+    if (message.action !== 0) {
+      obj.action = logEntity_ActionToJSON(message.action);
+    }
+    if (message.level !== 0) {
+      obj.level = logEntity_LevelToJSON(message.level);
+    }
+    if (message.resource !== "") {
+      obj.resource = message.resource;
+    }
+    if (message.payload !== "") {
+      obj.payload = message.payload;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
     return obj;
   },
 
   create(base?: DeepPartial<LogEntity>): LogEntity {
     return LogEntity.fromPartial(base ?? {});
   },
-
   fromPartial(object: DeepPartial<LogEntity>): LogEntity {
     const message = createBaseLogEntity();
     message.name = object.name ?? "";
@@ -784,46 +995,107 @@ export const LoggingServiceDefinition = {
         },
       },
     },
+    exportLogs: {
+      name: "ExportLogs",
+      requestType: ExportLogsRequest,
+      requestStream: false,
+      responseType: ExportLogsResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          578365826: [
+            new Uint8Array([
+              20,
+              58,
+              1,
+              42,
+              34,
+              15,
+              47,
+              118,
+              49,
+              47,
+              108,
+              111,
+              103,
+              115,
+              58,
+              101,
+              120,
+              112,
+              111,
+              114,
+              116,
+            ]),
+          ],
+        },
+      },
+    },
   },
 } as const;
 
-export interface LoggingServiceImplementation<CallContextExt = {}> {
-  listLogs(request: ListLogsRequest, context: CallContext & CallContextExt): Promise<DeepPartial<ListLogsResponse>>;
-  getLog(request: GetLogRequest, context: CallContext & CallContextExt): Promise<DeepPartial<LogEntity>>;
+function bytesFromBase64(b64: string): Uint8Array {
+  if (globalThis.Buffer) {
+    return Uint8Array.from(globalThis.Buffer.from(b64, "base64"));
+  } else {
+    const bin = globalThis.atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; ++i) {
+      arr[i] = bin.charCodeAt(i);
+    }
+    return arr;
+  }
 }
 
-export interface LoggingServiceClient<CallOptionsExt = {}> {
-  listLogs(request: DeepPartial<ListLogsRequest>, options?: CallOptions & CallOptionsExt): Promise<ListLogsResponse>;
-  getLog(request: DeepPartial<GetLogRequest>, options?: CallOptions & CallOptionsExt): Promise<LogEntity>;
+function base64FromBytes(arr: Uint8Array): string {
+  if (globalThis.Buffer) {
+    return globalThis.Buffer.from(arr).toString("base64");
+  } else {
+    const bin: string[] = [];
+    arr.forEach((byte) => {
+      bin.push(globalThis.String.fromCharCode(byte));
+    });
+    return globalThis.btoa(bin.join(""));
+  }
 }
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
 export type DeepPartial<T> = T extends Builtin ? T
-  : T extends Array<infer U> ? Array<DeepPartial<U>> : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
+  : T extends Long ? string | number | Long : T extends globalThis.Array<infer U> ? globalThis.Array<DeepPartial<U>>
+  : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
 
 function toTimestamp(date: Date): Timestamp {
-  const seconds = date.getTime() / 1_000;
+  const seconds = numberToLong(date.getTime() / 1_000);
   const nanos = (date.getTime() % 1_000) * 1_000_000;
   return { seconds, nanos };
 }
 
 function fromTimestamp(t: Timestamp): Date {
-  let millis = (t.seconds || 0) * 1_000;
+  let millis = (t.seconds.toNumber() || 0) * 1_000;
   millis += (t.nanos || 0) / 1_000_000;
-  return new Date(millis);
+  return new globalThis.Date(millis);
 }
 
 function fromJsonTimestamp(o: any): Date {
-  if (o instanceof Date) {
+  if (o instanceof globalThis.Date) {
     return o;
   } else if (typeof o === "string") {
-    return new Date(o);
+    return new globalThis.Date(o);
   } else {
     return fromTimestamp(Timestamp.fromJSON(o));
   }
+}
+
+function numberToLong(number: number) {
+  return Long.fromNumber(number);
+}
+
+if (_m0.util.Long !== Long) {
+  _m0.util.Long = Long as any;
+  _m0.configure();
 }
 
 function isSet(value: any): boolean {

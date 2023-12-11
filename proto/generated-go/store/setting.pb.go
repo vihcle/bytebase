@@ -11,6 +11,7 @@ import (
 	expr "google.golang.org/genproto/googleapis/type/expr"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	reflect "reflect"
 	sync "sync"
 )
@@ -21,6 +22,59 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+// We support three levels of AlertLevel: INFO, WARNING, and ERROR.
+type Announcement_AlertLevel int32
+
+const (
+	Announcement_ALERT_LEVEL_UNSPECIFIED Announcement_AlertLevel = 0
+	Announcement_ALERT_LEVEL_INFO        Announcement_AlertLevel = 1
+	Announcement_ALERT_LEVEL_WARNING     Announcement_AlertLevel = 2
+	Announcement_ALERT_LEVEL_CRITICAL    Announcement_AlertLevel = 3
+)
+
+// Enum value maps for Announcement_AlertLevel.
+var (
+	Announcement_AlertLevel_name = map[int32]string{
+		0: "ALERT_LEVEL_UNSPECIFIED",
+		1: "ALERT_LEVEL_INFO",
+		2: "ALERT_LEVEL_WARNING",
+		3: "ALERT_LEVEL_CRITICAL",
+	}
+	Announcement_AlertLevel_value = map[string]int32{
+		"ALERT_LEVEL_UNSPECIFIED": 0,
+		"ALERT_LEVEL_INFO":        1,
+		"ALERT_LEVEL_WARNING":     2,
+		"ALERT_LEVEL_CRITICAL":    3,
+	}
+)
+
+func (x Announcement_AlertLevel) Enum() *Announcement_AlertLevel {
+	p := new(Announcement_AlertLevel)
+	*p = x
+	return p
+}
+
+func (x Announcement_AlertLevel) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Announcement_AlertLevel) Descriptor() protoreflect.EnumDescriptor {
+	return file_store_setting_proto_enumTypes[0].Descriptor()
+}
+
+func (Announcement_AlertLevel) Type() protoreflect.EnumType {
+	return &file_store_setting_proto_enumTypes[0]
+}
+
+func (x Announcement_AlertLevel) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Announcement_AlertLevel.Descriptor instead.
+func (Announcement_AlertLevel) EnumDescriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{1, 0}
+}
 
 // We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 type SMTPMailDeliverySetting_Encryption int32
@@ -59,11 +113,11 @@ func (x SMTPMailDeliverySetting_Encryption) String() string {
 }
 
 func (SMTPMailDeliverySetting_Encryption) Descriptor() protoreflect.EnumDescriptor {
-	return file_store_setting_proto_enumTypes[0].Descriptor()
+	return file_store_setting_proto_enumTypes[1].Descriptor()
 }
 
 func (SMTPMailDeliverySetting_Encryption) Type() protoreflect.EnumType {
-	return &file_store_setting_proto_enumTypes[0]
+	return &file_store_setting_proto_enumTypes[1]
 }
 
 func (x SMTPMailDeliverySetting_Encryption) Number() protoreflect.EnumNumber {
@@ -72,10 +126,11 @@ func (x SMTPMailDeliverySetting_Encryption) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SMTPMailDeliverySetting_Encryption.Descriptor instead.
 func (SMTPMailDeliverySetting_Encryption) EnumDescriptor() ([]byte, []int) {
-	return file_store_setting_proto_rawDescGZIP(), []int{4, 0}
+	return file_store_setting_proto_rawDescGZIP(), []int{5, 0}
 }
 
-// We support four types of SMTP authentication: NONE, PLAIN, LOGIN, and CRAM-MD5.
+// We support four types of SMTP authentication: NONE, PLAIN, LOGIN, and
+// CRAM-MD5.
 type SMTPMailDeliverySetting_Authentication int32
 
 const (
@@ -115,11 +170,11 @@ func (x SMTPMailDeliverySetting_Authentication) String() string {
 }
 
 func (SMTPMailDeliverySetting_Authentication) Descriptor() protoreflect.EnumDescriptor {
-	return file_store_setting_proto_enumTypes[1].Descriptor()
+	return file_store_setting_proto_enumTypes[2].Descriptor()
 }
 
 func (SMTPMailDeliverySetting_Authentication) Type() protoreflect.EnumType {
-	return &file_store_setting_proto_enumTypes[1]
+	return &file_store_setting_proto_enumTypes[2]
 }
 
 func (x SMTPMailDeliverySetting_Authentication) Number() protoreflect.EnumNumber {
@@ -128,7 +183,7 @@ func (x SMTPMailDeliverySetting_Authentication) Number() protoreflect.EnumNumber
 
 // Deprecated: Use SMTPMailDeliverySetting_Authentication.Descriptor instead.
 func (SMTPMailDeliverySetting_Authentication) EnumDescriptor() ([]byte, []int) {
-	return file_store_setting_proto_rawDescGZIP(), []int{4, 1}
+	return file_store_setting_proto_rawDescGZIP(), []int{5, 1}
 }
 
 type WorkspaceProfileSetting struct {
@@ -139,8 +194,10 @@ type WorkspaceProfileSetting struct {
 	// The URL user visits Bytebase.
 	//
 	// The external URL is used for:
-	// 1. Constructing the correct callback URL when configuring the VCS provider. The callback URL points to the frontend.
-	// 2. Creating the correct webhook endpoint when configuring the project GitOps workflow. The webhook endpoint points to the backend.
+	// 1. Constructing the correct callback URL when configuring the VCS provider.
+	// The callback URL points to the frontend.
+	// 2. Creating the correct webhook endpoint when configuring the project
+	// GitOps workflow. The webhook endpoint points to the backend.
 	ExternalUrl string `protobuf:"bytes,1,opt,name=external_url,json=externalUrl,proto3" json:"external_url,omitempty"`
 	// Disallow self-service signup, users can only be invited by the owner.
 	DisallowSignup bool `protobuf:"varint,2,opt,name=disallow_signup,json=disallowSignup,proto3" json:"disallow_signup,omitempty"`
@@ -150,6 +207,10 @@ type WorkspaceProfileSetting struct {
 	OutboundIpList []string `protobuf:"bytes,4,rep,name=outbound_ip_list,json=outboundIpList,proto3" json:"outbound_ip_list,omitempty"`
 	// The webhook URL for the GitOps workflow.
 	GitopsWebhookUrl string `protobuf:"bytes,5,opt,name=gitops_webhook_url,json=gitopsWebhookUrl,proto3" json:"gitops_webhook_url,omitempty"`
+	// The duration for token.
+	TokenDuration *durationpb.Duration `protobuf:"bytes,6,opt,name=token_duration,json=tokenDuration,proto3" json:"token_duration,omitempty"`
+	// The setting of custom announcement
+	Announcement *Announcement `protobuf:"bytes,7,opt,name=announcement,proto3" json:"announcement,omitempty"`
 }
 
 func (x *WorkspaceProfileSetting) Reset() {
@@ -219,6 +280,86 @@ func (x *WorkspaceProfileSetting) GetGitopsWebhookUrl() string {
 	return ""
 }
 
+func (x *WorkspaceProfileSetting) GetTokenDuration() *durationpb.Duration {
+	if x != nil {
+		return x.TokenDuration
+	}
+	return nil
+}
+
+func (x *WorkspaceProfileSetting) GetAnnouncement() *Announcement {
+	if x != nil {
+		return x.Announcement
+	}
+	return nil
+}
+
+type Announcement struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// The alert level of announcemnt
+	Level Announcement_AlertLevel `protobuf:"varint,1,opt,name=level,proto3,enum=bytebase.store.Announcement_AlertLevel" json:"level,omitempty"`
+	// The text of announcemnt
+	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	// The optional link, user can follow the link to check extra details
+	Link string `protobuf:"bytes,3,opt,name=link,proto3" json:"link,omitempty"`
+}
+
+func (x *Announcement) Reset() {
+	*x = Announcement{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[1]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *Announcement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Announcement) ProtoMessage() {}
+
+func (x *Announcement) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[1]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Announcement.ProtoReflect.Descriptor instead.
+func (*Announcement) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Announcement) GetLevel() Announcement_AlertLevel {
+	if x != nil {
+		return x.Level
+	}
+	return Announcement_ALERT_LEVEL_UNSPECIFIED
+}
+
+func (x *Announcement) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *Announcement) GetLink() string {
+	if x != nil {
+		return x.Link
+	}
+	return ""
+}
+
 type AgentPluginSetting struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -233,7 +374,7 @@ type AgentPluginSetting struct {
 func (x *AgentPluginSetting) Reset() {
 	*x = AgentPluginSetting{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_store_setting_proto_msgTypes[1]
+		mi := &file_store_setting_proto_msgTypes[2]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -246,7 +387,7 @@ func (x *AgentPluginSetting) String() string {
 func (*AgentPluginSetting) ProtoMessage() {}
 
 func (x *AgentPluginSetting) ProtoReflect() protoreflect.Message {
-	mi := &file_store_setting_proto_msgTypes[1]
+	mi := &file_store_setting_proto_msgTypes[2]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -259,7 +400,7 @@ func (x *AgentPluginSetting) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentPluginSetting.ProtoReflect.Descriptor instead.
 func (*AgentPluginSetting) Descriptor() ([]byte, []int) {
-	return file_store_setting_proto_rawDescGZIP(), []int{1}
+	return file_store_setting_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *AgentPluginSetting) GetUrl() string {
@@ -287,7 +428,7 @@ type WorkspaceApprovalSetting struct {
 func (x *WorkspaceApprovalSetting) Reset() {
 	*x = WorkspaceApprovalSetting{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_store_setting_proto_msgTypes[2]
+		mi := &file_store_setting_proto_msgTypes[3]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -300,7 +441,7 @@ func (x *WorkspaceApprovalSetting) String() string {
 func (*WorkspaceApprovalSetting) ProtoMessage() {}
 
 func (x *WorkspaceApprovalSetting) ProtoReflect() protoreflect.Message {
-	mi := &file_store_setting_proto_msgTypes[2]
+	mi := &file_store_setting_proto_msgTypes[3]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -313,7 +454,7 @@ func (x *WorkspaceApprovalSetting) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceApprovalSetting.ProtoReflect.Descriptor instead.
 func (*WorkspaceApprovalSetting) Descriptor() ([]byte, []int) {
-	return file_store_setting_proto_rawDescGZIP(), []int{2}
+	return file_store_setting_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *WorkspaceApprovalSetting) GetRules() []*WorkspaceApprovalSetting_Rule {
@@ -334,7 +475,7 @@ type ExternalApprovalSetting struct {
 func (x *ExternalApprovalSetting) Reset() {
 	*x = ExternalApprovalSetting{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_store_setting_proto_msgTypes[3]
+		mi := &file_store_setting_proto_msgTypes[4]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -347,7 +488,7 @@ func (x *ExternalApprovalSetting) String() string {
 func (*ExternalApprovalSetting) ProtoMessage() {}
 
 func (x *ExternalApprovalSetting) ProtoReflect() protoreflect.Message {
-	mi := &file_store_setting_proto_msgTypes[3]
+	mi := &file_store_setting_proto_msgTypes[4]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -360,7 +501,7 @@ func (x *ExternalApprovalSetting) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExternalApprovalSetting.ProtoReflect.Descriptor instead.
 func (*ExternalApprovalSetting) Descriptor() ([]byte, []int) {
-	return file_store_setting_proto_rawDescGZIP(), []int{3}
+	return file_store_setting_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ExternalApprovalSetting) GetNodes() []*ExternalApprovalSetting_Node {
@@ -395,7 +536,7 @@ type SMTPMailDeliverySetting struct {
 func (x *SMTPMailDeliverySetting) Reset() {
 	*x = SMTPMailDeliverySetting{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_store_setting_proto_msgTypes[4]
+		mi := &file_store_setting_proto_msgTypes[5]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -408,7 +549,7 @@ func (x *SMTPMailDeliverySetting) String() string {
 func (*SMTPMailDeliverySetting) ProtoMessage() {}
 
 func (x *SMTPMailDeliverySetting) ProtoReflect() protoreflect.Message {
-	mi := &file_store_setting_proto_msgTypes[4]
+	mi := &file_store_setting_proto_msgTypes[5]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -421,7 +562,7 @@ func (x *SMTPMailDeliverySetting) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SMTPMailDeliverySetting.ProtoReflect.Descriptor instead.
 func (*SMTPMailDeliverySetting) Descriptor() ([]byte, []int) {
-	return file_store_setting_proto_rawDescGZIP(), []int{4}
+	return file_store_setting_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SMTPMailDeliverySetting) GetServer() string {
@@ -500,12 +641,14 @@ type SchemaTemplateSetting struct {
 	unknownFields protoimpl.UnknownFields
 
 	FieldTemplates []*SchemaTemplateSetting_FieldTemplate `protobuf:"bytes,1,rep,name=field_templates,json=fieldTemplates,proto3" json:"field_templates,omitempty"`
+	ColumnTypes    []*SchemaTemplateSetting_ColumnType    `protobuf:"bytes,2,rep,name=column_types,json=columnTypes,proto3" json:"column_types,omitempty"`
+	TableTemplates []*SchemaTemplateSetting_TableTemplate `protobuf:"bytes,3,rep,name=table_templates,json=tableTemplates,proto3" json:"table_templates,omitempty"`
 }
 
 func (x *SchemaTemplateSetting) Reset() {
 	*x = SchemaTemplateSetting{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_store_setting_proto_msgTypes[5]
+		mi := &file_store_setting_proto_msgTypes[6]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -518,7 +661,7 @@ func (x *SchemaTemplateSetting) String() string {
 func (*SchemaTemplateSetting) ProtoMessage() {}
 
 func (x *SchemaTemplateSetting) ProtoReflect() protoreflect.Message {
-	mi := &file_store_setting_proto_msgTypes[5]
+	mi := &file_store_setting_proto_msgTypes[6]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -531,12 +674,168 @@ func (x *SchemaTemplateSetting) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SchemaTemplateSetting.ProtoReflect.Descriptor instead.
 func (*SchemaTemplateSetting) Descriptor() ([]byte, []int) {
-	return file_store_setting_proto_rawDescGZIP(), []int{5}
+	return file_store_setting_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SchemaTemplateSetting) GetFieldTemplates() []*SchemaTemplateSetting_FieldTemplate {
 	if x != nil {
 		return x.FieldTemplates
+	}
+	return nil
+}
+
+func (x *SchemaTemplateSetting) GetColumnTypes() []*SchemaTemplateSetting_ColumnType {
+	if x != nil {
+		return x.ColumnTypes
+	}
+	return nil
+}
+
+func (x *SchemaTemplateSetting) GetTableTemplates() []*SchemaTemplateSetting_TableTemplate {
+	if x != nil {
+		return x.TableTemplates
+	}
+	return nil
+}
+
+type DataClassificationSetting struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Configs []*DataClassificationSetting_DataClassificationConfig `protobuf:"bytes,1,rep,name=configs,proto3" json:"configs,omitempty"`
+}
+
+func (x *DataClassificationSetting) Reset() {
+	*x = DataClassificationSetting{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[7]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DataClassificationSetting) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DataClassificationSetting) ProtoMessage() {}
+
+func (x *DataClassificationSetting) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[7]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DataClassificationSetting.ProtoReflect.Descriptor instead.
+func (*DataClassificationSetting) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *DataClassificationSetting) GetConfigs() []*DataClassificationSetting_DataClassificationConfig {
+	if x != nil {
+		return x.Configs
+	}
+	return nil
+}
+
+type SemanticTypeSetting struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Types []*SemanticTypeSetting_SemanticType `protobuf:"bytes,1,rep,name=types,proto3" json:"types,omitempty"`
+}
+
+func (x *SemanticTypeSetting) Reset() {
+	*x = SemanticTypeSetting{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[8]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *SemanticTypeSetting) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SemanticTypeSetting) ProtoMessage() {}
+
+func (x *SemanticTypeSetting) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[8]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SemanticTypeSetting.ProtoReflect.Descriptor instead.
+func (*SemanticTypeSetting) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *SemanticTypeSetting) GetTypes() []*SemanticTypeSetting_SemanticType {
+	if x != nil {
+		return x.Types
+	}
+	return nil
+}
+
+type MaskingAlgorithmSetting struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// algorithms is the list of masking algorithms.
+	Algorithms []*MaskingAlgorithmSetting_Algorithm `protobuf:"bytes,1,rep,name=algorithms,proto3" json:"algorithms,omitempty"`
+}
+
+func (x *MaskingAlgorithmSetting) Reset() {
+	*x = MaskingAlgorithmSetting{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[9]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MaskingAlgorithmSetting) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MaskingAlgorithmSetting) ProtoMessage() {}
+
+func (x *MaskingAlgorithmSetting) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[9]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MaskingAlgorithmSetting.ProtoReflect.Descriptor instead.
+func (*MaskingAlgorithmSetting) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *MaskingAlgorithmSetting) GetAlgorithms() []*MaskingAlgorithmSetting_Algorithm {
+	if x != nil {
+		return x.Algorithms
 	}
 	return nil
 }
@@ -554,7 +853,7 @@ type WorkspaceApprovalSetting_Rule struct {
 func (x *WorkspaceApprovalSetting_Rule) Reset() {
 	*x = WorkspaceApprovalSetting_Rule{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_store_setting_proto_msgTypes[6]
+		mi := &file_store_setting_proto_msgTypes[10]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -567,7 +866,7 @@ func (x *WorkspaceApprovalSetting_Rule) String() string {
 func (*WorkspaceApprovalSetting_Rule) ProtoMessage() {}
 
 func (x *WorkspaceApprovalSetting_Rule) ProtoReflect() protoreflect.Message {
-	mi := &file_store_setting_proto_msgTypes[6]
+	mi := &file_store_setting_proto_msgTypes[10]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -580,7 +879,7 @@ func (x *WorkspaceApprovalSetting_Rule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceApprovalSetting_Rule.ProtoReflect.Descriptor instead.
 func (*WorkspaceApprovalSetting_Rule) Descriptor() ([]byte, []int) {
-	return file_store_setting_proto_rawDescGZIP(), []int{2, 0}
+	return file_store_setting_proto_rawDescGZIP(), []int{3, 0}
 }
 
 func (x *WorkspaceApprovalSetting_Rule) GetExpression() *v1alpha1.ParsedExpr {
@@ -610,7 +909,8 @@ type ExternalApprovalSetting_Node struct {
 	unknownFields protoimpl.UnknownFields
 
 	// A unique identifier for a node in UUID format.
-	// We will also include the id in the message sending to the external relay service to identify the node.
+	// We will also include the id in the message sending to the external relay
+	// service to identify the node.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// The title of the node.
 	Title string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
@@ -621,7 +921,7 @@ type ExternalApprovalSetting_Node struct {
 func (x *ExternalApprovalSetting_Node) Reset() {
 	*x = ExternalApprovalSetting_Node{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_store_setting_proto_msgTypes[7]
+		mi := &file_store_setting_proto_msgTypes[11]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -634,7 +934,7 @@ func (x *ExternalApprovalSetting_Node) String() string {
 func (*ExternalApprovalSetting_Node) ProtoMessage() {}
 
 func (x *ExternalApprovalSetting_Node) ProtoReflect() protoreflect.Message {
-	mi := &file_store_setting_proto_msgTypes[7]
+	mi := &file_store_setting_proto_msgTypes[11]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -647,7 +947,7 @@ func (x *ExternalApprovalSetting_Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExternalApprovalSetting_Node.ProtoReflect.Descriptor instead.
 func (*ExternalApprovalSetting_Node) Descriptor() ([]byte, []int) {
-	return file_store_setting_proto_rawDescGZIP(), []int{3, 0}
+	return file_store_setting_proto_rawDescGZIP(), []int{4, 0}
 }
 
 func (x *ExternalApprovalSetting_Node) GetId() string {
@@ -680,12 +980,13 @@ type SchemaTemplateSetting_FieldTemplate struct {
 	Engine   Engine          `protobuf:"varint,2,opt,name=engine,proto3,enum=bytebase.store.Engine" json:"engine,omitempty"`
 	Category string          `protobuf:"bytes,3,opt,name=category,proto3" json:"category,omitempty"`
 	Column   *ColumnMetadata `protobuf:"bytes,4,opt,name=column,proto3" json:"column,omitempty"`
+	Config   *ColumnConfig   `protobuf:"bytes,5,opt,name=config,proto3" json:"config,omitempty"`
 }
 
 func (x *SchemaTemplateSetting_FieldTemplate) Reset() {
 	*x = SchemaTemplateSetting_FieldTemplate{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_store_setting_proto_msgTypes[8]
+		mi := &file_store_setting_proto_msgTypes[12]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -698,7 +999,7 @@ func (x *SchemaTemplateSetting_FieldTemplate) String() string {
 func (*SchemaTemplateSetting_FieldTemplate) ProtoMessage() {}
 
 func (x *SchemaTemplateSetting_FieldTemplate) ProtoReflect() protoreflect.Message {
-	mi := &file_store_setting_proto_msgTypes[8]
+	mi := &file_store_setting_proto_msgTypes[12]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -711,7 +1012,7 @@ func (x *SchemaTemplateSetting_FieldTemplate) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use SchemaTemplateSetting_FieldTemplate.ProtoReflect.Descriptor instead.
 func (*SchemaTemplateSetting_FieldTemplate) Descriptor() ([]byte, []int) {
-	return file_store_setting_proto_rawDescGZIP(), []int{5, 0}
+	return file_store_setting_proto_rawDescGZIP(), []int{6, 0}
 }
 
 func (x *SchemaTemplateSetting_FieldTemplate) GetId() string {
@@ -742,6 +1043,799 @@ func (x *SchemaTemplateSetting_FieldTemplate) GetColumn() *ColumnMetadata {
 	return nil
 }
 
+func (x *SchemaTemplateSetting_FieldTemplate) GetConfig() *ColumnConfig {
+	if x != nil {
+		return x.Config
+	}
+	return nil
+}
+
+type SchemaTemplateSetting_ColumnType struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Engine  Engine   `protobuf:"varint,1,opt,name=engine,proto3,enum=bytebase.store.Engine" json:"engine,omitempty"`
+	Enabled bool     `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Types   []string `protobuf:"bytes,3,rep,name=types,proto3" json:"types,omitempty"`
+}
+
+func (x *SchemaTemplateSetting_ColumnType) Reset() {
+	*x = SchemaTemplateSetting_ColumnType{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[13]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *SchemaTemplateSetting_ColumnType) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SchemaTemplateSetting_ColumnType) ProtoMessage() {}
+
+func (x *SchemaTemplateSetting_ColumnType) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[13]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SchemaTemplateSetting_ColumnType.ProtoReflect.Descriptor instead.
+func (*SchemaTemplateSetting_ColumnType) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{6, 1}
+}
+
+func (x *SchemaTemplateSetting_ColumnType) GetEngine() Engine {
+	if x != nil {
+		return x.Engine
+	}
+	return Engine_ENGINE_UNSPECIFIED
+}
+
+func (x *SchemaTemplateSetting_ColumnType) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *SchemaTemplateSetting_ColumnType) GetTypes() []string {
+	if x != nil {
+		return x.Types
+	}
+	return nil
+}
+
+type SchemaTemplateSetting_TableTemplate struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Id       string         `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Engine   Engine         `protobuf:"varint,2,opt,name=engine,proto3,enum=bytebase.store.Engine" json:"engine,omitempty"`
+	Category string         `protobuf:"bytes,3,opt,name=category,proto3" json:"category,omitempty"`
+	Table    *TableMetadata `protobuf:"bytes,4,opt,name=table,proto3" json:"table,omitempty"`
+	Config   *TableConfig   `protobuf:"bytes,5,opt,name=config,proto3" json:"config,omitempty"`
+}
+
+func (x *SchemaTemplateSetting_TableTemplate) Reset() {
+	*x = SchemaTemplateSetting_TableTemplate{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[14]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *SchemaTemplateSetting_TableTemplate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SchemaTemplateSetting_TableTemplate) ProtoMessage() {}
+
+func (x *SchemaTemplateSetting_TableTemplate) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[14]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SchemaTemplateSetting_TableTemplate.ProtoReflect.Descriptor instead.
+func (*SchemaTemplateSetting_TableTemplate) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{6, 2}
+}
+
+func (x *SchemaTemplateSetting_TableTemplate) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SchemaTemplateSetting_TableTemplate) GetEngine() Engine {
+	if x != nil {
+		return x.Engine
+	}
+	return Engine_ENGINE_UNSPECIFIED
+}
+
+func (x *SchemaTemplateSetting_TableTemplate) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+func (x *SchemaTemplateSetting_TableTemplate) GetTable() *TableMetadata {
+	if x != nil {
+		return x.Table
+	}
+	return nil
+}
+
+func (x *SchemaTemplateSetting_TableTemplate) GetConfig() *TableConfig {
+	if x != nil {
+		return x.Config
+	}
+	return nil
+}
+
+type DataClassificationSetting_DataClassificationConfig struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// id is the uuid for classification. Each project can chose one
+	// classification config.
+	Id    string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Title string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	// levels is user defined level list for classification.
+	// The order for the level decides its priority.
+	Levels []*DataClassificationSetting_DataClassificationConfig_Level `protobuf:"bytes,3,rep,name=levels,proto3" json:"levels,omitempty"`
+	// classification is the id - DataClassification map.
+	// The id should in [0-9]+-[0-9]+-[0-9]+ format.
+	Classification map[string]*DataClassificationSetting_DataClassificationConfig_DataClassification `protobuf:"bytes,4,rep,name=classification,proto3" json:"classification,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig) Reset() {
+	*x = DataClassificationSetting_DataClassificationConfig{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[15]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DataClassificationSetting_DataClassificationConfig) ProtoMessage() {}
+
+func (x *DataClassificationSetting_DataClassificationConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[15]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DataClassificationSetting_DataClassificationConfig.ProtoReflect.Descriptor instead.
+func (*DataClassificationSetting_DataClassificationConfig) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{7, 0}
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig) GetLevels() []*DataClassificationSetting_DataClassificationConfig_Level {
+	if x != nil {
+		return x.Levels
+	}
+	return nil
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig) GetClassification() map[string]*DataClassificationSetting_DataClassificationConfig_DataClassification {
+	if x != nil {
+		return x.Classification
+	}
+	return nil
+}
+
+type DataClassificationSetting_DataClassificationConfig_Level struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Id          string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Title       string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Description string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig_Level) Reset() {
+	*x = DataClassificationSetting_DataClassificationConfig_Level{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[16]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig_Level) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DataClassificationSetting_DataClassificationConfig_Level) ProtoMessage() {}
+
+func (x *DataClassificationSetting_DataClassificationConfig_Level) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[16]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DataClassificationSetting_DataClassificationConfig_Level.ProtoReflect.Descriptor instead.
+func (*DataClassificationSetting_DataClassificationConfig_Level) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{7, 0, 0}
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig_Level) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig_Level) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig_Level) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+type DataClassificationSetting_DataClassificationConfig_DataClassification struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// id is the classification id in [0-9]+-[0-9]+-[0-9]+ format.
+	Id          string  `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Title       string  `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Description string  `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	LevelId     *string `protobuf:"bytes,4,opt,name=level_id,json=levelId,proto3,oneof" json:"level_id,omitempty"`
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig_DataClassification) Reset() {
+	*x = DataClassificationSetting_DataClassificationConfig_DataClassification{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[17]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig_DataClassification) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DataClassificationSetting_DataClassificationConfig_DataClassification) ProtoMessage() {}
+
+func (x *DataClassificationSetting_DataClassificationConfig_DataClassification) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[17]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DataClassificationSetting_DataClassificationConfig_DataClassification.ProtoReflect.Descriptor instead.
+func (*DataClassificationSetting_DataClassificationConfig_DataClassification) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{7, 0, 1}
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig_DataClassification) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig_DataClassification) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig_DataClassification) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *DataClassificationSetting_DataClassificationConfig_DataClassification) GetLevelId() string {
+	if x != nil && x.LevelId != nil {
+		return *x.LevelId
+	}
+	return ""
+}
+
+type SemanticTypeSetting_SemanticType struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// id is the uuid for semantic type.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// the title of the semantic type, it should not be empty.
+	Title string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	// the description of the semantic type, it can be empty.
+	Description string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	// the partial mask algorithm id for the semantic type, if it is empty,
+	// should use the default partial mask algorithm.
+	PartialMaskAlgorithmId string `protobuf:"bytes,4,opt,name=partial_mask_algorithm_id,json=partialMaskAlgorithmId,proto3" json:"partial_mask_algorithm_id,omitempty"`
+	// the full mask algorithm id for the semantic type, if it is empty, should
+	// use the default full mask algorithm.
+	FullMaskAlgorithmId string `protobuf:"bytes,5,opt,name=full_mask_algorithm_id,json=fullMaskAlgorithmId,proto3" json:"full_mask_algorithm_id,omitempty"`
+}
+
+func (x *SemanticTypeSetting_SemanticType) Reset() {
+	*x = SemanticTypeSetting_SemanticType{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[19]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *SemanticTypeSetting_SemanticType) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SemanticTypeSetting_SemanticType) ProtoMessage() {}
+
+func (x *SemanticTypeSetting_SemanticType) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[19]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SemanticTypeSetting_SemanticType.ProtoReflect.Descriptor instead.
+func (*SemanticTypeSetting_SemanticType) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{8, 0}
+}
+
+func (x *SemanticTypeSetting_SemanticType) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SemanticTypeSetting_SemanticType) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *SemanticTypeSetting_SemanticType) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *SemanticTypeSetting_SemanticType) GetPartialMaskAlgorithmId() string {
+	if x != nil {
+		return x.PartialMaskAlgorithmId
+	}
+	return ""
+}
+
+func (x *SemanticTypeSetting_SemanticType) GetFullMaskAlgorithmId() string {
+	if x != nil {
+		return x.FullMaskAlgorithmId
+	}
+	return ""
+}
+
+type MaskingAlgorithmSetting_Algorithm struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// id is the uuid for masking algorithm.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// title is the title for masking algorithm.
+	Title string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	// description is the description for masking algorithm.
+	Description string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	// Category is the category for masking algorithm. Currently, it accepts 2 categories only: MASKING and HASHING.
+	// The range of accepted Payload is decided by the category.
+	// Mask: FullMask, RangeMask
+	// Hash: MD5Mask
+	Category string `protobuf:"bytes,4,opt,name=category,proto3" json:"category,omitempty"`
+	// Types that are assignable to Mask:
+	//
+	//	*MaskingAlgorithmSetting_Algorithm_FullMask_
+	//	*MaskingAlgorithmSetting_Algorithm_RangeMask_
+	//	*MaskingAlgorithmSetting_Algorithm_Md5Mask
+	Mask isMaskingAlgorithmSetting_Algorithm_Mask `protobuf_oneof:"mask"`
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm) Reset() {
+	*x = MaskingAlgorithmSetting_Algorithm{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[20]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MaskingAlgorithmSetting_Algorithm) ProtoMessage() {}
+
+func (x *MaskingAlgorithmSetting_Algorithm) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[20]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MaskingAlgorithmSetting_Algorithm.ProtoReflect.Descriptor instead.
+func (*MaskingAlgorithmSetting_Algorithm) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{9, 0}
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+func (m *MaskingAlgorithmSetting_Algorithm) GetMask() isMaskingAlgorithmSetting_Algorithm_Mask {
+	if m != nil {
+		return m.Mask
+	}
+	return nil
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm) GetFullMask() *MaskingAlgorithmSetting_Algorithm_FullMask {
+	if x, ok := x.GetMask().(*MaskingAlgorithmSetting_Algorithm_FullMask_); ok {
+		return x.FullMask
+	}
+	return nil
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm) GetRangeMask() *MaskingAlgorithmSetting_Algorithm_RangeMask {
+	if x, ok := x.GetMask().(*MaskingAlgorithmSetting_Algorithm_RangeMask_); ok {
+		return x.RangeMask
+	}
+	return nil
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm) GetMd5Mask() *MaskingAlgorithmSetting_Algorithm_MD5Mask {
+	if x, ok := x.GetMask().(*MaskingAlgorithmSetting_Algorithm_Md5Mask); ok {
+		return x.Md5Mask
+	}
+	return nil
+}
+
+type isMaskingAlgorithmSetting_Algorithm_Mask interface {
+	isMaskingAlgorithmSetting_Algorithm_Mask()
+}
+
+type MaskingAlgorithmSetting_Algorithm_FullMask_ struct {
+	FullMask *MaskingAlgorithmSetting_Algorithm_FullMask `protobuf:"bytes,5,opt,name=full_mask,json=fullMask,proto3,oneof"`
+}
+
+type MaskingAlgorithmSetting_Algorithm_RangeMask_ struct {
+	RangeMask *MaskingAlgorithmSetting_Algorithm_RangeMask `protobuf:"bytes,6,opt,name=range_mask,json=rangeMask,proto3,oneof"`
+}
+
+type MaskingAlgorithmSetting_Algorithm_Md5Mask struct {
+	Md5Mask *MaskingAlgorithmSetting_Algorithm_MD5Mask `protobuf:"bytes,7,opt,name=md5_mask,json=md5Mask,proto3,oneof"`
+}
+
+func (*MaskingAlgorithmSetting_Algorithm_FullMask_) isMaskingAlgorithmSetting_Algorithm_Mask() {}
+
+func (*MaskingAlgorithmSetting_Algorithm_RangeMask_) isMaskingAlgorithmSetting_Algorithm_Mask() {}
+
+func (*MaskingAlgorithmSetting_Algorithm_Md5Mask) isMaskingAlgorithmSetting_Algorithm_Mask() {}
+
+type MaskingAlgorithmSetting_Algorithm_FullMask struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// substitution is the string used to replace the original value, the
+	// max length of the string is 16 bytes.
+	Substitution string `protobuf:"bytes,1,opt,name=substitution,proto3" json:"substitution,omitempty"`
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_FullMask) Reset() {
+	*x = MaskingAlgorithmSetting_Algorithm_FullMask{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[21]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_FullMask) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MaskingAlgorithmSetting_Algorithm_FullMask) ProtoMessage() {}
+
+func (x *MaskingAlgorithmSetting_Algorithm_FullMask) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[21]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MaskingAlgorithmSetting_Algorithm_FullMask.ProtoReflect.Descriptor instead.
+func (*MaskingAlgorithmSetting_Algorithm_FullMask) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{9, 0, 0}
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_FullMask) GetSubstitution() string {
+	if x != nil {
+		return x.Substitution
+	}
+	return ""
+}
+
+type MaskingAlgorithmSetting_Algorithm_RangeMask struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// We store it as a repeated field to face the fact that the original value may have multiple parts should be masked.
+	// But frontend can be started with a single rule easily.
+	Slices []*MaskingAlgorithmSetting_Algorithm_RangeMask_Slice `protobuf:"bytes,1,rep,name=slices,proto3" json:"slices,omitempty"`
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_RangeMask) Reset() {
+	*x = MaskingAlgorithmSetting_Algorithm_RangeMask{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[22]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_RangeMask) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MaskingAlgorithmSetting_Algorithm_RangeMask) ProtoMessage() {}
+
+func (x *MaskingAlgorithmSetting_Algorithm_RangeMask) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[22]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MaskingAlgorithmSetting_Algorithm_RangeMask.ProtoReflect.Descriptor instead.
+func (*MaskingAlgorithmSetting_Algorithm_RangeMask) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{9, 0, 1}
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_RangeMask) GetSlices() []*MaskingAlgorithmSetting_Algorithm_RangeMask_Slice {
+	if x != nil {
+		return x.Slices
+	}
+	return nil
+}
+
+type MaskingAlgorithmSetting_Algorithm_MD5Mask struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// salt is the salt value to generate a different hash that with the word alone.
+	Salt string `protobuf:"bytes,1,opt,name=salt,proto3" json:"salt,omitempty"`
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_MD5Mask) Reset() {
+	*x = MaskingAlgorithmSetting_Algorithm_MD5Mask{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[23]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_MD5Mask) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MaskingAlgorithmSetting_Algorithm_MD5Mask) ProtoMessage() {}
+
+func (x *MaskingAlgorithmSetting_Algorithm_MD5Mask) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[23]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MaskingAlgorithmSetting_Algorithm_MD5Mask.ProtoReflect.Descriptor instead.
+func (*MaskingAlgorithmSetting_Algorithm_MD5Mask) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{9, 0, 2}
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_MD5Mask) GetSalt() string {
+	if x != nil {
+		return x.Salt
+	}
+	return ""
+}
+
+type MaskingAlgorithmSetting_Algorithm_RangeMask_Slice struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// start is the start index of the original value, start from 0 and should be less than stop.
+	Start int32 `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
+	// stop is the stop index of the original value, should be less than the length of the original value.
+	End int32 `protobuf:"varint,2,opt,name=end,proto3" json:"end,omitempty"`
+	// OriginalValue[start:end) would be replaced with replace_with.
+	Substitution string `protobuf:"bytes,3,opt,name=substitution,proto3" json:"substitution,omitempty"`
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_RangeMask_Slice) Reset() {
+	*x = MaskingAlgorithmSetting_Algorithm_RangeMask_Slice{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_store_setting_proto_msgTypes[24]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_RangeMask_Slice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MaskingAlgorithmSetting_Algorithm_RangeMask_Slice) ProtoMessage() {}
+
+func (x *MaskingAlgorithmSetting_Algorithm_RangeMask_Slice) ProtoReflect() protoreflect.Message {
+	mi := &file_store_setting_proto_msgTypes[24]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MaskingAlgorithmSetting_Algorithm_RangeMask_Slice.ProtoReflect.Descriptor instead.
+func (*MaskingAlgorithmSetting_Algorithm_RangeMask_Slice) Descriptor() ([]byte, []int) {
+	return file_store_setting_proto_rawDescGZIP(), []int{9, 0, 1, 0}
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_RangeMask_Slice) GetStart() int32 {
+	if x != nil {
+		return x.Start
+	}
+	return 0
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_RangeMask_Slice) GetEnd() int32 {
+	if x != nil {
+		return x.End
+	}
+	return 0
+}
+
+func (x *MaskingAlgorithmSetting_Algorithm_RangeMask_Slice) GetSubstitution() string {
+	if x != nil {
+		return x.Substitution
+	}
+	return ""
+}
+
 var File_store_setting_proto protoreflect.FileDescriptor
 
 var file_store_setting_proto_rawDesc = []byte{
@@ -749,13 +1843,15 @@ var file_store_setting_proto_rawDesc = []byte{
 	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x0e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e,
 	0x73, 0x74, 0x6f, 0x72, 0x65, 0x1a, 0x25, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2f, 0x61, 0x70,
 	0x69, 0x2f, 0x65, 0x78, 0x70, 0x72, 0x2f, 0x76, 0x31, 0x61, 0x6c, 0x70, 0x68, 0x61, 0x31, 0x2f,
-	0x73, 0x79, 0x6e, 0x74, 0x61, 0x78, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x16, 0x67, 0x6f,
+	0x73, 0x79, 0x6e, 0x74, 0x61, 0x78, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x1e, 0x67, 0x6f,
+	0x6f, 0x67, 0x6c, 0x65, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2f, 0x64, 0x75,
+	0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x16, 0x67, 0x6f,
 	0x6f, 0x67, 0x6c, 0x65, 0x2f, 0x74, 0x79, 0x70, 0x65, 0x2f, 0x65, 0x78, 0x70, 0x72, 0x2e, 0x70,
 	0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x14, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2f, 0x61, 0x70, 0x70, 0x72,
 	0x6f, 0x76, 0x61, 0x6c, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x12, 0x73, 0x74, 0x6f, 0x72,
 	0x65, 0x2f, 0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x14,
 	0x73, 0x74, 0x6f, 0x72, 0x65, 0x2f, 0x64, 0x61, 0x74, 0x61, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x70,
-	0x72, 0x6f, 0x74, 0x6f, 0x22, 0xde, 0x01, 0x0a, 0x17, 0x57, 0x6f, 0x72, 0x6b, 0x73, 0x70, 0x61,
+	0x72, 0x6f, 0x74, 0x6f, 0x22, 0xe2, 0x02, 0x0a, 0x17, 0x57, 0x6f, 0x72, 0x6b, 0x73, 0x70, 0x61,
 	0x63, 0x65, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67,
 	0x12, 0x21, 0x0a, 0x0c, 0x65, 0x78, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x5f, 0x75, 0x72, 0x6c,
 	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x65, 0x78, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c,
@@ -769,7 +1865,30 @@ var file_store_setting_proto_rawDesc = []byte{
 	0x64, 0x49, 0x70, 0x4c, 0x69, 0x73, 0x74, 0x12, 0x2c, 0x0a, 0x12, 0x67, 0x69, 0x74, 0x6f, 0x70,
 	0x73, 0x5f, 0x77, 0x65, 0x62, 0x68, 0x6f, 0x6f, 0x6b, 0x5f, 0x75, 0x72, 0x6c, 0x18, 0x05, 0x20,
 	0x01, 0x28, 0x09, 0x52, 0x10, 0x67, 0x69, 0x74, 0x6f, 0x70, 0x73, 0x57, 0x65, 0x62, 0x68, 0x6f,
-	0x6f, 0x6b, 0x55, 0x72, 0x6c, 0x22, 0x3c, 0x0a, 0x12, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x50, 0x6c,
+	0x6f, 0x6b, 0x55, 0x72, 0x6c, 0x12, 0x40, 0x0a, 0x0e, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x5f, 0x64,
+	0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x19, 0x2e,
+	0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e,
+	0x44, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x0d, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x44,
+	0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x40, 0x0a, 0x0c, 0x61, 0x6e, 0x6e, 0x6f, 0x75,
+	0x6e, 0x63, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x18, 0x07, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e,
+	0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x41,
+	0x6e, 0x6e, 0x6f, 0x75, 0x6e, 0x63, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x52, 0x0c, 0x61, 0x6e, 0x6e,
+	0x6f, 0x75, 0x6e, 0x63, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x22, 0xe9, 0x01, 0x0a, 0x0c, 0x41, 0x6e,
+	0x6e, 0x6f, 0x75, 0x6e, 0x63, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x12, 0x3d, 0x0a, 0x05, 0x6c, 0x65,
+	0x76, 0x65, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x27, 0x2e, 0x62, 0x79, 0x74, 0x65,
+	0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x41, 0x6e, 0x6e, 0x6f, 0x75,
+	0x6e, 0x63, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x41, 0x6c, 0x65, 0x72, 0x74, 0x4c, 0x65, 0x76,
+	0x65, 0x6c, 0x52, 0x05, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x12, 0x12, 0x0a, 0x04, 0x74, 0x65, 0x78,
+	0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x74, 0x65, 0x78, 0x74, 0x12, 0x12, 0x0a,
+	0x04, 0x6c, 0x69, 0x6e, 0x6b, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6c, 0x69, 0x6e,
+	0x6b, 0x22, 0x72, 0x0a, 0x0a, 0x41, 0x6c, 0x65, 0x72, 0x74, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x12,
+	0x1b, 0x0a, 0x17, 0x41, 0x4c, 0x45, 0x52, 0x54, 0x5f, 0x4c, 0x45, 0x56, 0x45, 0x4c, 0x5f, 0x55,
+	0x4e, 0x53, 0x50, 0x45, 0x43, 0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x14, 0x0a, 0x10,
+	0x41, 0x4c, 0x45, 0x52, 0x54, 0x5f, 0x4c, 0x45, 0x56, 0x45, 0x4c, 0x5f, 0x49, 0x4e, 0x46, 0x4f,
+	0x10, 0x01, 0x12, 0x17, 0x0a, 0x13, 0x41, 0x4c, 0x45, 0x52, 0x54, 0x5f, 0x4c, 0x45, 0x56, 0x45,
+	0x4c, 0x5f, 0x57, 0x41, 0x52, 0x4e, 0x49, 0x4e, 0x47, 0x10, 0x02, 0x12, 0x18, 0x0a, 0x14, 0x41,
+	0x4c, 0x45, 0x52, 0x54, 0x5f, 0x4c, 0x45, 0x56, 0x45, 0x4c, 0x5f, 0x43, 0x52, 0x49, 0x54, 0x49,
+	0x43, 0x41, 0x4c, 0x10, 0x03, 0x22, 0x3c, 0x0a, 0x12, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x50, 0x6c,
 	0x75, 0x67, 0x69, 0x6e, 0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x12, 0x10, 0x0a, 0x03, 0x75,
 	0x72, 0x6c, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x75, 0x72, 0x6c, 0x12, 0x14, 0x0a,
 	0x05, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x74, 0x6f,
@@ -842,7 +1961,7 @@ var file_store_setting_proto_rawDesc = []byte{
 	0x02, 0x12, 0x18, 0x0a, 0x14, 0x41, 0x55, 0x54, 0x48, 0x45, 0x4e, 0x54, 0x49, 0x43, 0x41, 0x54,
 	0x49, 0x4f, 0x4e, 0x5f, 0x4c, 0x4f, 0x47, 0x49, 0x4e, 0x10, 0x03, 0x12, 0x1b, 0x0a, 0x17, 0x41,
 	0x55, 0x54, 0x48, 0x45, 0x4e, 0x54, 0x49, 0x43, 0x41, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x43, 0x52,
-	0x41, 0x4d, 0x5f, 0x4d, 0x44, 0x35, 0x10, 0x04, 0x22, 0x9b, 0x02, 0x0a, 0x15, 0x53, 0x63, 0x68,
+	0x41, 0x4d, 0x5f, 0x4d, 0x44, 0x35, 0x10, 0x04, 0x22, 0xca, 0x06, 0x0a, 0x15, 0x53, 0x63, 0x68,
 	0x65, 0x6d, 0x61, 0x54, 0x65, 0x6d, 0x70, 0x6c, 0x61, 0x74, 0x65, 0x53, 0x65, 0x74, 0x74, 0x69,
 	0x6e, 0x67, 0x12, 0x5c, 0x0a, 0x0f, 0x66, 0x69, 0x65, 0x6c, 0x64, 0x5f, 0x74, 0x65, 0x6d, 0x70,
 	0x6c, 0x61, 0x74, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x33, 0x2e, 0x62, 0x79,
@@ -850,19 +1969,170 @@ var file_store_setting_proto_rawDesc = []byte{
 	0x65, 0x6d, 0x61, 0x54, 0x65, 0x6d, 0x70, 0x6c, 0x61, 0x74, 0x65, 0x53, 0x65, 0x74, 0x74, 0x69,
 	0x6e, 0x67, 0x2e, 0x46, 0x69, 0x65, 0x6c, 0x64, 0x54, 0x65, 0x6d, 0x70, 0x6c, 0x61, 0x74, 0x65,
 	0x52, 0x0e, 0x66, 0x69, 0x65, 0x6c, 0x64, 0x54, 0x65, 0x6d, 0x70, 0x6c, 0x61, 0x74, 0x65, 0x73,
-	0x1a, 0xa3, 0x01, 0x0a, 0x0d, 0x46, 0x69, 0x65, 0x6c, 0x64, 0x54, 0x65, 0x6d, 0x70, 0x6c, 0x61,
-	0x74, 0x65, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02,
-	0x69, 0x64, 0x12, 0x2e, 0x0a, 0x06, 0x65, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x18, 0x02, 0x20, 0x01,
-	0x28, 0x0e, 0x32, 0x16, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74,
-	0x6f, 0x72, 0x65, 0x2e, 0x45, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x52, 0x06, 0x65, 0x6e, 0x67, 0x69,
-	0x6e, 0x65, 0x12, 0x1a, 0x0a, 0x08, 0x63, 0x61, 0x74, 0x65, 0x67, 0x6f, 0x72, 0x79, 0x18, 0x03,
-	0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x63, 0x61, 0x74, 0x65, 0x67, 0x6f, 0x72, 0x79, 0x12, 0x36,
-	0x0a, 0x06, 0x63, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1e,
+	0x12, 0x53, 0x0a, 0x0c, 0x63, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x73,
+	0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x30, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73,
+	0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x54, 0x65,
+	0x6d, 0x70, 0x6c, 0x61, 0x74, 0x65, 0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x2e, 0x43, 0x6f,
+	0x6c, 0x75, 0x6d, 0x6e, 0x54, 0x79, 0x70, 0x65, 0x52, 0x0b, 0x63, 0x6f, 0x6c, 0x75, 0x6d, 0x6e,
+	0x54, 0x79, 0x70, 0x65, 0x73, 0x12, 0x5c, 0x0a, 0x0f, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x5f, 0x74,
+	0x65, 0x6d, 0x70, 0x6c, 0x61, 0x74, 0x65, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x33,
 	0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e,
-	0x43, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x52, 0x06,
-	0x63, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x42, 0x14, 0x5a, 0x12, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61,
-	0x74, 0x65, 0x64, 0x2d, 0x67, 0x6f, 0x2f, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x62, 0x06, 0x70, 0x72,
-	0x6f, 0x74, 0x6f, 0x33,
+	0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x54, 0x65, 0x6d, 0x70, 0x6c, 0x61, 0x74, 0x65, 0x53, 0x65,
+	0x74, 0x74, 0x69, 0x6e, 0x67, 0x2e, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x54, 0x65, 0x6d, 0x70, 0x6c,
+	0x61, 0x74, 0x65, 0x52, 0x0e, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x54, 0x65, 0x6d, 0x70, 0x6c, 0x61,
+	0x74, 0x65, 0x73, 0x1a, 0xd9, 0x01, 0x0a, 0x0d, 0x46, 0x69, 0x65, 0x6c, 0x64, 0x54, 0x65, 0x6d,
+	0x70, 0x6c, 0x61, 0x74, 0x65, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x02, 0x69, 0x64, 0x12, 0x2e, 0x0a, 0x06, 0x65, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x18,
+	0x02, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x16, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65,
+	0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x45, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x52, 0x06, 0x65,
+	0x6e, 0x67, 0x69, 0x6e, 0x65, 0x12, 0x1a, 0x0a, 0x08, 0x63, 0x61, 0x74, 0x65, 0x67, 0x6f, 0x72,
+	0x79, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x63, 0x61, 0x74, 0x65, 0x67, 0x6f, 0x72,
+	0x79, 0x12, 0x36, 0x0a, 0x06, 0x63, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x18, 0x04, 0x20, 0x01, 0x28,
+	0x0b, 0x32, 0x1e, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f,
+	0x72, 0x65, 0x2e, 0x43, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74,
+	0x61, 0x52, 0x06, 0x63, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x12, 0x34, 0x0a, 0x06, 0x63, 0x6f, 0x6e,
+	0x66, 0x69, 0x67, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e, 0x62, 0x79, 0x74, 0x65,
+	0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x43, 0x6f, 0x6c, 0x75, 0x6d,
+	0x6e, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x06, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x1a,
+	0x6c, 0x0a, 0x0a, 0x43, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x54, 0x79, 0x70, 0x65, 0x12, 0x2e, 0x0a,
+	0x06, 0x65, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x16, 0x2e,
+	0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x45,
+	0x6e, 0x67, 0x69, 0x6e, 0x65, 0x52, 0x06, 0x65, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x12, 0x18, 0x0a,
+	0x07, 0x65, 0x6e, 0x61, 0x62, 0x6c, 0x65, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x07,
+	0x65, 0x6e, 0x61, 0x62, 0x6c, 0x65, 0x64, 0x12, 0x14, 0x0a, 0x05, 0x74, 0x79, 0x70, 0x65, 0x73,
+	0x18, 0x03, 0x20, 0x03, 0x28, 0x09, 0x52, 0x05, 0x74, 0x79, 0x70, 0x65, 0x73, 0x1a, 0xd5, 0x01,
+	0x0a, 0x0d, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x54, 0x65, 0x6d, 0x70, 0x6c, 0x61, 0x74, 0x65, 0x12,
+	0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x69, 0x64, 0x12,
+	0x2e, 0x0a, 0x06, 0x65, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0e, 0x32,
+	0x16, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65,
+	0x2e, 0x45, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x52, 0x06, 0x65, 0x6e, 0x67, 0x69, 0x6e, 0x65, 0x12,
+	0x1a, 0x0a, 0x08, 0x63, 0x61, 0x74, 0x65, 0x67, 0x6f, 0x72, 0x79, 0x18, 0x03, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x08, 0x63, 0x61, 0x74, 0x65, 0x67, 0x6f, 0x72, 0x79, 0x12, 0x33, 0x0a, 0x05, 0x74,
+	0x61, 0x62, 0x6c, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1d, 0x2e, 0x62, 0x79, 0x74,
+	0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x54, 0x61, 0x62, 0x6c,
+	0x65, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x52, 0x05, 0x74, 0x61, 0x62, 0x6c, 0x65,
+	0x12, 0x33, 0x0a, 0x06, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b,
+	0x32, 0x1b, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72,
+	0x65, 0x2e, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x06, 0x63,
+	0x6f, 0x6e, 0x66, 0x69, 0x67, 0x22, 0x96, 0x06, 0x0a, 0x19, 0x44, 0x61, 0x74, 0x61, 0x43, 0x6c,
+	0x61, 0x73, 0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x74, 0x74,
+	0x69, 0x6e, 0x67, 0x12, 0x5c, 0x0a, 0x07, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x73, 0x18, 0x01,
+	0x20, 0x03, 0x28, 0x0b, 0x32, 0x42, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e,
+	0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x44, 0x61, 0x74, 0x61, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x69,
+	0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x2e,
+	0x44, 0x61, 0x74, 0x61, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69,
+	0x6f, 0x6e, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x07, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67,
+	0x73, 0x1a, 0x9a, 0x05, 0x0a, 0x18, 0x44, 0x61, 0x74, 0x61, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x69,
+	0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x0e,
+	0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x69, 0x64, 0x12, 0x14,
+	0x0a, 0x05, 0x74, 0x69, 0x74, 0x6c, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x74,
+	0x69, 0x74, 0x6c, 0x65, 0x12, 0x60, 0x0a, 0x06, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x73, 0x18, 0x03,
+	0x20, 0x03, 0x28, 0x0b, 0x32, 0x48, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e,
+	0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x44, 0x61, 0x74, 0x61, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x69,
+	0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x2e,
+	0x44, 0x61, 0x74, 0x61, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69,
+	0x6f, 0x6e, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x2e, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x52, 0x06,
+	0x6c, 0x65, 0x76, 0x65, 0x6c, 0x73, 0x12, 0x7e, 0x0a, 0x0e, 0x63, 0x6c, 0x61, 0x73, 0x73, 0x69,
+	0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x04, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x56,
+	0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e,
+	0x44, 0x61, 0x74, 0x61, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69,
+	0x6f, 0x6e, 0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x2e, 0x44, 0x61, 0x74, 0x61, 0x43, 0x6c,
+	0x61, 0x73, 0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x43, 0x6f, 0x6e, 0x66,
+	0x69, 0x67, 0x2e, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f,
+	0x6e, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x0e, 0x63, 0x6c, 0x61, 0x73, 0x73, 0x69, 0x66, 0x69,
+	0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x1a, 0x4f, 0x0a, 0x05, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x12,
+	0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x69, 0x64, 0x12,
+	0x14, 0x0a, 0x05, 0x74, 0x69, 0x74, 0x6c, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05,
+	0x74, 0x69, 0x74, 0x6c, 0x65, 0x12, 0x20, 0x0a, 0x0b, 0x64, 0x65, 0x73, 0x63, 0x72, 0x69, 0x70,
+	0x74, 0x69, 0x6f, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x64, 0x65, 0x73, 0x63,
+	0x72, 0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x1a, 0x89, 0x01, 0x0a, 0x12, 0x44, 0x61, 0x74, 0x61,
+	0x43, 0x6c, 0x61, 0x73, 0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x0e,
+	0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x69, 0x64, 0x12, 0x14,
+	0x0a, 0x05, 0x74, 0x69, 0x74, 0x6c, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x74,
+	0x69, 0x74, 0x6c, 0x65, 0x12, 0x20, 0x0a, 0x0b, 0x64, 0x65, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74,
+	0x69, 0x6f, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x64, 0x65, 0x73, 0x63, 0x72,
+	0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x1e, 0x0a, 0x08, 0x6c, 0x65, 0x76, 0x65, 0x6c, 0x5f,
+	0x69, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x07, 0x6c, 0x65, 0x76, 0x65,
+	0x6c, 0x49, 0x64, 0x88, 0x01, 0x01, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x6c, 0x65, 0x76, 0x65, 0x6c,
+	0x5f, 0x69, 0x64, 0x1a, 0x98, 0x01, 0x0a, 0x13, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x69, 0x66, 0x69,
+	0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b,
+	0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x6b, 0x0a,
+	0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x55, 0x2e, 0x62,
+	0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x44, 0x61,
+	0x74, 0x61, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e,
+	0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x2e, 0x44, 0x61, 0x74, 0x61, 0x43, 0x6c, 0x61, 0x73,
+	0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67,
+	0x2e, 0x44, 0x61, 0x74, 0x61, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74,
+	0x69, 0x6f, 0x6e, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x22, 0xa6,
+	0x02, 0x0a, 0x13, 0x53, 0x65, 0x6d, 0x61, 0x6e, 0x74, 0x69, 0x63, 0x54, 0x79, 0x70, 0x65, 0x53,
+	0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x12, 0x46, 0x0a, 0x05, 0x74, 0x79, 0x70, 0x65, 0x73, 0x18,
+	0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x30, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65,
+	0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x53, 0x65, 0x6d, 0x61, 0x6e, 0x74, 0x69, 0x63, 0x54,
+	0x79, 0x70, 0x65, 0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x2e, 0x53, 0x65, 0x6d, 0x61, 0x6e,
+	0x74, 0x69, 0x63, 0x54, 0x79, 0x70, 0x65, 0x52, 0x05, 0x74, 0x79, 0x70, 0x65, 0x73, 0x1a, 0xc6,
+	0x01, 0x0a, 0x0c, 0x53, 0x65, 0x6d, 0x61, 0x6e, 0x74, 0x69, 0x63, 0x54, 0x79, 0x70, 0x65, 0x12,
+	0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x69, 0x64, 0x12,
+	0x14, 0x0a, 0x05, 0x74, 0x69, 0x74, 0x6c, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05,
+	0x74, 0x69, 0x74, 0x6c, 0x65, 0x12, 0x20, 0x0a, 0x0b, 0x64, 0x65, 0x73, 0x63, 0x72, 0x69, 0x70,
+	0x74, 0x69, 0x6f, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x64, 0x65, 0x73, 0x63,
+	0x72, 0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x39, 0x0a, 0x19, 0x70, 0x61, 0x72, 0x74, 0x69,
+	0x61, 0x6c, 0x5f, 0x6d, 0x61, 0x73, 0x6b, 0x5f, 0x61, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68,
+	0x6d, 0x5f, 0x69, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x16, 0x70, 0x61, 0x72, 0x74,
+	0x69, 0x61, 0x6c, 0x4d, 0x61, 0x73, 0x6b, 0x41, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d,
+	0x49, 0x64, 0x12, 0x33, 0x0a, 0x16, 0x66, 0x75, 0x6c, 0x6c, 0x5f, 0x6d, 0x61, 0x73, 0x6b, 0x5f,
+	0x61, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d, 0x5f, 0x69, 0x64, 0x18, 0x05, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x13, 0x66, 0x75, 0x6c, 0x6c, 0x4d, 0x61, 0x73, 0x6b, 0x41, 0x6c, 0x67, 0x6f,
+	0x72, 0x69, 0x74, 0x68, 0x6d, 0x49, 0x64, 0x22, 0x84, 0x06, 0x0a, 0x17, 0x4d, 0x61, 0x73, 0x6b,
+	0x69, 0x6e, 0x67, 0x41, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d, 0x53, 0x65, 0x74, 0x74,
+	0x69, 0x6e, 0x67, 0x12, 0x51, 0x0a, 0x0a, 0x61, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d,
+	0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x31, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61,
+	0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x4d, 0x61, 0x73, 0x6b, 0x69, 0x6e, 0x67,
+	0x41, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d, 0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67,
+	0x2e, 0x41, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d, 0x52, 0x0a, 0x61, 0x6c, 0x67, 0x6f,
+	0x72, 0x69, 0x74, 0x68, 0x6d, 0x73, 0x1a, 0x95, 0x05, 0x0a, 0x09, 0x41, 0x6c, 0x67, 0x6f, 0x72,
+	0x69, 0x74, 0x68, 0x6d, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
+	0x52, 0x02, 0x69, 0x64, 0x12, 0x14, 0x0a, 0x05, 0x74, 0x69, 0x74, 0x6c, 0x65, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x09, 0x52, 0x05, 0x74, 0x69, 0x74, 0x6c, 0x65, 0x12, 0x20, 0x0a, 0x0b, 0x64, 0x65,
+	0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x0b, 0x64, 0x65, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x1a, 0x0a, 0x08,
+	0x63, 0x61, 0x74, 0x65, 0x67, 0x6f, 0x72, 0x79, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08,
+	0x63, 0x61, 0x74, 0x65, 0x67, 0x6f, 0x72, 0x79, 0x12, 0x59, 0x0a, 0x09, 0x66, 0x75, 0x6c, 0x6c,
+	0x5f, 0x6d, 0x61, 0x73, 0x6b, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x3a, 0x2e, 0x62, 0x79,
+	0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x4d, 0x61, 0x73,
+	0x6b, 0x69, 0x6e, 0x67, 0x41, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d, 0x53, 0x65, 0x74,
+	0x74, 0x69, 0x6e, 0x67, 0x2e, 0x41, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d, 0x2e, 0x46,
+	0x75, 0x6c, 0x6c, 0x4d, 0x61, 0x73, 0x6b, 0x48, 0x00, 0x52, 0x08, 0x66, 0x75, 0x6c, 0x6c, 0x4d,
+	0x61, 0x73, 0x6b, 0x12, 0x5c, 0x0a, 0x0a, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x5f, 0x6d, 0x61, 0x73,
+	0x6b, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x3b, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61,
+	0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x4d, 0x61, 0x73, 0x6b, 0x69, 0x6e, 0x67,
+	0x41, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d, 0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67,
+	0x2e, 0x41, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d, 0x2e, 0x52, 0x61, 0x6e, 0x67, 0x65,
+	0x4d, 0x61, 0x73, 0x6b, 0x48, 0x00, 0x52, 0x09, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x4d, 0x61, 0x73,
+	0x6b, 0x12, 0x56, 0x0a, 0x08, 0x6d, 0x64, 0x35, 0x5f, 0x6d, 0x61, 0x73, 0x6b, 0x18, 0x07, 0x20,
+	0x01, 0x28, 0x0b, 0x32, 0x39, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x73,
+	0x74, 0x6f, 0x72, 0x65, 0x2e, 0x4d, 0x61, 0x73, 0x6b, 0x69, 0x6e, 0x67, 0x41, 0x6c, 0x67, 0x6f,
+	0x72, 0x69, 0x74, 0x68, 0x6d, 0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x2e, 0x41, 0x6c, 0x67,
+	0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d, 0x2e, 0x4d, 0x44, 0x35, 0x4d, 0x61, 0x73, 0x6b, 0x48, 0x00,
+	0x52, 0x07, 0x6d, 0x64, 0x35, 0x4d, 0x61, 0x73, 0x6b, 0x1a, 0x2e, 0x0a, 0x08, 0x46, 0x75, 0x6c,
+	0x6c, 0x4d, 0x61, 0x73, 0x6b, 0x12, 0x22, 0x0a, 0x0c, 0x73, 0x75, 0x62, 0x73, 0x74, 0x69, 0x74,
+	0x75, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x73, 0x75, 0x62,
+	0x73, 0x74, 0x69, 0x74, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x1a, 0xbb, 0x01, 0x0a, 0x09, 0x52, 0x61,
+	0x6e, 0x67, 0x65, 0x4d, 0x61, 0x73, 0x6b, 0x12, 0x59, 0x0a, 0x06, 0x73, 0x6c, 0x69, 0x63, 0x65,
+	0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x41, 0x2e, 0x62, 0x79, 0x74, 0x65, 0x62, 0x61,
+	0x73, 0x65, 0x2e, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2e, 0x4d, 0x61, 0x73, 0x6b, 0x69, 0x6e, 0x67,
+	0x41, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d, 0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67,
+	0x2e, 0x41, 0x6c, 0x67, 0x6f, 0x72, 0x69, 0x74, 0x68, 0x6d, 0x2e, 0x52, 0x61, 0x6e, 0x67, 0x65,
+	0x4d, 0x61, 0x73, 0x6b, 0x2e, 0x53, 0x6c, 0x69, 0x63, 0x65, 0x52, 0x06, 0x73, 0x6c, 0x69, 0x63,
+	0x65, 0x73, 0x1a, 0x53, 0x0a, 0x05, 0x53, 0x6c, 0x69, 0x63, 0x65, 0x12, 0x14, 0x0a, 0x05, 0x73,
+	0x74, 0x61, 0x72, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x05, 0x52, 0x05, 0x73, 0x74, 0x61, 0x72,
+	0x74, 0x12, 0x10, 0x0a, 0x03, 0x65, 0x6e, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x05, 0x52, 0x03,
+	0x65, 0x6e, 0x64, 0x12, 0x22, 0x0a, 0x0c, 0x73, 0x75, 0x62, 0x73, 0x74, 0x69, 0x74, 0x75, 0x74,
+	0x69, 0x6f, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0c, 0x73, 0x75, 0x62, 0x73, 0x74,
+	0x69, 0x74, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x1a, 0x1d, 0x0a, 0x07, 0x4d, 0x44, 0x35, 0x4d, 0x61,
+	0x73, 0x6b, 0x12, 0x12, 0x0a, 0x04, 0x73, 0x61, 0x6c, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
+	0x52, 0x04, 0x73, 0x61, 0x6c, 0x74, 0x42, 0x06, 0x0a, 0x04, 0x6d, 0x61, 0x73, 0x6b, 0x42, 0x14,
+	0x5a, 0x12, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x2d, 0x67, 0x6f, 0x2f, 0x73,
+	0x74, 0x6f, 0x72, 0x65, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -877,42 +2147,83 @@ func file_store_setting_proto_rawDescGZIP() []byte {
 	return file_store_setting_proto_rawDescData
 }
 
-var file_store_setting_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_store_setting_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_store_setting_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_store_setting_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_store_setting_proto_goTypes = []interface{}{
-	(SMTPMailDeliverySetting_Encryption)(0),     // 0: bytebase.store.SMTPMailDeliverySetting.Encryption
-	(SMTPMailDeliverySetting_Authentication)(0), // 1: bytebase.store.SMTPMailDeliverySetting.Authentication
-	(*WorkspaceProfileSetting)(nil),             // 2: bytebase.store.WorkspaceProfileSetting
-	(*AgentPluginSetting)(nil),                  // 3: bytebase.store.AgentPluginSetting
-	(*WorkspaceApprovalSetting)(nil),            // 4: bytebase.store.WorkspaceApprovalSetting
-	(*ExternalApprovalSetting)(nil),             // 5: bytebase.store.ExternalApprovalSetting
-	(*SMTPMailDeliverySetting)(nil),             // 6: bytebase.store.SMTPMailDeliverySetting
-	(*SchemaTemplateSetting)(nil),               // 7: bytebase.store.SchemaTemplateSetting
-	(*WorkspaceApprovalSetting_Rule)(nil),       // 8: bytebase.store.WorkspaceApprovalSetting.Rule
-	(*ExternalApprovalSetting_Node)(nil),        // 9: bytebase.store.ExternalApprovalSetting.Node
-	(*SchemaTemplateSetting_FieldTemplate)(nil), // 10: bytebase.store.SchemaTemplateSetting.FieldTemplate
-	(*v1alpha1.ParsedExpr)(nil),                 // 11: google.api.expr.v1alpha1.ParsedExpr
-	(*ApprovalTemplate)(nil),                    // 12: bytebase.store.ApprovalTemplate
-	(*expr.Expr)(nil),                           // 13: google.type.Expr
-	(Engine)(0),                                 // 14: bytebase.store.Engine
-	(*ColumnMetadata)(nil),                      // 15: bytebase.store.ColumnMetadata
+	(Announcement_AlertLevel)(0),                                                  // 0: bytebase.store.Announcement.AlertLevel
+	(SMTPMailDeliverySetting_Encryption)(0),                                       // 1: bytebase.store.SMTPMailDeliverySetting.Encryption
+	(SMTPMailDeliverySetting_Authentication)(0),                                   // 2: bytebase.store.SMTPMailDeliverySetting.Authentication
+	(*WorkspaceProfileSetting)(nil),                                               // 3: bytebase.store.WorkspaceProfileSetting
+	(*Announcement)(nil),                                                          // 4: bytebase.store.Announcement
+	(*AgentPluginSetting)(nil),                                                    // 5: bytebase.store.AgentPluginSetting
+	(*WorkspaceApprovalSetting)(nil),                                              // 6: bytebase.store.WorkspaceApprovalSetting
+	(*ExternalApprovalSetting)(nil),                                               // 7: bytebase.store.ExternalApprovalSetting
+	(*SMTPMailDeliverySetting)(nil),                                               // 8: bytebase.store.SMTPMailDeliverySetting
+	(*SchemaTemplateSetting)(nil),                                                 // 9: bytebase.store.SchemaTemplateSetting
+	(*DataClassificationSetting)(nil),                                             // 10: bytebase.store.DataClassificationSetting
+	(*SemanticTypeSetting)(nil),                                                   // 11: bytebase.store.SemanticTypeSetting
+	(*MaskingAlgorithmSetting)(nil),                                               // 12: bytebase.store.MaskingAlgorithmSetting
+	(*WorkspaceApprovalSetting_Rule)(nil),                                         // 13: bytebase.store.WorkspaceApprovalSetting.Rule
+	(*ExternalApprovalSetting_Node)(nil),                                          // 14: bytebase.store.ExternalApprovalSetting.Node
+	(*SchemaTemplateSetting_FieldTemplate)(nil),                                   // 15: bytebase.store.SchemaTemplateSetting.FieldTemplate
+	(*SchemaTemplateSetting_ColumnType)(nil),                                      // 16: bytebase.store.SchemaTemplateSetting.ColumnType
+	(*SchemaTemplateSetting_TableTemplate)(nil),                                   // 17: bytebase.store.SchemaTemplateSetting.TableTemplate
+	(*DataClassificationSetting_DataClassificationConfig)(nil),                    // 18: bytebase.store.DataClassificationSetting.DataClassificationConfig
+	(*DataClassificationSetting_DataClassificationConfig_Level)(nil),              // 19: bytebase.store.DataClassificationSetting.DataClassificationConfig.Level
+	(*DataClassificationSetting_DataClassificationConfig_DataClassification)(nil), // 20: bytebase.store.DataClassificationSetting.DataClassificationConfig.DataClassification
+	nil,                                      // 21: bytebase.store.DataClassificationSetting.DataClassificationConfig.ClassificationEntry
+	(*SemanticTypeSetting_SemanticType)(nil), // 22: bytebase.store.SemanticTypeSetting.SemanticType
+	(*MaskingAlgorithmSetting_Algorithm)(nil),                 // 23: bytebase.store.MaskingAlgorithmSetting.Algorithm
+	(*MaskingAlgorithmSetting_Algorithm_FullMask)(nil),        // 24: bytebase.store.MaskingAlgorithmSetting.Algorithm.FullMask
+	(*MaskingAlgorithmSetting_Algorithm_RangeMask)(nil),       // 25: bytebase.store.MaskingAlgorithmSetting.Algorithm.RangeMask
+	(*MaskingAlgorithmSetting_Algorithm_MD5Mask)(nil),         // 26: bytebase.store.MaskingAlgorithmSetting.Algorithm.MD5Mask
+	(*MaskingAlgorithmSetting_Algorithm_RangeMask_Slice)(nil), // 27: bytebase.store.MaskingAlgorithmSetting.Algorithm.RangeMask.Slice
+	(*durationpb.Duration)(nil),                               // 28: google.protobuf.Duration
+	(*v1alpha1.ParsedExpr)(nil),                               // 29: google.api.expr.v1alpha1.ParsedExpr
+	(*ApprovalTemplate)(nil),                                  // 30: bytebase.store.ApprovalTemplate
+	(*expr.Expr)(nil),                                         // 31: google.type.Expr
+	(Engine)(0),                                               // 32: bytebase.store.Engine
+	(*ColumnMetadata)(nil),                                    // 33: bytebase.store.ColumnMetadata
+	(*ColumnConfig)(nil),                                      // 34: bytebase.store.ColumnConfig
+	(*TableMetadata)(nil),                                     // 35: bytebase.store.TableMetadata
+	(*TableConfig)(nil),                                       // 36: bytebase.store.TableConfig
 }
 var file_store_setting_proto_depIdxs = []int32{
-	8,  // 0: bytebase.store.WorkspaceApprovalSetting.rules:type_name -> bytebase.store.WorkspaceApprovalSetting.Rule
-	9,  // 1: bytebase.store.ExternalApprovalSetting.nodes:type_name -> bytebase.store.ExternalApprovalSetting.Node
-	0,  // 2: bytebase.store.SMTPMailDeliverySetting.encryption:type_name -> bytebase.store.SMTPMailDeliverySetting.Encryption
-	1,  // 3: bytebase.store.SMTPMailDeliverySetting.authentication:type_name -> bytebase.store.SMTPMailDeliverySetting.Authentication
-	10, // 4: bytebase.store.SchemaTemplateSetting.field_templates:type_name -> bytebase.store.SchemaTemplateSetting.FieldTemplate
-	11, // 5: bytebase.store.WorkspaceApprovalSetting.Rule.expression:type_name -> google.api.expr.v1alpha1.ParsedExpr
-	12, // 6: bytebase.store.WorkspaceApprovalSetting.Rule.template:type_name -> bytebase.store.ApprovalTemplate
-	13, // 7: bytebase.store.WorkspaceApprovalSetting.Rule.condition:type_name -> google.type.Expr
-	14, // 8: bytebase.store.SchemaTemplateSetting.FieldTemplate.engine:type_name -> bytebase.store.Engine
-	15, // 9: bytebase.store.SchemaTemplateSetting.FieldTemplate.column:type_name -> bytebase.store.ColumnMetadata
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	28, // 0: bytebase.store.WorkspaceProfileSetting.token_duration:type_name -> google.protobuf.Duration
+	4,  // 1: bytebase.store.WorkspaceProfileSetting.announcement:type_name -> bytebase.store.Announcement
+	0,  // 2: bytebase.store.Announcement.level:type_name -> bytebase.store.Announcement.AlertLevel
+	13, // 3: bytebase.store.WorkspaceApprovalSetting.rules:type_name -> bytebase.store.WorkspaceApprovalSetting.Rule
+	14, // 4: bytebase.store.ExternalApprovalSetting.nodes:type_name -> bytebase.store.ExternalApprovalSetting.Node
+	1,  // 5: bytebase.store.SMTPMailDeliverySetting.encryption:type_name -> bytebase.store.SMTPMailDeliverySetting.Encryption
+	2,  // 6: bytebase.store.SMTPMailDeliverySetting.authentication:type_name -> bytebase.store.SMTPMailDeliverySetting.Authentication
+	15, // 7: bytebase.store.SchemaTemplateSetting.field_templates:type_name -> bytebase.store.SchemaTemplateSetting.FieldTemplate
+	16, // 8: bytebase.store.SchemaTemplateSetting.column_types:type_name -> bytebase.store.SchemaTemplateSetting.ColumnType
+	17, // 9: bytebase.store.SchemaTemplateSetting.table_templates:type_name -> bytebase.store.SchemaTemplateSetting.TableTemplate
+	18, // 10: bytebase.store.DataClassificationSetting.configs:type_name -> bytebase.store.DataClassificationSetting.DataClassificationConfig
+	22, // 11: bytebase.store.SemanticTypeSetting.types:type_name -> bytebase.store.SemanticTypeSetting.SemanticType
+	23, // 12: bytebase.store.MaskingAlgorithmSetting.algorithms:type_name -> bytebase.store.MaskingAlgorithmSetting.Algorithm
+	29, // 13: bytebase.store.WorkspaceApprovalSetting.Rule.expression:type_name -> google.api.expr.v1alpha1.ParsedExpr
+	30, // 14: bytebase.store.WorkspaceApprovalSetting.Rule.template:type_name -> bytebase.store.ApprovalTemplate
+	31, // 15: bytebase.store.WorkspaceApprovalSetting.Rule.condition:type_name -> google.type.Expr
+	32, // 16: bytebase.store.SchemaTemplateSetting.FieldTemplate.engine:type_name -> bytebase.store.Engine
+	33, // 17: bytebase.store.SchemaTemplateSetting.FieldTemplate.column:type_name -> bytebase.store.ColumnMetadata
+	34, // 18: bytebase.store.SchemaTemplateSetting.FieldTemplate.config:type_name -> bytebase.store.ColumnConfig
+	32, // 19: bytebase.store.SchemaTemplateSetting.ColumnType.engine:type_name -> bytebase.store.Engine
+	32, // 20: bytebase.store.SchemaTemplateSetting.TableTemplate.engine:type_name -> bytebase.store.Engine
+	35, // 21: bytebase.store.SchemaTemplateSetting.TableTemplate.table:type_name -> bytebase.store.TableMetadata
+	36, // 22: bytebase.store.SchemaTemplateSetting.TableTemplate.config:type_name -> bytebase.store.TableConfig
+	19, // 23: bytebase.store.DataClassificationSetting.DataClassificationConfig.levels:type_name -> bytebase.store.DataClassificationSetting.DataClassificationConfig.Level
+	21, // 24: bytebase.store.DataClassificationSetting.DataClassificationConfig.classification:type_name -> bytebase.store.DataClassificationSetting.DataClassificationConfig.ClassificationEntry
+	20, // 25: bytebase.store.DataClassificationSetting.DataClassificationConfig.ClassificationEntry.value:type_name -> bytebase.store.DataClassificationSetting.DataClassificationConfig.DataClassification
+	24, // 26: bytebase.store.MaskingAlgorithmSetting.Algorithm.full_mask:type_name -> bytebase.store.MaskingAlgorithmSetting.Algorithm.FullMask
+	25, // 27: bytebase.store.MaskingAlgorithmSetting.Algorithm.range_mask:type_name -> bytebase.store.MaskingAlgorithmSetting.Algorithm.RangeMask
+	26, // 28: bytebase.store.MaskingAlgorithmSetting.Algorithm.md5_mask:type_name -> bytebase.store.MaskingAlgorithmSetting.Algorithm.MD5Mask
+	27, // 29: bytebase.store.MaskingAlgorithmSetting.Algorithm.RangeMask.slices:type_name -> bytebase.store.MaskingAlgorithmSetting.Algorithm.RangeMask.Slice
+	30, // [30:30] is the sub-list for method output_type
+	30, // [30:30] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_store_setting_proto_init() }
@@ -937,7 +2248,7 @@ func file_store_setting_proto_init() {
 			}
 		}
 		file_store_setting_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AgentPluginSetting); i {
+			switch v := v.(*Announcement); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -949,7 +2260,7 @@ func file_store_setting_proto_init() {
 			}
 		}
 		file_store_setting_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*WorkspaceApprovalSetting); i {
+			switch v := v.(*AgentPluginSetting); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -961,7 +2272,7 @@ func file_store_setting_proto_init() {
 			}
 		}
 		file_store_setting_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ExternalApprovalSetting); i {
+			switch v := v.(*WorkspaceApprovalSetting); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -973,7 +2284,7 @@ func file_store_setting_proto_init() {
 			}
 		}
 		file_store_setting_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SMTPMailDeliverySetting); i {
+			switch v := v.(*ExternalApprovalSetting); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -985,7 +2296,7 @@ func file_store_setting_proto_init() {
 			}
 		}
 		file_store_setting_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SchemaTemplateSetting); i {
+			switch v := v.(*SMTPMailDeliverySetting); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -997,7 +2308,7 @@ func file_store_setting_proto_init() {
 			}
 		}
 		file_store_setting_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*WorkspaceApprovalSetting_Rule); i {
+			switch v := v.(*SchemaTemplateSetting); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1009,7 +2320,7 @@ func file_store_setting_proto_init() {
 			}
 		}
 		file_store_setting_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ExternalApprovalSetting_Node); i {
+			switch v := v.(*DataClassificationSetting); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1021,6 +2332,54 @@ func file_store_setting_proto_init() {
 			}
 		}
 		file_store_setting_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*SemanticTypeSetting); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*MaskingAlgorithmSetting); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*WorkspaceApprovalSetting_Rule); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ExternalApprovalSetting_Node); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*SchemaTemplateSetting_FieldTemplate); i {
 			case 0:
 				return &v.state
@@ -1032,14 +2391,152 @@ func file_store_setting_proto_init() {
 				return nil
 			}
 		}
+		file_store_setting_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*SchemaTemplateSetting_ColumnType); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*SchemaTemplateSetting_TableTemplate); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*DataClassificationSetting_DataClassificationConfig); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*DataClassificationSetting_DataClassificationConfig_Level); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*DataClassificationSetting_DataClassificationConfig_DataClassification); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*SemanticTypeSetting_SemanticType); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*MaskingAlgorithmSetting_Algorithm); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*MaskingAlgorithmSetting_Algorithm_FullMask); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*MaskingAlgorithmSetting_Algorithm_RangeMask); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*MaskingAlgorithmSetting_Algorithm_MD5Mask); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_store_setting_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*MaskingAlgorithmSetting_Algorithm_RangeMask_Slice); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
+	file_store_setting_proto_msgTypes[17].OneofWrappers = []interface{}{}
+	file_store_setting_proto_msgTypes[20].OneofWrappers = []interface{}{
+		(*MaskingAlgorithmSetting_Algorithm_FullMask_)(nil),
+		(*MaskingAlgorithmSetting_Algorithm_RangeMask_)(nil),
+		(*MaskingAlgorithmSetting_Algorithm_Md5Mask)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_store_setting_proto_rawDesc,
-			NumEnums:      2,
-			NumMessages:   9,
+			NumEnums:      3,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

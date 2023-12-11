@@ -1,5 +1,5 @@
-import { defineStore } from "pinia";
 import dayjs from "dayjs";
+import { defineStore } from "pinia";
 import { computed, Ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { subscriptionServiceClient } from "@/grpcweb";
@@ -10,13 +10,13 @@ import {
   userCountLimit,
   instanceLimitFeature,
 } from "@/types";
+import { Instance } from "@/types/proto/v1/instance_service";
 import {
   PlanType,
   Subscription,
   planTypeFromJSON,
   planTypeToJSON,
 } from "@/types/proto/v1/subscription_service";
-import { Instance } from "@/types/proto/v1/instance_service";
 import { useSettingV1Store } from "./setting";
 
 interface SubscriptionState {
@@ -33,10 +33,18 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
   }),
   getters: {
     instanceCountLimit(state): number {
-      return instanceCountLimit.get(this.currentPlan) ?? 0;
+      let plan = this.currentPlan;
+      if (this.isTrialing) {
+        plan = PlanType.FREE;
+      }
+      return instanceCountLimit.get(plan) ?? 0;
     },
     userCountLimit(state): number {
-      return userCountLimit.get(this.currentPlan) ?? 0;
+      let plan = this.currentPlan;
+      if (this.isTrialing) {
+        plan = PlanType.FREE;
+      }
+      return userCountLimit.get(plan) ?? 0;
     },
     instanceLicenseCount(state): number {
       const count = state.subscription?.instanceCount ?? 0;
@@ -63,7 +71,7 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
         return "";
       }
 
-      return dayjs(state.subscription.expiresTime).format("YYYY-MM-DD");
+      return dayjs(state.subscription.expiresTime).format("L");
     },
     isTrialing(state): boolean {
       return !!state.subscription?.trialing;
@@ -111,6 +119,9 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
       return !!settingStore.getSettingByName("bb.enterprise.trial");
     },
     canTrial(state): boolean {
+      if (!this.isSelfHostLicense) {
+        return false;
+      }
       if (this.existTrialLicense) {
         return false;
       }
@@ -120,7 +131,13 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
       return this.canUpgradeTrial;
     },
     canUpgradeTrial(state): boolean {
-      return this.currentPlan < PlanType.ENTERPRISE;
+      return this.isSelfHostLicense && this.currentPlan < PlanType.ENTERPRISE;
+    },
+    isSelfHostLicense(state): boolean {
+      return import.meta.env.MODE.toLowerCase() !== "release-aws";
+    },
+    purchaseLicenseUrl(state): string {
+      return import.meta.env.BB_PURCHASE_LICENSE_URL;
     },
   },
   actions: {

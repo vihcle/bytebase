@@ -23,8 +23,8 @@
 </template>
 
 <script lang="ts" setup>
-import { reactive } from "vue";
 import { NInput } from "naive-ui";
+import { reactive } from "vue";
 
 type LocalState = {
   value: string;
@@ -56,9 +56,3 @@ const handlePressEnter = () => {
   applyValue(state.value);
 };
 </script>
-
-<style lang="postcss">
-.bb-ai-prompt-input .n-input__input-el {
-  @apply !ring-0;
-}
-</style>

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/pkg/errors"
 	"go.uber.org/multierr"
-	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -20,7 +20,9 @@ import (
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	parser "github.com/bytebase/bytebase/backend/plugin/parser/sql"
+	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
@@ -34,17 +36,17 @@ var (
 )
 
 func init() {
-	db.Register(db.MySQL, newDriver)
-	db.Register(db.TiDB, newDriver)
-	db.Register(db.MariaDB, newDriver)
-	db.Register(db.OceanBase, newDriver)
+	db.Register(storepb.Engine_MYSQL, newDriver)
+	db.Register(storepb.Engine_TIDB, newDriver)
+	db.Register(storepb.Engine_MARIADB, newDriver)
+	db.Register(storepb.Engine_OCEANBASE, newDriver)
 }
 
 // Driver is the MySQL driver.
 type Driver struct {
 	connectionCtx db.ConnectionContext
 	connCfg       db.ConnectionConfig
-	dbType        db.Type
+	dbType        storepb.Engine
 	dbBinDir      string
 	binlogDir     string
 	db            *sql.DB
@@ -63,7 +65,7 @@ func newDriver(dc db.DriverConfig) db.Driver {
 }
 
 // Open opens a MySQL driver.
-func (driver *Driver) Open(_ context.Context, dbType db.Type, connCfg db.ConnectionConfig, connCtx db.ConnectionContext) (db.Driver, error) {
+func (driver *Driver) Open(_ context.Context, dbType storepb.Engine, connCfg db.ConnectionConfig, connCtx db.ConnectionContext) (db.Driver, error) {
 	protocol := "tcp"
 	if strings.HasPrefix(connCfg.Host, "/") {
 		protocol = "unix"
@@ -88,7 +90,7 @@ func (driver *Driver) Open(_ context.Context, dbType db.Type, connCfg db.Connect
 	if err != nil {
 		return nil, errors.Wrap(err, "sql: tls config error")
 	}
-	tlsKey := "db.mysql.tls"
+	tlsKey := "storepb.Engine_MYSQL.tls"
 	if tlsConfig != nil {
 		if err := mysql.RegisterTLSConfig(tlsKey, tlsConfig); err != nil {
 			return nil, errors.Wrap(err, "sql: failed to register tls config")
@@ -132,7 +134,7 @@ func (driver *Driver) Ping(ctx context.Context) error {
 }
 
 // GetType returns the database type.
-func (driver *Driver) GetType() db.Type {
+func (driver *Driver) GetType() storepb.Engine {
 	return driver.dbType
 }
 
@@ -142,21 +144,25 @@ func (driver *Driver) GetDB() *sql.DB {
 }
 
 // getVersion gets the version.
-func (driver *Driver) getVersion(ctx context.Context) (string, error) {
+func (driver *Driver) getVersion(ctx context.Context) (string, string, error) {
 	query := "SELECT VERSION()"
 	var version string
 	if err := driver.db.QueryRowContext(ctx, query).Scan(&version); err != nil {
 		if err == sql.ErrNoRows {
-			return "", common.FormatDBErrorEmptyRowWithQuery(query)
+			return "", "", common.FormatDBErrorEmptyRowWithQuery(query)
 		}
-		return "", util.FormatErrorWithQuery(err, query)
+		return "", "", util.FormatErrorWithQuery(err, query)
 	}
-	return version, nil
+	pos := strings.Index(version, "-")
+	if pos == -1 {
+		return version, "", nil
+	}
+	return version[:pos], version[pos:], nil
 }
 
 // Execute executes a SQL statement.
 func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, opts db.ExecuteOptions) (int64, error) {
-	statement, err := parser.DealWithDelimiter(statement)
+	statement, err := mysqlparser.DealWithDelimiter(statement)
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to deal with delimiter")
 	}
@@ -164,29 +170,98 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, opt
 	if err != nil {
 		return 0, err
 	}
+	defer conn.Close()
 
 	if opts.BeginFunc != nil {
 		if err := opts.BeginFunc(ctx, conn); err != nil {
 			return 0, err
 		}
 	}
+
+	var totalCommands int
+	var chunks [][]base.SingleSQL
+	if opts.ChunkedSubmission && len(statement) <= common.MaxSheetCheckSize {
+		list, err := mysqlparser.SplitSQL(statement)
+		if err != nil {
+			return 0, errors.Wrapf(err, "failed to split sql")
+		}
+		list = filterEmptySQL(list)
+		if len(list) == 0 {
+			return 0, nil
+		}
+		totalCommands = len(list)
+		ret, err := util.ChunkedSQLScript(list, common.MaxSheetCheckSize)
+		if err != nil {
+			return 0, errors.Wrapf(err, "failed to chunk sql")
+		}
+		chunks = ret
+	} else {
+		chunks = [][]base.SingleSQL{
+			{
+				base.SingleSQL{
+					Text: statement,
+				},
+			},
+		}
+	}
+
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to begin execute transaction")
 	}
 	defer tx.Rollback()
 
+	currentIndex := 0
 	var totalRowsAffected int64
-	sqlResult, err := tx.ExecContext(ctx, statement)
-	if err != nil {
-		return 0, errors.Wrapf(err, "failed to execute context in a transaction")
+	for _, chunk := range chunks {
+		if len(chunk) == 0 {
+			continue
+		}
+		// Start the current chunk.
+
+		// Set the progress information for the current chunk.
+		if opts.UpdateExecutionStatus != nil {
+			opts.UpdateExecutionStatus(&v1pb.TaskRun_ExecutionDetail{
+				CommandsTotal:     int32(totalCommands),
+				CommandsCompleted: int32(currentIndex),
+				CommandStartPosition: &v1pb.TaskRun_ExecutionDetail_Position{
+					Line:   int32(chunk[0].FirstStatementLine),
+					Column: int32(chunk[0].FirstStatementColumn),
+				},
+				CommandEndPosition: &v1pb.TaskRun_ExecutionDetail_Position{
+					Line:   int32(chunk[len(chunk)-1].LastLine),
+					Column: int32(chunk[len(chunk)-1].LastColumn),
+				},
+			})
+		}
+
+		chunkText, err := util.ConcatChunk(chunk)
+		if err != nil {
+			return 0, err
+		}
+
+		sqlResult, err := tx.ExecContext(ctx, chunkText)
+		if err != nil {
+			return 0, &db.ErrorWithPosition{
+				Err: errors.Wrapf(err, "failed to execute context in a transaction"),
+				Start: &storepb.TaskRunResult_Position{
+					Line:   int32(chunk[0].FirstStatementLine),
+					Column: int32(chunk[0].FirstStatementColumn),
+				},
+				End: &storepb.TaskRunResult_Position{
+					Line:   int32(chunk[len(chunk)-1].LastLine),
+					Column: int32(chunk[len(chunk)-1].LastColumn),
+				},
+			}
+		}
+		rowsAffected, err := sqlResult.RowsAffected()
+		if err != nil {
+			// Since we cannot differentiate DDL and DML yet, we have to ignore the error.
+			slog.Debug("rowsAffected returns error", log.BBError(err))
+		}
+		totalRowsAffected += rowsAffected
+		currentIndex += len(chunk)
 	}
-	rowsAffected, err := sqlResult.RowsAffected()
-	if err != nil {
-		// Since we cannot differentiate DDL and DML yet, we have to ignore the error.
-		log.Debug("rowsAffected returns error", zap.Error(err))
-	}
-	totalRowsAffected += rowsAffected
 
 	if err := tx.Commit(); err != nil {
 		return 0, errors.Wrapf(err, "failed to commit execute transaction")
@@ -195,41 +270,13 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, opt
 	return totalRowsAffected, nil
 }
 
-// QueryConn querys a SQL statement in a given connection.
-func (driver *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]any, error) {
-	singleSQLs, err := parser.SplitMultiSQL(parser.MySQL, statement)
+// QueryConn queries a SQL statement in a given connection.
+func (driver *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]*v1pb.QueryResult, error) {
+	singleSQLs, err := base.SplitMultiSQL(storepb.Engine_MYSQL, statement)
 	if err != nil {
 		return nil, err
 	}
-	if len(singleSQLs) == 0 {
-		return nil, nil
-	}
-	// https://dev.mysql.com/doc/c-api/8.0/en/mysql-affected-rows.html
-	// If the statement is an INSERT, UPDATE, or DELETE statement, we will call execute instead of query and return the number of rows affected.
-	if len(singleSQLs) == 1 && parser.IsMySQLAffectedRowsStatement(singleSQLs[0].Text) {
-		sqlResult, err := conn.ExecContext(ctx, singleSQLs[0].Text)
-		if err != nil {
-			return nil, err
-		}
-		affectedRows, err := sqlResult.RowsAffected()
-		if err != nil {
-			log.Info("rowsAffected returns error", zap.Error(err))
-		}
-
-		field := []string{"Affected Rows"}
-		types := []string{"INT"}
-		rows := [][]any{{affectedRows}}
-		return []any{field, types, rows}, nil
-	}
-	return util.Query(ctx, driver.dbType, conn, statement, queryContext)
-}
-
-// QueryConn2 queries a SQL statement in a given connection.
-func (driver *Driver) QueryConn2(ctx context.Context, conn *sql.Conn, statement string, queryContext *db.QueryContext) ([]*v1pb.QueryResult, error) {
-	singleSQLs, err := parser.SplitMultiSQL(parser.MySQL, statement)
-	if err != nil {
-		return nil, err
-	}
+	singleSQLs = filterEmptySQL(singleSQLs)
 	if len(singleSQLs) == 0 {
 		return nil, nil
 	}
@@ -249,41 +296,40 @@ func (driver *Driver) QueryConn2(ctx context.Context, conn *sql.Conn, statement 
 	return results, nil
 }
 
-func (driver *Driver) getStatementWithResultLimit(stmt string, limit int) (string, error) {
-	switch driver.dbType {
-	case db.MySQL, db.MariaDB:
-		// MySQL 5.7 doesn't support WITH clause.
-		return fmt.Sprintf("SELECT * FROM (%s) result LIMIT %d;", stmt, limit), nil
-	case db.TiDB:
-		return fmt.Sprintf("WITH result AS (%s) SELECT * FROM result LIMIT %d;", stmt, limit), nil
-	default:
-		return "", errors.Errorf("unsupported database type %s", driver.dbType)
-	}
-}
-
-func (driver *Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL parser.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
+func (driver *Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL base.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
 	if singleSQL.Empty {
 		return nil, nil
 	}
 	statement := strings.TrimLeft(strings.TrimRight(singleSQL.Text, " \n\t;"), " \n\t")
+	isExplain := strings.HasPrefix(statement, "EXPLAIN")
 
 	stmt := statement
-	if !strings.HasPrefix(stmt, "EXPLAIN") && queryContext.Limit > 0 {
-		var err error
-		stmt, err = driver.getStatementWithResultLimit(stmt, queryContext.Limit)
-		if err != nil {
-			return nil, err
-		}
+	if !isExplain && queryContext.Limit > 0 {
+		stmt = driver.getStatementWithResultLimit(stmt, queryContext.Limit)
 	}
 
-	if driver.dbType == db.TiDB && queryContext.ReadOnly {
+	if driver.dbType == storepb.Engine_TIDB && queryContext.ReadOnly {
 		// TiDB doesn't support READ ONLY transactions. We have to skip the flag for it.
 		// https://github.com/pingcap/tidb/issues/34626
 		queryContext.ReadOnly = false
 	}
 
+	if queryContext.SensitiveSchemaInfo != nil {
+		for _, database := range queryContext.SensitiveSchemaInfo.DatabaseList {
+			if len(database.SchemaList) == 0 {
+				continue
+			}
+			if len(database.SchemaList) > 1 {
+				return nil, errors.Errorf("MySQL schema info should only have one schema per database, but got %d, %v", len(database.SchemaList), database.SchemaList)
+			}
+			if database.SchemaList[0].Name != "" {
+				return nil, errors.Errorf("MySQL schema info should have empty schema name, but got %s", database.SchemaList[0].Name)
+			}
+		}
+	}
+
 	startTime := time.Now()
-	result, err := util.Query2(ctx, driver.dbType, conn, stmt, queryContext)
+	result, err := util.Query(ctx, driver.dbType, conn, stmt, queryContext)
 	if err != nil {
 		return nil, err
 	}
@@ -294,5 +340,15 @@ func (driver *Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, single
 
 // RunStatement runs a SQL statement in a given connection.
 func (*Driver) RunStatement(ctx context.Context, conn *sql.Conn, statement string) ([]*v1pb.QueryResult, error) {
-	return util.RunStatement(ctx, parser.MySQL, conn, statement)
+	return util.RunStatement(ctx, storepb.Engine_MYSQL, conn, statement)
+}
+
+func filterEmptySQL(list []base.SingleSQL) []base.SingleSQL {
+	var result []base.SingleSQL
+	for _, sql := range list {
+		if !sql.Empty {
+			result = append(result, sql)
+		}
+	}
+	return result
 }

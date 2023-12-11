@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -34,6 +33,7 @@ type SettingMessage struct {
 	Name        api.SettingName
 	Value       string
 	Description string
+	CreatedTs   int64
 }
 
 // GetWorkspaceGeneralSetting gets the workspace general setting payload.
@@ -132,9 +132,9 @@ func (s *Store) GetWorkspaceExternalApprovalSetting(ctx context.Context) (*store
 	return payload, nil
 }
 
-// GetSchemaTemplateSetting gets the schema template setting.
-func (s *Store) GetSchemaTemplateSetting(ctx context.Context) (*storepb.SchemaTemplateSetting, error) {
-	settingName := api.SettingSchemaTemplate
+// GetMaskingAlgorithmSetting gets the masking algorithm setting.
+func (s *Store) GetMaskingAlgorithmSetting(ctx context.Context) (*storepb.MaskingAlgorithmSetting, error) {
+	settingName := api.SettingMaskingAlgorithm
 	setting, err := s.GetSettingV2(ctx, &FindSettingMessage{
 		Name: &settingName,
 	})
@@ -142,10 +142,50 @@ func (s *Store) GetSchemaTemplateSetting(ctx context.Context) (*storepb.SchemaTe
 		return nil, errors.Wrapf(err, "failed to get setting %s", settingName)
 	}
 	if setting == nil {
-		return &storepb.SchemaTemplateSetting{}, nil
+		return &storepb.MaskingAlgorithmSetting{}, nil
 	}
 
-	payload := new(storepb.SchemaTemplateSetting)
+	payload := new(storepb.MaskingAlgorithmSetting)
+	if err := protojson.Unmarshal([]byte(setting.Value), payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+// GetSemanticTypesSetting gets the semantic types setting.
+func (s *Store) GetSemanticTypesSetting(ctx context.Context) (*storepb.SemanticTypeSetting, error) {
+	settingName := api.SettingSemanticTypes
+	setting, err := s.GetSettingV2(ctx, &FindSettingMessage{
+		Name: &settingName,
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get setting %s", settingName)
+	}
+	if setting == nil {
+		return &storepb.SemanticTypeSetting{}, nil
+	}
+
+	payload := new(storepb.SemanticTypeSetting)
+	if err := protojson.Unmarshal([]byte(setting.Value), payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+// GetDataClassificationSetting gets the data classification setting.
+func (s *Store) GetDataClassificationSetting(ctx context.Context) (*storepb.DataClassificationSetting, error) {
+	settingName := api.SettingDataClassification
+	setting, err := s.GetSettingV2(ctx, &FindSettingMessage{
+		Name: &settingName,
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get setting %s", settingName)
+	}
+	if setting == nil {
+		return &storepb.DataClassificationSetting{}, nil
+	}
+
+	payload := new(storepb.DataClassificationSetting)
 	if err := protojson.Unmarshal([]byte(setting.Value), payload); err != nil {
 		return nil, err
 	}
@@ -154,16 +194,17 @@ func (s *Store) GetSchemaTemplateSetting(ctx context.Context) (*storepb.SchemaTe
 
 // DeleteCache deletes the cache.
 func (s *Store) DeleteCache() {
-	s.settingCache = sync.Map{}
+	s.settingCache.Purge()
 }
 
 // GetSettingV2 returns the setting by name.
 func (s *Store) GetSettingV2(ctx context.Context, find *FindSettingMessage) (*SettingMessage, error) {
 	if find.Name != nil && !find.Enforce {
-		if setting, ok := s.settingCache.Load(*find.Name); ok {
-			return setting.(*SettingMessage), nil
+		if v, ok := s.settingCache.Get(*find.Name); ok {
+			return v, nil
 		}
 	}
+
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to begin transaction")
@@ -201,8 +242,9 @@ func (s *Store) ListSettingV2(ctx context.Context, find *FindSettingMessage) ([]
 	if err := tx.Commit(); err != nil {
 		return nil, errors.Wrap(err, "failed to commit transaction")
 	}
+
 	for _, setting := range settings {
-		s.settingCache.Store(setting.Name, setting)
+		s.settingCache.Add(setting.Name, setting)
 	}
 	return settings, nil
 }
@@ -222,7 +264,7 @@ func (s *Store) UpsertSettingV2(ctx context.Context, update *SetSettingMessage, 
 	query := `INSERT INTO setting (` + strings.Join(fields, ", ") + `) 
 		VALUES (` + strings.Join(valuePlaceholders, ", ") + `) 
 		ON CONFLICT (name) DO UPDATE SET ` + strings.Join(updateFields, ", ") + `
-		RETURNING name, value, description`
+		RETURNING name, value, description, created_ts`
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -235,6 +277,7 @@ func (s *Store) UpsertSettingV2(ctx context.Context, update *SetSettingMessage, 
 		&setting.Name,
 		&setting.Value,
 		&setting.Description,
+		&setting.CreatedTs,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, &common.Error{Code: common.NotFound, Err: errors.Errorf("setting not found: %s", update.Name)}
@@ -245,14 +288,14 @@ func (s *Store) UpsertSettingV2(ctx context.Context, update *SetSettingMessage, 
 	if err := tx.Commit(); err != nil {
 		return nil, errors.Wrap(err, "failed to commit transaction")
 	}
-	s.settingCache.Store(setting.Name, &setting)
+	s.settingCache.Add(setting.Name, &setting)
 	return &setting, nil
 }
 
 // CreateSettingIfNotExistV2 creates a new setting only if the named setting doesn't exist.
 func (s *Store) CreateSettingIfNotExistV2(ctx context.Context, create *SettingMessage, principalUID int) (*SettingMessage, bool, error) {
-	if setting, ok := s.settingCache.Load(create.Name); ok {
-		return setting.(*SettingMessage), false, nil
+	if v, ok := s.settingCache.Get(create.Name); ok {
+		return v, false, nil
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -277,12 +320,13 @@ func (s *Store) CreateSettingIfNotExistV2(ctx context.Context, create *SettingMe
 
 	query := `INSERT INTO setting (` + strings.Join(fields, ",") + `)
 		VALUES (` + strings.Join(valuesPlaceholders, ",") + `)
-		RETURNING name, value, description`
+		RETURNING name, value, description, created_ts`
 	var setting SettingMessage
 	if err := tx.QueryRowContext(ctx, query, args...).Scan(
 		&setting.Name,
 		&setting.Value,
 		&setting.Description,
+		&setting.CreatedTs,
 	); err != nil {
 		return nil, false, err
 	}
@@ -290,7 +334,7 @@ func (s *Store) CreateSettingIfNotExistV2(ctx context.Context, create *SettingMe
 	if err := tx.Commit(); err != nil {
 		return nil, false, errors.Wrap(err, "failed to commit transaction")
 	}
-	s.settingCache.Store(setting.Name, &setting)
+	s.settingCache.Add(setting.Name, &setting)
 	return &setting, true, nil
 }
 
@@ -310,7 +354,7 @@ func (s *Store) DeleteSettingV2(ctx context.Context, name api.SettingName) error
 		return errors.Wrap(err, "failed to commit transaction")
 	}
 
-	s.settingCache.Delete(name)
+	s.settingCache.Remove(name)
 	return nil
 }
 
@@ -323,7 +367,8 @@ func listSettingV2Impl(ctx context.Context, tx *Tx, find *FindSettingMessage) ([
 		SELECT
 			name,
 			value,
-			description
+			description,
+			created_ts
 		FROM setting
 		WHERE `+strings.Join(where, " AND "), args...)
 	if err != nil {
@@ -338,6 +383,7 @@ func listSettingV2Impl(ctx context.Context, tx *Tx, find *FindSettingMessage) ([
 			&settingMessage.Name,
 			&settingMessage.Value,
 			&settingMessage.Description,
+			&settingMessage.CreatedTs,
 		); err != nil {
 			return nil, err
 		}

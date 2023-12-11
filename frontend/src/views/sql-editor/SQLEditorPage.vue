@@ -1,9 +1,11 @@
 <template>
   <div class="sqleditor--wrapper">
-    <TabList />
-    <Splitpanes class="default-theme flex flex-col flex-1 overflow-hidden">
+    <Splitpanes
+      class="default-theme flex flex-col flex-1 overflow-hidden"
+      :dbl-click-splitter="false"
+    >
       <Pane v-if="windowWidth >= 800" size="20">
-        <AsidePanel @alter-schema="handleAlterSchema" />
+        <AsidePanel />
       </Pane>
       <template v-else>
         <teleport to="body">
@@ -26,27 +28,53 @@
               :class="[state.sidebarExpanded ? '' : '-scale-100']"
             />
           </div>
-          <NDrawer
+          <Drawer
             v-model:show="state.sidebarExpanded"
             width="80vw"
             placement="left"
           >
-            <AsidePanel @alter-schema="handleAlterSchema" />
-          </NDrawer>
+            <AsidePanel />
+          </Drawer>
         </teleport>
       </template>
-      <Pane class="relative">
-        <template v-if="allowAccess">
+      <Pane class="relative flex flex-col">
+        <TabList />
+
+        <div class="w-full flex-1 overflow-hidden">
           <template v-if="tabStore.currentTab.mode === TabMode.ReadOnly">
             <Splitpanes
               v-if="allowReadOnlyMode"
               horizontal
               class="default-theme"
+              :dbl-click-splitter="false"
             >
-              <Pane>
-                <EditorPanel />
+              <Pane class="flex flex-row overflow-hidden">
+                <div class="h-full flex-1 overflow-hidden">
+                  <Splitpanes
+                    vertical
+                    class="default-theme"
+                    :dbl-click-splitter="false"
+                  >
+                    <Pane>
+                      <EditorPanel />
+                    </Pane>
+                    <Pane
+                      v-if="showSecondarySidebar && windowWidth >= 1024"
+                      :size="25"
+                    >
+                      <SecondarySidebar />
+                    </Pane>
+                  </Splitpanes>
+                </div>
+
+                <div
+                  v-if="windowWidth >= 1024"
+                  class="h-full border-l shrink-0"
+                >
+                  <SecondaryGutterBar />
+                </div>
               </Pane>
-              <Pane v-if="!isDisconnected" :size="40">
+              <Pane v-if="!isDisconnected" class="relative" :size="40">
                 <ResultPanel />
               </Pane>
             </Splitpanes>
@@ -73,14 +101,14 @@
           </template>
 
           <TerminalPanelV1 v-if="tabStore.currentTab.mode === TabMode.Admin" />
-        </template>
-        <div
-          v-else
-          class="w-full h-full flex flex-col items-center justify-center"
-        >
-          <img src="../../assets/illustration/403.webp" class="max-h-[40%]" />
-          <div class="textinfolabel">
-            {{ $t("database.access-denied") }}
+          <div
+            v-else
+            class="w-full h-full flex flex-col items-center justify-center"
+          >
+            <img src="../../assets/illustration/403.webp" class="max-h-[40%]" />
+            <div class="textinfolabel">
+              {{ $t("database.access-denied") }}
+            </div>
           </div>
         </div>
 
@@ -93,7 +121,13 @@
       </Pane>
     </Splitpanes>
 
-    <Quickstart />
+    <Quickstart v-if="showQuickstart" />
+
+    <Drawer v-model:show="showSheetPanel">
+      <DrawerContent :title="$t('sql-editor.sheet.self')">
+        <SheetPanel @close="showSheetPanel = false" />
+      </DrawerContent>
+    </Drawer>
 
     <SchemaEditorModal
       v-if="alterSchemaState.showModal"
@@ -106,33 +140,36 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, reactive } from "vue";
-import { Splitpanes, Pane } from "splitpanes";
+import { useWindowSize } from "@vueuse/core";
 import { stringify } from "qs";
-import { NDrawer } from "naive-ui";
-
-import { DatabaseId, TabMode, UNKNOWN_ID } from "@/types";
+import { Splitpanes, Pane } from "splitpanes";
+import { computed, reactive } from "vue";
+import SchemaEditorModal from "@/components/AlterSchemaPrepForm/SchemaEditorModal.vue";
+import { Drawer, DrawerContent, InstanceV1Name } from "@/components/v2";
+import { useEmitteryEventListener } from "@/composables/useEmitteryEventListener";
 import {
-  useCurrentUserV1,
+  useActuatorV1Store,
   useDatabaseV1Store,
   useInstanceV1ByUID,
   useSQLEditorStore,
   useTabStore,
 } from "@/store";
+import { DatabaseId, TabMode } from "@/types";
+import { allowUsingSchemaEditorV1, instanceV1HasReadonlyMode } from "@/utils";
 import AsidePanel from "./AsidePanel/AsidePanel.vue";
+import AdminModeButton from "./EditorCommon/AdminModeButton.vue";
 import EditorPanel from "./EditorPanel/EditorPanel.vue";
-import TerminalPanelV1 from "./TerminalPanel/TerminalPanelV1.vue";
-import TabList from "./TabList";
 import ResultPanel from "./ResultPanel";
 import {
-  allowUsingSchemaEditorV1,
-  instanceV1HasReadonlyMode,
-  isDatabaseV1Queryable,
-} from "@/utils";
-import AdminModeButton from "./EditorCommon/AdminModeButton.vue";
-import SchemaEditorModal from "@/components/AlterSchemaPrepForm/SchemaEditorModal.vue";
-import { useWindowSize } from "@vueuse/core";
-import { InstanceV1Name } from "@/components/v2";
+  provideSecondarySidebarContext,
+  default as SecondarySidebar,
+} from "./SecondarySidebar";
+import { SecondaryGutterBar } from "./SecondarySidebar";
+import { provideSheetContext } from "./Sheet";
+import SheetPanel from "./SheetPanel";
+import TabList from "./TabList";
+import TerminalPanelV1 from "./TerminalPanel/TerminalPanelV1.vue";
+import { provideSQLEditorContext } from "./context";
 
 type LocalState = {
   sidebarExpanded: boolean;
@@ -149,23 +186,20 @@ const state = reactive<LocalState>({
 
 const tabStore = useTabStore();
 const databaseStore = useDatabaseV1Store();
+const actuatorStore = useActuatorV1Store();
 const sqlEditorStore = useSQLEditorStore();
-const currentUserV1 = useCurrentUserV1();
+// provide context for SQL Editor
+const { events: editorEvents } = provideSQLEditorContext();
+// provide context for sheets
+const { showPanel: showSheetPanel } = provideSheetContext();
+const { show: showSecondarySidebar } = provideSecondarySidebarContext();
+
+const showQuickstart = computed(() => actuatorStore.pageMode === "BUNDLED");
 
 const isDisconnected = computed(() => tabStore.isDisconnected);
 const isFetchingSheet = computed(() => sqlEditorStore.isFetchingSheet);
 
 const { width: windowWidth } = useWindowSize();
-
-const allowAccess = computed(() => {
-  const { databaseId } = tabStore.currentTab.connection;
-  const database = databaseStore.getDatabaseByUID(databaseId);
-  if (database.uid === String(UNKNOWN_ID)) {
-    // Allowed if connected to an instance
-    return true;
-  }
-  return isDatabaseV1Queryable(database, currentUserV1.value);
-});
 
 const { instance } = useInstanceV1ByUID(
   computed(() => tabStore.currentTab.connection.instanceId)
@@ -182,40 +216,36 @@ const alterSchemaState = reactive<AlterSchemaState>({
   databaseIdList: [],
 });
 
-const handleAlterSchema = async (params: {
-  databaseId: string;
-  schema: string;
-  table: string;
-}) => {
-  const { databaseId, schema, table } = params;
-  const database = databaseStore.getDatabaseByUID(databaseId);
-  if (allowUsingSchemaEditorV1([database])) {
-    // await useProjectV1Store().getOrFetchProjectByUID(
-    //   String(database.projectEntity.uid)
-    // );
-    // TODO: support open selected database tab directly in Schema Editor.
-    alterSchemaState.databaseIdList = [databaseId].map((uid) => Number(uid));
-    alterSchemaState.showModal = true;
-  } else {
-    const exampleSQL = ["ALTER TABLE"];
-    if (table) {
-      if (schema) {
-        exampleSQL.push(`${schema}.${table}`);
-      } else {
-        exampleSQL.push(`${table}`);
+useEmitteryEventListener(
+  editorEvents,
+  "alter-schema",
+  ({ databaseUID, schema, table }) => {
+    const database = databaseStore.getDatabaseByUID(databaseUID);
+    if (allowUsingSchemaEditorV1([database])) {
+      // TODO: support open selected database tab directly in Schema Editor.
+      alterSchemaState.databaseIdList = [databaseUID].map((uid) => Number(uid));
+      alterSchemaState.showModal = true;
+    } else {
+      const exampleSQL = ["ALTER TABLE"];
+      if (table) {
+        if (schema) {
+          exampleSQL.push(`${schema}.${table}`);
+        } else {
+          exampleSQL.push(`${table}`);
+        }
       }
+      const query = {
+        template: "bb.issue.database.schema.update",
+        name: `[${database.name}] Alter schema`,
+        project: database.projectEntity.uid,
+        databaseList: databaseUID,
+        sql: exampleSQL.join(" "),
+      };
+      const url = `/issue/new?${stringify(query)}`;
+      window.open(url, "_blank");
     }
-    const query = {
-      template: "bb.issue.database.schema.update",
-      name: `[${database.name}] Alter schema`,
-      project: database.projectEntity.uid,
-      databaseList: databaseId,
-      sql: exampleSQL.join(" "),
-    };
-    const url = `/issue/new?${stringify(query)}`;
-    window.open(url, "_blank");
   }
-};
+);
 </script>
 
 <style>
@@ -233,7 +263,7 @@ const handleAlterSchema = async (params: {
 }
 
 .splitpanes.default-theme .splitpanes__splitter:hover {
-  @apply bg-indigo-400;
+  @apply bg-accent;
 }
 
 .splitpanes.default-theme .splitpanes__splitter::before,
@@ -245,16 +275,14 @@ const handleAlterSchema = async (params: {
 .splitpanes.default-theme .splitpanes__splitter:hover::after {
   @apply bg-white opacity-100;
 }
+
+.secondary-sidebar-gutter .n-tabs-wrapper {
+  @apply pt-0;
+}
 </style>
 
-<style scoped>
+<style scoped lang="postcss">
 .sqleditor--wrapper {
-  color: var(--base);
-  --base: #444;
-  --font-code: "Source Code Pro", monospace;
-  --color-branding: #4f46e5;
-  --border-color: rgba(200, 200, 200, 0.2);
-
-  @apply flex-1 overflow-hidden flex flex-col;
+  @apply w-full flex-1 overflow-hidden flex flex-col;
 }
 </style>

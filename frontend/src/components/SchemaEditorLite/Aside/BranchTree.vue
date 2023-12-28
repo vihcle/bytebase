@@ -78,14 +78,15 @@
 
 <script lang="ts" setup>
 import { useElementSize } from "@vueuse/core";
-import { cloneDeep, escape, head } from "lodash-es";
+import { cloneDeep, debounce, escape, head } from "lodash-es";
 import { TreeOption, NEllipsis, NInput, NDropdown, NTree } from "naive-ui";
 import { computed, watch, ref, h, reactive, nextTick, onMounted } from "vue";
+import { VNodeChild } from "vue";
 import { useI18n } from "vue-i18n";
 import DuplicateIcon from "~icons/heroicons-outline/document-duplicate";
-import TableIcon from "~icons/heroicons-outline/table-cells";
-import SchemaIcon from "~icons/heroicons-outline/view-columns";
 import EllipsisIcon from "~icons/heroicons-solid/ellipsis-horizontal";
+import { SchemaIcon, TableIcon } from "@/components/Icon";
+import { useEmitteryEventListener } from "@/composables/useEmitteryEventListener";
 import { ComposedDatabase } from "@/types";
 import { Engine } from "@/types/proto/v1/common";
 import {
@@ -98,26 +99,14 @@ import SchemaNameModal from "../Modals/SchemaNameModal.vue";
 import TableNameModal from "../Modals/TableNameModal.vue";
 import { useSchemaEditorContext } from "../context";
 import { keyForResource, keyForResourceName } from "../context/common";
-
-interface BaseTreeNode extends TreeOption {
-  key: string;
-  label: string;
-  isLeaf: boolean;
-  children?: TreeNode[];
-}
-
-interface TreeNodeForSchema extends BaseTreeNode {
-  type: "schema";
-  schema: SchemaMetadata;
-}
-
-interface TreeNodeForTable extends BaseTreeNode {
-  type: "table";
-  schema: SchemaMetadata;
-  table: TableMetadata;
-}
-
-type TreeNode = TreeNodeForSchema | TreeNodeForTable;
+import { engineHasSchema } from "../engine-specs";
+import NodeCheckbox from "./NodeCheckbox";
+import {
+  TreeNode,
+  TreeNodeForColumn,
+  TreeNodeForSchema,
+  TreeNodeForTable,
+} from "./types";
 
 interface TreeContextMenu {
   showDropdown: boolean;
@@ -146,6 +135,7 @@ const state = reactive<LocalState>({
   shouldRelocateTreeNode: false,
 });
 const {
+  events,
   targets,
   readonly,
   currentTab,
@@ -154,7 +144,11 @@ const {
   removeEditStatus,
   getSchemaStatus,
   getTableStatus,
+  getColumnStatus,
   upsertTableConfig,
+  selectionEnabled,
+  queuePendingScrollToTable,
+  queuePendingScrollToColumn,
 } = useSchemaEditorContext();
 const treeContainerElRef = ref<HTMLElement>();
 const { height: treeContainerHeight } = useElementSize(
@@ -169,6 +163,7 @@ const searchPattern = ref("");
 const expandedKeysRef = ref<string[]>([]);
 const selectedKeysRef = ref<string[]>([]);
 const treeDataRef = ref<TreeNode[]>([]);
+const treeNodeMap = new Map<string, TreeNode>();
 const contextMenu = reactive<TreeContextMenu>({
   showDropdown: false,
   clientX: 0,
@@ -206,9 +201,6 @@ const metadataForTable = (schema: SchemaMetadata, table: TableMetadata) => {
 const statusForSchema = (schema: SchemaMetadata) => {
   return getSchemaStatus(database.value, metadataForSchema(schema));
 };
-const statusForTable = (schema: SchemaMetadata, table: TableMetadata) => {
-  return getTableStatus(database.value, metadataForTable(schema, table));
-};
 
 const contextMenuOptions = computed(() => {
   const { treeNode } = contextMenu;
@@ -217,7 +209,7 @@ const contextMenuOptions = computed(() => {
   if (treeNode.type === "schema") {
     const options = [];
     if (engine.value === Engine.POSTGRES) {
-      const { schema } = treeNode;
+      const { schema } = treeNode.metadata;
 
       const status = statusForSchema(schema);
       const isDropped = status === "dropped";
@@ -241,9 +233,7 @@ const contextMenuOptions = computed(() => {
     }
     return options;
   } else if (treeNode.type === "table") {
-    const { schema, table } = treeNode;
-
-    const status = statusForTable(schema, table);
+    const status = getTableStatus(treeNode.db, treeNode.metadata);
     const options = [];
     if (status === "dropped") {
       options.push({
@@ -269,57 +259,124 @@ const contextMenuOptions = computed(() => {
   return [];
 });
 
-onMounted(() => {
-  buildBranchTreeData();
-});
-
-const buildBranchTreeData = () => {
+const upsertExpandedKeys = (key: string) => {
+  if (expandedKeysRef.value.includes(key)) return;
+  expandedKeysRef.value.push(key);
+};
+const expandNodeRecursively = (node: TreeNode) => {
+  if (node.type === "column") {
+    // column nodes are not expandable
+    expandNodeRecursively(node.parent);
+  }
+  if (node.type === "table") {
+    const key = keyForResource(node.db, node.metadata);
+    upsertExpandedKeys(key);
+    expandNodeRecursively(node.parent);
+  }
+  if (node.type === "schema") {
+    const key = keyForResource(node.db, node.metadata);
+    upsertExpandedKeys(key);
+    if (node.parent) {
+      expandNodeRecursively(node.parent);
+    }
+  }
+  if (node.type === "database") {
+    const key = node.db.name;
+    upsertExpandedKeys(key);
+  }
+};
+const buildBranchTreeData = (openFirstChild = false) => {
+  treeNodeMap.clear();
   const db = database.value;
-  const treeNodeList: TreeNode[] = [];
-  for (const schema of schemaList.value) {
+  const treeNodeList = schemaList.value.map((schema) => {
     const schemaTreeNode: TreeNodeForSchema = {
       type: "schema",
       key: keyForResource(db, {
         schema,
       }),
+      parent: undefined,
       label: schema.name,
       isLeaf: false,
-      schema: schema,
-      children: schema.tables.map<TreeNodeForTable>((table) => ({
+      db,
+      metadata: {
+        database: metadata.value,
+        schema,
+      },
+      children: [],
+    };
+    schemaTreeNode.children = schema.tables.map((table) => {
+      const tableTreeNode: TreeNodeForTable = {
         type: "table",
         key: keyForResource(db, {
           schema,
           table,
         }),
+        parent: schemaTreeNode,
         label: table.name,
         children: [],
-        isLeaf: true,
-        schema: schema,
-        table: table,
-      })),
-    };
-    if (schemaTreeNode.children!.length === 0) {
+        isLeaf: false,
+        db,
+        metadata: {
+          database: metadata.value,
+          schema,
+          table,
+        },
+      };
+      tableTreeNode.children = table.columns.map((column) => {
+        const columnTreeNode: TreeNodeForColumn = {
+          type: "column",
+          key: keyForResource(db, {
+            schema,
+            table,
+            column,
+          }),
+          parent: tableTreeNode,
+          label: column.name,
+          children: [],
+          isLeaf: true,
+          db,
+          metadata: {
+            database: metadata.value,
+            schema,
+            table,
+            column,
+          },
+        };
+        treeNodeMap.set(columnTreeNode.key, columnTreeNode);
+        return columnTreeNode;
+      });
+      if (tableTreeNode.children.length === 0) {
+        tableTreeNode.isLeaf = true;
+      }
+      treeNodeMap.set(tableTreeNode.key, tableTreeNode);
+      return tableTreeNode;
+    });
+    if (schemaTreeNode.children.length === 0) {
       schemaTreeNode.isLeaf = true;
     }
-    treeNodeList.push(schemaTreeNode);
-  }
+    treeNodeMap.set(schemaTreeNode.key, schemaTreeNode);
+    return schemaTreeNode;
+  });
   treeDataRef.value = treeNodeList;
-  const firstChildNode = head(treeDataRef.value);
-  if (firstChildNode) {
-    nextTick(() => {
-      // Auto expand the first tree node.
-      openTabForTreeNode(firstChildNode);
-    });
+  if (openFirstChild) {
+    const firstSchemaNode = head(treeDataRef.value);
+    if (firstSchemaNode) {
+      nextTick(() => {
+        // Auto expand the first tree node.
+        openTabForTreeNode(firstSchemaNode);
+      });
+    }
   }
 };
 
-watch(
-  [() => schemaList.value.length, () => flattenTableList.value.length],
-  buildBranchTreeData,
-  {
-    deep: false,
-  }
-);
+onMounted(() => {
+  buildBranchTreeData(/* openFirstChild */ true);
+});
+
+const debouncedBuildBranchTreeData = debounce(buildBranchTreeData, 100);
+useEmitteryEventListener(events, "rebuild-tree", (params) => {
+  debouncedBuildBranchTreeData(params.openFirstChild);
+});
 
 const tabWatchKey = computed(() => {
   const tab = currentTab.value;
@@ -330,54 +387,72 @@ const tabWatchKey = computed(() => {
   return keyForResource(tab.database, tab.metadata);
 });
 watch(tabWatchKey, () => {
-  const tab = currentTab.value;
-  if (!tab) {
-    selectedKeysRef.value = [];
-    return;
-  }
+  requestAnimationFrame(() => {
+    const tab = currentTab.value;
+    if (!tab) {
+      selectedKeysRef.value = [];
+      return;
+    }
 
-  if (tab.type === "database") {
-    const { database, selectedSchema: schema } = tab;
-    if (schema) {
-      const key = keyForResourceName(database.name, schema);
-      if (!expandedKeysRef.value.includes(key)) {
-        expandedKeysRef.value.push(key);
+    if (tab.type === "database") {
+      const { database, selectedSchema: schema } = tab;
+      if (schema) {
+        const key = keyForResourceName(database.name, schema);
+        const node = treeNodeMap.get(key);
+        if (node) {
+          expandNodeRecursively(node);
+        }
+        selectedKeysRef.value = [key];
       }
-      selectedKeysRef.value = [key];
+    } else if (tab.type === "table") {
+      const {
+        database,
+        metadata: { schema, table },
+      } = tab;
+      const tableKey = keyForResource(database, { schema, table });
+      const node = treeNodeMap.get(tableKey);
+      if (node) {
+        expandNodeRecursively(node);
+      }
+      selectedKeysRef.value = [tableKey];
     }
-  } else if (tab.type === "table") {
-    const {
-      database,
-      metadata: { schema, table },
-    } = tab;
-    const schemaKey = keyForResource(database, { schema });
-    if (!expandedKeysRef.value.includes(schemaKey)) {
-      expandedKeysRef.value.push(schemaKey);
-    }
-    const tableKey = keyForResource(database, { schema, table });
-    selectedKeysRef.value = [tableKey];
-  }
 
-  if (state.shouldRelocateTreeNode) {
-    nextTick(() => {
-      treeRef.value?.scrollTo({
-        key: selectedKeysRef.value[0],
+    if (state.shouldRelocateTreeNode) {
+      nextTick(() => {
+        treeRef.value?.scrollTo({
+          key: selectedKeysRef.value[0],
+        });
       });
-    });
-  }
+    }
+  });
 });
 
 // Render prefix icons before label text.
 const renderPrefix = ({ option }: { option: TreeOption }) => {
   const treeNode = option as TreeNode;
+  const children: VNodeChild[] = [];
+  if (selectionEnabled.value) {
+    children.push(
+      h(NodeCheckbox, {
+        node: treeNode,
+      })
+    );
+  }
   if (treeNode.type === "schema") {
-    return h(SchemaIcon, {
-      class: "w-4 h-auto text-gray-400",
-    });
+    children.push(
+      h(SchemaIcon, {
+        class: "w-4 h-auto text-gray-400",
+      })
+    );
   } else if (treeNode.type === "table") {
-    return h(TableIcon, {
-      class: "w-4 h-auto text-gray-400",
-    });
+    children.push(
+      h(TableIcon, {
+        class: "w-4 h-auto text-gray-400",
+      })
+    );
+  }
+  if (children.length > 0) {
+    return h("div", { class: "flex flex-row items-center gap-x-1" }, children);
   }
   return null;
 };
@@ -389,20 +464,24 @@ const renderLabel = ({ option }: { option: TreeOption }) => {
   let label = treeNode.label;
 
   if (treeNode.type === "schema") {
-    const { schema } = treeNode as TreeNodeForSchema;
-    if (schema) {
-      if (engine.value !== Engine.POSTGRES) {
-        label = t("db.tables");
-      }
-      const status = statusForSchema(schema);
-      additionalClassList.push(status);
+    if (engine.value !== Engine.POSTGRES) {
+      label = t("db.tables");
     }
+    const status = getSchemaStatus(treeNode.db, treeNode.metadata);
+    additionalClassList.push(status);
   } else if (treeNode.type === "table") {
-    const { schema, table } = treeNode as TreeNodeForTable;
-
-    if (table) {
-      const status = statusForTable(schema, table);
-      additionalClassList.push(status);
+    const status = getTableStatus(treeNode.db, treeNode.metadata);
+    additionalClassList.push(status);
+  } else if (treeNode.type === "column") {
+    const { db, metadata } = treeNode;
+    const status = getColumnStatus(db, metadata);
+    additionalClassList.push(status);
+    const { name } = metadata.column;
+    if (name) {
+      label = name;
+    } else {
+      label = `<${t("common.untitled")}>`;
+      additionalClassList.push("text-control-placeholder");
     }
   }
 
@@ -420,6 +499,71 @@ const renderLabel = ({ option }: { option: TreeOption }) => {
       }),
     ]
   );
+};
+
+const handleDuplicateTable = (schema: SchemaMetadata, table: TableMetadata) => {
+  const db = database.value;
+  const matchPattern = new RegExp(
+    `^${getOriginalName(table.name)}` + "(_copy[0-9]{0,}){0,1}$"
+  );
+  const copiedTableNames = flattenTableList.value
+    .filter((table) => {
+      return matchPattern.test(table.name);
+    })
+    .sort((t1, t2) => {
+      return extractDuplicateNumber(t1.name) - extractDuplicateNumber(t2.name);
+    });
+  const targetName = copiedTableNames.slice(-1)[0]?.name ?? table.name;
+
+  const newTable = cloneDeep(table);
+  newTable.name = getDuplicateName(targetName);
+  schema.tables.push(newTable);
+  markEditStatus(db, metadataForTable(schema, newTable), "created");
+  newTable.columns.forEach((newColumn) => {
+    markEditStatus(
+      db,
+      { ...metadataForTable(schema, newTable), column: newColumn },
+      "created"
+    );
+  });
+  const tableConfig = metadata.value.schemaConfigs
+    .find((sc) => sc.name === schema.name)
+    ?.tableConfigs.find((tc) => tc.name === table.name);
+  if (tableConfig) {
+    const tableConfigCopy = cloneDeep(tableConfig);
+    tableConfigCopy.name = newTable.name;
+    upsertTableConfig(
+      db,
+      {
+        database: metadata.value,
+        schema,
+        table: newTable,
+      },
+      (config) => {
+        Object.assign(config, tableConfigCopy);
+      }
+    );
+  }
+  addTab({
+    type: "table",
+    database: db,
+    metadata: {
+      database: metadata.value,
+      schema: schema,
+      table: newTable,
+    },
+  });
+  queuePendingScrollToTable({
+    db,
+    metadata: {
+      database: metadata.value,
+      schema: schema,
+      table: newTable,
+    },
+  });
+  events.emit("rebuild-tree", {
+    openFirstChild: false,
+  });
 };
 
 // Render a 'menu' icon in the right of the node
@@ -442,64 +586,11 @@ const renderSuffix = ({ option }: { option: TreeOption }) => {
       e.stopPropagation();
       e.stopImmediatePropagation();
 
-      const db = database.value;
-      const { schema, table } = treeNode as TreeNodeForTable;
+      const { schema, table } = (treeNode as TreeNodeForTable).metadata;
       if (!schema || !table) {
         return;
       }
-
-      const matchPattern = new RegExp(
-        `^${getOriginalName(table.name)}` + "(_copy[0-9]{0,}){0,1}$"
-      );
-      const copiedTableNames = flattenTableList.value
-        .filter((table) => {
-          return matchPattern.test(table.name);
-        })
-        .sort((t1, t2) => {
-          return (
-            extractDuplicateNumber(t1.name) - extractDuplicateNumber(t2.name)
-          );
-        });
-      const targetName = copiedTableNames.slice(-1)[0]?.name ?? table.name;
-
-      const newTable = cloneDeep(table);
-      newTable.name = getDuplicateName(targetName);
-      schema.tables.push(newTable);
-      markEditStatus(db, metadataForTable(schema, newTable), "created");
-      newTable.columns.forEach((newColumn) => {
-        markEditStatus(
-          db,
-          { ...metadataForTable(schema, newTable), column: newColumn },
-          "created"
-        );
-      });
-      const tableConfig = metadata.value.schemaConfigs
-        .find((sc) => sc.name === schema.name)
-        ?.tableConfigs.find((tc) => tc.name === table.name);
-      if (tableConfig) {
-        const tableConfigCopy = cloneDeep(tableConfig);
-        tableConfigCopy.name = newTable.name;
-        upsertTableConfig(
-          db,
-          {
-            database: metadata.value,
-            schema,
-            table: newTable,
-          },
-          (config) => {
-            Object.assign(config, tableConfigCopy);
-          }
-        );
-      }
-      addTab({
-        type: "table",
-        database: database.value,
-        metadata: {
-          database: metadata.value,
-          schema: schema,
-          table: newTable,
-        },
-      });
+      handleDuplicateTable(schema, table);
     },
   });
   if (treeNode.type === "schema") {
@@ -552,7 +643,7 @@ const handleShowDropdown = (e: MouseEvent, treeNode: TreeNode) => {
 };
 
 const handleCreateSchemaOrTable = () => {
-  if (engine.value === Engine.MYSQL || engine.value === Engine.TIDB) {
+  if (!engineHasSchema(engine.value)) {
     const schema = head(schemaList.value);
     if (schema) {
       state.tableNameModalContext = {
@@ -562,7 +653,7 @@ const handleCreateSchemaOrTable = () => {
         table: undefined,
       };
     }
-  } else if (engine.value === Engine.POSTGRES) {
+  } else {
     state.schemaNameModalContext = {
       database: database.value,
       metadata: metadata.value,
@@ -594,28 +685,29 @@ const nodeProps = ({ option }: { option: TreeOption }) => {
 const openTabForTreeNode = (node: TreeNode) => {
   state.shouldRelocateTreeNode = false;
 
-  if (node.type === "table") {
+  if (node.type === "column") {
+    openTabForTreeNode(node.parent);
+    queuePendingScrollToColumn({
+      db: node.db,
+      metadata: node.metadata,
+    });
+    return;
+  } else if (node.type === "table") {
     addTab({
       type: "table",
       database: database.value,
-      metadata: {
-        database: metadata.value,
-        schema: node.schema,
-        table: node.table,
-      },
+      metadata: node.metadata,
     });
+    expandNodeRecursively(node);
   } else if (node.type === "schema") {
-    const index = expandedKeysRef.value.findIndex((key) => key === node.key);
-    if (index < 0) {
-      expandedKeysRef.value.push(node.key);
-    }
+    expandNodeRecursively(node);
     addTab({
       type: "database",
       database: database.value,
       metadata: {
         database: metadata.value,
       },
-      selectedSchema: node.schema.name,
+      selectedSchema: node.metadata.schema.name,
     });
   }
 
@@ -629,7 +721,7 @@ const handleContextMenuDropdownSelect = async (key: string) => {
   }
 
   if (treeNode.type === "schema") {
-    const { schema } = treeNode;
+    const { schema } = treeNode.metadata;
     if (key === "create-table") {
       state.tableNameModalContext = {
         database: database.value,
@@ -646,7 +738,7 @@ const handleContextMenuDropdownSelect = async (key: string) => {
       );
     }
   } else if (treeNode.type === "table") {
-    const { schema, table } = treeNode;
+    const { schema, table } = treeNode.metadata;
     if (key === "rename") {
       state.tableNameModalContext = {
         database: database.value,

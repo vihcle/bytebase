@@ -35,13 +35,11 @@
               {{ $t("common.email") }} <span class="text-red-600">*</span>
             </label>
             <div class="mt-1 rounded-md shadow-sm">
-              <input
-                id="email"
-                v-model="state.email"
-                type="email"
+              <BBTextField
+                v-model:value="state.email"
                 required
                 placeholder="jim@example.com"
-                class="appearance-none block w-full px-3 py-2 border border-control-border rounded-md placeholder-control-placeholder focus:outline-none focus:shadow-outline-blue focus:border-control-border sm:text-sm sm:leading-5"
+                :input-props="{ id: 'email' }"
                 @input="onTextEmail"
               />
             </div>
@@ -58,13 +56,11 @@
             <div
               class="relative flex flex-row items-center mt-1 rounded-md shadow-sm"
             >
-              <input
-                id="password"
-                v-model="state.password"
+              <BBTextField
+                v-model:value="state.password"
                 :type="state.showPassword ? 'text' : 'password'"
-                autocomplete="off"
+                :input-props="{ id: 'password', autocomplete: 'off' }"
                 required
-                class="appearance-none block w-full px-3 py-2 border border-control-border rounded-md placeholder-control-placeholder focus:outline-none focus:shadow-outline-blue focus:border-control-border sm:text-sm sm:leading-5"
                 @input="refreshPasswordValidation"
               />
               <div
@@ -90,26 +86,24 @@
               class="block text-sm font-medium leading-5 text-control"
             >
               {{ $t("auth.sign-up.confirm-password") }}
-              <span class="text-red-600"
-                >*
+              <span class="text-red-600">
+                *
                 {{
                   state.showPasswordMismatchError
                     ? $t("auth.sign-up.password-mismatch")
                     : ""
-                }}</span
-              >
+                }}
+              </span>
             </label>
             <div
               class="relative flex flex-row items-center mt-1 rounded-md shadow-sm"
             >
-              <input
-                id="password-confirm"
-                v-model="state.passwordConfirm"
+              <BBTextField
+                v-model:value="state.passwordConfirm"
                 :type="state.showPassword ? 'text' : 'password'"
-                autocomplete="off"
+                :input-props="{ id: 'password-confirm', autocomplete: 'off' }"
                 :placeholder="$t('auth.sign-up.confirm-password-placeholder')"
                 required
-                class="appearance-none block w-full px-3 py-2 border border-control-border rounded-md placeholder-control-placeholder focus:outline-none focus:shadow-outline-blue focus:border-control-border sm:text-sm sm:leading-5"
                 @input="refreshPasswordValidation"
               />
               <div
@@ -135,14 +129,14 @@
               class="block text-sm font-medium leading-5 text-control"
             >
               {{ $t("common.username") }}
+              <span class="text-red-600"> * </span>
             </label>
             <div class="mt-1 rounded-md shadow-sm">
-              <input
+              <BBTextField
                 id="name"
-                v-model="state.name"
-                type="text"
+                v-model:value="state.name"
+                required
                 placeholder="Jim Gray"
-                class="appearance-none block w-full px-3 py-2 border border-control-border rounded-md placeholder-control-placeholder focus:outline-none focus:shadow-outline-blue focus:border-control-border sm:text-sm sm:leading-5"
                 @input="onTextName"
               />
             </div>
@@ -152,16 +146,17 @@
             v-if="needAdminSetup"
             class="w-full flex flex-row justify-start items-start"
           >
-            <BBCheckbox
-              :value="state.acceptTermsAndPolicy"
+            <NCheckbox
+              v-model:checked="state.acceptTermsAndPolicy"
               class="mt-0.5"
-              @toggle="onToggleAcceptTermsAndPolicyCheckbox"
             />
             <i18n-t
               tag="span"
               keypath="auth.sign-up.accept-terms-and-policy"
               class="ml-1 select-none"
-              @click="onToggleAcceptTermsAndPolicyCheckbox"
+              @click="
+                () => (state.acceptTermsAndPolicy = !state.acceptTermsAndPolicy)
+              "
             >
               <template #terms>
                 <a
@@ -180,20 +175,20 @@
             </i18n-t>
           </div>
 
-          <div>
-            <span class="block w-full rounded-md shadow-sm">
-              <button
-                type="submit"
-                :disabled="!allowSignup"
-                class="btn-primary w-full flex justify-center py-2 px-4"
-              >
-                {{
-                  needAdminSetup
-                    ? $t("auth.sign-up.create-admin-account")
-                    : $t("common.sign-up")
-                }}
-              </button>
-            </span>
+          <div class="w-full">
+            <NButton
+              attr-type="submit"
+              type="primary"
+              size="large"
+              :disabled="!allowSignup"
+              style="width: 100%"
+            >
+              {{
+                needAdminSetup
+                  ? $t("auth.sign-up.create-admin-account")
+                  : $t("common.sign-up")
+              }}
+            </NButton>
           </div>
         </form>
       </div>
@@ -217,15 +212,10 @@
   <AuthFooter />
 </template>
 
-<script lang="ts">
+<script lang="ts" setup>
+import { NCheckbox } from "naive-ui";
 import { storeToRefs } from "pinia";
-import {
-  computed,
-  defineComponent,
-  onMounted,
-  onUnmounted,
-  reactive,
-} from "vue";
+import { computed, onMounted, onUnmounted, reactive } from "vue";
 import { useRouter } from "vue-router";
 import {
   useActuatorV1Store,
@@ -248,138 +238,117 @@ interface LocalState {
   showPassword: boolean;
 }
 
-export default defineComponent({
-  name: "SignupPage",
-  components: { AuthFooter },
-  setup() {
-    const actuatorStore = useActuatorV1Store();
-    const router = useRouter();
+const actuatorStore = useActuatorV1Store();
+const router = useRouter();
 
-    const state = reactive<LocalState>({
-      email: "",
-      password: "",
-      passwordConfirm: "",
-      showPasswordMismatchError: false,
-      name: "",
-      nameManuallyEdited: false,
-      acceptTermsAndPolicy: true,
-      showPassword: false,
-    });
-
-    onUnmounted(() => {
-      if (state.passwordValidationTimer) {
-        clearInterval(state.passwordValidationTimer);
-      }
-    });
-
-    const { needAdminSetup, disallowSignup } = storeToRefs(actuatorStore);
-
-    const allowSignup = computed(() => {
-      return (
-        isValidEmail(state.email) &&
-        state.password &&
-        !state.showPasswordMismatchError &&
-        state.acceptTermsAndPolicy &&
-        !disallowSignup.value
-      );
-    });
-
-    const passwordMatch = computed(() => {
-      return state.password == state.passwordConfirm;
-    });
-
-    onMounted(() => {
-      if (needAdminSetup.value) {
-        state.acceptTermsAndPolicy = false;
-      }
-    });
-
-    const refreshPasswordValidation = () => {
-      if (state.passwordValidationTimer) {
-        clearInterval(state.passwordValidationTimer);
-      }
-
-      if (passwordMatch.value) {
-        state.showPasswordMismatchError = false;
-      } else {
-        state.passwordValidationTimer = setTimeout(() => {
-          // If error is already displayed, we hide the error only if there is valid input.
-          // Otherwise, we hide the error if input is either empty or valid.
-          if (state.showPasswordMismatchError) {
-            state.showPasswordMismatchError = !passwordMatch.value;
-          } else {
-            state.showPasswordMismatchError =
-              state.password != "" &&
-              state.passwordConfirm != "" &&
-              !passwordMatch.value;
-          }
-        }, TEXT_VALIDATION_DELAY);
-      }
-    };
-
-    const onTextEmail = () => {
-      const email = state.email.trim().toLowerCase();
-      state.email = email;
-      if (!state.nameManuallyEdited) {
-        const emailParts = email.split("@");
-        if (emailParts.length > 0) {
-          if (emailParts[0].length > 0) {
-            const name = emailParts[0].replace("_", ".");
-            const nameParts = name.split(".");
-            if (nameParts.length >= 2) {
-              state.name = [
-                nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1),
-                nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1),
-              ].join(" ");
-            } else {
-              state.name = name.charAt(0).toUpperCase() + name.slice(1);
-            }
-          }
-        }
-      }
-    };
-
-    const onTextName = () => {
-      const name = state.name.trim();
-      state.nameManuallyEdited = name.length > 0;
-    };
-
-    const onToggleAcceptTermsAndPolicyCheckbox = () => {
-      state.acceptTermsAndPolicy = !state.acceptTermsAndPolicy;
-    };
-
-    const trySignup = async () => {
-      if (!passwordMatch.value) {
-        state.showPasswordMismatchError = true;
-      } else {
-        const signupInfo: SignupInfo = {
-          email: state.email,
-          password: state.password,
-          name: state.name,
-        };
-        await useAuthStore().signup(signupInfo);
-        if (needAdminSetup.value) {
-          await actuatorStore.fetchServerInfo();
-          // When the first time we created an end user, the server-side will
-          // generate onboarding data.
-          // We write a flag here to indicate that the workspace is just created
-          // and we can consume this flag somewhere else if needed.
-          useOnboardingStateStore().initialize();
-        }
-        router.replace("/");
-      }
-    };
-
-    return {
-      state,
-      needAdminSetup,
-      allowSignup,
-      onTextEmail,
-      onTextName,
-      onToggleAcceptTermsAndPolicyCheckbox,
-      trySignup,
-      refreshPasswordValidation,
-    };
-  },
+const state = reactive<LocalState>({
+  email: "",
+  password: "",
+  passwordConfirm: "",
+  showPasswordMismatchError: false,
+  name: "",
+  nameManuallyEdited: false,
+  acceptTermsAndPolicy: true,
+  showPassword: false,
 });
+
+onUnmounted(() => {
+  if (state.passwordValidationTimer) {
+    clearInterval(state.passwordValidationTimer);
+  }
+});
+
+const { needAdminSetup, disallowSignup } = storeToRefs(actuatorStore);
+
+const allowSignup = computed(() => {
+  return (
+    isValidEmail(state.email) &&
+    state.password &&
+    !state.showPasswordMismatchError &&
+    state.acceptTermsAndPolicy &&
+    !disallowSignup.value
+  );
+});
+
+const passwordMatch = computed(() => {
+  return state.password == state.passwordConfirm;
+});
+
+onMounted(() => {
+  if (needAdminSetup.value) {
+    state.acceptTermsAndPolicy = false;
+  }
+});
+
+const refreshPasswordValidation = () => {
+  if (state.passwordValidationTimer) {
+    clearInterval(state.passwordValidationTimer);
+  }
+
+  if (passwordMatch.value) {
+    state.showPasswordMismatchError = false;
+  } else {
+    state.passwordValidationTimer = setTimeout(() => {
+      // If error is already displayed, we hide the error only if there is valid input.
+      // Otherwise, we hide the error if input is either empty or valid.
+      if (state.showPasswordMismatchError) {
+        state.showPasswordMismatchError = !passwordMatch.value;
+      } else {
+        state.showPasswordMismatchError =
+          state.password != "" &&
+          state.passwordConfirm != "" &&
+          !passwordMatch.value;
+      }
+    }, TEXT_VALIDATION_DELAY);
+  }
+};
+
+const onTextEmail = () => {
+  const email = state.email.trim().toLowerCase();
+  state.email = email;
+  if (!state.nameManuallyEdited) {
+    const emailParts = email.split("@");
+    if (emailParts.length > 0) {
+      if (emailParts[0].length > 0) {
+        const name = emailParts[0].replace("_", ".");
+        const nameParts = name.split(".");
+        if (nameParts.length >= 2) {
+          state.name = [
+            nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1),
+            nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1),
+          ].join(" ");
+        } else {
+          state.name = name.charAt(0).toUpperCase() + name.slice(1);
+        }
+      }
+    }
+  }
+};
+
+const onTextName = () => {
+  const name = state.name.trim();
+  state.nameManuallyEdited = name.length > 0;
+};
+
+const trySignup = async () => {
+  if (!passwordMatch.value) {
+    state.showPasswordMismatchError = true;
+  } else {
+    const signupInfo: SignupInfo = {
+      email: state.email,
+      password: state.password,
+      name: state.name,
+    };
+    await useAuthStore().signup(signupInfo);
+    if (needAdminSetup.value) {
+      await actuatorStore.fetchServerInfo();
+      // When the first time we created an end user, the server-side will
+      // generate onboarding data.
+      // We write a flag here to indicate that the workspace is just created
+      // and we can consume this flag somewhere else if needed.
+      useOnboardingStateStore().initialize();
+    }
+    router.replace("/");
+  }
+};
 </script>

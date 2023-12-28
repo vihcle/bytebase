@@ -17,26 +17,26 @@
             class="w-8 h-auto opacity-60"
           />
           <p class="my-2 mb-4">{{ $t("multi-factor.auth-code") }}</p>
-          <input
-            v-model="state.otpCode"
+          <BBTextField
+            v-model:value="state.otpCode"
             placeholder="XXXXXX"
-            class="textfield w-full"
-            type="text"
+            class="w-full"
           />
         </template>
         <template v-else-if="state.selectedMFAType === 'RECOVERY_CODE'">
           <heroicons-outline:key class="w-8 h-auto opacity-60" />
           <p class="my-2 mb-4">{{ $t("multi-factor.recovery-code") }}</p>
-          <input
-            v-model="state.recoveryCode"
+          <BBTextField
+            v-model:value="state.recoveryCode"
             placeholder="XXXXXXXXXX"
-            class="textfield w-full"
-            type="text"
+            class="w-full"
           />
         </template>
-        <button type="submit" class="btn-success w-full mt-4">
-          <span class="w-full text-center">{{ $t("common.verify") }}</span>
-        </button>
+        <div class="w-full mt-4">
+          <NButton attr-type="submit" type="primary">
+            {{ $t("common.verify") }}
+          </NButton>
+        </div>
         <p class="textinfolabel mt-2">
           {{ challengeDescription }}
         </p>

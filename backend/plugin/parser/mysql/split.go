@@ -1,7 +1,11 @@
 package mysql
 
 import (
+	"context"
 	"io"
+	"log/slog"
+	"strings"
+	"time"
 
 	"github.com/antlr4-go/antlr/v4"
 	parser "github.com/bytebase/mysql-parser"
@@ -28,7 +32,12 @@ func SplitSQL(statement string) ([]base.SingleSQL, error) {
 	lexer := parser.NewMySQLLexer(antlr.NewInputStream(statement))
 	stream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
 
-	return splitMySQLStatement(stream)
+	list, err := splitMySQLStatement(stream)
+	// HACK(p0ny): the callee may end up in an infinite loop, we print the statement here to help debug.
+	if err != nil && strings.Contains(err.Error(), "split SQL statement timed out") {
+		slog.Info("split SQL statement timed out", "statement", statement)
+	}
+	return list, err
 }
 
 // SplitMultiSQLStream splits MySQL multiSQL to stream.
@@ -62,6 +71,10 @@ func SplitMySQLStream(src io.Reader) ([]base.SingleSQL, error) {
 }
 
 func splitMySQLStatement(stream *antlr.CommonTokenStream) ([]base.SingleSQL, error) {
+	// HACK(p0ny): this function might end up in an infinite loop. Before we figure out how to fix it, we set a deadline to avoid it and log to help debug.
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(10*time.Minute))
+	defer cancel()
+
 	var result []base.SingleSQL
 	stream.Fill()
 	tokens := stream.GetAllTokens()
@@ -77,70 +90,74 @@ func splitMySQLStatement(stream *antlr.CommonTokenStream) ([]base.SingleSQL, err
 	}
 	var stack []openParenthesis
 	for i := 0; i < len(tokens); i++ {
+		if ctx.Err() != nil {
+			return nil, errors.New("split SQL statement timed out")
+		}
+
 		switch tokens[i].GetTokenType() {
 		case parser.MySQLParserBEGIN_SYMBOL:
-			isBeginWork := getDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserWORK_SYMBOL
-			isBeginWork = isBeginWork || (getDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserSEMICOLON_SYMBOL)
-			isBeginWork = isBeginWork || (getDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserEOF)
+			isBeginWork := base.GetDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserWORK_SYMBOL
+			isBeginWork = isBeginWork || (base.GetDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserSEMICOLON_SYMBOL)
+			isBeginWork = isBeginWork || (base.GetDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserEOF)
 			if isBeginWork {
 				continue
 			}
 
-			isXa := getDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserXA_SYMBOL
+			isXa := base.GetDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserXA_SYMBOL
 			if isXa {
 				continue
 			}
 
 			stack = append(stack, openParenthesis{tokenType: tokens[i].GetTokenType(), pos: i})
 		case parser.MySQLParserCASE_SYMBOL:
-			isEndCase := getDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserEND_SYMBOL
+			isEndCase := base.GetDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserEND_SYMBOL
 			if isEndCase {
 				continue
 			}
 
 			stack = append(stack, openParenthesis{tokenType: tokens[i].GetTokenType(), pos: i})
 		case parser.MySQLParserIF_SYMBOL:
-			isEndIf := getDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserEND_SYMBOL
+			isEndIf := base.GetDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserEND_SYMBOL
 			if isEndIf {
 				continue
 			}
 
-			isIfExists := getDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserEXISTS_SYMBOL
+			isIfExists := base.GetDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserEXISTS_SYMBOL
 			if isIfExists {
 				continue
 			}
 
-			isIfNotExists := (getDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserNOT_SYMBOL ||
-				getDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserNOT2_SYMBOL) &&
-				getDefaultChannelTokenType(tokens, i, 2) == parser.MySQLParserEXISTS_SYMBOL
+			isIfNotExists := (base.GetDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserNOT_SYMBOL ||
+				base.GetDefaultChannelTokenType(tokens, i, 1) == parser.MySQLParserNOT2_SYMBOL) &&
+				base.GetDefaultChannelTokenType(tokens, i, 2) == parser.MySQLParserEXISTS_SYMBOL
 			if isIfNotExists {
 				continue
 			}
 
 			stack = append(stack, openParenthesis{tokenType: tokens[i].GetTokenType(), pos: i})
 		case parser.MySQLParserLOOP_SYMBOL:
-			isEndLoop := getDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserEND_SYMBOL
+			isEndLoop := base.GetDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserEND_SYMBOL
 			if isEndLoop {
 				continue
 			}
 
 			stack = append(stack, openParenthesis{tokenType: tokens[i].GetTokenType(), pos: i})
 		case parser.MySQLParserWHILE_SYMBOL:
-			isEndWhile := getDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserEND_SYMBOL
+			isEndWhile := base.GetDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserEND_SYMBOL
 			if isEndWhile {
 				continue
 			}
 
 			stack = append(stack, openParenthesis{tokenType: tokens[i].GetTokenType(), pos: i})
 		case parser.MySQLParserREPEAT_SYMBOL:
-			isEndRepeat := getDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserUNTIL_SYMBOL
+			isEndRepeat := base.GetDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserUNTIL_SYMBOL
 			if isEndRepeat {
 				continue
 			}
 
 			stack = append(stack, openParenthesis{tokenType: tokens[i].GetTokenType(), pos: i})
 		case parser.MySQLParserEND_SYMBOL:
-			isXa := getDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserXA_SYMBOL
+			isXa := base.GetDefaultChannelTokenType(tokens, i, -1) == parser.MySQLParserXA_SYMBOL
 			if isXa {
 				continue
 			}
@@ -154,7 +171,7 @@ func splitMySQLStatement(stream *antlr.CommonTokenStream) ([]base.SingleSQL, err
 				return nil, errors.New("invalid statement: failed to split multiple statements")
 			}
 
-			nextDefaultChannelTokenType := getDefaultChannelTokenType(tokens, i, 1)
+			nextDefaultChannelTokenType := base.GetDefaultChannelTokenType(tokens, i, 1)
 
 			isEndIf := nextDefaultChannelTokenType == parser.MySQLParserIF_SYMBOL
 			if isEndIf {
@@ -230,7 +247,7 @@ func splitMySQLStatement(stream *antlr.CommonTokenStream) ([]base.SingleSQL, err
 				continue
 			}
 
-			line, col := firstDefaultChannelTokenPosition(tokens[start : i+1])
+			line, col := base.FirstDefaultChannelTokenPosition(tokens[start : i+1])
 			// From antlr4, the line is ONE based, and the column is ZERO based.
 			// So we should minus 1 for the line.
 			result = append(result, base.SingleSQL{
@@ -240,7 +257,7 @@ func splitMySQLStatement(stream *antlr.CommonTokenStream) ([]base.SingleSQL, err
 				LastColumn:           tokens[i].GetColumn(),
 				FirstStatementLine:   line,
 				FirstStatementColumn: col,
-				Empty:                isEmpty(tokens[start : i+1]),
+				Empty:                base.IsEmpty(tokens[start:i+1], parser.MySQLLexerSEMICOLON_SYMBOL),
 			})
 			start = i + 1
 		case parser.MySQLParserEOF:
@@ -252,7 +269,7 @@ func splitMySQLStatement(stream *antlr.CommonTokenStream) ([]base.SingleSQL, err
 			}
 
 			if start <= i-1 {
-				line, col := firstDefaultChannelTokenPosition(tokens[start:i])
+				line, col := base.FirstDefaultChannelTokenPosition(tokens[start:i])
 				// From antlr4, the line is ONE based, and the column is ZERO based.
 				// So we should minus 1 for the line.
 				result = append(result, base.SingleSQL{
@@ -262,34 +279,10 @@ func splitMySQLStatement(stream *antlr.CommonTokenStream) ([]base.SingleSQL, err
 					LastColumn:           tokens[i-1].GetColumn(),
 					FirstStatementLine:   line,
 					FirstStatementColumn: col,
-					Empty:                isEmpty(tokens[start:i]),
+					Empty:                base.IsEmpty(tokens[start:i], parser.MySQLLexerSEMICOLON_SYMBOL),
 				})
 			}
 		}
 	}
 	return result, nil
-}
-
-func isEmpty(tokens []antlr.Token) bool {
-	for _, token := range tokens {
-		if token.GetChannel() == antlr.TokenDefaultChannel && token.GetTokenType() != parser.MySQLParserSEMICOLON_SYMBOL && token.GetTokenType() != parser.MySQLParserEOF {
-			return false
-		}
-	}
-	return true
-}
-
-// firstDefaultChannelTokenPosition returns the first token position of the default channel.
-// Both line and column are ZERO based.
-func firstDefaultChannelTokenPosition(tokens []antlr.Token) (int, int) {
-	for _, token := range tokens {
-		if token.GetChannel() == antlr.TokenDefaultChannel {
-			// From antlr4, the line is ONE based, and the column is ZERO based.
-			// So we should minus 1 for the line.
-			return token.GetLine() - 1, token.GetColumn()
-		}
-	}
-	// From antlr4, the line is ONE based, and the column is ZERO based.
-	// So we should minus 1 for the line.
-	return tokens[len(tokens)-1].GetLine() - 1, tokens[len(tokens)-1].GetColumn()
 }

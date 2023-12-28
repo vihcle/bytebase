@@ -109,6 +109,7 @@ func ParseToMetadata(schema string) (*storepb.DatabaseSchemaMetadata, error) {
 						referencedTable:   constraint.Foreign.Table.Name,
 						referencedColumns: constraint.Foreign.ColumnList,
 					}
+				case ast.ConstraintTypeUnique:
 				}
 			}
 
@@ -183,10 +184,12 @@ func ParseToMetadata(schema string) (*storepb.DatabaseSchemaMetadata, error) {
 				continue
 			}
 			table.indexes[stmt.Index.Name] = &indexState{
-				id:      len(table.indexes),
-				name:    stmt.Index.Name,
-				primary: false,
-				unique:  stmt.Index.Unique,
+				id:         len(table.indexes),
+				name:       stmt.Index.Name,
+				primary:    false,
+				unique:     stmt.Index.Unique,
+				keys:       stmt.Index.GetKeyNameList(),
+				definition: stmt.Text(),
 			}
 		case *ast.CommentStmt:
 			switch stmt.Type {
@@ -353,19 +356,6 @@ func (t *tableState) commentToString(buf *strings.Builder, schemaName string) er
 	return nil
 }
 
-func (t *tableState) removeUnsupportedIndex() {
-	unsupported := []string{}
-	for name, index := range t.indexes {
-		if index.primary {
-			continue
-		}
-		unsupported = append(unsupported, name)
-	}
-	for _, name := range unsupported {
-		delete(t.indexes, name)
-	}
-}
-
 func (t *tableState) toString(buf *strings.Builder, schemaName string) error {
 	if !t.ignoreTable {
 		if _, err := buf.WriteString(fmt.Sprintf("CREATE TABLE \"%s\".\"%s\" (\n  ", schemaName, t.name)); err != nil {
@@ -394,7 +384,6 @@ func (t *tableState) toString(buf *strings.Builder, schemaName string) error {
 	}
 
 	indexes := []*indexState{}
-	t.removeUnsupportedIndex()
 	for _, index := range t.indexes {
 		indexes = append(indexes, index)
 	}
@@ -608,11 +597,12 @@ func (f *foreignKeyState) toString(buf *strings.Builder, schemaName, tableName s
 }
 
 type indexState struct {
-	id      int
-	name    string
-	keys    []string
-	primary bool
-	unique  bool
+	id         int
+	name       string
+	keys       []string
+	primary    bool
+	unique     bool
+	definition string
 }
 
 func (i *indexState) convertToIndexMetadata() *storepb.IndexMetadata {
@@ -621,6 +611,7 @@ func (i *indexState) convertToIndexMetadata() *storepb.IndexMetadata {
 		Expressions: i.keys,
 		Primary:     i.primary,
 		Unique:      i.unique,
+		Definition:  i.definition,
 		// Unsupported, for tests only.
 		Visible: true,
 	}
@@ -628,11 +619,12 @@ func (i *indexState) convertToIndexMetadata() *storepb.IndexMetadata {
 
 func convertToIndexState(id int, index *storepb.IndexMetadata) *indexState {
 	return &indexState{
-		id:      id,
-		name:    index.Name,
-		keys:    index.Expressions,
-		primary: index.Primary,
-		unique:  index.Unique,
+		id:         id,
+		name:       index.Name,
+		keys:       index.Expressions,
+		primary:    index.Primary,
+		unique:     index.Unique,
+		definition: index.Definition,
 	}
 }
 
@@ -660,8 +652,11 @@ func (i *indexState) toString(buf *strings.Builder, schemaName, tableName string
 		if _, err := buf.WriteString(");\n"); err != nil {
 			return err
 		}
+	} else {
+		if _, err := buf.WriteString(i.definition); err != nil {
+			return err
+		}
 	}
-	// TODO: support other type indexes.
 	return nil
 }
 

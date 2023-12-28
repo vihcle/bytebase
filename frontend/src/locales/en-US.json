@@ -172,6 +172,7 @@
     "agents": "Agents",
     "billings": "Billings",
     "all": "All",
+    "recent": "Recent",
     "deployment-config": "Deployment Config",
     "by": "by",
     "ok": "OK",
@@ -277,7 +278,8 @@
     "show-all": "Show all",
     "view-details": "View details",
     "force-verb": "Force {verb}",
-    "nothing-changed": "Nothing changed"
+    "nothing-changed": "Nothing changed",
+    "untitled": "Untitled"
   },
   "error-page": {
     "go-back-home": "Go back home"
@@ -359,6 +361,7 @@
     "skip": "Skip",
     "skip-modal-title": "Skip task [{name}]?",
     "task-checks": "Task checks",
+    "prior-backup": "Prior Backup",
     "rollback": {
       "sql-rollback": "SQL Rollback",
       "failed": "Failed",
@@ -667,8 +670,8 @@
         },
         "confirm-delete-custom-logo": "Delete custom branding logo?",
         "restrict-issue-creation-for-sql-review": {
-          "title": "Restrict issue creation for SQL review",
-          "description": "Once enabled, users can only create issues after SQL review has passed."
+          "title": "Prohibit issue creation for SQL review with errors",
+          "description": "Once enabled, users are only allowed to create issues if the SQL review does not contain any errors."
         }
       }
     },
@@ -807,7 +810,7 @@
         "export": "Export"
       },
       "classification": {
-        "self": "Data classification",
+        "self": "Data Classification",
         "upload": "Upload classification",
         "upload-succeed": "Upload succeed",
         "search": "Search classification",
@@ -1017,6 +1020,14 @@
           },
           "description": "Search by the issue approval status",
           "title": "Approval Status"
+        },
+        "project-assigned": {
+          "title": "Project Assigned",
+          "description": "Search by databases that are assigned to a project.",
+          "value": {
+            "yes": "yes",
+            "no": "no"
+          }
         }
       },
       "hide": "Hide advanced search"
@@ -1094,7 +1105,8 @@
     "assignee-tooltip": "The assignees are those responsible for an issue, and when an issue is assigned to them, it shows up in their list of assigned issues.",
     "approval-flow": {
       "self": "Approval flow",
-      "tooltip": "The approvers will review and approve the issue in the order specified in the flow. The issue can only be applied after all steps in the flow have been approved. You can configure a custom approval flow for each risk."
+      "tooltip": "The approvers will review and approve the issue in the order specified in the flow. The issue can only be applied after all steps in the flow have been approved. You can configure a custom approval flow for each risk.",
+      "pre-issue-created-tips": "After an issue is created, Bytebase will automatically match the corresponding custom approval flow based on the type and risk level of the issue."
     },
     "waiting-to-rollout": "Waiting to rollout",
     "waiting-for-review": "Waiting for review",
@@ -1157,7 +1169,10 @@
       "project-owners": "Project owners",
       "releasers-of-current-stage": "Releasers of current stage",
       "approvers-of-current-step": "Approvers of current step"
-    }
+    },
+    "unfinished-resolved-issue-tips": "This issue is marked as \"Done\" but some of its tasks are not executed successfully.",
+    "some-tasks-are-not-executed-successfully": "(Some tasks are not executed successfully)",
+    "preview": "Preview issue"
   },
   "alter-schema": {
     "vcs-enabled": "This project has enabled VCS based version control and selecting database below will navigate you to the corresponding Git repository to initiate the change process.",
@@ -1213,6 +1228,7 @@
     "collections": "Collections",
     "views": "Views",
     "extensions": "Extensions",
+    "foreign-tables": "Foreign tables",
     "functions": "Functions",
     "streams": "Streams",
     "tasks": "Tasks",
@@ -1413,7 +1429,8 @@
     },
     "password-forget": {
       "title": "Forgot your password?",
-      "content": "Please contact your Bytebase Admin to reset your password.",
+      "selfhost": "Please contact your Bytebase Admin to reset your password.",
+      "cloud": "Please go to the {link} and reset your password.",
       "return-to-sign-in": "Return to Sign in"
     },
     "password-forgot": "Forgot Password",
@@ -1502,6 +1519,9 @@
     "filter-database": "Filter database",
     "database-backup": "database backup",
     "transfer-project": "Transfer Project",
+    "unassign": "Unassign",
+    "unassign-alert-title": "Unassign databases",
+    "unassign-alert-description": "Selected databases will transfer out from their project",
     "edit-schema": "Edit Schema",
     "edit-schema-in-vcs": "Edit Schema in VCS",
     "edit-labels": "Edit Labels",
@@ -1517,7 +1537,11 @@
     "select-branch": "Select a branch",
     "delete-this-branch": "Delete this branch",
     "table-detail": "Table detail",
+    "batch-action-not-support-alter-schema": "Some databases don't support altering schema",
+    "batch-action-permission-denied": "Don't have permission to {action} for databases",
     "batch-action-disabled": "Can not {action} for the databases from different projects",
+    "batch-action-disabled-for-unassigned": "Can not {action} for unassigned database",
+    "successfully-transferred-databases": "Successfully transferred databases",
     "successfully-transferred-updateddatabase-name-to-project-updateddatabase-project-name": "Successfully transferred '{0}' to project '{1}'.",
     "backup-name": "Backup name",
     "create-backup": "Create backup",
@@ -1692,15 +1716,20 @@
         "select-target-project": "Select target project",
         "select-at-least-one-database": "Select at least one database"
       },
+      "select-databases": "Select databases",
       "select-target-project": "Select target project"
     },
+    "transfer-database-to": "Transfer databases to target project",
     "transfer-database-from-to": "Transfer database from source project to target project",
     "classification": {
       "self": "Classification"
     },
     "recent": "Recent",
     "partitioned": "Partitioned",
-    "partition-tables": "Partition tables"
+    "partition-tables": "Partition tables",
+    "external-server-name": "External Server Name",
+    "external-database-name": "External Database Name",
+    "foreign-table-detail": "Foreign table detail"
   },
   "repository": {
     "our-webhook-link": "The webhook created by Bytebase can be found at {webhookLink}.",
@@ -1901,10 +1930,7 @@
       "archive": {
         "title": "Archive project",
         "description": "Archived projects will not be displayed.",
-        "btn-text": "Archive this @.lower:{'common.project'}",
-        "force": {
-          "description": "Force to archive. All releated issues will be resolved, and all related sheets will be deleted."
-        }
+        "btn-text": "Archive this @.lower:{'common.project'}"
       },
       "restore": {
         "title": "Restore project",
@@ -1959,7 +1985,7 @@
       "batch": "Batch Mode"
     },
     "db-name-template": "Tenant Database Name Template",
-    "select": "Select project",
+    "select": "Select Project",
     "lgtm-check": {
       "self": "LGTM check",
       "disabled": "Skip LGTM check",
@@ -2140,7 +2166,9 @@
     "read-replica-host": "Read-replica Host",
     "read-replica-port": "Read-replica Port",
     "delete-read-only-data-source": "Delete read-only data source",
-    "connection-string-schema": "Connection String Schema"
+    "connection-string-schema": "Connection String Schema",
+    "admin": "Admin",
+    "read-only": "RO"
   },
   "setting": {
     "project": {
@@ -2256,7 +2284,8 @@
     "executing-query": "Executing query",
     "grouping": "Grouping",
     "previous-row": "Previous row",
-    "next-row": "Next row"
+    "next-row": "Next row",
+    "copy-success": "Copy success"
   },
   "schema-editor": {
     "self": "Schema Editor",
@@ -2318,7 +2347,7 @@
       "true": "True",
       "false": "False"
     },
-    "nothing-changed": "Nothing changed",
+    "nothing-changed-for-database": "Nothing changed for database {database}",
     "message": {
       "invalid-schema-name": "Invalid schema name",
       "duplicated-schema-name": "Duplicated schema name",
@@ -2633,7 +2662,8 @@
     "content-oversize-warning": "SQL is oversized and inline-editing is disallowed. ",
     "sheets": "Sheets",
     "search-sheets": "Search Sheets",
-    "sheet": "Sheet"
+    "sheet": "Sheet",
+    "unconnected": "Unconnected"
   },
   "engine": {
     "mysql": "MySQL",
@@ -3061,7 +3091,8 @@
       "sent-back-issue": "Sent back issue",
       "re-requested-review": "re-requested issue review",
       "no-one-matches-role": "No one matches the role, contact project owner to assign one.",
-      "any-n-role-can-approve": "Any {role} can approve"
+      "any-n-role-can-approve": "Any {role} can approve",
+      "approved-by-n": "Approved by {approver}"
     },
     "send-back": "Send back"
   },
@@ -3232,7 +3263,6 @@
     "parent-branch": "Parent",
     "save-draft": "Save draft",
     "merge-branch": "Merge branch",
-    "delete-branch-after-merged": "Delete branch after merged",
     "raw-sql-preview": "Raw SQL Preview",
     "diff-editor": {
       "self": "Diff editor",
@@ -3326,5 +3356,36 @@
       "export-rows-must-gt-zero": "Export rows must greater than 0"
     },
     "export-format": "Export format"
+  },
+  "branch": {
+    "rollout": {
+      "select-target-database": "Select target database"
+    },
+    "select-tables-to-rollout": "Select tables to rollout",
+    "branch-is-protected": "This branch is protected by branch protection rules.",
+    "default-branches": "Default",
+    "your-branches": "Your branches",
+    "active-branches": "Active branches",
+    "select-branch": "Select branch",
+    "merge-rebase": {
+      "select-branches-to-merge": "Select branches to merge",
+      "select-branches-to-rebase": "Select branches to rebase",
+      "validating-branch": "Validating branches",
+      "able-to-merge": "Able to merge",
+      "able-to-rebase": "Able to rebase",
+      "cannot-automatically-merge": "Can't automatically merge, please {rebase_branch} first.",
+      "cannot-automatically-rebase": "Can't rebase automatically. Please resolve the conflicts manually.",
+      "go-rebase": "rebase branch",
+      "changes-of-branch": "Changes of {branch}",
+      "merge-succeeded": "Merge succeeded",
+      "rebase-succeeded": "Rebase succeeded",
+      "delete-branch-after-merged": "Delete branch after merged",
+      "merge-branch": "Merge branch",
+      "rebase-branch": "Rebase branch",
+      "confirm-rebase": "Confirm rebase?",
+      "conflict-not-resolved": "It seems that some conflicts haven't been resolved yet.",
+      "resolve-conflicts-to-rebase": "Resolve conflicts to rebase",
+      "preview-merge-result": "Preview merge result"
+    }
   }
 }

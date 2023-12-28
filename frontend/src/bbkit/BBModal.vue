@@ -14,20 +14,21 @@
       :data-overlay-stack-upmost="upmost"
     >
       <div class="modal-header" :class="headerClass">
-        <div class="text-xl text-main mr-2 flex-1 overflow-hidden">
+        <div class="text-lg text-main mr-2 flex-1 overflow-hidden">
           <slot name="title"><component :is="renderTitle" /></slot>
           <slot name="subtitle"><component :is="renderSubtitle" /></slot>
         </div>
-        <button
+        <NButton
           v-if="showClose"
-          class="text-control-light"
+          quaternary
+          size="small"
           aria-label="close"
           @click.prevent="tryClose()"
         >
           <span class="sr-only">Close</span>
           <!-- Heroicons name: x -->
-          <heroicons-solid:x class="w-6 h-6" />
-        </button>
+          <X class="w-5 h-auto hover:opacity-80" />
+        </NButton>
       </div>
 
       <div class="modal-container" :class="containerClass">
@@ -38,6 +39,7 @@
 </template>
 
 <script lang="ts">
+import { X } from "lucide-vue-next";
 import { NModal } from "naive-ui";
 import { defineComponent, h, PropType, RenderFunction } from "vue";
 import { useOverlayStack } from "@/components/misc/OverlayStackManager.vue";
@@ -48,6 +50,7 @@ export default defineComponent({
   name: "BBModalV2",
   components: {
     NModal,
+    X,
   },
   inheritAttrs: false,
   props: {
@@ -149,18 +152,17 @@ export default defineComponent({
 
 <style scoped lang="postcss">
 .bb-modal {
-  @apply bg-white shadow-lg rounded-lg pt-4 pb-4 flex pointer-events-auto;
-  @apply flex-col;
+  @apply bg-white shadow-lg rounded-md py-3 flex pointer-events-auto flex-col gap-3;
 
   max-width: calc(100vw - 80px);
   max-height: calc(100vh - 80px);
 }
 
 .modal-header {
-  @apply relative mx-8 pb-2 flex items-start justify-between border-b border-block-border;
+  @apply relative mx-4 pb-2 flex items-center justify-between border-b border-block-border;
 }
 
 .modal-container {
-  @apply px-8 pt-2 max-h-screen overflow-auto w-full;
+  @apply px-4 max-h-screen overflow-auto w-full;
 }
 </style>

@@ -1,8 +1,5 @@
 <template>
-  <div
-    class="grid min-w-[14rem] max-w-[18rem] gap-x-2 gap-y-1 break-all"
-    style="grid-template-columns: auto 1fr"
-  >
+  <div class="min-w-[14rem] max-w-[18rem] gap-y-1">
     <InfoItem :title="$t('common.name')">
       {{ column.name }}
     </InfoItem>
@@ -36,7 +33,6 @@ import {
   ColumnMetadata,
   DatabaseMetadata,
   SchemaMetadata,
-  TableMetadata,
 } from "@/types/proto/v1/database_service";
 import InfoItem from "./InfoItem.vue";
 
@@ -44,7 +40,6 @@ const props = defineProps<{
   db: ComposedDatabase;
   database: DatabaseMetadata;
   schema: SchemaMetadata;
-  table: TableMetadata;
   column: ColumnMetadata;
 }>();
 

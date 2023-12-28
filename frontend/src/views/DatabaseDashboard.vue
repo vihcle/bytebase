@@ -1,63 +1,53 @@
 <template>
   <div class="flex flex-col relative space-y-4">
-    <AdvancedSearchBox
-      v-model:params="state.params"
-      class="px-4"
-      :autofocus="false"
-      :placeholder="$t('database.filter-database')"
-      :support-option-id-list="supportOptionIdList"
-    />
-
-    <DatabaseOperations
-      v-if="selectedDatabases.length > 0 || isStandaloneMode"
-      class="mb-3"
-      :databases="selectedDatabases"
-      @dismiss="state.selectedDatabaseIds.clear()"
-    />
-
-    <DatabaseV1Table
-      pagination-class="mb-4"
-      table-class="border-y"
-      :database-list="filteredDatabaseList"
-      :database-group-list="filteredDatabaseGroupList"
-      :show-placeholder="true"
-      :show-selection-column="true"
-      :custom-click="isStandaloneMode"
-      @select-database="(db: ComposedDatabase) =>
-                  toggleDatabasesSelection([db as ComposedDatabase], !isDatabaseSelected(db))"
+    <div
+      class="w-full px-4 flex flex-col sm:flex-row items-start sm:items-end justify-between gap-2"
     >
-      <template #selection-all="{ databaseList }">
-        <input
-          v-if="databaseList.length > 0"
-          type="checkbox"
-          class="h-4 w-4 text-accent rounded disabled:cursor-not-allowed border-control-border focus:ring-accent"
-          v-bind="getAllSelectionState(databaseList)"
-          @input="
-            toggleDatabasesSelection(
-              databaseList,
-              ($event.target as HTMLInputElement).checked
-            )
-          "
-        />
-      </template>
-      <template #selection="{ database }">
-        <input
-          v-if="isDatabase(database)"
-          type="checkbox"
-          class="h-4 w-4 text-accent rounded disabled:cursor-not-allowed border-control-border focus:ring-accent"
-          :checked="isDatabaseSelected(database as ComposedDatabase)"
-          @click.stop="
-            toggleDatabasesSelection(
-              [database],
-              ($event.target as HTMLInputElement).checked
-            )
-          "
-        />
-        <div v-else class="text-control-light cursor-not-allowed ml-auto">
-          -
-        </div>
-      </template>
-    </DatabaseV1Table>
+      <AdvancedSearchBox
+        v-model:params="state.params"
+        :autofocus="false"
+        :placeholder="$t('database.filter-database')"
+        :support-option-id-list="supportOptionIdList"
+      />
+      <DatabaseLabelFilter
+        v-model:selected="state.selectedLabels"
+        :database-list="databaseV1List"
+      />
+    </div>
+
+    <div class="space-y-2">
+      <DatabaseOperations :databases="selectedDatabases" />
+
+      <DatabaseV1Table
+        pagination-class="mb-4"
+        table-class="border-y"
+        :database-list="filteredDatabaseList"
+        :database-group-list="filteredDatabaseGroupList"
+        :show-placeholder="true"
+        :show-selection-column="true"
+        :custom-click="isStandaloneMode"
+        @select-database="(db: ComposedDatabase) =>
+                  toggleDatabasesSelection([db as ComposedDatabase], !isDatabaseSelected(db))"
+      >
+        <template #selection-all="{ databaseList }">
+          <NCheckbox
+            v-if="databaseList.length > 0"
+            v-bind="getAllSelectionState(databaseList)"
+            @update:checked="toggleDatabasesSelection(databaseList, $event)"
+          />
+        </template>
+        <template #selection="{ database }">
+          <NCheckbox
+            v-if="isDatabase(database)"
+            :checked="isDatabaseSelected(database as ComposedDatabase)"
+            @update:checked="toggleDatabasesSelection([database], $event)"
+          />
+          <div v-else class="text-control-light cursor-not-allowed ml-auto">
+            -
+          </div>
+        </template>
+      </DatabaseV1Table>
+    </div>
 
     <div
       v-if="state.loading"
@@ -69,6 +59,7 @@
 </template>
 
 <script lang="ts" setup>
+import { NCheckbox } from "naive-ui";
 import { computed, watchEffect, onMounted, reactive, ref } from "vue";
 import { DatabaseV1Table } from "@/components/v2";
 import { isDatabase } from "@/components/v2/Model/DatabaseV1Table/utils";
@@ -94,12 +85,14 @@ import {
   PolicyType,
 } from "@/types/proto/v1/org_policy_service";
 import {
+  SearchScopeId,
   SearchParams,
   filterDatabaseV1ByKeyword,
   sortDatabaseV1List,
   CommonFilterScopeIdList,
   extractEnvironmentResourceName,
   extractInstanceResourceName,
+  extractProjectResourceName,
 } from "@/utils";
 
 interface LocalState {
@@ -107,6 +100,7 @@ interface LocalState {
   loading: boolean;
   selectedDatabaseIds: Set<string>;
   params: SearchParams;
+  selectedLabels: { key: string; value: string }[];
 }
 
 const uiStateStore = useUIStateStore();
@@ -121,6 +115,7 @@ const state = reactive<LocalState>({
     query: "",
     scopes: [],
   },
+  selectedLabels: [],
 });
 
 const currentUserV1 = useCurrentUserV1();
@@ -151,6 +146,20 @@ const selectedInstance = computed(() => {
 const selectedEnvironment = computed(() => {
   return (
     state.params.scopes.find((scope) => scope.id === "environment")?.value ??
+    `${UNKNOWN_ID}`
+  );
+});
+
+const selectedProjectAssigned = computed(() => {
+  return (
+    state.params.scopes.find((scope) => scope.id === "project-assigned")
+      ?.value ?? `${UNKNOWN_ID}`
+  );
+});
+
+const selectedProject = computed(() => {
+  return (
+    state.params.scopes.find((scope) => scope.id === "project")?.value ??
     `${UNKNOWN_ID}`
   );
 });
@@ -209,12 +218,31 @@ const filteredDatabaseList = computed(() => {
         selectedEnvironment.value
     );
   }
+  if (selectedProjectAssigned.value !== `${UNKNOWN_ID}`) {
+    list = list.filter((db) => {
+      if (selectedProjectAssigned.value == "yes") {
+        return db.project !== DEFAULT_PROJECT_V1_NAME;
+      } else {
+        return db.project === DEFAULT_PROJECT_V1_NAME;
+      }
+    });
+  }
   if (selectedInstance.value !== `${UNKNOWN_ID}`) {
     list = list.filter(
       (db) =>
         extractInstanceResourceName(db.instanceEntity.name) ===
         selectedInstance.value
     );
+  }
+  if (selectedProject.value !== `${UNKNOWN_ID}`) {
+    list = list.filter(
+      (db) => extractProjectResourceName(db.project) === selectedProject.value
+    );
+  }
+  if (state.selectedLabels.length > 0) {
+    list = list.filter((db) => {
+      return state.selectedLabels.some((kv) => db.labels[kv.key] === kv.value);
+    });
   }
   if (isStandaloneMode.value) {
     list = list.filter(
@@ -304,5 +332,9 @@ const selectedDatabases = computed((): ComposedDatabase[] => {
   );
 });
 
-const supportOptionIdList = computed(() => [...CommonFilterScopeIdList]);
+const supportOptionIdList = computed((): SearchScopeId[] => [
+  ...CommonFilterScopeIdList,
+  "project",
+  "project-assigned",
+]);
 </script>

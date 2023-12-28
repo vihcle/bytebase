@@ -21,7 +21,7 @@
         >
       </BBTableCell>
       <BBTableCell class="table-cell w-28 whitespace-nowrap">
-        {{ t(AuditActivityTypeI18nNameMap[auditLog.action]) }}
+        {{ t(AuditActivityTypeI18nNameMap.get(auditLog.action) ?? "") }}
       </BBTableCell>
       <BBTableCell class="table-cell w-20">
         <UserByEmail :email="auditLog.creator" :plain="true" />
@@ -37,9 +37,7 @@
       <BBTableCell class="table-cell w-28">
         <NTooltip>
           <template #trigger>
-            <button
-              type="button"
-              class="group btn-normal items-center !px-3 !text-accent hover:!bg-gray-50"
+            <NButton
               @click.stop="
                 () => {
                   $emit('view-detail', auditLog);
@@ -47,7 +45,7 @@
               "
             >
               <heroicons-outline:document-magnifying-glass class="h-5 w-5" />
-            </button>
+            </NButton>
           </template>
           <span class="whitespace-nowrap">
             {{ $t("audit-log.table.view-details") }}

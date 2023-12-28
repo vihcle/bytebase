@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 
@@ -27,7 +28,12 @@ func ParseMySQL(statement string) ([]*ParseResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseInputStream(antlr.NewInputStream(statement))
+	list, err := parseInputStream(antlr.NewInputStream(statement))
+	// HACK(p0ny): the callee may end up in an infinite loop, we print the statement here to help debug.
+	if err != nil && strings.Contains(err.Error(), "split SQL statement timed out") {
+		slog.Info("split SQL statement timed out", "statement", statement)
+	}
+	return list, err
 }
 
 // DealWithDelimiter deals with delimiter in the given SQL statement.
@@ -59,28 +65,6 @@ func DealWithDelimiter(statement string) (string, error) {
 		statement = strings.Join(result, "\n")
 	}
 	return statement, nil
-}
-
-func getDefaultChannelTokenType(tokens []antlr.Token, base int, offset int) int {
-	current := base
-	step := 1
-	remaining := offset
-	if offset < 0 {
-		step = -1
-		remaining = -offset
-	}
-	for remaining != 0 {
-		current += step
-		if current < 0 || current >= len(tokens) {
-			return parser.MySQLParserEOF
-		}
-
-		if tokens[current].GetChannel() == antlr.TokenDefaultChannel {
-			remaining--
-		}
-	}
-
-	return tokens[current].GetTokenType()
 }
 
 func parseSingleStatement(statement string) (antlr.Tree, *antlr.CommonTokenStream, error) {

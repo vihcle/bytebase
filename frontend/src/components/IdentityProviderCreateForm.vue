@@ -74,11 +74,11 @@
           {{ $t("settings.sso.form.name") }}
           <span class="text-red-600">*</span>
         </p>
-        <input
-          v-model="identityProvider.title"
+        <BBTextField
+          v-model:value="identityProvider.title"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           :placeholder="$t('settings.sso.form.name-description')"
         />
         <ResourceIdField
@@ -94,11 +94,10 @@
         <p class="textlabel">
           {{ $t("settings.sso.form.domain") }}
         </p>
-        <input
-          v-model="identityProvider.domain"
+        <BBTextField
+          v-model:value="identityProvider.domain"
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           :placeholder="$t('settings.sso.form.domain-description')"
         />
       </div>
@@ -151,11 +150,11 @@
           Client ID
           <span class="text-red-600">*</span>
         </p>
-        <input
-          v-model="configForOAuth2.clientId"
+        <BBTextField
+          v-model:value="configForOAuth2.clientId"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. 6655asd77895265aa110ac0d3"
         />
       </div>
@@ -164,11 +163,11 @@
           Client secret
           <span class="text-red-600">*</span>
         </p>
-        <input
-          v-model="configForOAuth2.clientSecret"
+        <BBTextField
+          v-model:value="configForOAuth2.clientSecret"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           :placeholder="
             isCreating
               ? 'e.g. 5bbezxc3972ca304de70c5d70a6aa932asd8'
@@ -184,11 +183,11 @@
         <p class="textinfolabel">
           {{ $t("settings.sso.form.auth-url-description") }}
         </p>
-        <input
-          v-model="configForOAuth2.authUrl"
+        <BBTextField
+          v-model:value="configForOAuth2.authUrl"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. https://github.com/login/oauth/authorize"
         />
       </div>
@@ -200,11 +199,11 @@
         <p class="textinfolabel">
           {{ $t("settings.sso.form.scopes-description") }}
         </p>
-        <input
-          v-model="scopesStringOfConfig"
+        <BBTextField
+          v-model:value="scopesStringOfConfig"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. user"
         />
       </div>
@@ -216,11 +215,11 @@
         <p class="textinfolabel">
           {{ $t("settings.sso.form.token-url-description") }}
         </p>
-        <input
-          v-model="configForOAuth2.tokenUrl"
+        <BBTextField
+          v-model:value="configForOAuth2.tokenUrl"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. https://github.com/login/oauth/access_token"
         />
       </div>
@@ -232,11 +231,11 @@
         <p class="textinfolabel">
           {{ $t("settings.sso.form.user-info-url-description") }}
         </p>
-        <input
-          v-model="configForOAuth2.userInfoUrl"
+        <BBTextField
+          v-model:value="configForOAuth2.userInfoUrl"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. https://api.github.com/user"
         />
       </div>
@@ -263,14 +262,10 @@
           {{ $t("settings.sso.form.connection-security") }}
         </p>
         <p class="textinfolabel mt-1">
-          <BBCheckbox
-            :title="$t('settings.sso.form.connection-security-skip-tls-verify')"
-            :v-model="configForOAuth2.skipTlsVerify"
+          <NCheckbox
+            v-model:checked="configForOAuth2.skipTlsVerify"
+            :label="$t('settings.sso.form.connection-security-skip-tls-verify')"
             :disabled="!allowEdit"
-            @toggle="
-              () =>
-                (configForOAuth2.skipTlsVerify = !configForOAuth2.skipTlsVerify)
-            "
           />
         </p>
       </div>
@@ -292,11 +287,10 @@
         </p>
       </div>
       <div class="w-full grid grid-cols-[256px_1fr]">
-        <input
-          v-model="configForOAuth2.fieldMapping!.identifier"
+        <BBTextField
+          v-model:value="configForOAuth2.fieldMapping!.identifier"
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. login"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
@@ -318,11 +312,10 @@
         </div>
       </div>
       <div class="w-full grid grid-cols-[256px_1fr]">
-        <input
-          v-model="configForOAuth2.fieldMapping!.displayName"
+        <BBTextField
+          v-model:value="configForOAuth2.fieldMapping!.displayName"
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. name"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
@@ -335,11 +328,10 @@
         </div>
       </div>
       <div class="w-full grid grid-cols-[256px_1fr]">
-        <input
-          v-model="configForOAuth2.fieldMapping!.phone"
+        <BBTextField
+          v-model:value="configForOAuth2.fieldMapping!.phone"
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. phone"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
@@ -400,11 +392,11 @@
           Issuer
           <span class="text-red-600">*</span>
         </p>
-        <input
-          v-model="configForOIDC.issuer"
+        <BBTextField
+          v-model:value="configForOIDC.issuer"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. https://acme.okta.com"
         />
       </div>
@@ -413,11 +405,11 @@
           Client ID
           <span class="text-red-600">*</span>
         </p>
-        <input
-          v-model="configForOIDC.clientId"
+        <BBTextField
+          v-model:value="configForOIDC.clientId"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. 6655asd77895265aa110ac0d3"
         />
       </div>
@@ -426,11 +418,11 @@
           Client secret
           <span class="text-red-600">*</span>
         </p>
-        <input
-          v-model="configForOIDC.clientSecret"
+        <BBTextField
+          v-model:value="configForOIDC.clientSecret"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           :placeholder="
             isCreating
               ? 'e.g. 5bbezxc3972ca304de70c5d70a6aa932asd8'
@@ -461,13 +453,10 @@
           {{ $t("settings.sso.form.connection-security") }}
         </p>
         <p class="textinfolabel mt-1">
-          <BBCheckbox
-            :title="$t('settings.sso.form.connection-security-skip-tls-verify')"
-            :value="configForOIDC.skipTlsVerify"
+          <NCheckbox
+            v-model:checked="configForOIDC.skipTlsVerify"
+            :label="$t('settings.sso.form.connection-security-skip-tls-verify')"
             :disabled="!allowEdit"
-            @toggle="
-              () => (configForOIDC.skipTlsVerify = !configForOIDC.skipTlsVerify)
-            "
           />
         </p>
       </div>
@@ -492,11 +481,10 @@
         {{ $t("settings.sso.form.user-information-mapping") }}
       </p>
       <div class="w-full grid grid-cols-[256px_1fr]">
-        <input
-          v-model="configForOIDC.fieldMapping!.identifier"
+        <BBTextField
+          v-model:value="configForOIDC.fieldMapping!.identifier"
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. preferred_username"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
@@ -518,11 +506,10 @@
         </div>
       </div>
       <div class="w-full grid grid-cols-[256px_1fr]">
-        <input
-          v-model="configForOIDC.fieldMapping!.displayName"
+        <BBTextField
+          v-model:value="configForOIDC.fieldMapping!.displayName"
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. name"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
@@ -535,11 +522,10 @@
         </div>
       </div>
       <div class="w-full grid grid-cols-[256px_1fr]">
-        <input
-          v-model="configForOIDC.fieldMapping!.phone"
+        <BBTextField
+          v-model:value="configForOIDC.fieldMapping!.phone"
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. phone"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
@@ -573,11 +559,11 @@
           Host
           <span class="text-red-600">*</span>
         </p>
-        <input
-          v-model="configForLDAP.host"
+        <BBTextField
+          v-model:value="configForLDAP.host"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. ldap.example.com"
         />
       </div>
@@ -586,11 +572,10 @@
           Port
           <span class="text-red-600">*</span>
         </p>
-        <input
-          v-model="configForLDAP.port"
+        <NInputNumber
+          v-model:value="configForLDAP.port"
           :disabled="!allowEdit"
-          type="number"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. 389 or 636"
         />
       </div>
@@ -599,11 +584,11 @@
           Bind DN
           <span class="text-red-600">*</span>
         </p>
-        <input
-          v-model="configForLDAP.bindDn"
+        <BBTextField
+          v-model:value="configForLDAP.bindDn"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. uid=system,ou=Users,dc=example,dc=com"
         />
       </div>
@@ -612,11 +597,11 @@
           Bind Password
           <span class="text-red-600">*</span>
         </p>
-        <input
-          v-model="configForLDAP.bindPassword"
+        <BBTextField
+          v-model:value="configForLDAP.bindPassword"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           :placeholder="$t('common.sensitive-placeholder')"
         />
       </div>
@@ -625,11 +610,11 @@
           Base DN
           <span class="text-red-600">*</span>
         </p>
-        <input
+        <BBTextField
           v-model="configForLDAP.baseDn"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. ou=users,dc=example,dc=com"
         />
       </div>
@@ -638,11 +623,11 @@
           User Filter
           <span class="text-red-600">*</span>
         </p>
-        <input
+        <BBTextField
           v-model="configForLDAP.userFilter"
+          required
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. (uid=%s)"
         />
       </div>
@@ -663,13 +648,10 @@
           {{ $t("settings.sso.form.connection-security") }}
         </p>
         <p class="textinfolabel mt-1">
-          <BBCheckbox
-            :title="$t('settings.sso.form.connection-security-skip-tls-verify')"
-            :value="configForLDAP.skipTlsVerify"
+          <NCheckbox
+            v-model:checked="configForLDAP.skipTlsVerify"
+            :label="$t('settings.sso.form.connection-security-skip-tls-verify')"
             :disabled="!allowEdit"
-            @toggle="
-              () => (configForLDAP.skipTlsVerify = !configForLDAP.skipTlsVerify)
-            "
           />
         </p>
       </div>
@@ -694,11 +676,10 @@
         {{ $t("settings.sso.form.user-information-mapping") }}
       </p>
       <div class="w-full grid grid-cols-[256px_1fr]">
-        <input
-          v-model="configForLDAP.fieldMapping!.identifier"
+        <BBTextField
+          v-model:value="configForLDAP.fieldMapping!.identifier"
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. mail"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
@@ -720,11 +701,10 @@
         </div>
       </div>
       <div class="w-full grid grid-cols-[256px_1fr]">
-        <input
-          v-model="configForLDAP.fieldMapping!.displayName"
+        <BBTextField
+          v-model:value="configForLDAP.fieldMapping!.displayName"
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. displayName"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
@@ -737,11 +717,10 @@
         </div>
       </div>
       <div class="w-full grid grid-cols-[256px_1fr]">
-        <input
-          v-model="configForLDAP.fieldMapping!.phone"
+        <BBTextField
+          v-model:value="configForLDAP.fieldMapping!.phone"
           :disabled="!allowEdit"
-          type="text"
-          class="textfield mt-1 w-full"
+          class="mt-1 w-full"
           placeholder="e.g. phone"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
@@ -760,14 +739,13 @@
       class="mt-4 space-x-4 w-full flex flex-row justify-between items-center"
     >
       <div class="space-x-4 flex flex-row justify-start items-center">
-        <button
+        <NButton
           v-if="!isDeleted"
           :disabled="!allowTestConnection"
-          class="btn-normal"
           @click="testConnection"
         >
           {{ $t("identity-provider.test-connection") }}
-        </button>
+        </NButton>
         <template v-if="!isCreating">
           <BBButtonConfirm
             v-if="!isDeleted"
@@ -796,32 +774,31 @@
         class="space-x-4 flex flex-row justify-end items-center"
       >
         <template v-if="isCreating">
-          <button class="btn-normal" @click="handleCancelButtonClick">
+          <NButton @click="handleCancelButtonClick">
             {{ $t("common.cancel") }}
-          </button>
-          <button
-            class="btn-primary"
+          </NButton>
+          <NButton
+            type="primary"
             :disabled="!allowCreate"
             @click="handleCreateButtonClick"
           >
             {{ $t("common.create") }}
-          </button>
+          </NButton>
         </template>
         <template v-else>
-          <button
-            class="btn-normal"
+          <NButton
             :disabled="!allowUpdate"
             @click="handleDiscardChangesButtonClick"
           >
             {{ $t("common.discard-changes") }}
-          </button>
-          <button
-            class="btn-primary"
+          </NButton>
+          <NButton
+            class="primary"
             :disabled="!allowUpdate"
             @click="handleUpdateButtonClick"
           >
             {{ $t("common.update") }}
-          </button>
+          </NButton>
         </template>
       </div>
     </div>
@@ -830,7 +807,13 @@
 
 <script lang="ts" setup>
 import { cloneDeep, head, isEqual } from "lodash-es";
-import { NRadioGroup, NRadio, NTooltip } from "naive-ui";
+import {
+  NRadioGroup,
+  NCheckbox,
+  NRadio,
+  NTooltip,
+  NInputNumber,
+} from "naive-ui";
 import { ClientError, Status } from "nice-grpc-common";
 import { computed, reactive, ref, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";

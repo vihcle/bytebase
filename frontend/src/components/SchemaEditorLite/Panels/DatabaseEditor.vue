@@ -40,6 +40,22 @@
               </template>
               {{ $t("schema-editor.actions.add-from-template") }}
             </NButton>
+            <div
+              v-if="selectionEnabled"
+              class="text-sm flex flex-row items-center gap-x-2"
+            >
+              <span class="text-main">
+                {{ $t("branch.select-tables-to-rollout") }}
+              </span>
+              <TableSelectionSummary
+                v-if="selectedSchema"
+                :db="db"
+                :metadata="{
+                  database,
+                  schema: selectedSchema,
+                }"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -79,12 +95,13 @@
     <div class="flex-1 overflow-y-hidden">
       <!-- List view -->
       <template v-if="state.selectedSubTab === 'table-list'">
-        <tables
+        <TableList
           v-if="selectedSchema"
           :db="db"
           :database="database"
           :schema="selectedSchema"
           :tables="selectedSchema.tables"
+          :search-pattern="searchPattern"
         />
       </template>
       <template v-else-if="state.selectedSubTab === 'schema-diagram'">
@@ -151,7 +168,8 @@ import { SchemaTemplateSetting_TableTemplate } from "@/types/proto/v1/setting_se
 import TableTemplates from "@/views/SchemaTemplate/TableTemplates.vue";
 import TableNameModal from "../Modals/TableNameModal.vue";
 import { useSchemaEditorContext } from "../context";
-import tables from "./TableList";
+import TableList from "./TableList";
+import TableSelectionSummary from "./TableSelectionSummary.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -181,8 +199,16 @@ interface LocalState {
 }
 
 const context = useSchemaEditorContext();
-const { readonly, addTab, getSchemaStatus, markEditStatus, upsertTableConfig } =
-  context;
+const {
+  readonly,
+  selectionEnabled,
+  events,
+  addTab,
+  getSchemaStatus,
+  markEditStatus,
+  upsertTableConfig,
+  queuePendingScrollToTable,
+} = context;
 const state = reactive<LocalState>({
   selectedSubTab: "table-list",
   showFeatureModal: false,
@@ -340,6 +366,15 @@ const handleApplyTemplate = (template: SchemaTemplateSetting_TableTemplate) => {
     type: "table",
     database: db,
     metadata: metadataForTable(),
+  });
+
+  queuePendingScrollToTable({
+    db,
+    metadata: metadataForTable(),
+  });
+
+  events.emit("rebuild-tree", {
+    openFirstChild: false,
   });
 };
 </script>

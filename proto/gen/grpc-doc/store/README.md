@@ -38,6 +38,7 @@
     - [DatabaseSchemaMetadata](#bytebase-store-DatabaseSchemaMetadata)
     - [DependentColumn](#bytebase-store-DependentColumn)
     - [ExtensionMetadata](#bytebase-store-ExtensionMetadata)
+    - [ExternalTableMetadata](#bytebase-store-ExternalTableMetadata)
     - [ForeignKeyMetadata](#bytebase-store-ForeignKeyMetadata)
     - [FunctionMetadata](#bytebase-store-FunctionMetadata)
     - [IndexMetadata](#bytebase-store-IndexMetadata)
@@ -111,6 +112,7 @@
     - [PlanConfig](#bytebase-store-PlanConfig)
     - [PlanConfig.ChangeDatabaseConfig](#bytebase-store-PlanConfig-ChangeDatabaseConfig)
     - [PlanConfig.ChangeDatabaseConfig.GhostFlagsEntry](#bytebase-store-PlanConfig-ChangeDatabaseConfig-GhostFlagsEntry)
+    - [PlanConfig.ChangeDatabaseConfig.PreUpdateBackupDetail](#bytebase-store-PlanConfig-ChangeDatabaseConfig-PreUpdateBackupDetail)
     - [PlanConfig.ChangeDatabaseConfig.RollbackDetail](#bytebase-store-PlanConfig-ChangeDatabaseConfig-RollbackDetail)
     - [PlanConfig.CreateDatabaseConfig](#bytebase-store-PlanConfig-CreateDatabaseConfig)
     - [PlanConfig.CreateDatabaseConfig.LabelsEntry](#bytebase-store-PlanConfig-CreateDatabaseConfig-LabelsEntry)
@@ -186,11 +188,7 @@
   
 - [store/sheet.proto](#store_sheet-proto)
     - [SheetPayload](#bytebase-store-SheetPayload)
-    - [SheetPayload.SchemaDesign](#bytebase-store-SheetPayload-SchemaDesign)
     - [SheetPayload.VCSPayload](#bytebase-store-SheetPayload-VCSPayload)
-  
-    - [SheetPayload.SchemaDesign.Type](#bytebase-store-SheetPayload-SchemaDesign-Type)
-    - [SheetPayload.Type](#bytebase-store-SheetPayload-Type)
   
 - [store/slow_query.proto](#store_slow_query-proto)
     - [SlowQueryDetails](#bytebase-store-SlowQueryDetails)
@@ -717,6 +715,24 @@ ExtensionMetadata is the metadata for extensions.
 
 
 
+<a name="bytebase-store-ExternalTableMetadata"></a>
+
+### ExternalTableMetadata
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name is the name of a external table. |
+| external_server_name | [string](#string) |  | The external_server_name is the name of the external server. |
+| external_database_name | [string](#string) |  | The external_database_name is the name of the external database. |
+| columns | [ColumnMetadata](#bytebase-store-ColumnMetadata) | repeated | The columns is the ordered list of columns in a foreign table. |
+
+
+
+
+
+
 <a name="bytebase-store-ForeignKeyMetadata"></a>
 
 ### ForeignKeyMetadata
@@ -770,6 +786,7 @@ IndexMetadata is the metadata for indexes.
 | primary | [bool](#bool) |  | The primary is whether the index is a primary key index. |
 | visible | [bool](#bool) |  | The visible is whether the index is visible. |
 | comment | [string](#string) |  | The comment is the comment of an index. |
+| definition | [string](#string) |  | The definition of an index. |
 
 
 
@@ -819,6 +836,7 @@ This is the concept of schema in Postgres, but it&#39;s a no-op for MySQL.
 | ----- | ---- | ----- | ----------- |
 | name | [string](#string) |  | The name is the schema name. It is an empty string for databases without such concept such as MySQL. |
 | tables | [TableMetadata](#bytebase-store-TableMetadata) | repeated | The tables is the list of tables in a schema. |
+| external_tables | [ExternalTableMetadata](#bytebase-store-ExternalTableMetadata) | repeated | The external_tables is the list of external tables in a schema. |
 | views | [ViewMetadata](#bytebase-store-ViewMetadata) | repeated | The views is the list of views in a schema. |
 | functions | [FunctionMetadata](#bytebase-store-FunctionMetadata) | repeated | The functions is the list of functions in a schema. |
 | streams | [StreamMetadata](#bytebase-store-StreamMetadata) | repeated | The streams is the list of streams in a schema, currently, only used for Snowflake. |
@@ -1081,7 +1099,6 @@ ViewMetadata is the metadata for views.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| schema | [bytes](#bytes) |  |  |
 | metadata | [DatabaseSchemaMetadata](#bytebase-store-DatabaseSchemaMetadata) |  |  |
 | database_config | [DatabaseConfig](#bytebase-store-DatabaseConfig) |  |  |
 
@@ -1197,6 +1214,7 @@ Used internally for obfuscating the page token.
 | DM | 15 |  |
 | RISINGWAVE | 16 |  |
 | OCEANBASE_ORACLE | 17 |  |
+| STARROCKS | 18 |  |
 
 
 
@@ -1755,9 +1773,10 @@ InstanceOptions is the option for instances.
 | sheet | [string](#string) |  | The resource name of the sheet. Format: projects/{project}/sheets/{sheet} |
 | type | [PlanConfig.ChangeDatabaseConfig.Type](#bytebase-store-PlanConfig-ChangeDatabaseConfig-Type) |  |  |
 | schema_version | [string](#string) |  | schema_version is parsed from VCS file name. It is automatically generated in the UI workflow. |
-| rollback_enabled | [bool](#bool) |  | If RollbackEnabled, build the RollbackSheetID of the task. |
+| rollback_enabled | [bool](#bool) |  | If RollbackEnabled, build the RollbackSheetID of the task after the task is completed. |
 | rollback_detail | [PlanConfig.ChangeDatabaseConfig.RollbackDetail](#bytebase-store-PlanConfig-ChangeDatabaseConfig-RollbackDetail) | optional |  |
 | ghost_flags | [PlanConfig.ChangeDatabaseConfig.GhostFlagsEntry](#bytebase-store-PlanConfig-ChangeDatabaseConfig-GhostFlagsEntry) | repeated |  |
+| pre_update_backup_detail | [PlanConfig.ChangeDatabaseConfig.PreUpdateBackupDetail](#bytebase-store-PlanConfig-ChangeDatabaseConfig-PreUpdateBackupDetail) | optional | If set, a backup of the modified data will be created automatically before any changes are applied. |
 
 
 
@@ -1774,6 +1793,21 @@ InstanceOptions is the option for instances.
 | ----- | ---- | ----- | ----------- |
 | key | [string](#string) |  |  |
 | value | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="bytebase-store-PlanConfig-ChangeDatabaseConfig-PreUpdateBackupDetail"></a>
+
+### PlanConfig.ChangeDatabaseConfig.PreUpdateBackupDetail
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| database | [string](#string) |  | The database for keeping the backup data. Format: instances/{instance}/databases/{database} |
 
 
 
@@ -2867,29 +2901,9 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| type | [SheetPayload.Type](#bytebase-store-SheetPayload-Type) |  |  |
 | vcs_payload | [SheetPayload.VCSPayload](#bytebase-store-SheetPayload-VCSPayload) |  |  |
-| schema_design | [SheetPayload.SchemaDesign](#bytebase-store-SheetPayload-SchemaDesign) |  |  |
 | database_config | [DatabaseConfig](#bytebase-store-DatabaseConfig) |  | The snapshot of the database config when creating the sheet, be used to compare with the baseline_database_config and apply the diff to the database. |
 | baseline_database_config | [DatabaseConfig](#bytebase-store-DatabaseConfig) |  | The snapshot of the baseline database config when creating the sheet. |
-
-
-
-
-
-
-<a name="bytebase-store-SheetPayload-SchemaDesign"></a>
-
-### SheetPayload.SchemaDesign
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| type | [SheetPayload.SchemaDesign.Type](#bytebase-store-SheetPayload-SchemaDesign-Type) |  | The type of the schema design. |
-| engine | [Engine](#bytebase-store-Engine) |  | The database instance engine of the schema design. |
-| baseline_sheet_id | [string](#string) |  | The id of the baseline sheet including the baseline full schema. |
-| baseline_schema_design_id | [string](#string) |  | The sheet id of the baseline schema design. Only valid when the schema design is a personal draft. |
 
 
 
@@ -2917,31 +2931,6 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 
 
  
-
-
-<a name="bytebase-store-SheetPayload-SchemaDesign-Type"></a>
-
-### SheetPayload.SchemaDesign.Type
-
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| TYPE_UNSPECIFIED | 0 |  |
-| MAIN_BRANCH | 1 | Main branch type is the main version of schema design. And only allow to be updated/merged with personal drafts. |
-| PERSONAL_DRAFT | 2 | Personal draft type is a copy of the main branch type schema designs. |
-
-
-
-<a name="bytebase-store-SheetPayload-Type"></a>
-
-### SheetPayload.Type
-Type of the SheetPayload.
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| TYPE_UNSPECIFIED | 0 |  |
-| SCHEMA_DESIGN | 1 |  |
-
 
  
 

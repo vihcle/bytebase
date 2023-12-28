@@ -610,7 +610,7 @@ func mysqlSyntaxCheck(statement string) (any, []Advice) {
 }
 
 func tidbSyntaxCheck(statement string) (any, []Advice) {
-	list, err := base.SplitMultiSQL(storepb.Engine_MYSQL, statement)
+	list, err := base.SplitMultiSQL(storepb.Engine_TIDB, statement)
 	if err != nil {
 		return nil, []Advice{
 			{
@@ -986,12 +986,6 @@ func getViewDefinition(checkContext SQLReviewCheckContext, viewList []string) (s
 	}
 
 	return buf.String(), nil
-}
-
-// RuleExists returns true if rule exists.
-func RuleExists(ruleType SQLReviewRuleType, engine storepb.Engine) bool {
-	_, err := getAdvisorTypeByRule(ruleType, engine)
-	return err == nil
 }
 
 func getAdvisorTypeByRule(ruleType SQLReviewRuleType, engine storepb.Engine) (Type, error) {

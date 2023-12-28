@@ -12,10 +12,9 @@
       class="w-[30rem] max-w-[100vw] relative"
     >
       <div class="flex items-center justify-end mx-2 mb-2">
-        <BBTableSearch
-          class="m-px"
+        <SearchBox
+          v-model:value="state.searchText"
           :placeholder="$t('database.filter-database')"
-          @change-text="(text: string) => (state.searchText = text)"
         />
       </div>
       <NCollapse
@@ -34,22 +33,19 @@
           :name="environment.uid"
         >
           <template #header>
-            <label class="flex items-center gap-x-2" @click.stop="">
-              <input
-                type="checkbox"
-                class="h-4 w-4 text-accent rounded disabled:cursor-not-allowed border-control-border focus:ring-accent ml-0.5"
+            <label class="flex items-center gap-x-2" @click.stop.prevent>
+              <NCheckbox
                 v-bind="
                   getAllSelectionStateForEnvironment(
                     environment,
                     databaseListInEnvironment
                   )
                 "
-                @click.stop=""
-                @input="
+                @update:checked="
                   toggleAllDatabasesSelectionForEnvironment(
                     environment,
                     databaseListInEnvironment,
-                    ($event.target as HTMLInputElement).checked
+                    $event
                   )
                 "
               />
@@ -85,11 +81,11 @@
                 "
               >
                 <div class="radio text-sm flex justify-start md:flex-1">
-                  <input
-                    type="checkbox"
-                    class="h-4 w-4 text-accent rounded disabled:cursor-not-allowed border-control-border focus:ring-accent"
+                  <NCheckbox
                     :checked="isDatabaseSelected(database.uid)"
-                    @input="(e: any) => toggleDatabaseSelected(database.uid, e.target.checked)"
+                    @update:checked="
+                      (checked) => toggleDatabaseSelected(database.uid, checked)
+                    "
                   />
                   <span
                     class="font-medium ml-2 text-main"
@@ -129,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { NCollapse, NCollapseItem, NButton } from "naive-ui";
+import { NCollapse, NCollapseItem, NButton, NCheckbox } from "naive-ui";
 import { computed, reactive } from "vue";
 import {
   Drawer,

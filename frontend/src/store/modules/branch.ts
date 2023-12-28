@@ -6,6 +6,7 @@ import {
   MergeBranchRequest,
   Branch,
   BranchView,
+  RebaseBranchRequest,
 } from "@/types/proto/v1/branch_service";
 
 export const useBranchStore = defineStore("schema_design", () => {
@@ -18,6 +19,9 @@ export const useBranchStore = defineStore("schema_design", () => {
       parent: projectName,
       view: BranchView.BRANCH_VIEW_BASIC,
     });
+    for (const branch of branches) {
+      branchMapByName.set(branch.name, branch);
+    }
     return branches;
   };
 
@@ -31,7 +35,6 @@ export const useBranchStore = defineStore("schema_design", () => {
       branchId: branchId,
       branch,
     });
-    // console.debug("got schema", createdBranch.schema);
     branchMapByName.set(createdBranch.name, createdBranch);
     return createdBranch;
   };
@@ -46,12 +49,21 @@ export const useBranchStore = defineStore("schema_design", () => {
   };
 
   const mergeBranch = async (request: MergeBranchRequest) => {
-    const resp = await branchServiceClient.mergeBranch(request, {
+    const branch = await branchServiceClient.mergeBranch(request, {
       silent: true,
     });
-    if (resp.branch) {
-      branchMapByName.set(resp.branch.name, resp.branch);
+    branchMapByName.set(branch.name, branch);
+    return branch;
+  };
+
+  const rebaseBranch = async (request: RebaseBranchRequest) => {
+    const response = await branchServiceClient.rebaseBranch(request, {
+      silent: true,
+    });
+    if (response.branch) {
+      branchMapByName.set(response.branch.name, response.branch);
     }
+    return response;
   };
 
   const fetchBranchByName = async (
@@ -65,7 +77,7 @@ export const useBranchStore = defineStore("schema_design", () => {
         return cachedEntity;
       }
 
-      // Avoid making duplicated requests concurrently
+      // Avoid making duplicated requests concurrently.
       const cachedRequest = getBranchRequestCacheByName.get(name);
       if (cachedRequest) {
         return cachedRequest;
@@ -102,6 +114,7 @@ export const useBranchStore = defineStore("schema_design", () => {
     createBranch,
     updateBranch,
     mergeBranch,
+    rebaseBranch,
     fetchBranchByName,
     getBranchByName,
     deleteBranch,

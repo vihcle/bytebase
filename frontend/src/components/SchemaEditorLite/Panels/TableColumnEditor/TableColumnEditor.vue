@@ -1,13 +1,14 @@
 <template>
   <div
     ref="containerElRef"
-    class="w-full h-full"
+    class="w-full h-full overflow-x-auto"
     :data-height="containerHeight"
     :data-table-header-height="tableHeaderHeight"
     :data-table-body-height="tableBodyHeight"
   >
     <NDataTable
       v-bind="$attrs"
+      ref="dataTableRef"
       size="small"
       :row-key="getColumnKey"
       :columns="columns"
@@ -62,7 +63,13 @@
 
 <script lang="ts" setup>
 import { useElementSize } from "@vueuse/core";
-import { DataTableColumn, NCheckbox, NDataTable } from "naive-ui";
+import { pick } from "lodash-es";
+import {
+  DataTableColumn,
+  DataTableInst,
+  NCheckbox,
+  NDataTable,
+} from "naive-ui";
 import { computed, h, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import SelectClassificationDrawer from "@/components/SchemaTemplate/SelectClassificationDrawer.vue";
@@ -91,6 +98,7 @@ import {
   ForeignKeyCell,
   OperationCell,
   ReorderCell,
+  SelectionCell,
   SemanticTypeCell,
 } from "./components";
 import DefaultValueCell from "./components/DefaultValueCell.vue";
@@ -164,14 +172,18 @@ const state = reactive<LocalState>({
   showLabelsDrawer: false,
 });
 
-const context = useSchemaEditorContext();
 const {
   resourceType,
   markEditStatus,
   getColumnStatus,
   getColumnConfig,
   upsertColumnConfig,
-} = context;
+  useConsumePendingScrollToColumn,
+  selectionEnabled,
+  getAllColumnsSelectionState,
+  updateAllColumnsSelection,
+} = useSchemaEditorContext();
+const dataTableRef = ref<DataTableInst>();
 const containerElRef = ref<HTMLElement>();
 const tableHeaderElRef = computed(
   () =>
@@ -207,7 +219,21 @@ const metadataForColumn = (column: ColumnMetadata) => {
 const statusForColumn = (column: ColumnMetadata) => {
   return getColumnStatus(props.db, metadataForColumn(column));
 };
-const markColumnStatus = (column: ColumnMetadata, status: EditStatus) => {
+const markColumnStatus = (
+  column: ColumnMetadata,
+  status: EditStatus,
+  oldStatus: EditStatus | undefined = undefined
+) => {
+  if (!oldStatus) {
+    oldStatus = statusForColumn(column);
+  }
+  if (
+    (oldStatus === "created" || oldStatus === "dropped") &&
+    status === "updated"
+  ) {
+    markEditStatus(props.db, metadataForColumn(column), oldStatus);
+    return;
+  }
   markEditStatus(props.db, metadataForColumn(column), status);
 };
 const configForColumn = (column: ColumnMetadata) => {
@@ -247,6 +273,39 @@ const showSemanticTypeColumn = computed(() => {
 const columns = computed(() => {
   const columns: (DataTableColumn<ColumnMetadata> & { hide?: boolean })[] = [
     {
+      key: "__selected__",
+      width: 32,
+      hide: !selectionEnabled.value,
+      title: () => {
+        const state = getAllColumnsSelectionState(
+          props.db,
+          pick(props, "database", "schema", "table"),
+          shownColumnList.value
+        );
+        return h(NCheckbox, {
+          checked: state.checked,
+          indeterminate: state.indeterminate,
+          onUpdateChecked: (on: boolean) => {
+            updateAllColumnsSelection(
+              props.db,
+              pick(props, "database", "schema", "table"),
+              shownColumnList.value,
+              on
+            );
+          },
+        });
+      },
+      render: (column) => {
+        return h(SelectionCell, {
+          db: props.db,
+          metadata: {
+            ...pick(props, "database", "schema", "table"),
+            column,
+          },
+        });
+      },
+    },
+    {
       key: "reorder",
       title: "",
       resizable: false,
@@ -267,7 +326,7 @@ const columns = computed(() => {
       key: "name",
       title: t("schema-editor.column.name"),
       resizable: true,
-      width: 140,
+      minWidth: 140,
       className: "input-cell",
       render: (column) => {
         return h(InlineInput, {
@@ -280,8 +339,9 @@ const columns = computed(() => {
             "--n-text-color-disabled": "rgb(var(--color-main))",
           },
           "onUpdate:value": (value) => {
+            const oldStatus = statusForColumn(column);
             column.name = value;
-            markColumnStatus(column, "updated");
+            markColumnStatus(column, "updated", oldStatus);
           },
         });
       },
@@ -290,7 +350,8 @@ const columns = computed(() => {
       key: "semantic-types",
       title: t("settings.sensitive-data.semantic-types.self"),
       resizable: true,
-      width: 140,
+      minWidth: 140,
+      maxWidth: 320,
       hide: !showSemanticTypeColumn.value,
       render: (column) => {
         return h(SemanticTypeCell, {
@@ -313,7 +374,8 @@ const columns = computed(() => {
       title: t("schema-editor.column.classification"),
       hide: !classificationConfig.value,
       resizable: true,
-      width: 140,
+      minWidth: 140,
+      maxWidth: 320,
       render: (column) => {
         return h(ClassificationCell, {
           classification: column.classification,
@@ -334,7 +396,8 @@ const columns = computed(() => {
       key: "type",
       title: t("schema-editor.column.type"),
       resizable: true,
-      width: 140,
+      minWidth: 140,
+      maxWidth: 320,
       className: "input-cell",
       render: (column) => {
         return h(DataTypeCell, {
@@ -353,7 +416,8 @@ const columns = computed(() => {
       key: "default-value",
       title: t("schema-editor.column.default"),
       resizable: true,
-      width: 140,
+      minWidth: 140,
+      maxWidth: 320,
       className: "input-cell",
       render: (column) => {
         return h(DefaultValueCell, {
@@ -370,7 +434,8 @@ const columns = computed(() => {
       key: "comment",
       title: t("schema-editor.column.comment"),
       resizable: true,
-      width: 140,
+      minWidth: 140,
+      maxWidth: 320,
       className: "input-cell",
       render: (column) => {
         return h(InlineInput, {
@@ -393,7 +458,8 @@ const columns = computed(() => {
       key: "not-null",
       title: t("schema-editor.column.not-null"),
       resizable: true,
-      width: 80,
+      minWidth: 80,
+      maxWidth: 160,
       className: "checkbox-cell",
       render: (column) => {
         return h(NCheckbox, {
@@ -413,7 +479,8 @@ const columns = computed(() => {
       key: "primary",
       title: t("schema-editor.column.primary"),
       resizable: true,
-      width: 80,
+      minWidth: 80,
+      maxWidth: 160,
       className: "checkbox-cell",
       render: (column) => {
         return h(NCheckbox, {
@@ -429,7 +496,8 @@ const columns = computed(() => {
       title: t("schema-editor.column.foreign-key"),
       hide: !props.showForeignKey,
       resizable: true,
-      width: 140,
+      minWidth: 140,
+      maxWidth: 320,
       className: "text-cell",
       render: (column) => {
         return h(ForeignKeyCell, {
@@ -449,7 +517,8 @@ const columns = computed(() => {
       key: "labels",
       title: t("common.labels"),
       resizable: true,
-      width: 140,
+      minWidth: 140,
+      maxWidth: 320,
       hide: !showDatabaseConfigColumn.value,
       render: (column) => {
         return h(LabelsCell, {
@@ -631,6 +700,35 @@ const isDroppedColumn = (column: ColumnMetadata): boolean => {
 const getColumnKey = (column: ColumnMetadata) => {
   return markUUID(column);
 };
+
+const vlRef = computed(() => {
+  return (dataTableRef.value as any)?.$refs?.mainTableInstRef?.bodyInstRef
+    ?.virtualListRef;
+});
+useConsumePendingScrollToColumn(
+  computed(() => ({
+    db: props.db,
+    metadata: {
+      database: props.database,
+      schema: props.schema,
+      table: props.table,
+    },
+  })),
+  vlRef,
+  (params, vl) => {
+    const key = getColumnKey(params.metadata.column);
+    if (!key) return;
+    requestAnimationFrame(() => {
+      try {
+        console.debug("scroll-to-column", vl, params, key);
+        vl.scrollTo({ key });
+        // TODO: focus name or type input element
+      } catch {
+        // Do nothing
+      }
+    });
+  }
+);
 </script>
 
 <style lang="postcss" scoped>

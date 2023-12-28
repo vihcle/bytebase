@@ -29,11 +29,10 @@
           {{ $t("sql-review.rule.active") }}
         </h3>
         <div class="flex items-center gap-x-2 text-sm">
-          <BBSwitch
+          <NSwitch
             :disabled="disabled"
             :value="state.level !== SQLReviewRuleLevel.DISABLED"
-            size="small"
-            @toggle="toggleActivity(rule, $event)"
+            @update-value="(val) => toggleActivity(rule, val)"
           />
         </div>
       </div>
@@ -55,15 +54,15 @@
           {{ $t("common.description") }}
         </h3>
         <div class="flex flex-col gap-x-2">
-          <AutoHeightTextarea
+          <BBTextField
             v-model:value="state.comment"
             :disabled="disabled"
             :placeholder="
               getRuleLocalization(rule.type).description ||
               $t('common.description')
             "
-            rows="1"
-            :max-height="120"
+            type="textarea"
+            :autosize="{ minRows: 1, maxRows: 4 }"
           />
         </div>
       </div>
@@ -142,30 +141,25 @@
           "
         />
       </div>
-      <div v-if="editable" class="mt-4 pt-2 border-t flex justify-end">
-        <button
-          type="button"
-          class="btn-normal py-2 px-4"
-          @click.prevent="$emit('cancel')"
-        >
+      <div
+        v-if="editable"
+        class="mt-4 pt-2 border-t flex justify-end space-x-3"
+      >
+        <NButton @click.prevent="$emit('cancel')">
           {{ $t("common.cancel") }}
-        </button>
-        <button
-          class="btn-primary ml-3 inline-flex justify-center py-2 px-4"
-          :disabled="disabled"
-          @click.prevent="confirm"
-        >
+        </NButton>
+        <NButton type="primary" :disabled="disabled" @click.prevent="confirm">
           {{ $t("common.confirm") }}
-        </button>
+        </NButton>
       </div>
     </div>
   </BBModal>
 </template>
 
 <script lang="ts" setup>
+import { NSwitch } from "naive-ui";
 import { computed, nextTick, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import AutoHeightTextarea from "@/components/misc/AutoHeightTextarea.vue";
 import { Engine } from "@/types/proto/v1/common";
 import { SQLReviewRuleLevel } from "@/types/proto/v1/org_policy_service";
 import {

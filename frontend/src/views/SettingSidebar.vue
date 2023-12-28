@@ -45,6 +45,13 @@ const getItemClass = (path: string | undefined) => {
         list.push("router-link-active", "bg-link-hover");
       }
       break;
+    case "setting.workspace.gitop":
+    case "setting.workspace.gitops.create":
+    case "setting.workspace.gitops.detail":
+      if (path === "/setting/gitops") {
+        list.push("router-link-active", "bg-link-hover");
+      }
+      break;
   }
   return list;
 };
@@ -85,15 +92,6 @@ const settingSidebarItemList = computed((): SidebarItem[] => {
         {
           title: t("settings.sidebar.custom-roles"),
           path: "/setting/role",
-          type: "route",
-        },
-        {
-          title: t("common.projects"),
-          path: "/setting/project",
-          hide: !hasSettingPagePermission(
-            "setting.workspace.project",
-            currentUserV1.value.userRole
-          ),
           type: "route",
         },
         {

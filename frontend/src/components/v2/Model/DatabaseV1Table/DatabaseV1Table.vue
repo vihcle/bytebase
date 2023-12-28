@@ -45,6 +45,7 @@
             :show-tenant-icon="showTenantIcon"
             :show-instance-column="showInstanceColumn"
             :show-labels-column="showLabelsColumn"
+            :show-sql-editor-button="showSQLEditorButton"
             :allow-query="allowQuery(database as ComposedDatabase)"
             @goto-sql-editor-failed="
               handleGotoSQLEditorFailed(database as ComposedDatabase)
@@ -73,6 +74,10 @@
             </template>
           </DatabaseGroupTableRow>
         </template>
+      </template>
+
+      <template #placeholder-content>
+        <slot name="placeholder"></slot>
       </template>
 
       <template #footer>
@@ -110,21 +115,16 @@
     <div class="col-span-1 w-96">
       {{ $t("database.incorrect-project-warning") }}
     </div>
-    <div class="pt-6 flex justify-end">
-      <button
-        type="button"
-        class="btn-normal py-2 px-4"
-        @click.prevent="handleIncorrectProjectModalCancel"
-      >
+    <div class="pt-6 flex justify-end space-x-3">
+      <NButton @click.prevent="handleIncorrectProjectModalCancel">
         {{ $t("common.cancel") }}
-      </button>
-      <button
-        type="button"
-        class="btn-primary ml-3 inline-flex justify-center py-2 px-4"
+      </NButton>
+      <NButton
+        type="primary"
         @click.prevent="handleIncorrectProjectModalConfirm"
       >
         {{ $t("database.go-to-transfer") }}
-      </button>
+      </NButton>
     </div>
   </BBModal>
 </template>
@@ -146,9 +146,8 @@ import {
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { BBGridColumn } from "@/bbkit/types";
-import { useCurrentUserV1 } from "@/store";
+import { usePolicyV1Store, usePageMode, useCurrentUserV1 } from "@/store";
 import { getProjectNameAndDatabaseGroupName } from "@/store/modules/v1/common";
-import { usePolicyV1Store } from "@/store/modules/v1/policy";
 import { ComposedDatabase, ComposedDatabaseGroup } from "@/types";
 import {
   Policy,
@@ -165,19 +164,11 @@ import {
 } from "@/utils";
 import DatabaseGroupTableRow from "./DatabaseGroupTableRow.vue";
 import DatabaseTableRow from "./DatabaseTableRow.vue";
-import { isDatabase } from "./utils";
+import { isDatabase, Mode } from "./utils";
 
 const { getCoreRowModel, getPaginationRowModel, useVueTable } = await import(
   "@tanstack/vue-table"
 );
-
-type Mode =
-  | "ALL"
-  | "ALL_SHORT"
-  | "ALL_TINY"
-  | "INSTANCE"
-  | "PROJECT"
-  | "PROJECT_SHORT";
 
 interface LocalState {
   showIncorrectProjectModal: boolean;
@@ -244,6 +235,11 @@ const props = defineProps({
     type: Boolean,
     default: undefined,
   },
+  showSqlEditorButton: {
+    required: false,
+    type: Boolean,
+    default: true,
+  },
 });
 
 const emit = defineEmits(["select-database"]);
@@ -255,6 +251,7 @@ const state = reactive<LocalState>({
   showIncorrectProjectModal: false,
   showReservedDatabaseList: false,
 });
+const pageMode = usePageMode();
 const wrapper = ref<HTMLElement>();
 
 const regularDatabaseList = computed(() =>
@@ -369,6 +366,10 @@ const showMiscColumn = computed(() => {
     return false;
   }
   return true;
+});
+
+const showSQLEditorButton = computed(() => {
+  return pageMode.value === "BUNDLED" && props.showSqlEditorButton;
 });
 
 const columnList = computed(() => {

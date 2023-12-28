@@ -26,13 +26,15 @@
                   <span class="text-red-600">*</span>
                 </label>
                 <div class="mt-1 rounded-md shadow-sm">
-                  <input
-                    id="email"
-                    v-model="state.email"
-                    type="email"
+                  <BBTextField
+                    v-model:value="state.email"
                     required
+                    :input-props="{
+                      id: 'email',
+                      autocomplete: 'on',
+                      type: 'email',
+                    }"
                     placeholder="jim@example.com"
-                    class="appearance-none block w-full px-3 py-2 border border-control-border rounded-md placeholder-control-placeholder focus:outline-none focus:shadow-outline-blue focus:border-control-border sm:text-sm sm:leading-5"
                   />
                 </div>
               </div>
@@ -47,22 +49,26 @@
                     <span class="text-red-600">*</span>
                   </div>
                   <router-link
-                    to="/auth/password-forgot"
+                    :to="{
+                      path: '/auth/password-forgot',
+                      query: {
+                        hint: route.query.hint,
+                      },
+                    }"
                     class="text-sm font-normal text-control-light hover:underline focus:outline-none"
                     tabindex="-1"
-                    >{{ $t("auth.sign-in.forget-password") }}</router-link
                   >
+                    {{ $t("auth.sign-in.forget-password") }}
+                  </router-link>
                 </label>
                 <div
                   class="relative flex flex-row items-center mt-1 rounded-md shadow-sm"
                 >
-                  <input
-                    id="password"
-                    v-model="state.password"
+                  <BBTextField
+                    v-model:value="state.password"
                     :type="state.showPassword ? 'text' : 'password'"
-                    autocomplete="on"
+                    :input-props="{ id: 'password', autocomplete: 'on' }"
                     required
-                    class="appearance-none block w-full px-3 py-2 border border-control-border rounded-md placeholder-control-placeholder focus:outline-none focus:shadow-outline-blue focus:border-control-border sm:text-sm sm:leading-5"
                   />
                   <div
                     class="hover:cursor-pointer absolute right-3"
@@ -81,38 +87,40 @@
                 </div>
               </div>
 
-              <div>
-                <span class="flex w-full rounded-md items-center">
-                  <button
-                    type="submit"
-                    :disabled="!allowSignin()"
-                    class="btn-primary justify-center flex-grow py-2 px-4"
-                  >
-                    {{ $t("common.sign-in") }}
-                  </button>
-                </span>
+              <div class="w-full">
+                <NButton
+                  attr-type="submit"
+                  type="primary"
+                  :disabled="!allowSignin()"
+                  size="large"
+                  style="width: 100%"
+                >
+                  {{ $t("common.sign-in") }}
+                </NButton>
               </div>
             </form>
 
-            <div class="mt-6 relative">
-              <div class="relative flex justify-center text-sm">
+            <div class="mt-3">
+              <div
+                class="flex justify-center items-center text-sm text-control"
+              >
                 <template v-if="isDemo">
-                  <span class="pl-2 bg-white text-accent">{{
-                    $t("auth.sign-in.demo-note", {
-                      username: "demo@example.com",
-                      password: "1024",
-                    })
-                  }}</span>
+                  <span class="text-accent">
+                    {{
+                      $t("auth.sign-in.demo-note", {
+                        username: "demo@example.com",
+                        password: "1024",
+                      })
+                    }}
+                  </span>
                 </template>
                 <template v-else-if="!disallowSignup">
-                  <span class="pl-2 bg-white text-control">{{
-                    $t("auth.sign-in.new-user")
-                  }}</span>
-                  <router-link
-                    to="/auth/signup"
-                    class="accent-link bg-white px-2"
-                    >{{ $t("common.sign-up") }}</router-link
-                  >
+                  <span>
+                    {{ $t("auth.sign-in.new-user") }}
+                  </span>
+                  <router-link to="/auth/signup" class="accent-link px-2">
+                    {{ $t("common.sign-up") }}
+                  </router-link>
                 </template>
               </div>
             </div>
@@ -140,13 +148,11 @@
                     <span class="text-red-600">*</span>
                   </label>
                   <div class="mt-1 rounded-md shadow-sm">
-                    <input
-                      id="username"
-                      v-model="state.email"
-                      type="text"
+                    <BBTextField
+                      v-model:value="state.email"
                       required
                       placeholder="jim"
-                      class="appearance-none block w-full px-3 py-2 border border-control-border rounded-md placeholder-control-placeholder focus:outline-none focus:shadow-outline-blue focus:border-control-border sm:text-sm sm:leading-5"
+                      :input-props="{ id: 'username', autocomplete: 'on' }"
                     />
                   </div>
                 </div>
@@ -164,13 +170,11 @@
                   <div
                     class="relative flex flex-row items-center mt-1 rounded-md shadow-sm"
                   >
-                    <input
-                      id="password"
-                      v-model="state.password"
+                    <BBTextField
+                      v-model:value="state.password"
                       :type="state.showPassword ? 'text' : 'password'"
-                      autocomplete="on"
+                      :input-props="{ id: 'password', autocomplete: 'on' }"
                       required
-                      class="appearance-none block w-full px-3 py-2 border border-control-border rounded-md placeholder-control-placeholder focus:outline-none focus:shadow-outline-blue focus:border-control-border sm:text-sm sm:leading-5"
                     />
                     <div
                       class="hover:cursor-pointer absolute right-3"
@@ -189,16 +193,16 @@
                   </div>
                 </div>
 
-                <div>
-                  <span class="flex w-full rounded-md items-center">
-                    <button
-                      type="submit"
-                      :disabled="!allowSignin(identityProvider.name)"
-                      class="btn-primary justify-center flex-grow py-2 px-4"
-                    >
-                      {{ $t("common.sign-in") }}
-                    </button>
-                  </span>
+                <div class="w-full">
+                  <NButton
+                    attr-type="submit"
+                    type="primary"
+                    size="large"
+                    :disabled="!allowSignin(identityProvider.name)"
+                    style="width: 100%"
+                  >
+                    {{ $t("common.sign-in") }}
+                  </NButton>
                 </div>
               </form>
             </n-tab-pane>
@@ -220,19 +224,19 @@
         v-for="identityProvider in separatedIdentityProviderList"
         :key="identityProvider.name"
       >
-        <button
-          type="button"
-          class="btn-normal flex justify-center w-full h-10 mb-2"
-          @click.prevent="trySigninWithIdentityProvider(identityProvider)"
-        >
-          <span class="text-center align-middle">
+        <div class="w-full mb-2">
+          <NButton
+            style="width: 100%"
+            size="large"
+            @click.prevent="trySigninWithIdentityProvider(identityProvider)"
+          >
             {{
               $t("auth.sign-in.sign-in-with-idp", {
                 idp: identityProvider.title,
               })
             }}
-          </span>
-        </button>
+          </NButton>
+        </div>
       </template>
     </div>
   </div>
@@ -293,20 +297,19 @@ onMounted(async () => {
     router.push({ name: "auth.signup", replace: true });
   }
 
-  if (isDemo.value) {
-    state.email = "demo@example.com";
-    state.password = "1024";
-    state.showPassword = true;
-  } else {
-    const url = new URL(window.location.href);
-    const params = new URLSearchParams(url.search);
-    state.email = params.get("email") ?? "";
-    state.password = params.get("password") ?? "";
-    state.showPassword = false;
-  }
+  const url = new URL(window.location.href);
+  const params = new URLSearchParams(url.search);
+  state.email = params.get("email") ?? (isDemo.value ? "demo@example.com" : "");
+  state.password = params.get("password") ?? (isDemo.value ? "1024" : "");
+  state.showPassword = !!isDemo.value;
 
   await identityProviderStore.fetchIdentityProviderList();
-  if (isDemo.value && state.email && state.password) {
+  if (
+    window.location.href.startsWith("https://demo.bytebase.com") &&
+    isDemo.value &&
+    state.email &&
+    state.password
+  ) {
     await trySignin();
   }
 });

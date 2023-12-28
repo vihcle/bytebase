@@ -141,7 +141,7 @@ func (s *SQLService) AdminExecute(server v1pb.SQLService_AdminExecuteServer) err
 
 		// We only need to get the driver and connection once.
 		if driver == nil {
-			driver, err = s.dbFactory.GetAdminDatabaseDriver(ctx, instance, database)
+			driver, err = s.dbFactory.GetAdminDatabaseDriver(ctx, instance, database, db.ConnectionContext{})
 			if err != nil {
 				return status.Errorf(codes.Internal, "failed to get database driver: %v", err)
 			}
@@ -434,12 +434,9 @@ func (*SQLService) StringifyMetadata(_ context.Context, request *v1pb.StringifyM
 		return nil, status.Errorf(codes.InvalidArgument, "metadata is required")
 	}
 	storeSchemaMetadata, _ := convertV1DatabaseMetadata(request.Metadata)
-	if err := checkDatabaseMetadata(storepb.Engine(request.Engine), storeSchemaMetadata); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("invalid metadata: %v", err))
-	}
+	sanitizeCommentForSchemaMetadata(storeSchemaMetadata)
 
-	sanitizeCommentForSchemaMetadata(request.Metadata)
-	schema, err := transformDatabaseMetadataToSchemaString(storepb.Engine(request.Engine), storeSchemaMetadata)
+	schema, err := getDesignSchema(storepb.Engine(request.Engine), "" /* baseline */, storeSchemaMetadata)
 	if err != nil {
 		return nil, err
 	}
@@ -1656,7 +1653,7 @@ func (s *SQLService) sqlReviewCheck(ctx context.Context, statement string, envir
 		}
 	}
 
-	driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, database)
+	driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, database, db.ConnectionContext{UseDatabaseOwner: true})
 	if err != nil {
 		return advisor.Error, nil, status.Errorf(codes.Internal, "Failed to get database driver: %v", err)
 	}

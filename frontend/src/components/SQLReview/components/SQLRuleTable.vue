@@ -17,12 +17,11 @@
       >
         <template #item="{ item: rule }: { item: RuleTemplate }">
           <div class="bb-grid-cell justify-center">
-            <BBSwitch
-              :class="[!editable && 'pointer-events-none']"
-              :disabled="!isRuleAvailable(rule)"
-              :value="rule.level !== SQLReviewRuleLevel.DISABLED"
+            <NSwitch
               size="small"
-              @toggle="toggleActivity(rule, $event)"
+              :disabled="!editable || !isRuleAvailable(rule)"
+              :value="rule.level !== SQLReviewRuleLevel.DISABLED"
+              @update-value="(val) => toggleActivity(rule, val)"
             />
           </div>
           <div class="bb-grid-cell gap-x-1">
@@ -71,13 +70,12 @@
             />
           </div>
           <div class="bb-grid-cell justify-center">
-            <button
-              class="btn-normal !px-3 !py-1"
+            <NButton
               :disabled="!isRuleAvailable(rule)"
               @click="setActiveRule(rule)"
             >
               {{ editable ? $t("common.edit") : $t("common.view") }}
-            </button>
+            </NButton>
           </div>
           <div
             v-if="rule.comment || getRuleLocalization(rule.type).description"
@@ -140,12 +138,11 @@
                 class="w-4 h-4"
                 @click="setActiveRule(rule)"
               />
-              <BBSwitch
-                :class="[!editable && 'pointer-events-none']"
-                :disabled="!isRuleAvailable(rule)"
-                :value="rule.level !== SQLReviewRuleLevel.DISABLED"
+              <NSwitch
                 size="small"
-                @toggle="toggleActivity(rule, $event)"
+                :disabled="!editable || !isRuleAvailable(rule)"
+                :value="rule.level !== SQLReviewRuleLevel.DISABLED"
+                @update-value="(val) => toggleActivity(rule, val)"
               />
             </div>
           </div>
@@ -181,9 +178,10 @@
 
 <script lang="ts" setup>
 import { ExternalLinkIcon, PencilIcon } from "lucide-vue-next";
+import { NSwitch } from "naive-ui";
 import { computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
-import { BBSwitch, BBGrid, type BBGridColumn } from "@/bbkit";
+import { BBGrid, type BBGridColumn } from "@/bbkit";
 import { useCurrentPlan } from "@/store";
 import {
   convertToCategoryList,

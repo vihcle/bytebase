@@ -63,8 +63,8 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const context = useSchemaEditorContext();
-const { addTab, markEditStatus } = context;
+const { events, addTab, markEditStatus, queuePendingScrollToTable } =
+  useSchemaEditorContext();
 const inputRef = ref<InputInst>();
 const notificationStore = useNotificationStore();
 const mode = computed(() => {
@@ -139,18 +139,24 @@ const handleConfirmButtonClick = async () => {
         table,
       },
     });
+
+    queuePendingScrollToTable({
+      db: props.database,
+      metadata: {
+        database: props.metadata,
+        schema: props.schema,
+        table,
+      },
+    });
+    events.emit("rebuild-tree", {
+      openFirstChild: false,
+    });
   } else {
     const { table } = props;
     table.name = state.tableName;
-    markEditStatus(
-      props.database,
-      {
-        database: props.metadata,
-        schema,
-        table,
-      },
-      "updated"
-    );
+    events.emit("rebuild-edit-status", {
+      resets: ["tree"],
+    });
   }
   dismissModal();
 };

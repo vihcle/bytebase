@@ -1,13 +1,14 @@
 <template>
   <div
     ref="containerElRef"
-    class="w-full h-full"
+    class="w-full h-full overflow-x-auto"
     :data-height="containerHeight"
     :data-table-header-height="tableHeaderHeight"
     :data-table-body-height="tableBodyHeight"
   >
     <NDataTable
       v-bind="$attrs"
+      ref="dataTableRef"
       size="small"
       :row-key="getTableKey"
       :columns="columns"
@@ -54,13 +55,18 @@
 
 <script lang="ts" setup>
 import { useElementSize } from "@vueuse/core";
-import { cloneDeep } from "lodash-es";
-import { DataTableColumn, NDataTable } from "naive-ui";
+import { cloneDeep, pick } from "lodash-es";
+import {
+  DataTableColumn,
+  DataTableInst,
+  NCheckbox,
+  NDataTable,
+} from "naive-ui";
 import { computed, h, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import FeatureModal from "@/components/FeatureGuard/FeatureModal.vue";
 import SelectClassificationDrawer from "@/components/SchemaTemplate/SelectClassificationDrawer.vue";
-import { Drawer, DrawerContent } from "@/components/v2";
+import { Drawer, DrawerContent, InlineInput } from "@/components/v2";
 import { hasFeature, useSettingV1Store } from "@/store";
 import { ComposedDatabase } from "@/types";
 import {
@@ -76,7 +82,7 @@ import TableTemplates from "@/views/SchemaTemplate/TableTemplates.vue";
 import { useSchemaEditorContext } from "../../context";
 import ClassificationCell from "../TableColumnEditor/components/ClassificationCell.vue";
 import { markUUID } from "../common";
-import { NameCell, OperationCell } from "./components";
+import { SelectionCell, NameCell, OperationCell } from "./components";
 
 const props = defineProps<{
   db: ComposedDatabase;
@@ -94,17 +100,21 @@ interface LocalState {
 }
 
 const { t } = useI18n();
-const context = useSchemaEditorContext();
 const {
   project,
   readonly,
+  selectionEnabled,
   addTab,
   markEditStatus,
   removeEditStatus,
   getSchemaStatus,
   getTableStatus,
   upsertTableConfig,
-} = context;
+  useConsumePendingScrollToTable,
+  getAllTablesSelectionState,
+  updateAllTablesSelection,
+} = useSchemaEditorContext();
+const dataTableRef = ref<DataTableInst>();
 const containerElRef = ref<HTMLElement>();
 const tableHeaderElRef = computed(
   () =>
@@ -184,10 +194,43 @@ const isDroppedSchema = computed(() => {
 const columns = computed(() => {
   const columns: (DataTableColumn<TableMetadata> & { hide?: boolean })[] = [
     {
+      key: "__selected__",
+      width: 32,
+      hide: !selectionEnabled.value,
+      title: () => {
+        const state = getAllTablesSelectionState(
+          props.db,
+          pick(props, "database", "schema"),
+          filteredTables.value
+        );
+        return h(NCheckbox, {
+          checked: state.checked,
+          indeterminate: state.indeterminate,
+          onUpdateChecked: (on: boolean) => {
+            updateAllTablesSelection(
+              props.db,
+              pick(props, "database", "schema"),
+              filteredTables.value,
+              on
+            );
+          },
+        });
+      },
+      render: (table) => {
+        return h(SelectionCell, {
+          db: props.db,
+          metadata: {
+            ...pick(props, "database", "schema"),
+            table,
+          },
+        });
+      },
+    },
+    {
       key: "name",
       title: t("schema-editor.database.name"),
       resizable: true,
-      width: 140,
+      minWidth: 140,
       className: "truncate",
       render: (table) => {
         return h(NameCell, {
@@ -200,7 +243,8 @@ const columns = computed(() => {
       key: "classification",
       title: t("schema-editor.column.classification"),
       resizable: true,
-      width: 140,
+      minWidth: 140,
+      maxWidth: 320,
       hide: !classificationConfig.value,
       render: (table) => {
         return h(ClassificationCell, {
@@ -222,7 +266,8 @@ const columns = computed(() => {
       key: "engine",
       title: t("schema-editor.database.engine"),
       resizable: true,
-      width: 120,
+      minWidth: 120,
+      maxWidth: 180,
       render: (table) => {
         return table.engine;
       },
@@ -231,7 +276,8 @@ const columns = computed(() => {
       key: "collation",
       title: t("schema-editor.database.collation"),
       resizable: true,
-      width: 120,
+      minWidth: 120,
+      maxWidth: 180,
       ellipsis: true,
       ellipsisComponent: "performant-ellipsis",
     },
@@ -239,9 +285,26 @@ const columns = computed(() => {
       key: "comment",
       title: t("schema-editor.database.comment"),
       resizable: true,
-      width: 140,
-      ellipsis: true,
-      ellipsisComponent: "performant-ellipsis",
+      minWidth: 140,
+      maxWidth: 320,
+      className: "input-cell",
+      render: (table) => {
+        return h(InlineInput, {
+          value: table.userComment,
+          disabled:
+            readonly.value || isDroppedSchema.value || isDroppedTable(table),
+          placeholder: "comment",
+          style: {
+            "--n-padding-left": "6px",
+            "--n-padding-right": "4px",
+            "--n-text-color-disabled": "rgb(var(--color-main))",
+          },
+          "onUpdate:value": (value) => {
+            table.userComment = value;
+            markEditStatus(props.db, metadataForTable(table), "updated");
+          },
+        });
+      },
     },
     {
       key: "operations",
@@ -318,12 +381,42 @@ const isDroppedTable = (table: TableMetadata) => {
 const getTableKey = (table: TableMetadata) => {
   return markUUID(table);
 };
+
+const vlRef = computed(() => {
+  return (dataTableRef.value as any)?.$refs?.mainTableInstRef?.bodyInstRef
+    ?.virtualListRef;
+});
+useConsumePendingScrollToTable(
+  computed(() => ({
+    db: props.db,
+    metadata: {
+      database: props.database,
+      schema: props.schema,
+    },
+  })),
+  vlRef,
+  (params, vl) => {
+    const key = getTableKey(params.metadata.table);
+    if (!key) return;
+    requestAnimationFrame(() => {
+      try {
+        console.debug("scroll-to-table", vl, params, key);
+        vl.scrollTo({ key });
+      } catch {
+        // Do nothing
+      }
+    });
+  }
+);
 </script>
 
 <style lang="postcss" scoped>
 .schema-editor-table-list
   :deep(.n-data-table-th .n-data-table-resize-button::after) {
   @apply bg-control-bg h-2/3;
+}
+.schema-editor-table-list :deep(.n-data-table-td.input-cell) {
+  @apply pl-0.5 pr-1 py-0;
 }
 .schema-editor-table-list :deep(.n-data-table-tr.created .n-data-table-td) {
   @apply text-green-700 !bg-green-50;

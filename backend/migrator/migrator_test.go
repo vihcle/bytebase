@@ -163,7 +163,6 @@ func TestMigrationCompatibility(t *testing.T) {
 		storepb.Engine_POSTGRES,
 		dbdriver.DriverConfig{DbBinDir: pgBinDir},
 		connCfg,
-		dbdriver.ConnectionContext{},
 	)
 	require.NoError(t, err)
 	defer defaultDriver.Close(ctx)
@@ -179,7 +178,6 @@ func TestMigrationCompatibility(t *testing.T) {
 		storepb.Engine_POSTGRES,
 		dbdriver.DriverConfig{DbBinDir: pgBinDir},
 		metadataConnConfig,
-		dbdriver.ConnectionContext{},
 	)
 	require.NoError(t, err)
 
@@ -231,5 +229,5 @@ func TestMigrationCompatibility(t *testing.T) {
 func TestGetCutoffVersion(t *testing.T) {
 	releaseVersion, err := getProdCutoffVersion()
 	require.NoError(t, err)
-	require.Equal(t, semver.MustParse("2.12.2"), releaseVersion)
+	require.Equal(t, semver.MustParse("2.13.0"), releaseVersion)
 }

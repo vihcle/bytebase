@@ -6,7 +6,7 @@
           <p class="flex font-medium text-white items-center truncate">
             📆
             <a
-              href="https://cal.com/adela-bytebase/30min"
+              href="https://cal.com/bytebase/product-walkthrough"
               target="_blank"
               class="flex underline ml-1"
             >
@@ -34,16 +34,15 @@
             <heroicons-outline:cloud class="ml-1 w-6 h-6" />
           </a>
         </div>
-        <div class="order-2 flex-shrink-0 sm:order-3 sm:ml-3">
-          <button
-            type="button"
-            class="-mr-1 flex p-2 rounded-md hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-white sm:-mr-2"
-            @click.prevent="show = false"
-          >
+
+        <div class="order-2 flex-shrink-0 sm:order-3 sm:ml-3 -mr-1">
+          <NButton quaternary size="small" @click.prevent="show = false">
             <span class="sr-only">{{ $t("common.dismiss") }}</span>
-            <!-- Heroicon name: outline/x -->
-            <heroicons-outline:x class="h-6 w-6 text-white" />
-          </button>
+            <template #icon>
+              <!-- Heroicon name: outline/x -->
+              <heroicons-outline:x class="h-6 w-6 text-white" />
+            </template>
+          </NButton>
         </div>
       </div>
     </div>

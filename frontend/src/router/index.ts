@@ -37,6 +37,7 @@ import {
   useChangeHistoryStore,
   useChangelistStore,
   useSQLEditorTreeStore,
+  usePageMode,
 } from "@/store";
 import {
   DEFAULT_PROJECT_ID,
@@ -343,15 +344,6 @@ const routes: Array<RouteRecordRaw> = [
                 name: "setting.workspace.agent",
                 meta: { title: () => t("common.agents") },
                 component: () => import("../views/SettingWorkspaceAgent.vue"),
-                props: true,
-              },
-              {
-                path: "project",
-                name: "setting.workspace.project",
-                meta: {
-                  title: () => t("common.projects"),
-                },
-                component: () => import("../views/SettingWorkspaceProject.vue"),
                 props: true,
               },
               {
@@ -706,6 +698,33 @@ const routes: Array<RouteRecordRaw> = [
                 props: true,
               },
               {
+                path: "branches/:branchName/rollout",
+                name: "workspace.project.branch.rollout",
+                meta: {
+                  overrideTitle: true,
+                },
+                component: () => import("../views/branch/BranchRollout.vue"),
+                props: true,
+              },
+              {
+                path: "branches/:branchName/merge",
+                name: "workspace.project.branch.merge",
+                meta: {
+                  title: () => t("branch.merge-rebase.merge-branch"),
+                },
+                component: () => import("../views/branch/BranchMerge.vue"),
+                props: true,
+              },
+              {
+                path: "branches/:branchName/rebase",
+                name: "workspace.project.branch.rebase",
+                meta: {
+                  title: () => t("branch.merge-rebase.rebase-branch"),
+                },
+                component: () => import("../views/branch/BranchRebase.vue"),
+                props: true,
+              },
+              {
                 path: "changelists/:changelistName",
                 name: "workspace.project.changelist.detail",
                 meta: {
@@ -766,13 +785,7 @@ const routes: Array<RouteRecordRaw> = [
               title: () => t("common.instances"),
               quickActionListByRole: () => {
                 return new Map([
-                  [
-                    "OWNER",
-                    [
-                      "quickaction.bb.instance.create",
-                      "quickaction.bb.subscription.license-assignment",
-                    ],
-                  ],
+                  ["OWNER", ["quickaction.bb.instance.create"]],
                   ["DBA", ["quickaction.bb.instance.create"]],
                 ]);
               },
@@ -790,13 +803,9 @@ const routes: Array<RouteRecordRaw> = [
               title: () => t("common.databases"),
               quickActionListByRole: () => {
                 const DBA_AND_OWNER_QUICK_ACTION_LIST: QuickActionType[] = [
-                  "quickaction.bb.database.schema.update",
-                  "quickaction.bb.database.data.update",
                   "quickaction.bb.database.create",
                 ];
                 const DEVELOPER_QUICK_ACTION_LIST: QuickActionType[] = [
-                  "quickaction.bb.database.schema.update",
-                  "quickaction.bb.database.data.update",
                   "quickaction.bb.database.create",
                   "quickaction.bb.issue.grant.request.querier",
                   "quickaction.bb.issue.grant.request.exporter",
@@ -967,6 +976,19 @@ export const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   console.debug("Router %s -> %s", from.name, to.name);
+
+  const pageMode = usePageMode();
+
+  // In standalone mode, we don't want to user get out of some standalone pages.
+  if (pageMode.value === "STANDALONE") {
+    // If user is trying to navigate away from SQL Editor, we'll explicitly return false to cancel the navigation.
+    if (
+      from.name?.toString().startsWith("sql-editor") &&
+      !to.name?.toString().startsWith("sql-editor")
+    ) {
+      return false;
+    }
+  }
 
   const authStore = useAuthStore();
   const dbSchemaStore = useDBSchemaV1Store();

@@ -16,70 +16,71 @@
       />
     </div>
 
-    <DatabaseOperations
-      v-if="showDatabaseOperations"
-      :databases="selectedDatabases"
-      @dismiss="state.selectedDatabaseIds.clear()"
-    />
+    <div class="space-y-2">
+      <DatabaseOperations
+        v-if="showDatabaseOperations"
+        :project-uid="project.uid"
+        :databases="selectedDatabases"
+      />
 
-    <template v-if="databaseList.length > 0">
       <DatabaseV1Table
         mode="PROJECT"
         table-class="border"
         :show-selection-column="true"
+        :show-placeholder="true"
         :database-list="filteredDatabaseList"
       >
         <template #selection-all="{ databaseList: selectedDatabaseList }">
-          <input
+          <NCheckbox
             v-if="selectedDatabaseList.length > 0"
-            type="checkbox"
-            class="h-4 w-4 text-accent rounded disabled:cursor-not-allowed border-control-border focus:ring-accent"
             v-bind="getAllSelectionState(selectedDatabaseList as ComposedDatabase[])"
-            @input="
+            @update:checked="
               toggleDatabasesSelection(
                 selectedDatabaseList as ComposedDatabase[],
-                ($event.target as HTMLInputElement).checked
+                $event
               )
             "
           />
         </template>
         <template #selection="{ database }">
-          <input
-            type="checkbox"
-            class="h-4 w-4 text-accent rounded disabled:cursor-not-allowed border-control-border focus:ring-accent"
+          <NCheckbox
             :checked="isDatabaseSelected(database as ComposedDatabase)"
-            @click.stop="
-              toggleDatabasesSelection(
-                [database as ComposedDatabase],
-                ($event.target as HTMLInputElement).checked
-              )
+            @update:checked="
+              toggleDatabasesSelection([database as ComposedDatabase], $event)
             "
           />
         </template>
+        <template v-if="databaseList.length === 0" #placeholder>
+          <div class="p-8 text-center textinfolabel">
+            <i18n-t
+              v-if="showEmptyActions"
+              keypath="project.overview.no-db-prompt"
+              tag="p"
+            >
+              <template #newDb>
+                <span class="text-main font-bold">{{
+                  $t("quick-action.new-db")
+                }}</span>
+              </template>
+              <template #transferInDb>
+                <span class="text-main font-bold">{{
+                  $t("quick-action.transfer-in-db")
+                }}</span>
+              </template>
+            </i18n-t>
+            <i18n-t v-else keypath="common.no-data" tag="p"></i18n-t>
+          </div>
+        </template>
       </DatabaseV1Table>
-    </template>
-    <div v-else class="text-center textinfolabel">
-      <i18n-t
-        v-if="showEmptyActions"
-        keypath="project.overview.no-db-prompt"
-        tag="p"
-      >
-        <template #newDb>
-          <span class="text-main">{{ $t("quick-action.new-db") }}</span>
-        </template>
-        <template #transferInDb>
-          <span class="text-main">{{ $t("quick-action.transfer-in-db") }}</span>
-        </template>
-      </i18n-t>
-      <i18n-t v-else keypath="common.no-data" tag="p"></i18n-t>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { reactive, PropType, computed, ref, watchEffect } from "vue";
+import { NCheckbox } from "naive-ui";
+import { reactive, computed, ref, watchEffect } from "vue";
 import { usePageMode, usePolicyV1Store } from "@/store";
-import { ComposedDatabase, UNKNOWN_ID } from "@/types";
+import { ComposedDatabase, ComposedProject, UNKNOWN_ID } from "@/types";
 import {
   Policy,
   PolicyResourceType,
@@ -100,12 +101,10 @@ interface LocalState {
   params: SearchParams;
 }
 
-const props = defineProps({
-  databaseList: {
-    required: true,
-    type: Object as PropType<ComposedDatabase[]>,
-  },
-});
+const props = defineProps<{
+  project: ComposedProject;
+  databaseList: ComposedDatabase[];
+}>();
 
 const pageMode = usePageMode();
 
@@ -184,7 +183,7 @@ const showDatabaseOperations = computed(() => {
     return true;
   }
 
-  return selectedDatabases.value.length > 0;
+  return true;
 });
 
 const showEmptyActions = computed(() => {

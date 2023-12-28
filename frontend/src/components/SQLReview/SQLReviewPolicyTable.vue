@@ -29,34 +29,28 @@
           </span>
         </div>
         <div class="bb-grid-cell justify-center">
-          <BBCheckbox
+          <NCheckbox
             :disabled="!review || !hasPermission"
-            :value="review?.enforce"
-            @toggle="toggleReviewEnabled(review!, $event)"
+            :checked="review?.enforce"
+            @update:checked="toggleReviewEnabled(review!, $event)"
           />
         </div>
         <div class="bb-grid-cell gap-x-2 !pr-[3rem]">
           <template v-if="!review">
-            <button
-              type="button"
-              class="btn-normal flex justify-center !py-1 !px-3"
+            <NButton
               :disabled="!hasPermission"
               @click.prevent="handleClickCreate(environment)"
             >
               {{ $t("sql-review.configure-policy") }}
-            </button>
+            </NButton>
           </template>
           <template v-else>
-            <button
-              type="button"
-              class="btn-normal flex justify-center !py-1 !px-3"
-              @click.prevent="handleClickEdit(review)"
-            >
+            <NButton @click.prevent="handleClickEdit(review)">
               {{ hasPermission ? $t("common.edit") : $t("common.view") }}
-            </button>
+            </NButton>
 
             <BBButtonConfirm
-              class="btn-normal flex justify-center !py-1 !px-3"
+              type="default"
               :disabled="!hasPermission"
               :style="'DELETE'"
               :hide-icon="true"
@@ -105,26 +99,20 @@
         </div>
         <div class="flex items-center gap-x-2">
           <template v-if="!policy.review">
-            <button
-              type="button"
-              class="btn-normal flex justify-center !py-1 !px-3"
+            <NButton
               :disabled="!hasPermission"
               @click.prevent="handleClickCreate(policy.environment)"
             >
               {{ $t("sql-review.configure-policy") }}
-            </button>
+            </NButton>
           </template>
           <template v-else>
-            <button
-              type="button"
-              class="btn-normal flex justify-center !py-1 !px-3"
-              @click.prevent="handleClickEdit(policy.review)"
-            >
+            <NButton @click.prevent="handleClickEdit(policy.review)">
               {{ hasPermission ? $t("common.edit") : $t("common.view") }}
-            </button>
+            </NButton>
 
             <BBButtonConfirm
-              class="btn-normal flex justify-center !py-1 !px-3"
+              type="default"
               :disabled="!hasPermission"
               :style="'DELETE'"
               :hide-icon="true"
@@ -142,10 +130,11 @@
 </template>
 
 <script lang="ts" setup>
+import { NCheckbox } from "naive-ui";
 import { computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
-import { BBButtonConfirm, BBCheckbox, BBGrid, BBGridColumn } from "@/bbkit";
+import { BBButtonConfirm, BBGrid, BBGridColumn } from "@/bbkit";
 import { EnvironmentV1Name } from "@/components/v2";
 import {
   pushNotification,

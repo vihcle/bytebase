@@ -143,6 +143,7 @@ func TestSyncerForPostgreSQL(t *testing.T) {
 								Expressions: []string{`A`, `B`, "c"},
 								Type:        "btree",
 								Unique:      true,
+								Definition:  `CREATE UNIQUE INDEX "trd_A_B_c_key" ON "schema1"."trd" USING btree (A, B, c);`,
 							},
 						},
 						IndexSize: 8192,
@@ -288,19 +289,25 @@ func TestSyncerForMySQL(t *testing.T) {
 							  "name":"a",
 							  "position":1,
 							  "nullable":true,
-							  "type":"int"
+							  "type":"int",
+							  "defaultNull":true,
+							  "hasDefault":true
 						   },
 						   {
 							  "name":"b",
 							  "position":2,
 							  "nullable":true,
-							  "type":"int"
+							  "type":"int",
+							  "defaultNull":true,
+							  "hasDefault":true
 						   },
 						   {
 							  "name":"c",
 							  "position":3,
 							  "nullable":true,
-							  "type":"int"
+							  "type":"int",
+							  "defaultNull":true,
+							  "hasDefault":true
 						   }
 						],
 						"indexes":[
@@ -359,19 +366,25 @@ func TestSyncerForMySQL(t *testing.T) {
 							  "name":"a",
 							  "position":1,
 							  "nullable":true,
-							  "type":"int"
+							  "type":"int",
+							  "defaultNull":true,
+							  "hasDefault":true
 						   },
 						   {
 							  "name":"b",
 							  "position":2,
 							  "nullable":true,
-							  "type":"int"
+							  "type":"int",
+							  "defaultNull":true,
+							  "hasDefault":true
 						   },
 						   {
 							  "name":"c",
 							  "position":3,
 							  "nullable":true,
-							  "type":"int"
+							  "type":"int",
+							  "defaultNull":true,
+							  "hasDefault":true
 						   }
 						],
 						"indexes":[

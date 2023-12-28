@@ -1,13 +1,13 @@
 <template>
-  <BBAttention :style="'WARN'" :description="attentionText" />
+  <BBAttention type="warning" :description="attentionText" />
   <div class="mt-4 space-y-2">
     <div class="flex justify-between items-center">
       <button class="btn-icon" @click.prevent="refreshRepositoryList">
         <heroicons-outline:refresh class="w-6 h-6" />
       </button>
-      <BBTableSearch
+      <SearchBox
+        v-model:value="state.searchText"
         :placeholder="$t('repository.select-repository-search')"
-        @change-text="(text: string) => changeSearchText(text)"
       />
     </div>
     <div
@@ -140,9 +140,5 @@ const selectRepository = (
     webUrl: repository.webUrl,
   });
   emit("next");
-};
-
-const changeSearchText = (searchText: string) => {
-  state.searchText = searchText;
 };
 </script>

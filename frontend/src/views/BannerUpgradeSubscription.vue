@@ -27,13 +27,12 @@
             </template>
           </i18n-t>
         </div>
-        <button
-          class="btn btn-normal btn-small flex flex-row justify-center items-center ml-2 !py-1 px-2"
-          @click="gotoSubscriptionPage"
-        >
-          {{ $t("subscription.button.upgrade") }}
-          <heroicons-outline:sparkles class="w-4 h-auto text-accent ml-1" />
-        </button>
+        <div class="ml-2">
+          <NButton size="small" @click="gotoSubscriptionPage">
+            {{ $t("subscription.button.upgrade") }}
+            <heroicons-outline:sparkles class="w-4 h-auto text-accent ml-1" />
+          </NButton>
+        </div>
       </div>
     </div>
   </div>
@@ -63,14 +62,11 @@
         </li>
       </ul>
     </div>
-    <button
-      class="mt-3 mb-4 w-full btn btn-primary"
-      @click="gotoSubscriptionPage"
-    >
-      <span class="w-full text-center">{{
-        $t("subscription.upgrade-now")
-      }}</span>
-    </button>
+    <div class="mt-3 mb-4 w-full">
+      <NButton type="primary" style="width: 100%" @click="gotoSubscriptionPage">
+        {{ $t("subscription.upgrade-now") }}
+      </NButton>
+    </div>
   </BBModal>
 </template>
 
@@ -87,7 +83,6 @@ import {
   usePolicyV1Store,
   useSettingV1Store,
   defaultBackupSchedule,
-  defaultApprovalStrategy,
   useDBGroupStore,
   useDatabaseV1Store,
   useDatabaseSecretStore,
@@ -151,7 +146,9 @@ watch(
       set.add("bb.feature.watermark");
     }
     if (settingV1Store.workspaceProfileSetting?.disallowSignup ?? false) {
-      set.add("bb.feature.disallow-signup");
+      if (!actuatorStore.isSaaSMode) {
+        set.add("bb.feature.disallow-signup");
+      }
     }
     if (settingV1Store.workspaceProfileSetting?.require2fa ?? false) {
       set.add("bb.feature.2fa");
@@ -192,21 +189,6 @@ watch(
           backupPolicy?.backupPlanPolicy?.schedule !== defaultBackupSchedule
         ) {
           set.add("bb.feature.backup-policy");
-        }
-      }
-
-      if (!set.has("bb.feature.approval-policy")) {
-        const approvalPolicy =
-          await policyV1Store.getOrFetchPolicyByParentAndType({
-            parentPath: environment.name,
-            policyType: PolicyType.DEPLOYMENT_APPROVAL,
-          });
-        if (
-          approvalPolicy?.deploymentApprovalPolicy?.defaultStrategy &&
-          approvalPolicy?.deploymentApprovalPolicy?.defaultStrategy !==
-            defaultApprovalStrategy
-        ) {
-          set.add("bb.feature.approval-policy");
         }
       }
     }

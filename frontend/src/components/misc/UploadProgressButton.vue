@@ -10,16 +10,17 @@
         <heroicons-outline:arrow-up-tray class="w-4 h-4" />
       </slot>
       <template v-else>
-        <BBProgressPie
+        <NProgress
           v-if="percent > 0"
-          :percent="percent"
-          class="w-4 h-4 text-info"
+          type="circle"
+          :percentage="percent"
+          style="width: 1rem"
         >
-          <template #default="{ percent: displayPercent }">
-            <span class="scale-[66%]">{{ displayPercent }}</span>
-          </template>
-        </BBProgressPie>
-        <BBSpin v-else class="w-4 h-4" />
+          <span class="text-info scale-[66%]">
+            {{ `${Math.round(percent)}%` }}
+          </span>
+        </NProgress>
+        <BBSpin v-else class="!w-4 !h-4" />
       </template>
     </template>
 
@@ -41,9 +42,8 @@
 </template>
 
 <script lang="ts" setup>
-import { NButton } from "naive-ui";
+import { NButton, NProgress } from "naive-ui";
 import { computed, ref } from "vue";
-import { BBProgressPie } from "@/bbkit";
 
 type Tick = (p: number) => void;
 

@@ -26,6 +26,8 @@ func init() {
 	base.RegisterCompleteFunc(store.Engine_MARIADB, Completion)
 	base.RegisterCompleteFunc(store.Engine_TIDB, Completion)
 	base.RegisterCompleteFunc(store.Engine_OCEANBASE, Completion)
+	base.RegisterCompleteFunc(store.Engine_CLICKHOUSE, Completion)
+	base.RegisterCompleteFunc(store.Engine_STARROCKS, Completion)
 }
 
 // Completion is the entry point of MySQL code completion.
@@ -252,7 +254,6 @@ func (c *Completer) completion() ([]base.Candidate, error) {
 	}
 	c.referencesStack = append([][]base.TableReference{{}}, c.referencesStack...)
 	c.parser.Reset()
-	// TODO: we can just skip the head of the caret statement.
 	context := c.parser.Script()
 
 	candidates := c.core.CollectCandidates(caretIndex, context)

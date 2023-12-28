@@ -51,7 +51,7 @@
           <template v-else>
             <UserAvatar :user="user" />
 
-            <div class="flex flex-row">
+            <div class="flex flex-row items-center">
               <div class="flex flex-col">
                 <div class="flex flex-row items-center space-x-2">
                   <router-link :to="`/users/${user.email}`" class="normal-link">
@@ -83,26 +83,33 @@
                   {{ user.email }}
                 </span>
               </div>
-              <template
+              <div
                 v-if="user.userType === UserType.SERVICE_ACCOUNT && allowEdit"
+                class="ml-3 text-xs"
               >
-                <button
+                <NButton
                   v-if="user.serviceKey"
-                  class="inline-flex gap-x-1 text-xs ml-3 my-1 px-2 rounded bg-gray-100 text-gray-500 hover:text-gray-700 hover:bg-gray-200 items-center"
+                  tertiary
+                  size="small"
                   @click.prevent="() => copyServiceKey(user.serviceKey)"
                 >
-                  <heroicons-outline:clipboard class="w-4 h-4" />
+                  <template #icon>
+                    <heroicons-outline:clipboard class="w-4 h-4" />
+                  </template>
                   {{ $t("settings.members.copy-service-key") }}
-                </button>
-                <button
+                </NButton>
+                <NButton
                   v-else
-                  class="inline-flex gap-x-1 text-xs ml-3 my-1 px-2 rounded bg-gray-100 text-gray-500 hover:text-gray-700 hover:bg-gray-200 items-center"
+                  tertiary
+                  size="small"
                   @click.prevent="() => tryResetServiceKey(user)"
                 >
-                  <heroicons-outline:reply class="w-4 h-4" />
+                  <template #icon>
+                    <heroicons-outline:reply class="w-4 h-4" />
+                  </template>
                   {{ $t("settings.members.reset-service-key") }}
-                </button>
-              </template>
+                </NButton>
+              </div>
             </div>
           </template>
         </div>
@@ -152,28 +159,21 @@
     </template>
   </BBTable>
   <BBAlert
-    v-if="state.showResetKeyAlert"
-    :style="'CRITICAL'"
+    v-model:show="state.showResetKeyAlert"
+    type="warning"
     :ok-text="$t('settings.members.reset-service-key')"
     :title="$t('settings.members.reset-service-key')"
     :description="$t('settings.members.reset-service-key-alert')"
     @ok="resetServiceKey"
     @cancel="state.showResetKeyAlert = false"
   />
-  <BBAlertDialog
-    ref="removeSelfOwnerDialog"
-    :style="'CRITICAL'"
-    :ok-text="$t('common.confirm')"
-    :title="$t('settings.members.remove-self-admin.title')"
-    :description="$t('settings.members.remove-self-admin.description')"
-  />
 </template>
 
 <script lang="ts" setup>
 import { cloneDeep } from "lodash-es";
-import { computed, reactive, ref } from "vue";
+import { useDialog } from "naive-ui";
+import { computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
-import { BBAlertDialog } from "@/bbkit";
 import { BBTableSectionDataSource } from "@/bbkit/types";
 import { WorkspaceRoleSelect } from "@/components/v2";
 import {
@@ -213,10 +213,10 @@ const props = defineProps<{
   userList: User[];
 }>();
 
+const dialog = useDialog();
 const { t } = useI18n();
 const currentUserV1 = useCurrentUserV1();
 const userStore = useUserStore();
-const removeSelfOwnerDialog = ref<InstanceType<typeof BBAlertDialog>>();
 
 const hasRBACFeature = featureToRef("bb.feature.rbac");
 
@@ -359,20 +359,25 @@ const changeRole = async (user: User, role: UserRole) => {
   const me = currentUserV1.value;
   if (user.name === me.name) {
     if (user.userRole === UserRole.OWNER && role !== UserRole.OWNER) {
-      const dialog = removeSelfOwnerDialog.value;
-      if (!dialog) {
-        throw new Error("dialog is not loaded");
-      }
-      const result = await dialog.open();
-      if (!result) {
-        return;
-      }
+      dialog.warning({
+        title: t("settings.members.remove-self-admin.title"),
+        content: t("settings.members.remove-self-admin.description"),
+        positiveText: t("common.confirm"),
+        onPositiveClick: (_: MouseEvent) => {
+          updateUserRole(user, role);
+        },
+      });
+      return;
     }
   }
 
+  await updateUserRole(user, role);
+};
+
+const updateUserRole = async (user: User, role: UserRole) => {
   const userPatch = cloneDeep(user);
   userPatch.userRole = role;
-  userStore.updateUser({
+  await userStore.updateUser({
     user: userPatch,
     updateMask: ["role"],
     regenerateTempMfaSecret: false,

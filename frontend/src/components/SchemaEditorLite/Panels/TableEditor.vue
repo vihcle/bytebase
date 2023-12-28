@@ -1,29 +1,46 @@
 <template>
   <div class="flex flex-col pt-2 gap-y-2 w-full h-full overflow-y-hidden">
     <div
-      v-if="!readonly"
+      v-if="!readonly || selectionEnabled"
       class="w-full flex flex-row justify-between items-center"
     >
-      <div>
-        <div class="w-full flex justify-between items-center space-x-2">
-          <NButton
-            size="small"
-            :disabled="disableChangeTable"
-            @click="handleAddColumn"
-          >
-            <heroicons-outline:plus class="w-4 h-auto mr-1 text-gray-400" />
-            {{ $t("schema-editor.actions.add-column") }}
-          </NButton>
-          <NButton
-            size="small"
-            :disabled="disableChangeTable"
-            @click="state.showSchemaTemplateDrawer = true"
-          >
-            <FeatureBadge feature="bb.feature.schema-template" />
-            <heroicons-outline:plus class="w-4 h-auto mr-1 text-gray-400" />
-            {{ $t("schema-editor.actions.add-from-template") }}
-          </NButton>
-        </div>
+      <div
+        v-if="!readonly"
+        class="w-full flex justify-start items-center space-x-2"
+      >
+        <NButton
+          size="small"
+          :disabled="disableChangeTable"
+          @click="handleAddColumn"
+        >
+          <heroicons-outline:plus class="w-4 h-auto mr-1 text-gray-400" />
+          {{ $t("schema-editor.actions.add-column") }}
+        </NButton>
+        <NButton
+          size="small"
+          :disabled="disableChangeTable"
+          @click="state.showSchemaTemplateDrawer = true"
+        >
+          <FeatureBadge feature="bb.feature.schema-template" />
+          <heroicons-outline:plus class="w-4 h-auto mr-1 text-gray-400" />
+          {{ $t("schema-editor.actions.add-from-template") }}
+        </NButton>
+      </div>
+      <div
+        v-if="selectionEnabled"
+        class="text-sm flex flex-row items-center gap-x-2 h-[28px] whitespace-nowrap"
+      >
+        <span class="text-main">
+          {{ $t("branch.select-tables-to-rollout") }}
+        </span>
+        <ColumnSelectionSummary
+          :db="db"
+          :metadata="{
+            database,
+            schema,
+            table,
+          }"
+        />
       </div>
     </div>
 
@@ -109,6 +126,7 @@ import {
   upsertColumnPrimaryKey,
 } from "../edit";
 import { EditStatus } from "../types";
+import ColumnSelectionSummary from "./ColumnSelectionSummary.vue";
 import TableColumnEditor from "./TableColumnEditor";
 
 const props = withDefaults(
@@ -134,6 +152,7 @@ const { t } = useI18n();
 const {
   project,
   readonly,
+  events,
   addTab,
   markEditStatus,
   removeEditStatus,
@@ -141,6 +160,8 @@ const {
   getTableStatus,
   getColumnStatus,
   upsertColumnConfig,
+  queuePendingScrollToColumn,
+  selectionEnabled,
 } = useSchemaEditorContext();
 const engine = computed(() => {
   return props.db.instanceEntity.engine;
@@ -236,16 +257,19 @@ const handleAddColumn = () => {
   props.table.columns.push(column);
   markColumnStatus(column, "created");
 
-  // TODO: scroll to the new column and focus its name textbox
-  // table.value.columnList.push(column);
-  // nextTick(() => {
-  //   const container = document.querySelector("#table-editor-container");
-  //   (
-  //     container?.querySelector(
-  //       `.column-${column.id} .column-name-input`
-  //     ) as HTMLInputElement
-  //   )?.focus();
-  // });
+  queuePendingScrollToColumn({
+    db: props.db,
+    metadata: {
+      database: props.database,
+      schema: props.schema,
+      table: props.table,
+      column,
+    },
+  });
+
+  events.emit("rebuild-tree", {
+    openFirstChild: false,
+  });
 };
 
 const handleApplyColumnTemplate = (
@@ -271,6 +295,18 @@ const handleApplyColumnTemplate = (
     });
   }
   markColumnStatus(column, "created");
+  queuePendingScrollToColumn({
+    db: props.db,
+    metadata: {
+      database: props.database,
+      schema: props.schema,
+      table: props.table,
+      column,
+    },
+  });
+  events.emit("rebuild-tree", {
+    openFirstChild: false,
+  });
 };
 
 const gotoForeignKeyReferencedTable = (
@@ -314,17 +350,15 @@ const gotoForeignKeyReferencedTable = (
     },
   });
 
-  // TODO: scroll column into view
-  // nextTick(() => {
-  //   const container = document.querySelector("#table-editor-container");
-  //   const input = container?.querySelector(
-  //     `.column-${referColumn.id} .column-name-input`
-  //   ) as HTMLInputElement | undefined;
-  //   if (input) {
-  //     input.focus();
-  //     scrollIntoView(input);
-  //   }
-  // });
+  queuePendingScrollToColumn({
+    db: props.db,
+    metadata: {
+      database: props.database,
+      schema: referencedSchema,
+      table: referencedTable,
+      column: referencedColumn,
+    },
+  });
 };
 
 const handleEditColumnForeignKey = (

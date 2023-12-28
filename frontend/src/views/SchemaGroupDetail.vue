@@ -49,13 +49,9 @@
         <div
           class="flex flex-row justify-end items-center flex-wrap shrink gap-x-2 gap-y-2"
         >
-          <button
-            type="button"
-            class="btn-normal"
-            @click.prevent="state.showConfigurePanel = true"
-          >
+          <NButton @click.prevent="state.showConfigurePanel = true">
             {{ $t("common.configure") }}
-          </button>
+          </NButton>
         </div>
       </div>
 
@@ -63,7 +59,7 @@
 
       <FeatureAttentionForInstanceLicense
         v-if="existMatchedUnactivateInstance"
-        :style="`WARN`"
+        type="warning"
         feature="bb.feature.database-grouping"
       />
 
@@ -90,7 +86,7 @@
   </div>
 
   <DatabaseGroupPanel
-    v-if="state.showConfigurePanel"
+    :show="state.showConfigurePanel"
     :project="project"
     :resource-type="'SCHEMA_GROUP'"
     :database-group="schemaGroup"

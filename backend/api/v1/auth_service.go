@@ -119,7 +119,7 @@ func (s *AuthService) CreateUser(ctx context.Context, request *v1pb.CreateUserRe
 
 	if setting.DisallowSignup {
 		rolePtr := ctx.Value(common.RoleContextKey)
-		if rolePtr == nil || rolePtr.(api.Role) != api.Owner {
+		if rolePtr == nil || rolePtr.(api.Role) != api.WorkspaceAdmin {
 			return nil, status.Errorf(codes.PermissionDenied, "sign up is disallowed")
 		}
 	}
@@ -192,12 +192,19 @@ func (s *AuthService) CreateUser(ctx context.Context, request *v1pb.CreateUserRe
 	if request.User.UserRole != v1pb.UserRole_USER_ROLE_UNSPECIFIED {
 		rolePtr := ctx.Value(common.RoleContextKey)
 		// Allow workspace owner to create user with role.
-		if rolePtr != nil && rolePtr.(api.Role) == api.Owner {
+		if rolePtr != nil && rolePtr.(api.Role) == api.WorkspaceAdmin {
 			userRole := convertUserRole(request.User.UserRole)
 			if userRole == api.UnknownRole {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid user role %s", request.User.UserRole)
 			}
 			userMessage.Role = userRole
+			for _, r := range request.User.GetRoles() {
+				role, err := common.GetRoleID(r)
+				if err != nil {
+					return nil, status.Errorf(codes.InvalidArgument, "invalid role %s", r)
+				}
+				userMessage.Roles = append(userMessage.Roles, api.Role(role))
+			}
 		} else {
 			return nil, status.Errorf(codes.PermissionDenied, "only workspace owner can create user with role")
 		}
@@ -284,7 +291,7 @@ func (s *AuthService) UpdateUser(ctx context.Context, request *v1pb.UpdateUserRe
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "role not found")
 	}
-	if principalID != userID && role != api.Owner {
+	if principalID != userID && role != api.WorkspaceAdmin {
 		return nil, status.Errorf(codes.PermissionDenied, "only workspace owner or user itself can update the user %d", userID)
 	}
 
@@ -325,7 +332,7 @@ func (s *AuthService) UpdateUser(ctx context.Context, request *v1pb.UpdateUserRe
 			password := fmt.Sprintf("%s%s", api.ServiceAccountAccessKeyPrefix, val)
 			passwordPatch = &password
 		case "role":
-			if role != api.Owner {
+			if role != api.WorkspaceAdmin {
 				return nil, status.Errorf(codes.PermissionDenied, "only workspace owner can update user role")
 			}
 			userRole := convertUserRole(request.User.UserRole)
@@ -333,6 +340,16 @@ func (s *AuthService) UpdateUser(ctx context.Context, request *v1pb.UpdateUserRe
 				return nil, status.Errorf(codes.InvalidArgument, "invalid user role %s", request.User.UserRole)
 			}
 			patch.Role = &userRole
+		case "roles":
+			var roles []api.Role
+			for _, r := range request.User.Roles {
+				roleID, err := common.GetRoleID(r)
+				if err != nil {
+					return nil, status.Errorf(codes.InvalidArgument, err.Error())
+				}
+				roles = append(roles, api.Role(roleID))
+			}
+			patch.Roles = &roles
 		case "mfa_enabled":
 			if request.User.MfaEnabled {
 				if user.MFAConfig.TempOtpSecret == "" || len(user.MFAConfig.TempRecoveryCodes) == 0 {
@@ -449,7 +466,7 @@ func (s *AuthService) DeleteUser(ctx context.Context, request *v1pb.DeleteUserRe
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "role not found")
 	}
-	if role != api.Owner {
+	if role != api.WorkspaceAdmin {
 		return nil, status.Errorf(codes.PermissionDenied, "only workspace owner can delete the user %d", userID)
 	}
 
@@ -488,7 +505,7 @@ func (s *AuthService) UndeleteUser(ctx context.Context, request *v1pb.UndeleteUs
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "role not found")
 	}
-	if role != api.Owner {
+	if role != api.WorkspaceAdmin {
 		return nil, status.Errorf(codes.PermissionDenied, "only workspace owner can undelete the user %d", userID)
 	}
 
@@ -502,11 +519,11 @@ func (s *AuthService) UndeleteUser(ctx context.Context, request *v1pb.UndeleteUs
 func convertToUser(user *store.UserMessage) *v1pb.User {
 	role := v1pb.UserRole_USER_ROLE_UNSPECIFIED
 	switch user.Role {
-	case api.Owner:
+	case api.WorkspaceAdmin:
 		role = v1pb.UserRole_OWNER
-	case api.DBA:
+	case api.WorkspaceDBA:
 		role = v1pb.UserRole_DBA
-	case api.Developer:
+	case api.WorkspaceMember:
 		role = v1pb.UserRole_DEVELOPER
 	}
 	userType := v1pb.UserType_USER_TYPE_UNSPECIFIED
@@ -527,6 +544,9 @@ func convertToUser(user *store.UserMessage) *v1pb.User {
 		Title:    user.Name,
 		UserType: userType,
 		UserRole: role,
+	}
+	for _, r := range user.Roles {
+		convertedUser.Roles = append(convertedUser.Roles, common.FormatRole(r.String()))
 	}
 	if user.MFAConfig != nil {
 		convertedUser.MfaEnabled = user.MFAConfig.OtpSecret != ""
@@ -554,11 +574,11 @@ func convertToPrincipalType(userType v1pb.UserType) (api.PrincipalType, error) {
 func convertUserRole(userRole v1pb.UserRole) api.Role {
 	switch userRole {
 	case v1pb.UserRole_OWNER:
-		return api.Owner
+		return api.WorkspaceAdmin
 	case v1pb.UserRole_DBA:
-		return api.DBA
+		return api.WorkspaceDBA
 	case v1pb.UserRole_DEVELOPER:
-		return api.Developer
+		return api.WorkspaceMember
 	}
 	return api.UnknownRole
 }

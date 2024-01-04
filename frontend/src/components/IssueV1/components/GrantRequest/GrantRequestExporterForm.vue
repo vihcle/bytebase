@@ -59,8 +59,7 @@
 import dayjs from "dayjs";
 import { computed, onMounted, reactive, ref } from "vue";
 import { MonacoEditor } from "@/components/MonacoEditor";
-import { PresetRoleType } from "@/types";
-import { DatabaseResource } from "@/types";
+import { DatabaseResource, PresetRoleType } from "@/types";
 import { convertFromCELString } from "@/utils/issue/cel";
 import { useIssueContext } from "../../logic";
 import DatabaseResourceTable from "./DatabaseResourceTable.vue";
@@ -85,7 +84,7 @@ const exportMethod = computed(() => {
 
 onMounted(async () => {
   const grantRequest = issue.value.grantRequest!;
-  if (grantRequest.role !== PresetRoleType.EXPORTER) {
+  if (grantRequest.role !== PresetRoleType.PROJECT_EXPORTER) {
     throw "Only support EXPORTER role";
   }
 

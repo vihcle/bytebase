@@ -7,9 +7,9 @@ import (
 	"io"
 	"log/slog"
 	"path"
+	"slices"
 	"strings"
 
-	"golang.org/x/exp/slices"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -22,6 +22,7 @@ import (
 	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	"github.com/bytebase/bytebase/backend/plugin/schema"
 	"github.com/bytebase/bytebase/backend/store"
 	"github.com/bytebase/bytebase/backend/store/model"
 	"github.com/bytebase/bytebase/backend/utils"
@@ -287,7 +288,7 @@ func (s *BranchService) UpdateBranch(ctx context.Context, request *v1pb.UpdateBr
 		metadata, config := convertV1DatabaseMetadata(request.Branch.GetSchemaMetadata())
 		sanitizeCommentForSchemaMetadata(metadata)
 
-		schema, err := getDesignSchema(branch.Engine, string(branch.BaseSchema), metadata)
+		schema, err := schema.GetDesignSchema(branch.Engine, string(branch.BaseSchema), metadata)
 		if err != nil {
 			return nil, err
 		}
@@ -366,10 +367,9 @@ func (s *BranchService) MergeBranch(ctx context.Context, request *v1pb.MergeBran
 		return nil, status.Errorf(codes.Aborted, "cannot merge branches without conflict, error: %v", err)
 	}
 	if mergedMetadata == nil {
-		// TODO(zp): bug, this should not be no change.
-		return nil, status.Errorf(codes.FailedPrecondition, "failed to merge branch: no change")
+		return nil, status.Errorf(codes.Internal, "merged metadata should not be nil if there is no error while merging (%+v, %+v, %+v)", headBranch.Base.Metadata, headBranch.Head.Metadata, baseBranch.Head.Metadata)
 	}
-	mergedSchema, err := getDesignSchema(storepb.Engine(baseBranch.Engine), string(headBranch.HeadSchema), mergedMetadata)
+	mergedSchema, err := schema.GetDesignSchema(storepb.Engine(baseBranch.Engine), string(headBranch.HeadSchema), mergedMetadata)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to convert merged metadata to schema string, %v", err)
 	}
@@ -449,7 +449,7 @@ func (s *BranchService) RebaseBranch(ctx context.Context, request *v1pb.RebaseBr
 	var newHeadConfig *storepb.DatabaseConfig
 	if request.MergedSchema != "" {
 		newHeadSchema = request.MergedSchema
-		newHeadMetadata, err = TransformSchemaStringToDatabaseMetadata(storepb.Engine(baseBranch.Engine), newHeadSchema)
+		newHeadMetadata, err = schema.ParseToMetadata(storepb.Engine(baseBranch.Engine), newHeadSchema)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "failed to convert merged schema to metadata, %v", err)
 		}
@@ -477,14 +477,13 @@ func (s *BranchService) RebaseBranch(ctx context.Context, request *v1pb.RebaseBr
 			return &v1pb.RebaseBranchResponse{Result: &v1pb.RebaseBranchResponse_ConflictSchema{ConflictSchema: conflictSchemaString}}, nil
 		}
 		if newHeadMetadata == nil {
-			// TODO(zp): bug, this should not be no change.
-			return nil, status.Errorf(codes.FailedPrecondition, "failed to rebase branch: no change")
+			return nil, status.Errorf(codes.Internal, "merged metadata should not be nil if there is no error while merging (%+v, %+v, %+v)", baseBranch.Base.Metadata, baseBranch.Head.Metadata, newBaseMetadata)
 		}
 		// XXX(zp): We only try to merge the schema config while the schema could be merged successfully. Otherwise, users manually merge the
 		// metadata in the frontend, and config would be ignored.
 		newHeadConfig = utils.MergeDatabaseConfig(baseBranch.Base.GetDatabaseConfig(), baseBranch.Head.GetDatabaseConfig(), newBaseConfig)
 
-		newHeadSchema, err = getDesignSchema(storepb.Engine(baseBranch.Engine), string(baseBranch.HeadSchema), newHeadMetadata)
+		newHeadSchema, err = schema.GetDesignSchema(storepb.Engine(baseBranch.Engine), string(baseBranch.HeadSchema), newHeadMetadata)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to convert merged metadata to schema string, %v", err)
 		}
@@ -638,11 +637,11 @@ func (*BranchService) DiffMetadata(_ context.Context, request *v1pb.DiffMetadata
 		return nil, status.Errorf(codes.InvalidArgument, "invalid target metadata: %v", err)
 	}
 
-	sourceSchema, err := getDesignSchema(storepb.Engine(request.Engine), "" /* baseline*/, storeSourceMetadata)
+	sourceSchema, err := schema.GetDesignSchema(storepb.Engine(request.Engine), "" /* baseline*/, storeSourceMetadata)
 	if err != nil {
 		return nil, err
 	}
-	targetSchema, err := getDesignSchema(storepb.Engine(request.Engine), "" /* baseline*/, storeTargetMetadata)
+	targetSchema, err := schema.GetDesignSchema(storepb.Engine(request.Engine), "" /* baseline*/, storeTargetMetadata)
 	if err != nil {
 		return nil, err
 	}
@@ -704,7 +703,7 @@ func (s *BranchService) checkBranchPermission(ctx context.Context, projectID str
 		return status.Errorf(codes.Internal, err.Error())
 	}
 	for _, binding := range policy.Bindings {
-		if binding.Role == api.Developer || binding.Role == api.Owner {
+		if binding.Role == api.ProjectDeveloper || binding.Role == api.ProjectOwner {
 			for _, member := range binding.Members {
 				if member.ID == principalID || member.Email == api.AllUsers {
 					return nil
@@ -796,7 +795,7 @@ func (s *BranchService) convertBranchToBranch(ctx context.Context, project *stor
 		}
 	}
 
-	schemaDesign := &v1pb.Branch{
+	v1Branch := &v1pb.Branch{
 		Name:             fmt.Sprintf("%s%s/%s%v", common.ProjectNamePrefix, project.ResourceID, common.BranchPrefix, branch.ResourceID),
 		BranchId:         branch.ResourceID,
 		Etag:             fmt.Sprintf("%d", branch.UpdatedTime.UnixMilli()),
@@ -810,14 +809,14 @@ func (s *BranchService) convertBranchToBranch(ctx context.Context, project *stor
 	}
 
 	if view != v1pb.BranchView_BRANCH_VIEW_FULL {
-		return schemaDesign, nil
+		return v1Branch, nil
 	}
 
-	schemaDesign.Schema = string(branch.HeadSchema)
-	schemaDesign.SchemaMetadata = convertStoreDatabaseMetadata(branch.Head.Metadata, branch.Head.DatabaseConfig, v1pb.DatabaseMetadataView_DATABASE_METADATA_VIEW_FULL, nil /* filter */)
-	schemaDesign.BaselineSchema = string(branch.BaseSchema)
-	schemaDesign.BaselineSchemaMetadata = convertStoreDatabaseMetadata(branch.Base.Metadata, branch.Base.DatabaseConfig, v1pb.DatabaseMetadataView_DATABASE_METADATA_VIEW_FULL, nil /* filter */)
-	return schemaDesign, nil
+	v1Branch.Schema = string(branch.HeadSchema)
+	v1Branch.SchemaMetadata = convertStoreDatabaseMetadata(branch.Head.Metadata, branch.Head.DatabaseConfig, v1pb.DatabaseMetadataView_DATABASE_METADATA_VIEW_FULL, nil /* filter */)
+	v1Branch.BaselineSchema = string(branch.BaseSchema)
+	v1Branch.BaselineSchemaMetadata = convertStoreDatabaseMetadata(branch.Base.Metadata, branch.Base.DatabaseConfig, v1pb.DatabaseMetadataView_DATABASE_METADATA_VIEW_FULL, nil /* filter */)
+	return v1Branch, nil
 }
 
 func sanitizeCommentForSchemaMetadata(dbSchema *storepb.DatabaseSchemaMetadata) {
@@ -826,17 +825,6 @@ func sanitizeCommentForSchemaMetadata(dbSchema *storepb.DatabaseSchemaMetadata) 
 			table.Comment = common.GetCommentFromClassificationAndUserComment(table.Classification, table.UserComment)
 			for _, col := range table.Columns {
 				col.Comment = common.GetCommentFromClassificationAndUserComment(col.Classification, col.UserComment)
-			}
-		}
-	}
-}
-
-func setClassificationAndUserCommentFromComment(dbSchema *storepb.DatabaseSchemaMetadata) {
-	for _, schema := range dbSchema.Schemas {
-		for _, table := range schema.Tables {
-			table.Classification, table.UserComment = common.GetClassificationAndUserComment(table.Comment)
-			for _, col := range table.Columns {
-				col.Classification, col.UserComment = common.GetClassificationAndUserComment(col.Comment)
 			}
 		}
 	}
@@ -940,6 +928,33 @@ func equalTable(s, t *storepb.TableMetadata) bool {
 			return false
 		}
 		if sc.GetDefaultNull() != tc.GetDefaultNull() {
+			return false
+		}
+	}
+	for i := 0; i < len(s.GetIndexes()); i++ {
+		si, ti := s.GetIndexes()[i], t.GetIndexes()[i]
+		if si.GetName() != ti.GetName() {
+			return false
+		}
+		if si.GetDefinition() != ti.GetDefinition() {
+			return false
+		}
+		if si.GetPrimary() != ti.GetPrimary() {
+			return false
+		}
+		if si.GetUnique() != ti.GetUnique() {
+			return false
+		}
+		if si.GetType() != ti.GetType() {
+			return false
+		}
+		if si.GetVisible() != ti.GetVisible() {
+			return false
+		}
+		if si.GetComment() != ti.GetComment() {
+			return false
+		}
+		if !slices.Equal(si.GetExpressions(), ti.GetExpressions()) {
 			return false
 		}
 	}

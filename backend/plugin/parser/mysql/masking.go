@@ -15,6 +15,8 @@ func init() {
 	base.RegisterGetMaskedFieldsFunc(storepb.Engine_MYSQL, GetMaskedFields)
 	base.RegisterGetMaskedFieldsFunc(storepb.Engine_MARIADB, GetMaskedFields)
 	base.RegisterGetMaskedFieldsFunc(storepb.Engine_OCEANBASE, GetMaskedFields)
+	base.RegisterGetMaskedFieldsFunc(storepb.Engine_STARROCKS, GetMaskedFields)
+	base.RegisterGetMaskedFieldsFunc(storepb.Engine_DORIS, GetMaskedFields)
 }
 
 func GetMaskedFields(statement, currentDatabase string, schemaInfo *base.SensitiveSchemaInfo) ([]base.SensitiveField, error) {

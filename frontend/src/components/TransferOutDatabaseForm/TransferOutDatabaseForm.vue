@@ -29,7 +29,7 @@
           </span>
           <ProjectSelect
             v-model:project="targetProjectId"
-            :allowed-project-role-list="[PresetRoleType.OWNER]"
+            :allowed-project-role-list="[PresetRoleType.PROJECT_OWNER]"
             :include-default-project="true"
           />
         </div>
@@ -71,7 +71,7 @@ import {
   useDatabaseV1Store,
   useProjectV1Store,
 } from "@/store";
-import { PresetRoleType, ComposedDatabase, UNKNOWN_ID } from "@/types";
+import { ComposedDatabase, UNKNOWN_ID, PresetRoleType } from "@/types";
 
 const props = defineProps<{
   databaseList: ComposedDatabase[];

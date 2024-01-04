@@ -1,12 +1,12 @@
+import { kebabCase } from "lodash-es";
 import { computed, unref } from "vue";
 import { t } from "@/plugins/i18n";
 import { hasFeature, useCurrentUserV1, useRoleStore } from "@/store";
+import { MaybeRef, ProjectRoleType, RoleType, PresetRoleType } from "@/types";
 import { UserRole } from "@/types/proto/v1/auth_service";
-import { MaybeRef, PresetRoleType, ProjectRoleType, RoleType } from "../types";
 
 export type WorkspacePermissionType =
   | "bb.permission.workspace.debug"
-  | "bb.permission.workspace.manage-environment"
   | "bb.permission.workspace.manage-instance"
   // Visible to and manage databases even if not in the project the database
   // belongs to, and unassigned databases
@@ -42,7 +42,6 @@ export const WORKSPACE_PERMISSION_MATRIX: Map<
   boolean[]
 > = new Map([
   ["bb.permission.workspace.debug", [false, true, true]],
-  ["bb.permission.workspace.manage-environment", [false, true, true]],
   ["bb.permission.workspace.manage-instance", [false, true, true]],
   ["bb.permission.workspace.manage-database", [false, true, true]],
   ["bb.permission.workspace.manage-issue", [false, true, true]],
@@ -195,13 +194,9 @@ export const extractRoleResourceName = (resourceId: string): string => {
 };
 
 export const displayRoleTitle = (role: string): string => {
-  // Use i18n-defined readable titles for system roles
-  if (role === PresetRoleType.OWNER) return t("common.role.owner");
-  if (role === PresetRoleType.DEVELOPER) return t("common.role.developer");
-  if (role === PresetRoleType.RELEASER) return t("common.role.releaser");
-  if (role === PresetRoleType.QUERIER) return t("common.role.querier");
-  if (role === PresetRoleType.EXPORTER) return t("common.role.exporter");
-  if (role === PresetRoleType.VIEWER) return t("common.role.viewer");
+  if (Object.values(PresetRoleType).includes(role)) {
+    return t(`role.${kebabCase(extractRoleResourceName(role))}.self`);
+  }
   // Use role.title if possible
   const item = useRoleStore().roleList.find((r) => r.name === role);
   // Fallback to extracted resource name otherwise
@@ -209,13 +204,9 @@ export const displayRoleTitle = (role: string): string => {
 };
 
 export const displayRoleDescription = (role: string): string => {
-  // Use i18n-defined readable titles for system roles
-  if (role === PresetRoleType.OWNER) return t("role.owner.description");
-  if (role === PresetRoleType.DEVELOPER) return t("role.developer.description");
-  if (role === PresetRoleType.RELEASER) return t("role.releaser.description");
-  if (role === PresetRoleType.QUERIER) return t("role.querier.description");
-  if (role === PresetRoleType.EXPORTER) return t("role.exporter.description");
-  if (role === PresetRoleType.VIEWER) return t("role.viewer.description");
+  if (Object.values(PresetRoleType).includes(role)) {
+    return t(`role.${kebabCase(extractRoleResourceName(role))}.description`);
+  }
   // Use role.description if possible
   const item = useRoleStore().roleList.find((r) => r.name === role);
   // Fallback to extracted resource name otherwise

@@ -15,6 +15,7 @@ import (
 
 	"log/slog"
 
+	"github.com/alexmullins/zip"
 	"github.com/google/cel-go/cel"
 	"github.com/labstack/echo/v4"
 	"github.com/lib/pq"
@@ -38,6 +39,7 @@ import (
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	pgparser "github.com/bytebase/bytebase/backend/plugin/parser/pg"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/transform"
+	"github.com/bytebase/bytebase/backend/plugin/schema"
 	"github.com/bytebase/bytebase/backend/runner/schemasync"
 	"github.com/bytebase/bytebase/backend/store"
 	"github.com/bytebase/bytebase/backend/utils"
@@ -104,6 +106,7 @@ func (*SQLService) Pretty(_ context.Context, request *v1pb.PrettyRequest) (*v1pb
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to normalize dumped SDL: %s", err.Error())
 	}
+
 	return &v1pb.PrettyResponse{
 		CurrentSchema:  prettyCurrentSchema,
 		ExpectedSchema: prettyExpectedSchema,
@@ -308,8 +311,13 @@ func (s *SQLService) Export(ctx context.Context, request *v1pb.ExportRequest) (*
 		return nil, exportErr
 	}
 
+	content, err := doEncrypt(bytes, request)
+	if err != nil {
+		return nil, err
+	}
+
 	return &v1pb.ExportResponse{
-		Content: bytes,
+		Content: content,
 	}, nil
 }
 
@@ -351,6 +359,41 @@ func (s *SQLService) postExport(ctx context.Context, activity *store.ActivityMes
 	}
 
 	return nil
+}
+
+func doEncrypt(data []byte, request *v1pb.ExportRequest) ([]byte, error) {
+	var b bytes.Buffer
+	fzip := io.Writer(&b)
+
+	zipw := zip.NewWriter(fzip)
+	defer zipw.Close()
+
+	filename := fmt.Sprintf("export.%s", strings.ToLower(request.Format.String()))
+	var w io.Writer
+
+	if request.Password != "" {
+		withPassword, err := zipw.Encrypt(filename, request.Password)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create encrypt export file")
+		}
+		w = withPassword
+	} else {
+		withoutPassword, err := zipw.Create(filename)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create export file")
+		}
+		w = withoutPassword
+	}
+
+	_, err := io.Copy(w, bytes.NewReader(data))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to write export file")
+	}
+	if err := zipw.Close(); err != nil {
+		return nil, errors.Wrap(err, "failed to close zip writer")
+	}
+
+	return b.Bytes(), nil
 }
 
 func (s *SQLService) doExport(ctx context.Context, request *v1pb.ExportRequest, instance *store.InstanceMessage, database *store.DatabaseMessage, sensitiveSchemaInfo *base.SensitiveSchemaInfo) ([]byte, int64, error) {
@@ -436,7 +479,7 @@ func (*SQLService) StringifyMetadata(_ context.Context, request *v1pb.StringifyM
 	storeSchemaMetadata, _ := convertV1DatabaseMetadata(request.Metadata)
 	sanitizeCommentForSchemaMetadata(storeSchemaMetadata)
 
-	schema, err := getDesignSchema(storepb.Engine(request.Engine), "" /* baseline */, storeSchemaMetadata)
+	schema, err := schema.GetDesignSchema(storepb.Engine(request.Engine), "" /* baseline */, storeSchemaMetadata)
 	if err != nil {
 		return nil, err
 	}
@@ -1106,7 +1149,7 @@ func (s *SQLService) preCheck(ctx context.Context, instanceName, connectionDatab
 
 	if s.licenseService.IsFeatureEnabled(api.FeatureAccessControl) == nil {
 		// Check if the caller is admin for exporting with admin mode.
-		if isAdmin && (user.Role != api.Owner && user.Role != api.DBA) {
+		if isAdmin && (user.Role != api.WorkspaceAdmin && user.Role != api.WorkspaceDBA) {
 			return nil, nil, nil, advisor.Success, nil, nil, status.Errorf(codes.PermissionDenied, "only workspace owner and DBA can export data using admin mode")
 		}
 
@@ -2183,9 +2226,9 @@ func (s *SQLService) checkWorkspaceIAMPolicy(
 	environment *store.EnvironmentMessage,
 	isExport bool,
 ) (bool, error) {
-	role := common.ProjectQuerier
+	role := api.ProjectQuerier
 	if isExport {
-		role = common.ProjectExporter
+		role = api.ProjectExporter
 	}
 
 	workspacePolicyResourceType := api.PolicyResourceTypeWorkspace
@@ -2239,7 +2282,7 @@ func (s *SQLService) checkQueryRights(
 	isExport bool,
 ) error {
 	// Owner and DBA have all rights.
-	if user.Role == api.Owner || user.Role == api.DBA {
+	if user.Role == api.WorkspaceAdmin || user.Role == api.WorkspaceDBA {
 		return nil
 	}
 
@@ -2338,7 +2381,7 @@ func hasDatabaseAccessRights(principalID int, projectPolicy *store.IAMPolicyMess
 	pass := false
 	for _, binding := range projectPolicy.Bindings {
 		// Project owner has all permissions.
-		if binding.Role == api.Role(common.ProjectOwner) {
+		if binding.Role == api.ProjectOwner {
 			for _, member := range binding.Members {
 				if member.ID == principalID || member.Email == api.AllUsers {
 					pass = true
@@ -2346,7 +2389,7 @@ func hasDatabaseAccessRights(principalID int, projectPolicy *store.IAMPolicyMess
 				}
 			}
 		}
-		if !((isExport && binding.Role == api.Role(common.ProjectExporter)) || (!isExport && binding.Role == api.Role(common.ProjectQuerier))) {
+		if !((isExport && binding.Role == api.ProjectExporter) || (!isExport && binding.Role == api.ProjectQuerier)) {
 			continue
 		}
 		for _, member := range binding.Members {
@@ -2554,7 +2597,7 @@ func encodeToBase64String(statement string) string {
 // DifferPreview returns the diff preview of the given SQL statement and metadata.
 func (*SQLService) DifferPreview(_ context.Context, request *v1pb.DifferPreviewRequest) (*v1pb.DifferPreviewResponse, error) {
 	storeSchemaMetadata, _ := convertV1DatabaseMetadata(request.NewMetadata)
-	schema, err := getDesignSchema(storepb.Engine(request.Engine), request.OldSchema, storeSchemaMetadata)
+	schema, err := schema.GetDesignSchema(storepb.Engine(request.Engine), request.OldSchema, storeSchemaMetadata)
 	if err != nil {
 		return nil, err
 	}

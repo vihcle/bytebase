@@ -1,35 +1,15 @@
-export const PresetRoleType = {
-  OWNER: "roles/OWNER",
-  DEVELOPER: "roles/DEVELOPER",
-  QUERIER: "roles/QUERIER",
-  EXPORTER: "roles/EXPORTER",
-  RELEASER: "roles/RELEASER",
-  VIEWER: "roles/VIEWER",
-};
-
-export const PresetRoleTypeList = [
-  PresetRoleType.OWNER,
-  PresetRoleType.DEVELOPER,
-  PresetRoleType.QUERIER,
-  PresetRoleType.EXPORTER,
-  PresetRoleType.RELEASER,
-  PresetRoleType.VIEWER,
-];
+import { PresetRoleType } from "../iam";
 
 export const VirtualRoleType = {
-  OWNER: "roles/OWNER",
-  DBA: "roles/DBA",
+  WORKSPACE_ADMIN: PresetRoleType.WORKSPACE_ADMIN,
+  WORKSPACE_DBA: PresetRoleType.WORKSPACE_DBA,
   LAST_APPROVER: "roles/LAST_APPROVER",
   CREATOR: "roles/CREATOR",
 };
 
 export const IssueReleaserRoleType = {
-  WORKSPACE_OWNER: "roles/workspaceOwner",
-  WORKSPACE_DBA: "roles/workspaceDBA",
-  PROJECT_OWNER: "roles/projectOwner",
-  PROJECT_RELEASER: "roles/projectReleaser",
-};
-
-export const isCustomRole = (role: string) => {
-  return !PresetRoleTypeList.includes(role);
+  WORKSPACE_ADMIN: PresetRoleType.WORKSPACE_ADMIN,
+  WORKSPACE_DBA: PresetRoleType.WORKSPACE_DBA,
+  PROJECT_OWNER: PresetRoleType.PROJECT_OWNER,
+  PROJECT_RELEASER: PresetRoleType.PROJECT_RELEASER,
 };

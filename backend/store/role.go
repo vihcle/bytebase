@@ -74,34 +74,56 @@ func (s *Store) ListRoles(ctx context.Context) ([]*RoleMessage, error) {
 	defer rows.Close()
 
 	var roles []*RoleMessage
+	if s.profile.DevelopmentIAM {
+		roles = append(roles,
+			&RoleMessage{
+				CreatorID:   api.SystemBotID,
+				ResourceID:  api.WorkspaceAdmin.String(),
+				Name:        "Workspace admin",
+				Description: "",
+			},
+			&RoleMessage{
+				CreatorID:   api.SystemBotID,
+				ResourceID:  api.WorkspaceDBA.String(),
+				Name:        "Workspace DBA",
+				Description: "",
+			},
+			&RoleMessage{
+				CreatorID:   api.SystemBotID,
+				ResourceID:  api.WorkspaceMember.String(),
+				Name:        "Workspace member",
+				Description: "",
+			},
+		)
+	}
 	roles = append(roles,
 		&RoleMessage{
 			CreatorID:   api.SystemBotID,
-			ResourceID:  api.Owner.String(),
+			ResourceID:  api.ProjectOwner.String(),
 			Name:        "Project owner",
 			Description: "",
 		},
 		&RoleMessage{
 			CreatorID:   api.SystemBotID,
-			ResourceID:  api.Developer.String(),
+			ResourceID:  api.ProjectDeveloper.String(),
 			Name:        "Project developer",
 			Description: "",
 		},
 		&RoleMessage{
 			CreatorID:   api.SystemBotID,
-			ResourceID:  api.Releaser.String(),
+			ResourceID:  api.ProjectReleaser.String(),
 			Name:        "Project releaser",
 			Description: "",
 		},
 		&RoleMessage{
 			CreatorID:   api.SystemBotID,
-			ResourceID:  api.Querier.String(),
+			ResourceID:  api.ProjectQuerier.String(),
 			Name:        "Project querier",
 			Description: "",
 		},
 		&RoleMessage{
 			CreatorID:   api.SystemBotID,
-			ResourceID:  api.Exporter.String(),
+			ResourceID:  api.ProjectExporter.String(),
 			Name:        "Project exporter",
 			Description: "",
 		},

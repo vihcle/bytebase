@@ -36,6 +36,7 @@ var (
 
 func init() {
 	db.Register(storepb.Engine_STARROCKS, newDriver)
+	db.Register(storepb.Engine_DORIS, newDriver)
 }
 
 // Driver is the MySQL driver.
@@ -158,7 +159,7 @@ func parseVersion(version string) (string, string, error) {
 }
 
 // Execute executes a SQL statement.
-func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, opts db.ExecuteOptions) (int64, error) {
+func (driver *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteOptions) (int64, error) {
 	statement, err := mysqlparser.DealWithDelimiter(statement)
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to deal with delimiter")
@@ -184,16 +185,16 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, opt
 	var totalCommands int
 	var chunks [][]base.SingleSQL
 	if opts.ChunkedSubmission && len(statement) <= common.MaxSheetCheckSize {
-		list, err := mysqlparser.SplitSQL(statement)
+		singleSQLs, err := mysqlparser.SplitSQL(statement)
 		if err != nil {
 			return 0, errors.Wrapf(err, "failed to split sql")
 		}
-		list = base.FilterEmptySQL(list)
-		if len(list) == 0 {
+		singleSQLs = base.FilterEmptySQL(singleSQLs)
+		if len(singleSQLs) == 0 {
 			return 0, nil
 		}
-		totalCommands = len(list)
-		ret, err := util.ChunkedSQLScript(list, common.MaxSheetCheckSize)
+		totalCommands = len(singleSQLs)
+		ret, err := util.ChunkedSQLScript(singleSQLs, common.MaxSheetChunksCount)
 		if err != nil {
 			return 0, errors.Wrapf(err, "failed to chunk sql")
 		}
@@ -332,9 +333,6 @@ func getConnectionID(ctx context.Context, conn *sql.Conn) (string, error) {
 }
 
 func (driver *Driver) querySingleSQL(ctx context.Context, conn *sql.Conn, singleSQL base.SingleSQL, queryContext *db.QueryContext) (*v1pb.QueryResult, error) {
-	if singleSQL.Empty {
-		return nil, nil
-	}
 	statement := strings.TrimLeft(strings.TrimRight(singleSQL.Text, " \n\t;"), " \n\t")
 	isExplain := strings.HasPrefix(statement, "EXPLAIN")
 

@@ -26,6 +26,8 @@ import (
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
+	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	"github.com/bytebase/bytebase/backend/plugin/parser/standard"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
@@ -35,6 +37,13 @@ var (
 		"information_schema": true,
 		"INFORMATION_SCHEMA": true,
 	}
+	systemDatabaseClause = func() string {
+		var l []string
+		for k := range systemDatabases {
+			l = append(l, fmt.Sprintf("'%s'", k))
+		}
+		return strings.Join(l, ", ")
+	}()
 
 	_ db.Driver = (*Driver)(nil)
 )
@@ -129,7 +138,16 @@ func (driver *Driver) getVersion(ctx context.Context) (string, error) {
 }
 
 // Execute executes a SQL statement.
-func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, _ db.ExecuteOptions) (int64, error) {
+func (driver *Driver) Execute(ctx context.Context, statement string, _ db.ExecuteOptions) (int64, error) {
+	singleSQLs, err := standard.SplitSQL(statement)
+	if err != nil {
+		return 0, err
+	}
+	singleSQLs = base.FilterEmptySQL(singleSQLs)
+	if len(singleSQLs) == 0 {
+		return 0, nil
+	}
+
 	tx, err := driver.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -137,10 +155,10 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, _ d
 	defer tx.Rollback()
 
 	totalRowsAffected := int64(0)
-	f := func(stmt string) error {
-		sqlResult, err := tx.ExecContext(ctx, stmt)
+	for _, singleSQL := range singleSQLs {
+		sqlResult, err := tx.ExecContext(ctx, singleSQL.Text)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		rowsAffected, err := sqlResult.RowsAffected()
 		if err != nil {
@@ -149,12 +167,6 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, _ d
 		} else {
 			totalRowsAffected += rowsAffected
 		}
-
-		return nil
-	}
-
-	if err := util.ApplyMultiStatements(strings.NewReader(statement), f); err != nil {
-		return 0, err
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -166,30 +178,42 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, _ d
 
 // RunStatement runs a SQL statement.
 func (*Driver) RunStatement(ctx context.Context, conn *sql.Conn, statement string) ([]*v1pb.QueryResult, error) {
-	var results []*v1pb.QueryResult
-	if err := util.ApplyMultiStatements(strings.NewReader(statement), func(stmt string) error {
-		startTime := time.Now()
-		rows, err := conn.QueryContext(ctx, statement)
-		if err != nil {
-			// TODO(d): ClickHouse will return "driver: bad connection" if we use non-SELECT statement for Query(). We need to ignore the error.
-			//nolint
-			return nil
-		}
-		defer rows.Close()
+	singleSQLs, err := standard.SplitSQL(statement)
+	if err != nil {
+		return nil, err
+	}
+	singleSQLs = base.FilterEmptySQL(singleSQLs)
+	if len(singleSQLs) == 0 {
+		return nil, nil
+	}
 
-		result, err := convertRowsToQueryResult(rows)
-		if err != nil {
-			result = &v1pb.QueryResult{
-				Error: err.Error(),
+	var results []*v1pb.QueryResult
+	for _, singleSQL := range singleSQLs {
+		startTime := time.Now()
+		result, err := func() (*v1pb.QueryResult, error) {
+			rows, err := conn.QueryContext(ctx, singleSQL.Text)
+			if err != nil {
+				// ClickHouse will return "driver: bad connection" if we use non-SELECT statement for Query(). We need to ignore the error.
+				// nolint
+				return nil, nil
 			}
+			defer rows.Close()
+
+			result, err := convertRowsToQueryResult(rows)
+			if err != nil {
+				result = &v1pb.QueryResult{
+					Error: err.Error(),
+				}
+			}
+			result.Latency = durationpb.New(time.Since(startTime))
+			result.Statement = singleSQL.Text
+			return result, nil
+		}()
+		if err != nil {
+			return nil, err
 		}
-		result.Latency = durationpb.New(time.Since(startTime))
-		result.Statement = strings.TrimRight(statement, " \n\t;")
 
 		results = append(results, result)
-		return nil
-	}); err != nil {
-		return nil, err
 	}
 
 	return results, nil

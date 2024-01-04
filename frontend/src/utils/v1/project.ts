@@ -2,10 +2,10 @@ import { orderBy, uniq } from "lodash-es";
 import slug from "slug";
 import { extractUserEmail, useUserStore } from "@/store";
 import {
-  ALL_USERS_USER_NAME,
+  ALL_USERS_USER_EMAIL,
   DEFAULT_PROJECT_V1_NAME,
-  PresetRoleType,
   UNKNOWN_ID,
+  PresetRoleType,
 } from "@/types";
 import { User } from "@/types/proto/v1/auth_service";
 import { State } from "@/types/proto/v1/common";
@@ -48,7 +48,7 @@ export const roleListInProjectV1 = (iamPolicy: IamPolicy, user: User) => {
     .filter((binding) => {
       return (
         binding.members.includes(`user:${user.email}`) ||
-        binding.members.includes(ALL_USERS_USER_NAME)
+        binding.members.includes(ALL_USERS_USER_EMAIL)
       );
     })
     .map((binding) => binding.role);
@@ -59,17 +59,21 @@ export const isMemberOfProjectV1 = (iamPolicy: IamPolicy, user: User) => {
 };
 
 export const isOwnerOfProjectV1 = (iamPolicy: IamPolicy, user: User) => {
-  return roleListInProjectV1(iamPolicy, user).includes(PresetRoleType.OWNER);
+  return roleListInProjectV1(iamPolicy, user).includes(
+    PresetRoleType.PROJECT_OWNER
+  );
 };
 
 export const isDeveloperOfProjectV1 = (iamPolicy: IamPolicy, user: User) => {
   return roleListInProjectV1(iamPolicy, user).includes(
-    PresetRoleType.DEVELOPER
+    PresetRoleType.PROJECT_DEVELOPER
   );
 };
 
 export const isViewerOfProjectV1 = (iamPolicy: IamPolicy, user: User) => {
-  return roleListInProjectV1(iamPolicy, user).includes(PresetRoleType.VIEWER);
+  return roleListInProjectV1(iamPolicy, user).includes(
+    PresetRoleType.PROJECT_VIEWER
+  );
 };
 
 export const memberListInProjectV1 = (
@@ -109,7 +113,7 @@ export const memberListInProjectV1 = (
   return orderBy(
     composedUserList,
     [
-      (item) => (item.roleList.includes(PresetRoleType.OWNER) ? 0 : 1),
+      (item) => (item.roleList.includes(PresetRoleType.PROJECT_OWNER) ? 0 : 1),
       (item) => item.user.email,
     ],
     ["asc", "asc"]

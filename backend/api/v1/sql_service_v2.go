@@ -86,8 +86,13 @@ func (s *SQLService) ExportV2(ctx context.Context, request *v1pb.ExportRequest) 
 		return nil, exportErr
 	}
 
+	content, err := doEncrypt(bytes, request)
+	if err != nil {
+		return nil, err
+	}
+
 	return &v1pb.ExportResponse{
-		Content: bytes,
+		Content: content,
 	}, nil
 }
 
@@ -541,7 +546,7 @@ func (s *SQLService) accessCheck(
 	isAdmin,
 	isExport bool) error {
 	// Check if the caller is admin for exporting with admin mode.
-	if isAdmin && isExport && (user.Role != api.Owner && user.Role != api.DBA) {
+	if isAdmin && isExport && (user.Role != api.WorkspaceAdmin && user.Role != api.WorkspaceDBA) {
 		return status.Errorf(codes.PermissionDenied, "only workspace owner and DBA can export data using admin mode")
 	}
 

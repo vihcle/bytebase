@@ -2,10 +2,10 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgtype"
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -33,6 +33,7 @@ type UpdateUserMessage struct {
 	Name         *string
 	PasswordHash *string
 	Role         *api.Role
+	Roles        *[]api.Role
 	Delete       *bool
 	MFAConfig    *storepb.MFAConfig
 	Phone        *string
@@ -42,11 +43,13 @@ type UpdateUserMessage struct {
 type UserMessage struct {
 	ID int
 	// Email must be lower case.
-	Email         string
-	Name          string
-	Type          api.PrincipalType
-	PasswordHash  string
+	Email        string
+	Name         string
+	Type         api.PrincipalType
+	PasswordHash string
+	// TODO(p0ny): deprecate Role in favor of Roles.
 	Role          api.Role
+	Roles         []api.Role
 	MemberDeleted bool
 	MFAConfig     *storepb.MFAConfig
 	// Phone conforms E.164 format.
@@ -60,7 +63,8 @@ func (s *Store) GetUser(ctx context.Context, find *FindUserMessage) (*UserMessag
 			ID:    api.SystemBotID,
 			Email: api.SystemBotEmail,
 			Type:  api.SystemBot,
-			Role:  api.Owner,
+			Role:  api.WorkspaceAdmin,
+			Roles: []api.Role{api.WorkspaceAdmin},
 		}, nil
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -156,25 +160,25 @@ func (*Store) listUserImpl(ctx context.Context, tx *Tx, find *FindUserMessage) (
 		where, args = append(where, fmt.Sprintf("principal.type = $%d", len(args)+1)), append(args, *v)
 	}
 	if v := find.Role; v != nil {
-		where, args = append(where, fmt.Sprintf("member.role = $%d", len(args)+1)), append(args, *v)
+		where, args = append(where, fmt.Sprintf("$%d = ANY(member_roles.roles)", len(args)+1)), append(args, *v)
 	}
 	if !find.ShowDeleted {
-		where, args = append(where, fmt.Sprintf("member.row_status = $%d", len(args)+1)), append(args, api.Normal)
+		where, args = append(where, fmt.Sprintf("principal.row_status = $%d", len(args)+1)), append(args, api.Normal)
 	}
 
 	query := `
 	SELECT
 		principal.id AS user_id,
+		principal.row_status AS row_status,
 		principal.email,
 		principal.name,
 		principal.type,
 		principal.password_hash,
 		principal.mfa_config,
 		principal.phone,
-		member.role,
-		member.row_status AS row_status
+		member_roles.roles
 	FROM principal
-	LEFT JOIN member ON principal.id = member.principal_id
+	LEFT JOIN LATERAL (SELECT ARRAY(SELECT member.role FROM member WHERE member.principal_id = principal.id ORDER BY member.role)) AS member_roles(roles) ON TRUE
 	WHERE ` + strings.Join(where, " AND ")
 
 	if v := find.Limit; v != nil {
@@ -189,33 +193,38 @@ func (*Store) listUserImpl(ctx context.Context, tx *Tx, find *FindUserMessage) (
 	defer rows.Close()
 	for rows.Next() {
 		var userMessage UserMessage
-		var role, rowStatus sql.NullString
+		var roles pgtype.TextArray
+		var rowStatus string
 		var mfaConfigBytes []byte
 		if err := rows.Scan(
 			&userMessage.ID,
+			&rowStatus,
 			&userMessage.Email,
 			&userMessage.Name,
 			&userMessage.Type,
 			&userMessage.PasswordHash,
 			&mfaConfigBytes,
 			&userMessage.Phone,
-			&role,
-			&rowStatus,
+			&roles,
 		); err != nil {
 			return nil, err
 		}
-		if role.Valid {
-			userMessage.Role = api.Role(role.String)
-		} else if userMessage.ID == api.SystemBotID {
-			userMessage.Role = api.Owner
-		} else {
-			userMessage.Role = api.Developer
+
+		// pgtype cannot assign []string to []api.Role
+		var rolesString []string
+		if err := roles.AssignTo(&rolesString); err != nil {
+			return nil, errors.Wrapf(err, "failed to scan roles")
 		}
-		if rowStatus.Valid {
-			userMessage.MemberDeleted = convertRowStatusToDeleted(rowStatus.String)
-		} else if userMessage.ID != api.SystemBotID {
-			userMessage.MemberDeleted = true
+		for _, r := range rolesString {
+			userMessage.Roles = append(userMessage.Roles, api.Role(r))
 		}
+		if userMessage.ID == api.SystemBotID {
+			userMessage.Roles = append(userMessage.Roles, api.WorkspaceAdmin)
+		}
+
+		userMessage.Role = backfillRoleFromRoles(userMessage.Roles)
+
+		userMessage.MemberDeleted = convertRowStatusToDeleted(rowStatus)
 		mfaConfig := storepb.MFAConfig{}
 		decoder := protojson.UnmarshalOptions{DiscardUnknown: true}
 		if err := decoder.Unmarshal(mfaConfigBytes, &mfaConfig); err != nil {
@@ -271,30 +280,27 @@ func (s *Store) CreateUser(ctx context.Context, create *UserMessage, creatorID i
 	).Scan(&count); err != nil {
 		return nil, err
 	}
-	role := api.Developer
+
+	roles := create.Roles
+	if len(roles) == 0 {
+		roles = []api.Role{create.Role}
+	}
 	firstMember := count == 0
 	// Grant the member Owner role if there is no existing member.
 	if firstMember {
-		role = api.Owner
-	} else if create.Role != "" {
-		role = create.Role
+		roles = append(roles, api.WorkspaceAdmin)
 	}
+	roles = uniq(roles)
 
 	if _, err := tx.ExecContext(ctx, `
-			INSERT INTO member (
-				creator_id,
-				updater_id,
-				role,
-				principal_id
-			)
-			VALUES ($1, $2, $3, $4)
-		`,
-		creatorID,
-		creatorID,
-		role,
-		userID,
-	); err != nil {
-		return nil, err
+		INSERT INTO member (
+			creator_id,
+			updater_id,
+			role,
+			principal_id
+		) SELECT $1, $2, unnest($3::text[]), $4`,
+		creatorID, creatorID, roles, userID); err != nil {
+		return nil, errors.Wrapf(err, "failed to insert members")
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -308,7 +314,8 @@ func (s *Store) CreateUser(ctx context.Context, create *UserMessage, creatorID i
 		Type:         create.Type,
 		PasswordHash: create.PasswordHash,
 		Phone:        create.Phone,
-		Role:         role,
+		Roles:        roles,
+		Role:         backfillRoleFromRoles(roles),
 	}
 	s.userIDCache.Add(user.ID, user)
 	return user, nil
@@ -321,6 +328,13 @@ func (s *Store) UpdateUser(ctx context.Context, userID int, patch *UpdateUserMes
 	}
 
 	principalSet, principalArgs := []string{"updater_id = $1"}, []any{fmt.Sprintf("%d", updaterID)}
+	if v := patch.Delete; v != nil {
+		rowStatus := api.Normal
+		if *patch.Delete {
+			rowStatus = api.Archived
+		}
+		principalSet, principalArgs = append(principalSet, fmt.Sprintf("row_status = $%d", len(principalArgs)+1)), append(principalArgs, rowStatus)
+	}
 	if v := patch.Email; v != nil {
 		principalSet, principalArgs = append(principalSet, fmt.Sprintf("email = $%d", len(principalArgs)+1)), append(principalArgs, strings.ToLower(*v))
 	}
@@ -342,81 +356,128 @@ func (s *Store) UpdateUser(ctx context.Context, userID int, patch *UpdateUserMes
 	}
 	principalArgs = append(principalArgs, userID)
 
-	memberSet, memberArgs := []string{"updater_id = $1"}, []any{fmt.Sprintf("%d", updaterID)}
-	if v := patch.Role; v != nil {
-		memberSet, memberArgs = append(memberSet, fmt.Sprintf("role = $%d", len(memberArgs)+1)), append(memberArgs, *v)
-	}
-	if v := patch.Delete; v != nil {
-		rowStatus := api.Normal
-		if *patch.Delete {
-			rowStatus = api.Archived
-		}
-		memberSet, memberArgs = append(memberSet, fmt.Sprintf(`"row_status" = $%d`, len(memberArgs)+1)), append(memberArgs, rowStatus)
-	}
-	memberArgs = append(memberArgs, userID)
-
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	user := &UserMessage{}
-	var mfaConfigBytes []byte
-	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE principal
 		SET `+strings.Join(principalSet, ", ")+`
 		WHERE id = $%d
-		RETURNING id, email, name, type, password_hash, mfa_config, phone
 	`, len(principalArgs)),
 		principalArgs...,
-	).Scan(
-		&user.ID,
-		&user.Email,
-		&user.Name,
-		&user.Type,
-		&user.PasswordHash,
-		&mfaConfigBytes,
-		&user.Phone,
 	); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
-	mfaConfig := storepb.MFAConfig{}
-	decoder := protojson.UnmarshalOptions{DiscardUnknown: true}
-	if err := decoder.Unmarshal(mfaConfigBytes, &mfaConfig); err != nil {
-		return nil, err
-	}
-	user.MFAConfig = &mfaConfig
 
-	var rowStatus string
-	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
-			UPDATE member
-			SET `+strings.Join(memberSet, ", ")+`
-			WHERE principal_id = $%d
-			RETURNING role, row_status
-		`, len(memberArgs)),
-		memberArgs...,
-	).Scan(
-		&user.Role,
-		&rowStatus,
-	); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
+	var patchRoles []api.Role
+	doPatchRoles := false
+	if v := patch.Role; v != nil {
+		doPatchRoles = true
+		patchRoles = []api.Role{*v}
 	}
-	user.MemberDeleted = convertRowStatusToDeleted(rowStatus)
+	// patch.Roles overrides patch.Role
+	if v := patch.Roles; v != nil {
+		doPatchRoles = true
+		patchRoles = *v
+	}
+	if doPatchRoles {
+		if err := s.updateUserRoles(ctx, tx, userID, patchRoles, updaterID); err != nil {
+			return nil, errors.Wrapf(err, "failed to update user roles")
+		}
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	s.userIDCache.Add(user.ID, user)
+
 	if patch.Email != nil && patch.Phone != nil {
 		s.projectIDPolicyCache.Purge()
 		s.projectPolicyCache.Purge()
 	}
-	return user, nil
+	s.userIDCache.Remove(userID)
+	return s.GetUserByID(ctx, userID)
+}
+
+func (s *Store) updateUserRoles(ctx context.Context, tx *Tx, userUID int, roles []api.Role, updaterUID int) error {
+	oldUser, err := s.listUserImpl(ctx, tx, &FindUserMessage{ID: &userUID})
+	if err != nil {
+		return err
+	}
+	if len(oldUser) != 1 {
+		return errors.Errorf("expect to get one user with uid %d, got %d", userUID, len(oldUser))
+	}
+	oldMap, newMap := make(map[api.Role]struct{}), make(map[api.Role]struct{})
+	for _, r := range oldUser[0].Roles {
+		oldMap[r] = struct{}{}
+	}
+	for _, r := range roles {
+		newMap[r] = struct{}{}
+	}
+	var remove, add []string
+	for r := range oldMap {
+		if _, ok := newMap[r]; !ok {
+			remove = append(remove, r.String())
+		}
+	}
+	for r := range newMap {
+		if _, ok := oldMap[r]; !ok {
+			add = append(add, r.String())
+		}
+	}
+
+	if len(remove) > 0 {
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM member
+			WHERE principal_id = $1 AND role = ANY($2)
+		`, userUID, remove); err != nil {
+			return err
+		}
+	}
+	if len(add) > 0 {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO member (principal_id, role, creator_id, updater_id)
+			SELECT $1, unnest($2::text[]), $3, $3
+		`, userUID, add, updaterUID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func backfillRoleFromRoles(roles []api.Role) api.Role {
+	admin, dba := false, false
+	for _, r := range roles {
+		if r == api.WorkspaceAdmin {
+			admin = true
+		}
+		if r == api.WorkspaceDBA {
+			dba = true
+		}
+	}
+	if admin {
+		return api.WorkspaceAdmin
+	}
+	if dba {
+		return api.WorkspaceDBA
+	}
+	return api.WorkspaceMember
+}
+
+func uniq[T comparable](array []T) []T {
+	res := make([]T, 0, len(array))
+	seen := make(map[T]struct{}, len(array))
+
+	for _, e := range array {
+		if _, ok := seen[e]; ok {
+			continue
+		}
+		seen[e] = struct{}{}
+		res = append(res, e)
+	}
+
+	return res
 }

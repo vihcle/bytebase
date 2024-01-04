@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 
+	"github.com/bytebase/bytebase/backend/common"
 	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/store"
 )
@@ -49,16 +50,18 @@ func NewManager(store *store.Store) (*Manager, error) {
 // Check if the user has the permission p
 // or has the permission p in every project.
 func (m *Manager) CheckPermission(ctx context.Context, p Permission, user *store.UserMessage, projectIDs ...string) (bool, error) {
-	workspaceRoles, err := m.getWorkspaceRoles(user)
-	if err != nil {
-		return false, errors.Wrapf(err, "failed to get workspace roles")
-	}
+	workspaceRoles := m.getWorkspaceRoles(user)
 	projectRoles, err := m.getProjectRoles(ctx, user, projectIDs)
 	if err != nil {
 		return false, errors.Wrapf(err, "failed to get project roles")
 	}
 
 	return m.hasPermission(p, workspaceRoles, projectRoles), nil
+}
+
+// GetPermissions returns all permissions for the given role.
+func (m *Manager) GetPermissions(role string) []Permission {
+	return m.roles[role]
 }
 
 func (m *Manager) hasPermission(p Permission, workspaceRoles []string, projectRoles [][]string) bool {
@@ -105,12 +108,13 @@ func (m *Manager) hasPermissionOnEveryProject(p Permission, projectRoles [][]str
 	}
 	return true
 }
-func (*Manager) getWorkspaceRoles(user *store.UserMessage) ([]string, error) {
-	role, err := convertWorkspaceRole(user.Role.String())
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get workspace roles")
+
+func (*Manager) getWorkspaceRoles(user *store.UserMessage) []string {
+	var roles []string
+	for _, r := range user.Roles {
+		roles = append(roles, common.FormatRole(r.String()))
 	}
-	return []string{role}, nil
+	return roles
 }
 
 func (m *Manager) getProjectRoles(ctx context.Context, user *store.UserMessage, projectIDs []string) ([][]string, error) {
@@ -140,44 +144,12 @@ func getRolesFromProjectPolicy(user *store.UserMessage, policy *store.IAMPolicyM
 		// TODO(p0ny): eval binding.Condition
 		for _, member := range binding.Members {
 			if member.ID == user.ID || member.Email == api.AllUsers {
-				roles = append(roles, convertProjectRole(binding.Role.String()))
+				roles = append(roles, common.FormatRole(binding.Role.String()))
 				break
 			}
 		}
 	}
 	return roles
-}
-
-func convertProjectRole(role string) string {
-	switch role {
-	case "OWNER":
-		return "roles/projectOwner"
-	case "DEVELOPER":
-		return "roles/projectDeveloper"
-	case "QUERIER":
-		return "roles/projectQuerier"
-	case "EXPORTER":
-		return "roles/projectExporter"
-	case "RELEASER":
-		return "roles/projectReleaser"
-	case "VIEWER":
-		return "roles/projectViewer"
-	default:
-		return "roles/" + role
-	}
-}
-
-func convertWorkspaceRole(role string) (string, error) {
-	switch role {
-	case "OWNER":
-		return "roles/workspaceAdmin", nil
-	case "DBA":
-		return "roles/workspaceDBA", nil
-	case "DEVELOPER":
-		return "roles/workspaceMember", nil
-	default:
-		return "", errors.Errorf("unexpected workspace role %q", role)
-	}
 }
 
 func isNumber(v string) (int, bool) {

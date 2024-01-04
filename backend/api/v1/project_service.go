@@ -102,6 +102,31 @@ func (s *ProjectService) ListProjects(ctx context.Context, request *v1pb.ListPro
 	return response, nil
 }
 
+// SearchProjects searches all projects on which the user has bb.projects.get permission.
+func (s *ProjectService) SearchProjects(ctx context.Context, request *v1pb.SearchProjectsRequest) (*v1pb.SearchProjectsResponse, error) {
+	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "user not found")
+	}
+
+	projects, err := s.store.ListProjectV2(ctx, &store.FindProjectMessage{ShowDeleted: request.ShowDeleted})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, err.Error())
+	}
+	response := &v1pb.SearchProjectsResponse{}
+	for _, project := range projects {
+		ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionProjectsGet, user, project.ResourceID)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to check permission for project %q: %v", project.ResourceID, err)
+		}
+		if !ok {
+			continue
+		}
+		response.Projects = append(response.Projects, convertToProject(project))
+	}
+	return response, nil
+}
+
 // CreateProject creates a project.
 func (s *ProjectService) CreateProject(ctx context.Context, request *v1pb.CreateProjectRequest) (*v1pb.Project, error) {
 	if !isValidResourceID(request.ProjectId) {
@@ -351,7 +376,7 @@ func (s *ProjectService) SetIamPolicy(ctx context.Context, request *v1pb.SetIamP
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Failed to list roles: %v", err)
 	}
-	if err := validateIAMPolicy(request.Policy, convertToRoles(roleMessages)); err != nil {
+	if err := validateIAMPolicy(request.Policy, convertToRoles(s.iamManager, roleMessages)); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 	project, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{
@@ -3008,8 +3033,8 @@ func validateBindings(bindings []*v1pb.Binding, roles []*v1pb.Role) error {
 		}
 	}
 	// Must contain one owner binding.
-	if _, ok := projectRoleMap["roles/OWNER"]; !ok {
-		return errors.Errorf("IAM Policy must have at least one binding with role PROJECT_OWNER")
+	if _, ok := projectRoleMap[common.FormatRole(api.ProjectOwner.String())]; !ok {
+		return errors.Errorf("IAM Policy must have at least one binding with %s", api.ProjectOwner.String())
 	}
 	return nil
 }

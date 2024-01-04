@@ -23,7 +23,8 @@
             <NTooltip
               v-if="allowAdmin"
               :disabled="
-                allowRemoveRole(role.role) || role.role !== 'roles/OWNER'
+                allowRemoveRole(role.role) ||
+                role.role !== PresetRoleType.PROJECT_OWNER
               "
             >
               <template #trigger>
@@ -175,9 +176,9 @@ import {
 import {
   ComposedProject,
   DatabaseResource,
-  PresetRoleType,
-  PresetRoleTypeList,
   getUserEmailInBinding,
+  PresetRoleType,
+  ProjectLevelRoles,
 } from "@/types";
 import { User } from "@/types/proto/v1/auth_service";
 import { State } from "@/types/proto/v1/common";
@@ -237,7 +238,10 @@ const panelTitle = computed(() => {
 });
 
 const isRoleShouldShowDatabaseRelatedColumns = (role: string) => {
-  return role === PresetRoleType.QUERIER || role === PresetRoleType.EXPORTER;
+  return (
+    role === PresetRoleType.PROJECT_QUERIER ||
+    role === PresetRoleType.PROJECT_EXPORTER
+  );
 };
 
 const getGridColumns = (role: string) => {
@@ -315,9 +319,9 @@ const allowRemoveRole = (role: string) => {
     return false;
   }
 
-  if (role === PresetRoleType.OWNER) {
+  if (role === PresetRoleType.PROJECT_OWNER) {
     const ownerBindings = iamPolicy.value.bindings.filter(
-      (binding) => binding.role === PresetRoleType.OWNER
+      (binding) => binding.role === PresetRoleType.PROJECT_OWNER
     );
     const members: User[] = [];
     // Find those never expires owner members.
@@ -379,8 +383,8 @@ const handleDeleteRole = (role: string) => {
 };
 
 const allowDeleteCondition = (singleBinding: SingleBinding) => {
-  if (singleBinding.rawBinding.role === PresetRoleType.OWNER) {
-    return allowRemoveRole(PresetRoleType.OWNER);
+  if (singleBinding.rawBinding.role === PresetRoleType.PROJECT_OWNER) {
+    return allowRemoveRole(PresetRoleType.PROJECT_OWNER);
   }
   return true;
 };
@@ -582,10 +586,10 @@ watch(
 
     // Sort by role type.
     tempRoleList.sort((a, b) => {
-      if (!PresetRoleTypeList.includes(a.role)) return -1;
-      if (!PresetRoleTypeList.includes(b.role)) return 1;
+      if (!ProjectLevelRoles.includes(a.role)) return -1;
+      if (!ProjectLevelRoles.includes(b.role)) return 1;
       return (
-        PresetRoleTypeList.indexOf(a.role) - PresetRoleTypeList.indexOf(b.role)
+        ProjectLevelRoles.indexOf(a.role) - ProjectLevelRoles.indexOf(b.role)
       );
     });
     roleList.value = tempRoleList;

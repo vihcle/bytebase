@@ -24,8 +24,6 @@ import (
 )
 
 var (
-	bytebaseDatabase = "bytebase"
-
 	_ db.Driver = (*Driver)(nil)
 )
 
@@ -114,8 +112,8 @@ func (driver *Driver) getDatabases() ([]string, error) {
 }
 
 // Execute executes a SQL statement.
-func (driver *Driver) Execute(ctx context.Context, statement string, createDatabase bool, _ db.ExecuteOptions) (int64, error) {
-	if createDatabase {
+func (driver *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteOptions) (int64, error) {
+	if opts.CreateDatabase {
 		parts := strings.Split(statement, `'`)
 		if len(parts) != 3 {
 			return 0, errors.Errorf("invalid statement %q", statement)

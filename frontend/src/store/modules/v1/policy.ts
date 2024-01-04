@@ -64,7 +64,7 @@ export const usePolicyV1Store = defineStore("policy_v1", {
       showDeleted = false,
     }: {
       resourceType: PolicyResourceType;
-      policyType: PolicyType;
+      policyType?: PolicyType;
       showDeleted?: boolean;
     }) {
       const { policies } = await policyServiceClient.listPolicies({
@@ -277,7 +277,7 @@ export const getDefaultRolloutPolicyPayload = () => {
     automatic: false,
     issueRoles: [],
     projectRoles: [],
-    workspaceRoles: [VirtualRoleType.OWNER],
+    workspaceRoles: [VirtualRoleType.WORKSPACE_ADMIN],
   });
 };
 

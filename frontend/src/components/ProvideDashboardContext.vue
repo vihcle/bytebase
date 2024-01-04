@@ -15,13 +15,14 @@ import {
   useUserStore,
   useUIStateStore,
   useDatabaseV1Store,
-  useDBGroupStore,
 } from "@/store";
 import { projectNamePrefix } from "@/store/modules/v1/common";
+import { PolicyResourceType } from "@/types/proto/v1/org_policy_service";
 
 const route = useRoute();
 const isLoading = ref<boolean>(true);
 
+const policyStore = usePolicyV1Store();
 const databaseStore = useDatabaseV1Store();
 
 const prepareDatabases = async () => {
@@ -45,14 +46,12 @@ onMounted(async () => {
     useEnvironmentV1Store().fetchEnvironments(),
     useInstanceV1Store().fetchInstanceList(),
     useProjectV1Store().fetchProjectList(true),
-    usePolicyV1Store().getOrFetchPolicyByName("policies/WORKSPACE_IAM"),
+    policyStore.fetchPolicies({
+      resourceType: PolicyResourceType.WORKSPACE,
+    }),
   ]);
 
-  await Promise.all([
-    prepareDatabases(),
-    useDBGroupStore().fetchAllDatabaseGroupList(),
-    useUIStateStore().restoreState(),
-  ]);
+  await Promise.all([prepareDatabases(), useUIStateStore().restoreState()]);
 
   isLoading.value = false;
 });

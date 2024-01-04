@@ -79,9 +79,19 @@ func (driver *Driver) GetDB() *sql.DB {
 	return driver.db
 }
 
-func (driver *Driver) Execute(ctx context.Context, statement string, createDatabase bool, opts db.ExecuteOptions) (int64, error) {
-	if createDatabase {
+func (driver *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteOptions) (int64, error) {
+	if opts.CreateDatabase {
 		return 0, errors.New("create database is not supported for OceanBase Oracle mode")
+	}
+
+	// Use Oracle sql parser.
+	singleSQLs, err := plsqlparser.SplitSQL(statement)
+	if err != nil {
+		return 0, err
+	}
+	singleSQLs = base.FilterEmptySQL(singleSQLs)
+	if len(singleSQLs) == 0 {
+		return 0, nil
 	}
 
 	conn, err := driver.db.Conn(ctx)
@@ -95,24 +105,36 @@ func (driver *Driver) Execute(ctx context.Context, statement string, createDatab
 	}
 	defer tx.Rollback()
 
+	totalCommands := len(singleSQLs)
 	totalRowsAffected := int64(0)
-	f := func(stmt string) error {
-		sqlResult, err := tx.ExecContext(ctx, stmt)
+	for i, singleSQL := range singleSQLs {
+		// Start the current chunk.
+		// Set the progress information for the current chunk.
+		if opts.UpdateExecutionStatus != nil {
+			opts.UpdateExecutionStatus(&v1pb.TaskRun_ExecutionDetail{
+				CommandsTotal:     int32(totalCommands),
+				CommandsCompleted: int32(i),
+				CommandStartPosition: &v1pb.TaskRun_ExecutionDetail_Position{
+					Line:   int32(singleSQL.FirstStatementLine),
+					Column: int32(singleSQL.FirstStatementColumn),
+				},
+				CommandEndPosition: &v1pb.TaskRun_ExecutionDetail_Position{
+					Line:   int32(singleSQL.LastLine),
+					Column: int32(singleSQL.LastColumn),
+				},
+			})
+		}
+
+		sqlResult, err := tx.ExecContext(ctx, singleSQL.Text)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		rowsAffected, err := sqlResult.RowsAffected()
 		if err != nil {
 			// Since we cannot differentiate DDL and DML yet, we have to ignore the error.
 			slog.Debug("rowsAffected returns error", log.BBError(err))
-		} else {
-			totalRowsAffected += rowsAffected
 		}
-		return nil
-	}
-
-	if _, err := plsqlparser.SplitMultiSQLStream(strings.NewReader(statement), f); err != nil {
-		return 0, err
+		totalRowsAffected += rowsAffected
 	}
 
 	if opts.EndTransactionFunc != nil {
@@ -132,6 +154,7 @@ func (driver *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement s
 	if err != nil {
 		return nil, err
 	}
+	singleSQLs = base.FilterEmptySQL(singleSQLs)
 	if len(singleSQLs) == 0 {
 		return nil, nil
 	}

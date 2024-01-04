@@ -236,80 +236,108 @@ func (driver *Driver) getVersion(ctx context.Context) (string, error) {
 
 // Execute will execute the statement. For CREATE DATABASE statement, some types of databases such as Postgres
 // will not use transactions to execute the statement but will still use transactions to execute the rest of statements.
-func (driver *Driver) Execute(ctx context.Context, statement string, createDatabase bool, _ db.ExecuteOptions) (int64, error) {
-	if createDatabase {
-		databases, err := driver.getDatabases(ctx)
-		if err != nil {
-			return 0, err
-		}
-		databaseName, err := getDatabaseInCreateDatabaseStatement(statement)
-		if err != nil {
-			return 0, err
-		}
-		exist := false
-		for _, database := range databases {
-			if database.Name == databaseName {
-				exist = true
-				break
-			}
-		}
-		if exist {
-			return 0, err
-		}
-
-		f := func(stmt string) error {
-			if _, err := driver.db.ExecContext(ctx, stmt); err != nil {
-				return err
-			}
-			return nil
-		}
-		if _, err := pgparser.SplitMultiSQLStream(strings.NewReader(statement), f); err != nil {
+func (driver *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteOptions) (int64, error) {
+	if opts.CreateDatabase {
+		if err := driver.createDatabaseExecute(ctx, statement); err != nil {
 			return 0, err
 		}
 		return 0, nil
 	}
 
-	var remainingStmts []string
-	var nonTransactionStmts []string
-	totalRowsAffected := int64(0)
-	f := func(stmt string) error {
-		// We don't use transaction for creating / altering databases in Postgres.
-		// We will execute the statement directly before "\\connect" statement.
-		// https://github.com/bytebase/bytebase/issues/202
-		if isSuperuserStatement(stmt) {
-			remainingStmts = append(remainingStmts, stmt)
-		} else if isNonTransactionStatement(stmt) {
-			nonTransactionStmts = append(nonTransactionStmts, stmt)
-		} else if !isIgnoredStatement(stmt) {
-			remainingStmts = append(remainingStmts, stmt)
-		}
-		return nil
-	}
-
-	if _, err := pgparser.SplitMultiSQLStream(strings.NewReader(statement), f); err != nil {
+	singleSQLs, err := pgparser.SplitSQL(statement)
+	if err != nil {
 		return 0, err
 	}
+	singleSQLs = base.FilterEmptySQL(singleSQLs)
+	if len(singleSQLs) == 0 {
+		return 0, nil
+	}
 
-	if len(remainingStmts) != 0 {
+	var remainingSQLs []base.SingleSQL
+	var nonTransactionStmts []string
+	for _, singleSQL := range singleSQLs {
+		if isNonTransactionStatement(singleSQL.Text) {
+			nonTransactionStmts = append(nonTransactionStmts, singleSQL.Text)
+			continue
+		}
+		remainingSQLs = append(remainingSQLs, singleSQL)
+	}
+
+	totalRowsAffected := int64(0)
+	if len(remainingSQLs) != 0 {
+		var totalCommands int
+		var chunks [][]base.SingleSQL
+		if opts.ChunkedSubmission && len(statement) <= common.MaxSheetCheckSize {
+			totalCommands = len(remainingSQLs)
+			ret, err := util.ChunkedSQLScript(remainingSQLs, common.MaxSheetChunksCount)
+			if err != nil {
+				return 0, errors.Wrapf(err, "failed to chunk sql")
+			}
+			chunks = ret
+		} else {
+			chunks = [][]base.SingleSQL{
+				remainingSQLs,
+			}
+		}
+		currentIndex := 0
+
 		tx, err := driver.db.BeginTx(ctx, nil)
 		if err != nil {
 			return 0, err
 		}
 		defer tx.Rollback()
 
-		sqlResult, err := tx.ExecContext(ctx, strings.Join(remainingStmts, "\n"))
-		if err != nil {
-			return 0, err
+		for _, chunk := range chunks {
+			if len(chunk) == 0 {
+				continue
+			}
+			// Start the current chunk.
+			// Set the progress information for the current chunk.
+			if opts.UpdateExecutionStatus != nil {
+				opts.UpdateExecutionStatus(&v1pb.TaskRun_ExecutionDetail{
+					CommandsTotal:     int32(totalCommands),
+					CommandsCompleted: int32(currentIndex),
+					CommandStartPosition: &v1pb.TaskRun_ExecutionDetail_Position{
+						Line:   int32(chunk[0].FirstStatementLine),
+						Column: int32(chunk[0].FirstStatementColumn),
+					},
+					CommandEndPosition: &v1pb.TaskRun_ExecutionDetail_Position{
+						Line:   int32(chunk[len(chunk)-1].LastLine),
+						Column: int32(chunk[len(chunk)-1].LastColumn),
+					},
+				})
+			}
+
+			chunkText, err := util.ConcatChunk(chunk)
+			if err != nil {
+				return 0, err
+			}
+
+			sqlResult, err := tx.ExecContext(ctx, chunkText)
+			if err != nil {
+				return 0, &db.ErrorWithPosition{
+					Err: errors.Wrapf(err, "failed to execute context in a transaction"),
+					Start: &storepb.TaskRunResult_Position{
+						Line:   int32(chunk[0].FirstStatementLine),
+						Column: int32(chunk[0].FirstStatementColumn),
+					},
+					End: &storepb.TaskRunResult_Position{
+						Line:   int32(chunk[len(chunk)-1].LastLine),
+						Column: int32(chunk[len(chunk)-1].LastColumn),
+					},
+				}
+			}
+			rowsAffected, err := sqlResult.RowsAffected()
+			if err != nil {
+				// Since we cannot differentiate DDL and DML yet, we have to ignore the error.
+				slog.Debug("rowsAffected returns error", log.BBError(err))
+			}
+			totalRowsAffected += rowsAffected
+			currentIndex += len(chunk)
 		}
+
 		if err := tx.Commit(); err != nil {
 			return 0, err
-		}
-		rowsAffected, err := sqlResult.RowsAffected()
-		if err != nil {
-			// Since we cannot differentiate DDL and DML yet, we have to ignore the error.
-			slog.Debug("rowsAffected returns error", log.BBError(err))
-		} else {
-			totalRowsAffected += rowsAffected
 		}
 	}
 
@@ -322,19 +350,28 @@ func (driver *Driver) Execute(ctx context.Context, statement string, createDatab
 	return totalRowsAffected, nil
 }
 
-func isSuperuserStatement(stmt string) bool {
-	upperCaseStmt := strings.ToUpper(stmt)
-	if strings.HasPrefix(upperCaseStmt, "GRANT") || strings.HasPrefix(upperCaseStmt, "CREATE EXTENSION") || strings.HasPrefix(upperCaseStmt, "CREATE EVENT TRIGGER") || strings.HasPrefix(upperCaseStmt, "COMMENT ON EVENT TRIGGER") {
-		return true
+func (driver *Driver) createDatabaseExecute(ctx context.Context, statement string) error {
+	databaseName, err := getDatabaseInCreateDatabaseStatement(statement)
+	if err != nil {
+		return err
 	}
-	return false
-}
+	databases, err := driver.getDatabases(ctx)
+	if err != nil {
+		return err
+	}
+	for _, database := range databases {
+		if database.Name == databaseName {
+			// Database already exists.
+			return nil
+		}
+	}
 
-func isIgnoredStatement(stmt string) bool {
-	// Extensions created in AWS Aurora PostgreSQL are owned by rdsadmin.
-	// We don't have privileges to comment on the extension and have to ignore it.
-	upperCaseStmt := strings.ToUpper(stmt)
-	return strings.HasPrefix(upperCaseStmt, "COMMENT ON EXTENSION")
+	for _, s := range strings.Split(statement, "\n") {
+		if _, err := driver.db.ExecContext(ctx, s); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func isNonTransactionStatement(stmt string) bool {
@@ -361,39 +398,6 @@ func getDatabaseInCreateDatabaseStatement(createDatabaseStatement string) (strin
 	databaseName := strings.TrimLeft(tokens[0], `"`)
 	databaseName = strings.TrimRight(databaseName, `"`)
 	return databaseName, nil
-}
-
-// GetCurrentDatabaseOwner gets the role of the current database.
-func (driver *Driver) GetCurrentDatabaseOwner() (string, error) {
-	const query = `
-		SELECT
-			u.rolname
-		FROM
-			pg_roles AS u JOIN pg_database AS d ON (d.datdba = u.oid)
-		WHERE
-			d.datname = current_database();
-		`
-	rows, err := driver.db.Query(query)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-
-	var owner string
-	for rows.Next() {
-		var o string
-		if err := rows.Scan(&o); err != nil {
-			return "", err
-		}
-		owner = o
-	}
-	if err := rows.Err(); err != nil {
-		return "", err
-	}
-	if owner == "" {
-		return "", errors.Errorf("owner not found for the current database")
-	}
-	return owner, nil
 }
 
 // QueryConn queries a SQL statement in a given connection.

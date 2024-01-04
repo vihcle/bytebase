@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bytebase/bytebase/backend/common"
+	"github.com/bytebase/bytebase/backend/component/config"
 	dbdriver "github.com/bytebase/bytebase/backend/plugin/db"
 	_ "github.com/bytebase/bytebase/backend/plugin/db/pg"
 	"github.com/bytebase/bytebase/backend/resources/postgres"
@@ -168,7 +169,7 @@ func TestMigrationCompatibility(t *testing.T) {
 	defer defaultDriver.Close(ctx)
 	// Create a database with release latest schema.
 	databaseName := "hidb"
-	_, err = defaultDriver.Execute(ctx, fmt.Sprintf("CREATE DATABASE %s", databaseName), true, dbdriver.ExecuteOptions{})
+	_, err = defaultDriver.Execute(ctx, fmt.Sprintf("CREATE DATABASE %s", databaseName), dbdriver.ExecuteOptions{CreateDatabase: true})
 	require.NoError(t, err)
 
 	metadataConnConfig := connCfg
@@ -184,7 +185,7 @@ func TestMigrationCompatibility(t *testing.T) {
 	db := store.NewDB(metadataConnConfig, pgBinDir, false, common.ReleaseModeDev)
 	err = db.Open(ctx, true /* createDB */)
 	require.NoError(t, err)
-	storeInstance, err := store.New(db)
+	storeInstance, err := store.New(db, &config.Profile{})
 	require.NoError(t, err)
 
 	releaseVersion, err := getProdCutoffVersion()
@@ -229,5 +230,5 @@ func TestMigrationCompatibility(t *testing.T) {
 func TestGetCutoffVersion(t *testing.T) {
 	releaseVersion, err := getProdCutoffVersion()
 	require.NoError(t, err)
-	require.Equal(t, semver.MustParse("2.13.0"), releaseVersion)
+	require.Equal(t, semver.MustParse("2.13.2"), releaseVersion)
 }

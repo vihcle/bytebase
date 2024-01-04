@@ -105,12 +105,10 @@ roles:
       - bb.settings.get
       - bb.settings.list
       - bb.settings.set
-      - bb.slowQueries.list
   - name: roles/workspaceMember
     permissions:
       - bb.environments.get
       - bb.environments.list
-      - bb.instances.get
       - bb.policies.list
       - bb.risks.list
       - bb.roles.list
@@ -161,7 +159,6 @@ roles:
       - bb.rollouts.create
       - bb.rollouts.get
       - bb.rollouts.preview
-      - bb.slowQueries.list
       - bb.taskRuns.list
   - name: roles/projectDeveloper
     permissions:
@@ -191,7 +188,6 @@ roles:
       - bb.rollouts.create
       - bb.rollouts.get
       - bb.rollouts.preview
-      - bb.slowQueries.list
       - bb.taskRuns.list
   - name: roles/projectQuerier
     permissions:
@@ -199,12 +195,16 @@ roles:
       - bb.databases.getSchema
       - bb.databases.list
       - bb.databases.query
+      - bb.projects.get
+      - bb.projects.getIamPolicy
   - name: roles/projectExporter
     permissions:
       - bb.databases.export
       - bb.databases.get
       - bb.databases.getSchema
       - bb.databases.list
+      - bb.projects.get
+      - bb.projects.getIamPolicy
   - name: roles/projectReleaser
     permissions:
       - bb.branches.get

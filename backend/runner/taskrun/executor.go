@@ -185,8 +185,7 @@ func executeMigration(
 	taskRunUID int,
 	statement string,
 	sheetID *int,
-	mi *db.MigrationInfo,
-	license enterprise.LicenseService) (string, string, error) {
+	mi *db.MigrationInfo) (string, string, error) {
 	instance, err := stores.GetInstanceV2(ctx, &store.FindInstanceMessage{UID: &task.InstanceID})
 	if err != nil {
 		return "", "", err
@@ -228,11 +227,11 @@ func executeMigration(
 		opts.EndTransactionFunc = getSetOracleTransactionIDFunc(ctx, task, stores)
 	}
 
-	if (profile.Mode == common.ReleaseModeDev || license.GetEffectivePlan() == api.FREE) && stateCfg != nil {
+	if profile.ExecuteDetail && stateCfg != nil {
 		switch task.Type {
 		case api.TaskDatabaseSchemaUpdate, api.TaskDatabaseDataUpdate:
 			switch instance.Engine {
-			case storepb.Engine_MYSQL:
+			case storepb.Engine_MYSQL, storepb.Engine_TIDB, storepb.Engine_OCEANBASE, storepb.Engine_MARIADB, storepb.Engine_STARROCKS, storepb.Engine_DORIS, storepb.Engine_POSTGRES, storepb.Engine_REDSHIFT, storepb.Engine_RISINGWAVE, storepb.Engine_ORACLE, storepb.Engine_DM, storepb.Engine_OCEANBASE_ORACLE:
 				opts.ChunkedSubmission = true
 				opts.UpdateExecutionStatus = func(detail *v1pb.TaskRun_ExecutionDetail) {
 					stateCfg.TaskRunExecutionStatuses.Store(taskRunUID,
@@ -666,7 +665,7 @@ func runMigration(ctx context.Context, driverCtx context.Context, store *store.S
 		return true, nil, err
 	}
 
-	migrationID, schema, err := executeMigration(ctx, driverCtx, store, dbFactory, stateCfg, profile, task, taskRunUID, statement, sheetID, mi, license)
+	migrationID, schema, err := executeMigration(ctx, driverCtx, store, dbFactory, stateCfg, profile, task, taskRunUID, statement, sheetID, mi)
 	if err != nil {
 		return true, nil, err
 	}

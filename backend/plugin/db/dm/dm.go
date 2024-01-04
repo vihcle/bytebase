@@ -85,7 +85,21 @@ func (driver *Driver) GetDB() *sql.DB {
 //
 // Callers can use `beforeCommitTx` to do some extra work before transaction commit, like get the transaction id.
 // Any error returned by `beforeCommitTx` will rollback the transaction, so it is the callers' responsibility to return nil if the error occurs in `beforeCommitTx` is not fatal.
-func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, opts db.ExecuteOptions) (int64, error) {
+func (driver *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteOptions) (int64, error) {
+	if opts.CreateDatabase {
+		return 0, errors.New("create database is not supported for DM")
+	}
+
+	// Use Oracle sql parser.
+	singleSQLs, err := plsqlparser.SplitSQL(statement)
+	if err != nil {
+		return 0, err
+	}
+	singleSQLs = base.FilterEmptySQL(singleSQLs)
+	if len(singleSQLs) == 0 {
+		return 0, nil
+	}
+
 	conn, err := driver.db.Conn(ctx)
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to get connection")
@@ -97,25 +111,36 @@ func (driver *Driver) Execute(ctx context.Context, statement string, _ bool, opt
 	}
 	defer tx.Rollback()
 
+	totalCommands := len(singleSQLs)
 	totalRowsAffected := int64(0)
-	f := func(stmt string) error {
-		sqlResult, err := tx.ExecContext(ctx, stmt)
+	for i, singleSQL := range singleSQLs {
+		// Start the current chunk.
+		// Set the progress information for the current chunk.
+		if opts.UpdateExecutionStatus != nil {
+			opts.UpdateExecutionStatus(&v1pb.TaskRun_ExecutionDetail{
+				CommandsTotal:     int32(totalCommands),
+				CommandsCompleted: int32(i),
+				CommandStartPosition: &v1pb.TaskRun_ExecutionDetail_Position{
+					Line:   int32(singleSQL.FirstStatementLine),
+					Column: int32(singleSQL.FirstStatementColumn),
+				},
+				CommandEndPosition: &v1pb.TaskRun_ExecutionDetail_Position{
+					Line:   int32(singleSQL.LastLine),
+					Column: int32(singleSQL.LastColumn),
+				},
+			})
+		}
+
+		sqlResult, err := tx.ExecContext(ctx, singleSQL.Text)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		rowsAffected, err := sqlResult.RowsAffected()
 		if err != nil {
 			// Since we cannot differentiate DDL and DML yet, we have to ignore the error.
 			slog.Debug("rowsAffected returns error", log.BBError(err))
-		} else {
-			totalRowsAffected += rowsAffected
 		}
-		return nil
-	}
-
-	// use oracle sql parser
-	if _, err := plsqlparser.SplitMultiSQLStream(strings.NewReader(statement), f); err != nil {
-		return 0, err
+		totalRowsAffected += rowsAffected
 	}
 
 	if opts.EndTransactionFunc != nil {
@@ -136,6 +161,7 @@ func (driver *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement s
 	if err != nil {
 		return nil, err
 	}
+	singleSQLs = base.FilterEmptySQL(singleSQLs)
 	if len(singleSQLs) == 0 {
 		return nil, nil
 	}
